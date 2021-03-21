@@ -1,0 +1,58 @@
+# depends on JACK-client: https://pypi.python.org/pypi/JACK-Client
+import jack
+import sys
+import subprocess
+import shutil
+import cachetools
+import dataclasses
+from typing import Optional as Opt
+
+
+class PlatformNotSupportedError(Exception): pass
+
+
+@cachetools.cached(cache=cachetools.TTLCache(1, 60))
+def jack_running() -> bool:
+    """
+    Returns True if jack is running.
+
+    .. note::
+        The result is cached for a certain amount of time. Use `jack_running_check`
+        for an uncached version
+    """
+    return jack_running_check()
+
+
+def jack_running_check() -> bool:
+    """
+    Returns True if jack is running.
+    """
+    if sys.platform == "linux":
+        jack_control = shutil.which("jack_control")
+        if jack_control:
+            proc = subprocess.Popen([jack_control, "status"],
+                                    stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+            if proc.wait() == 0:
+                return True
+    try:
+        cl = jack.Client("checkjack", no_start_server=True)
+    except jack.JackOpenError:
+        return False
+    return True
+
+
+@dataclasses.dataclass
+class JackInfo:
+    running: bool
+    samplerate: int = 0
+    blocksize: int  = 0
+
+
+def get_info() -> JackInfo:
+    if not jack_running():
+        return JackInfo(running=False)
+    c = jack.Client("ujacktools", no_start_server=True)
+    return JackInfo(running=True,
+                    samplerate=c.samplerate,
+                    blocksize=c.blocksize)
+

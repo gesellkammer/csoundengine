@@ -1,0 +1,464 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>Instr &mdash; csoundengine  documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../index.html" class="icon icon-home"> csoundengine
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../Introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Tutorial.html">Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Reference.html">Reference</a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">csoundengine</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
+        
+      <li>Instr</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+          
+            <a href="../_sources/api/csoundengine.Instr.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="instr">
+<h1>Instr<a class="headerlink" href="#instr" title="Permalink to this headline">¶</a></h1>
+<dl class="py class">
+<dt id="csoundengine.Instr">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">csoundengine.</span></code><code class="sig-name descname"><span class="pre">Instr</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">body</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">init</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tabledef</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">numchans</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preschedCallback</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">freetable</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">doc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/csoundengine/instr.html#Instr"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#csoundengine.Instr" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>An Instr is a template used to schedule a concrete instrument
+at a Session or a Renderer. It must be registered to be used.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>name</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>) – the name of the instrument</p></li>
+<li><p><strong>body</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>) – the body of the instr (the text <strong>between</strong> ‘instr’ end ‘endin’)</p></li>
+<li><p><strong>args</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>]]) – if given, a dictionary defining pfields and their defaults.</p></li>
+<li><p><strong>init</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>]) – code to be initialized at the instr0 level</p></li>
+<li><p><strong>tabledef</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>]]) – An instrument can have an associated table to be able to pass
+dynamic parameters which are specific to this note (for example,
+an instrument could define a filter with a dynamic cutoff freq.)
+A tabledef is a dict of the form: {param_name: initial_value}.
+The order of appearence will correspond to the index in the table</p></li>
+<li><p><strong>preschedCallback</strong> – a function f(synthid, args) -&gt; args, called before a note is
+scheduled with
+this instrument. Can be used to allocate a table or a dict and pass
+the resulting index to the instrument as parg</p></li>
+<li><p><strong>freetable</strong> – if True, the associated table is freed when the note is finished</p></li>
+<li><p><strong>doc</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>) – some documentation describing what this instr does</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt id="csoundengine.Instr.name">
+<code class="sig-name descname"><span class="pre">name</span></code><a class="headerlink" href="#csoundengine.Instr.name" title="Permalink to this definition">¶</a></dt>
+<dd><p>the name of this Instr</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="csoundengine.Instr.body">
+<code class="sig-name descname"><span class="pre">body</span></code><a class="headerlink" href="#csoundengine.Instr.body" title="Permalink to this definition">¶</a></dt>
+<dd><p>the body of the instr (the text inside instr xxx/endin)</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="csoundengine.Instr.args">
+<code class="sig-name descname"><span class="pre">args</span></code><a class="headerlink" href="#csoundengine.Instr.args" title="Permalink to this definition">¶</a></dt>
+<dd><p>a dict like <cite>{‘ibus’: 1, ‘kfreq’: 440}</cite>, defining pfields and
+their default values. The mapping between pfield name and index
+is done by order, starting with p5.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="csoundengine.Instr.init">
+<code class="sig-name descname"><span class="pre">init</span></code><a class="headerlink" href="#csoundengine.Instr.init" title="Permalink to this definition">¶</a></dt>
+<dd><p>any global code needed</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="csoundengine.Instr.tabledef">
+<code class="sig-name descname"><span class="pre">tabledef</span></code><a class="headerlink" href="#csoundengine.Instr.tabledef" title="Permalink to this definition">¶</a></dt>
+<dd><p>similar to args, but not using pfields but a table. In this
+case all variables are k-type and do not need the “k” prefix</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="csoundengine.Instr.numchans">
+<code class="sig-name descname"><span class="pre">numchans</span></code><a class="headerlink" href="#csoundengine.Instr.numchans" title="Permalink to this definition">¶</a></dt>
+<dd><p>currently not used</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="csoundengine.Instr.preschedCallback">
+<code class="sig-name descname"><span class="pre">preschedCallback</span></code><a class="headerlink" href="#csoundengine.Instr.preschedCallback" title="Permalink to this definition">¶</a></dt>
+<dd><p>a callback called whenever an instance of this Instr
+is scheduled</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="csoundengine.Instr.freetable">
+<code class="sig-name descname"><span class="pre">freetable</span></code><a class="headerlink" href="#csoundengine.Instr.freetable" title="Permalink to this definition">¶</a></dt>
+<dd><p>if True, the Instr generates code to free the param table</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt id="csoundengine.Instr.doc">
+<code class="sig-name descname"><span class="pre">doc</span></code><a class="headerlink" href="#csoundengine.Instr.doc" title="Permalink to this definition">¶</a></dt>
+<dd><p>some text documenting the use/purpose of this Instr</p>
+</dd></dl>
+
+<p class="rubric">Example</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">s</span> <span class="o">=</span> <span class="n">Engine</span><span class="p">()</span><span class="o">.</span><span class="n">getSession</span><span class="p">()</span>
+<span class="n">Intr</span><span class="p">(</span><span class="s1">&#39;sine&#39;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">    kfreq = p5</span>
+<span class="s1">    kamp = p6</span>
+<span class="s1">    a0 = oscili:a(kamp, kfreq)</span>
+<span class="s1">    outch 1, a0</span>
+<span class="s1">&#39;&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+<span class="n">synth</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">sched</span><span class="p">(</span><span class="s1">&#39;sine&#39;</span><span class="p">,</span> <span class="n">kfreq</span><span class="o">=</span><span class="mi">440</span><span class="p">,</span> <span class="n">kamp</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+<span class="n">synth</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>An Instr can define default values for any of its p-fields:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">s</span> <span class="o">=</span> <span class="n">Engine</span><span class="p">()</span><span class="o">.</span><span class="n">getSession</span><span class="p">()</span>
+<span class="n">Intr</span><span class="p">(</span><span class="s1">&#39;sine&#39;</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;kamp&#39;</span><span class="p">:</span> <span class="mf">0.1</span><span class="p">,</span> <span class="s1">&#39;kfreq&#39;</span><span class="p">:</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">body</span><span class="o">=</span><span class="sa">r</span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">    kamp = p5</span>
+<span class="s1">    kfreq = p6</span>
+<span class="s1">    a0 = oscili:a(kamp, kfreq)</span>
+<span class="s1">    outch 1, a0</span>
+<span class="s1">&#39;&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+<span class="c1"># We schedule an event of sine, kamp will take the default (0.1)</span>
+<span class="n">synth</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">sched</span><span class="p">(</span><span class="s1">&#39;sine&#39;</span><span class="p">,</span> <span class="n">kfreq</span><span class="o">=</span><span class="mi">440</span><span class="p">)</span>
+<span class="n">synth</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>An inline args declaration can set both pfield name and default value:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">s</span> <span class="o">=</span> <span class="n">Engine</span><span class="p">()</span><span class="o">.</span><span class="n">getSession</span><span class="p">()</span>
+<span class="n">Intr</span><span class="p">(</span><span class="s1">&#39;sine&#39;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">    |kamp=0.1, kfreq=1000|</span>
+<span class="s1">    a0 = oscili:a(kamp, kfreq)</span>
+<span class="s1">    outch 1, a0</span>
+<span class="s1">&#39;&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+<span class="n">synth</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">sched</span><span class="p">(</span><span class="s1">&#39;sine&#39;</span><span class="p">,</span> <span class="n">kfreq</span><span class="o">=</span><span class="mi">440</span><span class="p">)</span>
+<span class="n">synth</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>The same can be achieved via an associated table:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">s</span> <span class="o">=</span> <span class="n">Engine</span><span class="p">()</span><span class="o">.</span><span class="n">getSession</span><span class="p">()</span>
+<span class="n">Intr</span><span class="p">(</span><span class="s1">&#39;sine&#39;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">    a0 = oscili:a(kamp, kfreq)</span>
+<span class="s1">    outch 1, a0</span>
+<span class="s1">&#39;&#39;&#39;</span><span class="p">,</span> <span class="n">tabledef</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">amp</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">freq</span><span class="o">=</span><span class="mi">1000</span>
+<span class="p">)</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+<span class="n">synth</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">sched</span><span class="p">(</span><span class="s1">&#39;sine&#39;</span><span class="p">,</span> <span class="n">tabargs</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">freq</span><span class="o">=</span><span class="mi">440</span><span class="p">))</span>
+<span class="n">synth</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>This will create a table and fill it will the given/default values,
+and generate code to read from the table and free the table after
+the event is done. Call <code class="xref py py-meth docutils literal notranslate"><span class="pre">dump()</span></code> to see
+the generated code:</p>
+<div class="highlight-csound notranslate"><div class="highlight"><pre><span></span>i_params = p4
+if ftexists(i_params) == 0 then
+    initerror sprintf(&quot;params table (%d) does not exist&quot;, i_params)
+endif
+i__paramslen = ftlen(i_params)
+if i__paramslen &lt; {maxidx} then
+    initerror sprintf(&quot;params table is too small (size: %d, needed: {maxidx})&quot;, i__paramslen)
+endif
+kamp tab 0, i_params
+kfreq tab 1, i_params
+a0 = oscili:a(kamp, kfreq)
+outch 1, a0
+</pre></div>
+</div>
+<p>An inline syntax exists also for tables:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Intr</span><span class="p">(</span><span class="s1">&#39;sine&#39;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">    {amp=0.1, freq=1000}</span>
+<span class="s1">    a0 = oscili:a(kamp, kfreq)</span>
+<span class="s1">    outch 1, a0</span>
+<span class="s1">&#39;&#39;&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p class="rubric">Attributes Summary</p>
+<table class="longtable docutils align-default">
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 90%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#id0" title="csoundengine.Instr.args"><code class="xref py py-obj docutils literal notranslate"><span class="pre">args</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#id1" title="csoundengine.Instr.body"><code class="xref py py-obj docutils literal notranslate"><span class="pre">body</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#id2" title="csoundengine.Instr.doc"><code class="xref py py-obj docutils literal notranslate"><span class="pre">doc</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#id3" title="csoundengine.Instr.init"><code class="xref py py-obj docutils literal notranslate"><span class="pre">init</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#csoundengine.Instr.mustFreeTable" title="csoundengine.Instr.mustFreeTable"><code class="xref py py-obj docutils literal notranslate"><span class="pre">mustFreeTable</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#id4" title="csoundengine.Instr.name"><code class="xref py py-obj docutils literal notranslate"><span class="pre">name</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#id5" title="csoundengine.Instr.numchans"><code class="xref py py-obj docutils literal notranslate"><span class="pre">numchans</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#csoundengine.Instr.pargsDefaultValues" title="csoundengine.Instr.pargsDefaultValues"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pargsDefaultValues</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#csoundengine.Instr.pargsIndexToName" title="csoundengine.Instr.pargsIndexToName"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pargsIndexToName</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#csoundengine.Instr.pargsNameToIndex" title="csoundengine.Instr.pargsNameToIndex"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pargsNameToIndex</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#id6" title="csoundengine.Instr.tabledef"><code class="xref py py-obj docutils literal notranslate"><span class="pre">tabledef</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Attributes Documentation</p>
+<dl class="py attribute">
+<dt id="id0">
+<code class="sig-name descname"><span class="pre">args</span></code><a class="headerlink" href="#id0" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt id="id1">
+<code class="sig-name descname"><span class="pre">body</span></code><a class="headerlink" href="#id1" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt id="id2">
+<code class="sig-name descname"><span class="pre">doc</span></code><a class="headerlink" href="#id2" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt id="id3">
+<code class="sig-name descname"><span class="pre">init</span></code><a class="headerlink" href="#id3" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt id="csoundengine.Instr.mustFreeTable">
+<code class="sig-name descname"><span class="pre">mustFreeTable</span></code><a class="headerlink" href="#csoundengine.Instr.mustFreeTable" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt id="id4">
+<code class="sig-name descname"><span class="pre">name</span></code><a class="headerlink" href="#id4" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt id="id5">
+<code class="sig-name descname"><span class="pre">numchans</span></code><a class="headerlink" href="#id5" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt id="csoundengine.Instr.pargsDefaultValues">
+<code class="sig-name descname"><span class="pre">pargsDefaultValues</span></code><a class="headerlink" href="#csoundengine.Instr.pargsDefaultValues" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt id="csoundengine.Instr.pargsIndexToName">
+<code class="sig-name descname"><span class="pre">pargsIndexToName</span></code><a class="headerlink" href="#csoundengine.Instr.pargsIndexToName" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt id="csoundengine.Instr.pargsNameToIndex">
+<code class="sig-name descname"><span class="pre">pargsNameToIndex</span></code><a class="headerlink" href="#csoundengine.Instr.pargsNameToIndex" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt id="id6">
+<code class="sig-name descname"><span class="pre">tabledef</span></code><a class="headerlink" href="#id6" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2021, Eduardo Moguillansky.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

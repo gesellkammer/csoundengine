@@ -1,0 +1,644 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>csoundengine.offline &mdash; csoundengine  documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../../_static/graphviz.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+        <script src="../../_static/jquery.js"></script>
+        <script src="../../_static/underscore.js"></script>
+        <script src="../../_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../../index.html" class="icon icon-home"> csoundengine
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../Introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Tutorial.html">Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Reference.html">Reference</a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">csoundengine</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../../index.html" class="icon icon-home"></a> &raquo;</li>
+        
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+        
+      <li>csoundengine.offline</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <h1>Source code for csoundengine.offline</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">This module provides an interface to offline rendering using the same</span>
+<span class="sd">mechanisms as a Session.</span>
+
+<span class="sd">Example</span>
+<span class="sd">=======</span>
+
+<span class="sd">.. code-block:: python</span>
+
+<span class="sd">    from csoundengine import *</span>
+<span class="sd">    renderer = Renderer(sr=44100, nchnls=2)</span>
+<span class="sd">    Instr(&#39;saw&#39;, r&#39;&#39;&#39;</span>
+<span class="sd">      kmidi = p5</span>
+<span class="sd">      outch 1, oscili:a(0.1, mtof:k(kfreq))</span>
+<span class="sd">    &#39;&#39;&#39;).register(renderer)</span>
+<span class="sd">    score = [(&#39;saw&#39;, 0,   2, 60),</span>
+<span class="sd">             (&#39;saw&#39;, 1.5, 4, 67),</span>
+<span class="sd">             (&#39;saw&#39;, 1.5, 4, 67.1)]</span>
+<span class="sd">    events = [renderer.sched(ev[0], delay=ev[1], dur=ev[2], pargs=ev[3:])</span>
+<span class="sd">              for ev in score]</span>
+
+<span class="sd">    # offline events can be modified just like real-time events</span>
+<span class="sd">    renderer.automatep(events[0], &#39;kmidi&#39;, pairs=[0, 60, 2, 59])</span>
+<span class="sd">    renderer.setp(events[1], 3, &#39;kmidi&#39;, 67.2)</span>
+<span class="sd">    renderer.render(&quot;out.wav&quot;)</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">annotations</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">dataclasses</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">KeysView</span><span class="p">,</span> <span class="n">Union</span> <span class="k">as</span> <span class="n">U</span><span class="p">,</span> <span class="n">Optional</span> <span class="k">as</span> <span class="n">Opt</span>
+<span class="kn">import</span> <span class="nn">textwrap</span> <span class="k">as</span> <span class="nn">_textwrap</span>
+
+<span class="kn">from</span> <span class="nn">.config</span> <span class="kn">import</span> <span class="n">config</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">csoundlib</span>
+<span class="kn">from</span> <span class="nn">.instr</span> <span class="kn">import</span> <span class="n">Instr</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">tools</span>
+<span class="kn">from</span> <span class="nn">emlib</span> <span class="kn">import</span> <span class="n">misc</span><span class="p">,</span> <span class="n">iterlib</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;Renderer&quot;</span><span class="p">,</span> <span class="s2">&quot;ScoreEvent&quot;</span><span class="p">]</span>
+
+<div class="viewcode-block" id="ScoreEvent"><a class="viewcode-back" href="../../api/csoundengine.offline.ScoreEvent.html#csoundengine.ScoreEvent">[docs]</a><span class="nd">@dataclasses</span><span class="o">.</span><span class="n">dataclass</span>
+<span class="k">class</span> <span class="nc">ScoreEvent</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A ScoreEvent represent a csound event. It is used by the</span>
+<span class="sd">    offline renderer to keep track of scheduled events</span>
+
+<span class="sd">    NB: instances of this class are **NOT** created by the used directly, they</span>
+<span class="sd">    are generated when scheduling events</span>
+
+<span class="sd">    * eventId: a unique identifier</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">p1</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">start</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">dur</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">args</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span>
+    <span class="n">eventId</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span></div>
+
+
+<div class="viewcode-block" id="Renderer"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer">[docs]</a><span class="k">class</span> <span class="nc">Renderer</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A Renderer is used when rendering offline.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">_builtinInstrs</span> <span class="o">=</span> <span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">        instr _automatePargViaTable</span>
+<span class="s1">          ip1 = p4</span>
+<span class="s1">          ipindex = p5</span>
+<span class="s1">          itabpairs = p6  ; a table containing flat pairs t0, y0, t1, y1, ...</span>
+<span class="s1">          imode = p7;  interpolation method</span>
+<span class="s1">          Sinterpmethod = strget(imode)</span>
+<span class="s1">          if ftexists:i(itabpairs) == 0 then</span>
+<span class="s1">            initerror sprintf(&quot;Table with pairs </span><span class="si">%d</span><span class="s1"> does not exists&quot;, itabpairs)</span>
+<span class="s1">          endif </span>
+<span class="s1">          ftfree itabpairs, 1</span>
+
+<span class="s1">          kt timeinsts</span>
+<span class="s1">          kidx bisect kt, itabpairs, 2, 0</span>
+<span class="s1">          ky interp1d kidx, itabpairs, Sinterpmethod, 2, 1</span>
+<span class="s1">          println &quot;kt: </span><span class="si">%f</span><span class="s1">, kidx: </span><span class="si">%f</span><span class="s1">, ky: </span><span class="si">%f</span><span class="s1">&quot;, kt, kidx, ky</span>
+<span class="s1">          pwrite ip1, ipindex, ky</span>
+<span class="s1">        endin </span>
+
+<span class="s1">        instr _pwrite</span>
+<span class="s1">          ip1 = p4</span>
+<span class="s1">          inumpairs = p5</span>
+<span class="s1">          if inumpairs == 1 then</span>
+<span class="s1">            pwrite ip1, p(6), p(7)</span>
+<span class="s1">          elseif inumpairs == 2 then</span>
+<span class="s1">            pwrite ip1, p(6), p(7), p(8), p(9)</span>
+<span class="s1">          elseif inumpairs == 3 then</span>
+<span class="s1">            pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11)</span>
+<span class="s1">          elseif inumpairs == 4 then</span>
+<span class="s1">            pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13)</span>
+<span class="s1">          elseif inumpairs == 5 then</span>
+<span class="s1">            pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13), p(14), p(15)</span>
+<span class="s1">          else</span>
+<span class="s1">            initerror sprintf(&quot;Max. pairs is 5, got </span><span class="si">%d</span><span class="s1">&quot;, inumpairs)</span>
+<span class="s1">          endif</span>
+<span class="s1">          turnoff</span>
+<span class="s1">        endin</span>
+
+<span class="s1">    &#39;&#39;&#39;</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sr</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">nchnls</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span> <span class="n">ksmps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+                 <span class="n">a4</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+                 <span class="n">maxpriorities</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">bucketsize</span><span class="o">=</span><span class="mi">100</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create an offline renderer.</span>
+
+<span class="sd">        Instruments with higher priority are assured to be evaluated later</span>
+<span class="sd">        in the chain. Instruments within a given priority are evaluated in</span>
+<span class="sd">        the order they are defined (first defined is evaluated first)</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            sr: the sampling rate</span>
+<span class="sd">            nchnls: number of channels</span>
+<span class="sd">            ksmps: csound ksmps</span>
+<span class="sd">            a4: reference frequency</span>
+<span class="sd">            maxpriorities: max. groups</span>
+<span class="sd">            bucketsize: number of instruments per group</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_idCounter</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_eventsIndex</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">ScoreEvent</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">a4</span> <span class="o">=</span> <span class="n">a4</span> <span class="ow">or</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;A4&#39;</span><span class="p">]</span>
+        <span class="n">sr</span> <span class="o">=</span> <span class="n">sr</span> <span class="ow">or</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;rec.sr&#39;</span><span class="p">]</span>
+        <span class="n">ksmps</span> <span class="o">=</span> <span class="n">ksmps</span> <span class="ow">or</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;rec.ksmps&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">csd</span> <span class="o">=</span> <span class="n">csoundlib</span><span class="o">.</span><span class="n">Csd</span><span class="p">(</span><span class="n">sr</span><span class="o">=</span><span class="n">sr</span><span class="p">,</span> <span class="n">nchnls</span><span class="o">=</span><span class="n">nchnls</span><span class="p">,</span> <span class="n">ksmps</span><span class="o">=</span><span class="n">ksmps</span><span class="p">,</span> <span class="n">a4</span><span class="o">=</span><span class="n">a4</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_nameAndPriorityToInstrnum</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_instrnumToNameAndPriority</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_numbuckets</span> <span class="o">=</span> <span class="n">maxpriorities</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_bucketCounters</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="n">maxpriorities</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_bucketSize</span> <span class="o">=</span> <span class="n">bucketsize</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_instrdefs</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Instr</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_instanceCounters</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_numInstancesPerInstr</span> <span class="o">=</span> <span class="mi">10000</span>
+
+        <span class="c1"># a list of i events, starting with p1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">events</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">unscheduledEvents</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">addGlobalCode</span><span class="p">(</span><span class="n">_textwrap</span><span class="o">.</span><span class="n">dedent</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_builtinInstrs</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">_commitInstrument</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instrname</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">priority</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generates a concrete version of the instrument</span>
+<span class="sd">        (with the given priority).</span>
+
+<span class="sd">        Returns the instr number</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            instrname: the name of the previously defined instrument to commit</span>
+<span class="sd">            priority: the priority of this version, will define the order</span>
+<span class="sd">                of execution (higher priority is evaluated later)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The instr number (as in &quot;instr xx ... endin&quot; in a csound orc)</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">assert</span> <span class="mi">1</span><span class="o">&lt;=</span><span class="n">priority</span><span class="o">&lt;=</span><span class="bp">self</span><span class="o">.</span><span class="n">_numbuckets</span>
+
+        <span class="n">instrnum</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nameAndPriorityToInstrnum</span><span class="o">.</span><span class="n">get</span><span class="p">((</span><span class="n">instrname</span><span class="p">,</span> <span class="n">priority</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">instrnum</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">instrnum</span>
+
+        <span class="n">instrdef</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_instrdefs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">instrname</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">instrdef</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;instrument </span><span class="si">{</span><span class="n">instrname</span><span class="si">}</span><span class="s2"> is not defined&quot;</span><span class="p">)</span>
+
+        <span class="n">count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bucketCounters</span><span class="p">[</span><span class="n">priority</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">count</span><span class="o">&gt;</span><span class="bp">self</span><span class="o">.</span><span class="n">_bucketSize</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Too many instruments (</span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2">) defined, max. is </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_bucketSize</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_bucketCounters</span><span class="p">[</span><span class="n">priority</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">instrnum</span> <span class="o">=</span> <span class="n">priority</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">_bucketSize</span><span class="o">+</span><span class="n">count</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_nameAndPriorityToInstrnum</span><span class="p">[(</span><span class="n">instrname</span><span class="p">,</span> <span class="n">priority</span><span class="p">)]</span> <span class="o">=</span> <span class="n">instrnum</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_instrnumToNameAndPriority</span><span class="p">[</span><span class="n">instrnum</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">instrname</span><span class="p">,</span> <span class="n">priority</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">addInstr</span><span class="p">(</span><span class="n">instrnum</span><span class="p">,</span> <span class="n">instrdef</span><span class="o">.</span><span class="n">body</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">instrnum</span>
+
+<div class="viewcode-block" id="Renderer.registerInstr"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer.registerInstr">[docs]</a>    <span class="k">def</span> <span class="nf">registerInstr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instr</span><span class="p">:</span> <span class="n">Instr</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Register an Instr to be used in this Renderer</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_instrdefs</span><span class="p">[</span><span class="n">instr</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">instr</span></div>
+
+<div class="viewcode-block" id="Renderer.registeredInstrs"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer.registeredInstrs">[docs]</a>    <span class="k">def</span> <span class="nf">registeredInstrs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">KeysView</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns a seq. with the names of all registered Instrs</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_instrdefs</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span></div>
+
+<div class="viewcode-block" id="Renderer.addGlobalCode"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer.addGlobalCode">[docs]</a>    <span class="k">def</span> <span class="nf">addGlobalCode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Add global code (instr 0)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">addGlobalCode</span><span class="p">(</span><span class="n">code</span><span class="p">)</span></div>
+
+    <span class="k">def</span> <span class="nf">_getUniqueP1</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instrnum</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+        <span class="n">count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_instanceCounters</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">instrnum</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">count</span> <span class="o">=</span> <span class="mi">1</span><span class="o">+</span><span class="p">((</span><span class="n">count</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">_numInstancesPerInstr</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">p1</span> <span class="o">=</span> <span class="n">instrnum</span><span class="o">+</span><span class="n">count</span><span class="o">/</span><span class="bp">self</span><span class="o">.</span><span class="n">_numInstancesPerInstr</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_instanceCounters</span><span class="p">[</span><span class="n">instrnum</span><span class="p">]</span> <span class="o">=</span> <span class="n">count</span>
+        <span class="k">return</span> <span class="n">p1</span>
+
+<div class="viewcode-block" id="Renderer.sched"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer.sched">[docs]</a>    <span class="k">def</span> <span class="nf">sched</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+              <span class="n">instrname</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+              <span class="n">delay</span><span class="o">=</span><span class="mf">0.</span><span class="p">,</span>
+              <span class="n">dur</span><span class="o">=-</span><span class="mf">1.</span><span class="p">,</span>
+              <span class="n">priority</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+              <span class="n">pargs</span><span class="p">:</span> <span class="n">U</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+              <span class="n">tabargs</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+              <span class="n">unique</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+              <span class="o">**</span><span class="n">pkws</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ScoreEvent</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Schedule an event</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            instrname: the name of the already registered instrument</span>
+<span class="sd">            priority: the priority 1-9, will decide the order of</span>
+<span class="sd">                execution</span>
+<span class="sd">            delay: time offset</span>
+<span class="sd">            dur: duration of this event. -1: endless</span>
+<span class="sd">            pargs: pargs beginning with p5</span>
+<span class="sd">                (p1: instrnum, p2: delay, p3: duration, p4: tabnum)</span>
+<span class="sd">            tabargs: a dict of the form param: value, to initialize</span>
+<span class="sd">                values in the exchange table (if defined by the given</span>
+<span class="sd">                instrument)</span>
+<span class="sd">            unique: if True, schedule a unique instance.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            a ScoreEvent, holding the csound event (p1, start, dur, args)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">instr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_instrdefs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">instrname</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">instr</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;instrument </span><span class="si">{</span><span class="n">instrname</span><span class="si">}</span><span class="s2"> is not defined&quot;</span><span class="p">)</span>
+        <span class="n">instrnum</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_commitInstrument</span><span class="p">(</span><span class="n">instrname</span><span class="p">,</span> <span class="n">priority</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">instr</span><span class="o">.</span><span class="n">hasExchangeTable</span><span class="p">():</span>
+            <span class="n">tableinit</span> <span class="o">=</span> <span class="n">instr</span><span class="o">.</span><span class="n">overrideTable</span><span class="p">(</span><span class="n">tabargs</span><span class="p">)</span>
+            <span class="n">tabnum</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">addTableFromSeq</span><span class="p">(</span><span class="n">tableinit</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">tabnum</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="n">tools</span><span class="o">.</span><span class="n">instrResolveArgs</span><span class="p">(</span><span class="n">instr</span><span class="p">,</span> <span class="n">tabnum</span><span class="p">,</span> <span class="n">pargs</span><span class="p">,</span> <span class="n">pkws</span><span class="p">)</span>
+        <span class="n">p1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_getUniqueP1</span><span class="p">(</span><span class="n">instrnum</span><span class="p">)</span> <span class="k">if</span> <span class="n">unique</span> <span class="k">else</span> <span class="n">instrnum</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">addEvent</span><span class="p">(</span><span class="n">p1</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="n">delay</span><span class="p">,</span> <span class="n">dur</span><span class="o">=</span><span class="n">dur</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">)</span>
+        <span class="n">eventId</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generateEventId</span><span class="p">()</span>
+        <span class="n">event</span> <span class="o">=</span> <span class="n">ScoreEvent</span><span class="p">(</span><span class="n">p1</span><span class="p">,</span> <span class="n">delay</span><span class="p">,</span> <span class="n">dur</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">eventId</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_eventsIndex</span><span class="p">[</span><span class="n">eventId</span><span class="p">]</span> <span class="o">=</span> <span class="n">event</span>
+        <span class="k">return</span> <span class="n">event</span></div>
+
+    <span class="k">def</span> <span class="nf">_generateEventId</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_idCounter</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_idCounter</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">return</span> <span class="n">out</span>
+
+<div class="viewcode-block" id="Renderer.setCsoundOptions"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer.setCsoundOptions">[docs]</a>    <span class="k">def</span> <span class="nf">setCsoundOptions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">options</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Set any command line options</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            *options (str): any option will be passed directly to csound when rendering</span>
+
+<span class="sd">        Examples</span>
+<span class="sd">        ========</span>
+
+<span class="sd">            &gt;&gt;&gt; renderer = Renderer(...)</span>
+<span class="sd">            &gt;&gt;&gt; instr = Instr(&quot;sine&quot;, ...)</span>
+<span class="sd">            &gt;&gt;&gt; renderer.registerInstr(instr)</span>
+<span class="sd">            &gt;&gt;&gt; renderer.sched(&quot;sine&quot;, ...)</span>
+<span class="sd">            &gt;&gt;&gt; renderer.setCsoundOptions(&quot;--omacro:MYMACRO=foo&quot;)</span>
+<span class="sd">            &gt;&gt;&gt; renderer.render(&quot;outfile.wav&quot;)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">setOptions</span><span class="p">(</span><span class="o">*</span><span class="n">options</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="Renderer.render"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer.render">[docs]</a>    <span class="k">def</span> <span class="nf">render</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">outfile</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">samplefmt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+               <span class="n">wait</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">openWhenDone</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Render to a soundfile</span>
+
+<span class="sd">        To further customize the render set any csound options via</span>
+<span class="sd">        :meth:`Renderer.setCsoundOptions`</span>
+
+<span class="sd">        By default, if the output is an uncompressed file (.wav, .aif)</span>
+<span class="sd">        the sample format is set to float32 (csound defaults to 16 bit pcm)</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            outfile: the output file to render to. None will render to a temp file</span>
+<span class="sd">            samplefmt: the sample format of the rendered file, given as</span>
+<span class="sd">                &#39;pcmXX&#39; or &#39;floatXX&#39;, where XX represent the bit-depth</span>
+<span class="sd">                (&#39;pcm16&#39;, &#39;float32&#39;, etc)</span>
+<span class="sd">            wait: if True this method will block until the underlying process exits</span>
+<span class="sd">            quiet: if True, all output from the csound subprocess is supressed</span>
+<span class="sd">            openWhenDone: open the file in the default application after rendering</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            the path of the rendered file</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">import</span> <span class="nn">tempfile</span>
+        <span class="k">if</span> <span class="n">outfile</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">outfile</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mktemp</span><span class="p">(</span><span class="n">suffix</span><span class="o">=</span><span class="s2">&quot;.wav&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">score</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;score is empty&quot;</span><span class="p">)</span>
+        <span class="n">kws</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">quiet</span><span class="p">:</span>
+            <span class="n">kws</span><span class="p">[</span><span class="s1">&#39;supressdisplay&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="n">kws</span><span class="p">[</span><span class="s1">&#39;piped&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">if</span> <span class="n">samplefmt</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">ext</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">outfile</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">samplefmt</span> <span class="o">=</span> <span class="n">csoundlib</span><span class="o">.</span><span class="n">bestSampleFormatForExtension</span><span class="p">(</span><span class="n">ext</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">setSampleFormat</span><span class="p">(</span><span class="n">samplefmt</span><span class="p">)</span>
+        <span class="n">proc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">output</span><span class="o">=</span><span class="n">outfile</span><span class="p">,</span> <span class="o">**</span><span class="n">kws</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">openWhenDone</span><span class="p">:</span>
+            <span class="n">proc</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+            <span class="n">misc</span><span class="o">.</span><span class="n">open_with_standard_app</span><span class="p">(</span><span class="n">outfile</span><span class="p">,</span> <span class="n">wait</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">wait</span><span class="p">:</span>
+            <span class="n">proc</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">outfile</span></div>
+
+<div class="viewcode-block" id="Renderer.generateCsd"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer.generateCsd">[docs]</a>    <span class="k">def</span> <span class="nf">generateCsd</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generate the csd for this renderer as string</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            the csd as string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">import</span> <span class="nn">io</span>
+        <span class="n">stream</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">writeCsd</span><span class="p">(</span><span class="n">stream</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">stream</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span></div>
+
+<div class="viewcode-block" id="Renderer.writeCsd"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer.writeCsd">[docs]</a>    <span class="k">def</span> <span class="nf">writeCsd</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">outfile</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generate the csd for this renderer, write it to `outfile`</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">outfile</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">csd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">generateCsd</span><span class="p">()</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">csd</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="Renderer.getEventById"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer.getEventById">[docs]</a>    <span class="k">def</span> <span class="nf">getEventById</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">eventid</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Opt</span><span class="p">[</span><span class="n">ScoreEvent</span><span class="p">]:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Retrieve a scheduled event by its eventid</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            eventid: the event id, as returned by sched</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            the ScoreEvent if it exists, or None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eventsIndex</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">eventid</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="Renderer.getEventsByP1"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer.getEventsByP1">[docs]</a>    <span class="k">def</span> <span class="nf">getEventsByP1</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">p1</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">ScoreEvent</span><span class="p">]:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Retrieve all scheduled events which have the given p1</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            p1: the p1 of the scheduled event. This can be a fractional</span>
+<span class="sd">                value</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            a list of all scheduled events with the given p1</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">ev</span> <span class="k">for</span> <span class="n">ev</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eventsIndex</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">if</span> <span class="n">ev</span><span class="o">.</span><span class="n">p1</span> <span class="o">==</span> <span class="n">p1</span><span class="p">]</span></div>
+
+<div class="viewcode-block" id="Renderer.strSet"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer.strSet">[docs]</a>    <span class="k">def</span> <span class="nf">strSet</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Set a string in this renderer. The string can be retrieved in any</span>
+<span class="sd">        instrument via strget. The index is determined by the Renderer itself,</span>
+<span class="sd">        and it is guaranteed that calling strSet with the same string will</span>
+<span class="sd">        result in the same index</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            s: the string to set</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            the string id. This can be passed to any instrument to retrieve</span>
+<span class="sd">            the given string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">strset</span><span class="p">(</span><span class="n">s</span><span class="p">)</span></div>
+
+    <span class="k">def</span> <span class="nf">_instrFromEvent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">:</span> <span class="n">ScoreEvent</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Instr</span><span class="p">:</span>
+        <span class="n">instrNameAndPriority</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_instrnumToNameAndPriority</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">p1</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">instrNameAndPriority</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown instrument for instance </span><span class="si">{</span><span class="n">event</span><span class="o">.</span><span class="n">p1</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">instr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_instrdefs</span><span class="p">[</span><span class="n">instrNameAndPriority</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span>
+        <span class="k">return</span> <span class="n">instr</span>
+
+<div class="viewcode-block" id="Renderer.setp"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer.setp">[docs]</a>    <span class="k">def</span> <span class="nf">setp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">:</span> <span class="n">ScoreEvent</span><span class="p">,</span> <span class="n">delay</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kws</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Modify a pfield of a scheduled event at the given time</span>
+<span class="sd">        NB: the instr needs to have assigned the pfield to a k-rate variable</span>
+<span class="sd">        (example: kfreq = p4&quot;&quot;&quot;</span>
+        <span class="n">instr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_instrFromEvent</span><span class="p">(</span><span class="n">event</span><span class="p">)</span>
+        <span class="n">pairsd</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">kws</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span><span class="o">%</span><span class="mi">2</span> <span class="o">==</span> <span class="mi">0</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span><span class="o">//</span><span class="mi">2</span><span class="p">):</span>
+                <span class="n">k</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="n">i</span><span class="o">*</span><span class="mi">2</span><span class="p">]</span>
+                <span class="n">v</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="n">i</span><span class="o">*</span><span class="mi">2</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span>
+                <span class="n">idx</span> <span class="o">=</span> <span class="n">instr</span><span class="o">.</span><span class="n">pargIndex</span><span class="p">(</span><span class="n">k</span><span class="p">)</span>
+                <span class="n">pairsd</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">v</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">kws</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="n">idx</span> <span class="o">=</span> <span class="n">instr</span><span class="o">.</span><span class="n">pargIndex</span><span class="p">(</span><span class="n">k</span><span class="p">)</span>
+                <span class="n">pairsd</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">v</span>
+        <span class="n">pairs</span> <span class="o">=</span> <span class="n">iterlib</span><span class="o">.</span><span class="n">flatdict</span><span class="p">(</span><span class="n">pairsd</span><span class="p">)</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="n">event</span><span class="o">.</span><span class="n">p1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">pairs</span><span class="p">)</span><span class="o">//</span><span class="mi">2</span><span class="p">]</span>
+        <span class="n">args</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">pairs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">addEvent</span><span class="p">(</span><span class="s2">&quot;_pwrite&quot;</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="n">delay</span><span class="p">,</span> <span class="n">dur</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="Renderer.automatep"><a class="viewcode-back" href="../../api/csoundengine.offline.Renderer.html#csoundengine.Renderer.automatep">[docs]</a>    <span class="k">def</span> <span class="nf">automatep</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">:</span> <span class="n">ScoreEvent</span><span class="p">,</span> <span class="n">param</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+                  <span class="n">pairs</span><span class="p">:</span> <span class="n">U</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">],</span>
+                  <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;linear&quot;</span><span class="p">,</span> <span class="n">delay</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Automate a pfield of a scheduled event</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            event: the event to automate, as returned by sched</span>
+<span class="sd">            param (str): the name of the parameter to automate. The instr should</span>
+<span class="sd">                have a corresponding line of the sort &quot;kparam = pn&quot;</span>
+<span class="sd">            pairs: the automateion data as a flat list [t0, y0, t1, y1, ...], where</span>
+<span class="sd">                the times are relative to the start of the automation event</span>
+<span class="sd">            mode (str): one of &quot;linear&quot;, &quot;cos&quot;, &quot;smooth&quot;, &quot;exp=xx&quot; (see interp1d)</span>
+<span class="sd">            delay: start time of the automation event. If None is given, the start</span>
+<span class="sd">                time of the automated event will be used.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">delay</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">delay</span> <span class="o">=</span> <span class="n">event</span><span class="o">.</span><span class="n">start</span>
+        <span class="n">instr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_instrFromEvent</span><span class="p">(</span><span class="n">event</span><span class="p">)</span>
+        <span class="n">pindex</span> <span class="o">=</span> <span class="n">instr</span><span class="o">.</span><span class="n">pargIndex</span><span class="p">(</span><span class="n">param</span><span class="p">)</span>
+        <span class="n">dur</span> <span class="o">=</span> <span class="n">pairs</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span><span class="o">-</span><span class="n">pairs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">epsilon</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">ksmps</span><span class="o">/</span><span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">sr</span><span class="o">*</span><span class="mi">3</span>
+        <span class="n">start</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mf">0.</span><span class="p">,</span> <span class="n">delay</span><span class="o">-</span><span class="n">epsilon</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">dur</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">:</span>
+            <span class="c1"># we clip the duration of the automation to the lifetime of the automated event</span>
+            <span class="n">end</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">start</span><span class="o">+</span><span class="n">event</span><span class="o">.</span><span class="n">dur</span><span class="p">,</span> <span class="n">start</span><span class="o">+</span><span class="n">dur</span><span class="o">+</span><span class="n">epsilon</span><span class="p">)</span>
+            <span class="n">dur</span> <span class="o">=</span> <span class="n">end</span><span class="o">-</span><span class="n">start</span>
+        <span class="n">modeint</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">strSet</span><span class="p">(</span><span class="n">mode</span><span class="p">)</span>
+        <span class="c1"># we schedule the table to be created prior to the start of the automation</span>
+        <span class="n">tabpairs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">addTableFromSeq</span><span class="p">(</span><span class="n">pairs</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="n">start</span><span class="p">)</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="n">event</span><span class="o">.</span><span class="n">p1</span><span class="p">,</span> <span class="n">pindex</span><span class="p">,</span> <span class="n">tabpairs</span><span class="p">,</span> <span class="n">modeint</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">csd</span><span class="o">.</span><span class="n">addEvent</span><span class="p">(</span><span class="s2">&quot;_automatePargViaTable&quot;</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="n">delay</span><span class="p">,</span> <span class="n">dur</span><span class="o">=</span><span class="n">dur</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">)</span></div></div>
+</pre></div>
+
+           </div>
+           
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2021, Eduardo Moguillansky.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

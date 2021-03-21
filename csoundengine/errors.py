@@ -1,0 +1,1 @@
+class CsoundError(Exception): pass

@@ -1,0 +1,335 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>Introduction &mdash; csoundengine  documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/graphviz.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Installation" href="Installation.html" />
+    <link rel="prev" title="csoundengine - Documentation" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> csoundengine
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Introduction</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#session-high-level-interface">Session - high level interface</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="Installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="Tutorial.html">Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="Reference.html">Reference</a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">csoundengine</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+        
+      <li>Introduction</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+          
+            <a href="_sources/Introduction.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="introduction">
+<h1>Introduction<a class="headerlink" href="#introduction" title="Permalink to this headline">¶</a></h1>
+<p>The core of this package is the <a class="reference internal" href="api/csoundengine.engine.Engine.html#csoundengine.engine.Engine" title="csoundengine.engine.Engine"><code class="xref py py-class docutils literal notranslate"><span class="pre">Engine</span></code></a> class, which wraps a csound
+process and allows transparent control over all parameters, while providing
+sane defaults. It uses the csound API to communicate with a running csound
+instance. All audio processing is run in a separate performance thread.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">csoundengine</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="c1"># create an Engine with default options for the platform.</span>
+<span class="n">engine</span> <span class="o">=</span> <span class="n">Engine</span><span class="p">()</span>
+
+<span class="c1"># Define an instrument</span>
+<span class="n">engine</span><span class="o">.</span><span class="n">defInstr</span><span class="p">(</span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">  instr synth</span>
+<span class="s1">    ; pfields of the instrument</span>
+<span class="s1">    kmidinote = p4</span>
+<span class="s1">    kamp = p5</span>
+<span class="s1">    kcutoff = p6</span>
+<span class="s1">    kdetune = p7</span>
+
+<span class="s1">    kfreq = mtof:k(kmidinote)</span>
+<span class="s1">    ; A filtered sawtooth</span>
+<span class="s1">    asig  = vco2:a(kamp*0.7, kfreq)</span>
+<span class="s1">    asig += vco2.a(kamp*0.7, kfreq + kdetune)</span>
+<span class="s1">    asig = moogladder2(asig, kcutoff, 0.9)</span>
+<span class="s1">    ; Attack / Release</span>
+<span class="s1">    aenv = linsegr:a(0, 0.01, 1, 0.2, 0)</span>
+<span class="s1">    asig *= aenv</span>
+<span class="s1">    outs asig, asig</span>
+<span class="s1">  endin</span>
+<span class="s1">&#39;&#39;&#39;</span><span class="p">)</span>
+
+<span class="c1"># Start a synth with indefinite duration. This returns the eventid (p1)</span>
+<span class="c1"># of the running instrument, which can be used to further control it</span>
+<span class="n">event</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">sched</span><span class="p">(</span><span class="s2">&quot;synth&quot;</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">[</span><span class="mi">48</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">,</span> <span class="mi">3000</span><span class="p">,</span> <span class="mi">4</span><span class="p">])</span>
+
+<span class="c1"># Change midinote. setp means: set p-field. This sets p4 (kmidinote) to 50</span>
+<span class="n">engine</span><span class="o">.</span><span class="n">setp</span><span class="p">(</span><span class="n">event</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">50</span><span class="p">)</span>
+
+<span class="c1"># Modify cutoff</span>
+<span class="n">engine</span><span class="o">.</span><span class="n">setp</span><span class="p">(</span><span class="n">event</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">delay</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+
+<span class="c1"># Stop the synth</span>
+<span class="n">engine</span><span class="o">.</span><span class="n">unsched</span><span class="p">(</span><span class="n">event</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="section" id="session-high-level-interface">
+<h2>Session - high level interface<a class="headerlink" href="#session-high-level-interface" title="Permalink to this headline">¶</a></h2>
+<p>Each engine can have an associated <a class="reference internal" href="api/csoundengine.session.Session.html#csoundengine.session.Session" title="csoundengine.session.Session"><code class="xref py py-class docutils literal notranslate"><span class="pre">Session</span></code></a>. A Session provides a
+higher level interface, allowing to:</p>
+<ul class="simple">
+<li><p>Define instrument templates (an <code class="xref py py-class docutils literal notranslate"><span class="pre">Instr</span></code>), which can be instantiated at any order of evaluation, allowing to implement processing chains of any complexity</p></li>
+<li><p>An <code class="xref py py-class docutils literal notranslate"><span class="pre">Instr</span></code> can have named parameters which can be used to control the event.</p></li>
+<li><p>A <a class="reference internal" href="api/csoundengine.session.Session.html#csoundengine.session.Session" title="csoundengine.session.Session"><code class="xref py py-class docutils literal notranslate"><span class="pre">Session</span></code></a> provides a series of built-in <code class="xref py py-class docutils literal notranslate"><span class="pre">Instr</span></code>’s to perform some common tasks,</p></li>
+</ul>
+<p>like playing samples from memory or from disk, perform audio analysis, etc.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">csoundengine</span> <span class="kn">import</span> <span class="o">*</span>
+
+<span class="c1"># Create an Engine and a corresponding Session using default options</span>
+<span class="n">session</span> <span class="o">=</span> <span class="n">Engine</span><span class="p">()</span><span class="o">.</span><span class="n">session</span><span class="p">()</span>
+
+<span class="c1"># create a master audio channel</span>
+<span class="n">masterbus</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">newBus</span><span class="p">()</span>
+
+<span class="c1"># define instruments</span>
+<span class="n">session</span><span class="o">.</span><span class="n">defInstr</span><span class="p">(</span><span class="s2">&quot;synth&quot;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">  |ibus, kmidi=60, kamp=0.1, ktransp=0, ifade=0.5|</span>
+<span class="s1">  ; a simple sawtooth</span>
+<span class="s1">  asig vco2 kamp, mtof:k(kmidi+ktransp)</span>
+<span class="s1">  asig *= linsegr:a(0, ifade, 1, ifade, 0)</span>
+<span class="s1">  ; output is routed to a bus</span>
+<span class="s1">  busout(ibus, asig)</span>
+<span class="s1">&#39;&#39;&#39;</span><span class="p">)</span>
+
+<span class="n">session</span><span class="o">.</span><span class="n">defInstr</span><span class="p">(</span><span class="s2">&quot;filter&quot;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">  |ibus, imasterbus, kcutoff=1000, kresonance=0.9|</span>
+<span class="s1">  asig = busin(ibus)</span>
+<span class="s1">  asig = moogladder2(asig, kcutoff, kresonance)</span>
+<span class="s1">  busmix(imasterbus, asig)</span>
+<span class="s1">&#39;&#39;&#39;</span><span class="p">)</span>
+
+<span class="n">session</span><span class="o">.</span><span class="n">defInstr</span><span class="p">(</span><span class="s2">&quot;master&quot;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">  imasterbus = p4</span>
+<span class="s1">  asig = busin(imasterbus)</span>
+<span class="s1">  asig compress2 asig, asig, -120, -40, -12, 3, 0.1, 0.01, 0.05</span>
+<span class="s1">  outch 1, asig</span>
+<span class="s1">&#39;&#39;&#39;</span><span class="p">)</span>
+
+<span class="c1"># Start a master instance at the end of the evaluation chain</span>
+<span class="n">master</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">sched</span><span class="p">(</span><span class="s2">&quot;master&quot;</span><span class="p">,</span> <span class="n">imasterbus</span><span class="o">=</span><span class="n">masterbus</span><span class="o">.</span><span class="n">busnum</span><span class="p">,</span> <span class="n">priority</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+
+<span class="c1"># Launch some notes</span>
+<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">midinote</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">60</span><span class="p">,</span> <span class="mi">72</span><span class="p">,</span> <span class="mi">2</span><span class="p">)):</span>
+    <span class="c1"># for each synth, we create a bus to plug it to an effect, in this case a filter</span>
+    <span class="n">bus</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">newBus</span><span class="p">()</span>
+
+    <span class="c1"># start time for synth and effect</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">i</span> <span class="o">*</span> <span class="mi">1</span>
+
+    <span class="c1"># Schedule a synth</span>
+    <span class="n">synth</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">sched</span><span class="p">(</span><span class="s2">&quot;synth&quot;</span><span class="p">,</span> <span class="n">delay</span><span class="o">=</span><span class="n">start</span><span class="p">,</span> <span class="n">dur</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">kmidi</span><span class="o">=</span><span class="n">midinote</span><span class="p">,</span> <span class="n">ibus</span><span class="o">=</span><span class="n">bus</span><span class="o">.</span><span class="n">busnum</span><span class="p">)</span>
+
+    <span class="c1"># Automate pitch transposition so that it descends 2 semitones over the</span>
+    <span class="c1"># duration of the event</span>
+    <span class="n">synth</span><span class="o">.</span><span class="n">automatep</span><span class="p">(</span><span class="s1">&#39;ktransp&#39;</span><span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">dur</span><span class="p">,</span> <span class="o">-</span><span class="mi">2</span><span class="p">],</span> <span class="n">delay</span><span class="o">=</span><span class="n">start</span><span class="p">)</span>
+
+    <span class="c1"># Schedule the filter for this synth, with a priority higher than the</span>
+    <span class="c1"># synth, so that it is evaluated later in the chain</span>
+    <span class="n">filt</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">sched</span><span class="p">(</span><span class="s2">&quot;filter&quot;</span><span class="p">,</span>
+                         <span class="n">delay</span><span class="o">=</span><span class="n">start</span><span class="p">,</span>
+                         <span class="n">dur</span><span class="o">=</span><span class="n">synth</span><span class="o">.</span><span class="n">dur</span><span class="p">,</span>
+                         <span class="n">priority</span><span class="o">=</span><span class="n">synth</span><span class="o">.</span><span class="n">priority</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span>
+                         <span class="n">kcutoff</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span>
+                         <span class="n">kresonance</span><span class="o">=</span><span class="mf">0.92</span><span class="p">,</span>
+                         <span class="n">ibus</span><span class="o">=</span><span class="n">bus</span><span class="o">.</span><span class="n">busnum</span><span class="p">,</span>
+                         <span class="n">imasterbus</span><span class="o">=</span><span class="n">masterbus</span><span class="o">.</span><span class="n">busnum</span><span class="p">,</span>
+                         <span class="n">whenfinished</span><span class="o">=</span><span class="k">lambda</span> <span class="n">p1</span><span class="p">,</span> <span class="n">bus</span><span class="o">=</span><span class="n">bus</span><span class="p">:</span> <span class="n">bus</span><span class="o">.</span><span class="n">free</span><span class="p">())</span>
+
+    <span class="c1"># Automate the cutoff freq. of the filter</span>
+    <span class="n">filt</span><span class="o">.</span><span class="n">automatep</span><span class="p">(</span><span class="s1">&#39;kcutoff&#39;</span><span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2000</span><span class="p">,</span> <span class="n">dur</span><span class="o">*</span><span class="mf">0.8</span><span class="p">,</span> <span class="mi">500</span><span class="p">,</span> <span class="n">dur</span><span class="p">,</span> <span class="mi">6000</span><span class="p">],</span> <span class="n">delay</span><span class="o">=</span><span class="n">start</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+        <a href="Installation.html" class="btn btn-neutral float-right" title="Installation" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="index.html" class="btn btn-neutral float-left" title="csoundengine - Documentation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2021, Eduardo Moguillansky.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>
