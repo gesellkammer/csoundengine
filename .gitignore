@@ -5,3 +5,4 @@ docs/api
 *.pyc
 build
 dist
+*/__pycache__

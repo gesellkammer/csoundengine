@@ -57,17 +57,19 @@ from . import tools
 from . import engineorc
 from .engineorc import CONSTS
 from .errors import CsoundError
+if TYPE_CHECKING:
+    from . import session as _session
 
 try:
     import ctcsound
+
     _MYFLTPTR = _ctypes.POINTER(ctcsound.MYFLT)
 
-except ImportError:
-    logger.error("Could not find ctcsound")
-    pass
-
-if TYPE_CHECKING:
-    from . import session as _session
+except:
+    print("Using mocked ctcsound, this should only happen when building"
+          "the sphinx documentation")
+    from sphinx.ext.autodoc.mock import _MockObject
+    ctcsound = _MockObject()
 
 
 __all__ = [
