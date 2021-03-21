@@ -1,5 +1,5 @@
 # depends on JACK-client: https://pypi.python.org/pypi/JACK-Client
-import jack
+
 import sys
 import subprocess
 import shutil
@@ -7,6 +7,12 @@ import cachetools
 import dataclasses
 from typing import Optional as Opt
 
+try:
+    import jack
+    JACK_INSTALLED = True
+except OSError:
+    # the jack library was not found so no jack support here
+    JACK_INSTALLED = False
 
 class PlatformNotSupportedError(Exception): pass
 
@@ -34,6 +40,8 @@ def jack_running_check() -> bool:
                                     stderr=subprocess.PIPE, stdout=subprocess.PIPE)
             if proc.wait() == 0:
                 return True
+    if not JACK_INSTALLED:
+        return False
     try:
         cl = jack.Client("checkjack", no_start_server=True)
     except jack.JackOpenError:
