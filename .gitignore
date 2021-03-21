@@ -1,2 +1,7 @@
 *.egg*
 .idea
+docs/_*
+docs/api
+*.pyc
+build
+dist
