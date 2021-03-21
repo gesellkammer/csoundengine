@@ -135,11 +135,7 @@ like playing samples from memory or from disk, perform audio analysis, etc.
 Installation
 ------------
 
-link to installation docs
-
-.. code::
-
-    pip install csoundengine
+https://csoundengine.readthedocs.io/en/latest/Installation.html
 
 Dependencies
 ~~~~~~~~~~~~
@@ -148,8 +144,14 @@ Dependencies
 * csound >= 6.15 (https://github.com/csound/csound/releases)
 * csound-plugins (https://github.com/csound-plugins/csound-plugins/releases)
 
+With all external dependencies in place, installation is simple:
+
+.. code::
+
+    pip install csoundengine
+
 
 Documentation
 -------------
 
-link to read the docs
+https://csoundengine.readthedocs.io
