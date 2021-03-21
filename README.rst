@@ -54,14 +54,14 @@ instance. All audio processing is run in a separate performance thread.
 Session - high level interface
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Each engine can have an associated :class:`~csoundengine.session.Session`. A Session provides a
+Each engine can have an associated ``Session``. A Session provides a
 higher level interface, allowing to:
 
-* Define instrument templates (an :class:`~csoundengine.instr.Instr`), which can be instantiated at any order of evaluation, allowing to implement processing chains of any complexity
+* Define instrument templates (an ``Instr``), which can be instantiated at any order of evaluation, allowing to implement processing chains of any complexity
 
-* An :class:`~csoundengine.instr.Instr` can have named parameters which can be used to control the event.
+* An ``Instr`` can have named parameters which can be used to control the event.
 
-* A :class:`~csoundengine.session.Session` provides a series of built-in :class:`~csoundengine.instr.Instr`'s to perform some common tasks,
+* A ``Session`` provides a series of built-in ``Instr``s to perform some common tasks,
 like playing samples from memory or from disk, perform audio analysis, etc.
 
 .. code-block:: python
@@ -130,3 +130,26 @@ like playing samples from memory or from disk, perform audio analysis, etc.
         
         # Automate the cutoff freq. of the filter
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start) 
+
+
+Installation
+------------
+
+link to installation docs
+
+.. code::
+
+    pip install csoundengine
+
+Dependencies
+^^^^^^^^^^^^
+
+* python >= 3.8
+* csound >= 6.15 (https://github.com/csound/csound/releases)
+* csound-plugins (https://github.com/csound-plugins/csound-plugins/releases)
+
+
+Documentation
+-------------
+
+link to read the docs
