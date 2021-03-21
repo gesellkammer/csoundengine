@@ -142,7 +142,7 @@ link to installation docs
     pip install csoundengine
 
 Dependencies
-^^^^^^^^^^^^
+~~~~~~~~~~~~
 
 * python >= 3.8
 * csound >= 6.15 (https://github.com/csound/csound/releases)
