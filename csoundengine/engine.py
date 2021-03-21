@@ -45,7 +45,6 @@ import queue as _queue
 import time
 
 import numpy as np
-import ctcsound
 
 from emlib import iterlib, net
 from emlib.containers import IntPool
@@ -58,6 +57,14 @@ from . import tools
 from . import engineorc
 from .engineorc import CONSTS
 from .errors import CsoundError
+
+try:
+    import ctcsound
+    _MYFLTPTR = _ctypes.POINTER(ctcsound.MYFLT)
+
+except ImportError:
+    logger.error("Could not find ctcsound")
+    pass
 
 if TYPE_CHECKING:
     from . import session as _session
@@ -72,7 +79,6 @@ __all__ = [
 ]
 
 
-_MYFLTPTR = _ctypes.POINTER(ctcsound.MYFLT)
 
 
 def _generateUniqueEngineName(prefix="engine") -> str:
