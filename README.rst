@@ -61,8 +61,7 @@ higher level interface, allowing to:
 
 * An ``Instr`` can have named parameters which can be used to control the event.
 
-* A ``Session`` provides a series of built-in ``Instr``s to perform some common tasks,
-like playing samples from memory or from disk, perform audio analysis, etc.
+* A ``Session`` provides a series of built-in ``Instr``'s to perform some common tasks, like playing samples from memory or from disk, perform audio analysis, etc.
 
 .. code-block:: python
     
@@ -146,7 +145,7 @@ Dependencies
 
 With all external dependencies in place, installation is simple:
 
-.. code::
+.. code-block:: bash
 
     pip install csoundengine
 

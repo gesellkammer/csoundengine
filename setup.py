@@ -3,15 +3,19 @@
 
 from setuptools import setup
 
-readme = open('README.rst').read()
 version = (0, 1, 1)
+
+from os import path
+this_directory = path.abspath(path.dirname(__file__))
+with open(path.join(this_directory, 'README.rst'), encoding='utf-8') as f:
+    long_description = f.read()
 
 setup(
     name='csoundengine',
     python_requires=">=3.8",
     version=".".join(map(str, version)),
     description='A synthesis framework using csound',
-    long_description=readme,
+    long_description=long_description,
     author='Eduardo Moguillansky',
     author_email='eduardo.moguillansky@gmail.com',
     url='https://github.com/gesellkammer/csoundengine',
@@ -36,6 +40,6 @@ setup(
     license="BSD",
     classifiers=[
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: LGPL2 License',
+        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)'
     ],
 )
