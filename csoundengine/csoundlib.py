@@ -5,7 +5,6 @@ import os
 import sys
 import subprocess
 import re
-from collections import namedtuple
 import shutil as _shutil
 import logging as _logging
 import textwrap as _textwrap
@@ -14,19 +13,36 @@ import tempfile
 import cachetools
 import dataclasses
 from typing import List, Union as U, Optional as Opt, Generator, \
-    Sequence as Seq, Dict, Set, Tuple, IO
+    Sequence as Seq, Dict, Tuple, IO, NamedTuple, Callable
 from functools import lru_cache
 
 import numpy as np
 
-from emlib import misc, filetools
+from emlib import misc
 
 
 logger = _logging.getLogger("csoundengine")
 
 
+Curve = Callable[[float], float]
+
+
 @dataclasses.dataclass
 class AudioBackend:
+    """
+    An AudioBackend holds information about a csound audio backend
+
+    Attributes:
+        name: the name of this backend
+        alwaysAvailable: is this backend always available?
+        supportsSystemSr: does this backend have a system samplerate?
+        needsRealtime: the backend needs to be run in realtime
+        platforms: a list of platform for which this backend is available
+        dac: the name of the default output device
+        adc: the name of the default input device
+        longname: an alternative name for the backend
+        alias: an alias for the backend
+    """
     name: str
     alwaysAvailable: bool
     supportsSystemSr: bool
@@ -41,7 +57,8 @@ class AudioBackend:
         if not self.longname:
             self.longname = self.name
 
-    def isAvailable(self):
+    def isAvailable(self) -> bool:
+        """ Is this backend available? """
         if sys.platform not in self.platforms:
             return False
         return self.alwaysAvailable or isBackendAvailable(self.name)
@@ -112,22 +129,21 @@ helper functions to work with csound
 """
 
 
-
 _csoundbin = None
 _OPCODES = None
 
 
 # --- Exceptions ---
 
-class PlatformNotSupported(Exception): pass
-class AudioBackendNotAvailable(Exception): pass
-
-
 def nextpow2(n:int) -> int:
+    """ Returns the power of 2 higher or equal than n"""
     return int(2 ** _math.ceil(_math.log(n, 2)))
     
 
 def findCsound() -> Opt[str]:
+    """
+    Find the csound binary. If found, returns its path. Otherwise, returns None
+    """
     global _csoundbin
     if _csoundbin:
         return _csoundbin
@@ -136,17 +152,8 @@ def findCsound() -> Opt[str]:
         _csoundbin = csound
         return csound
     logger.error("csound is not in the path!")
-    if sys.platform.startswith("linux") or sys.platform == 'darwin':
-        for path in ['/usr/local/bin/csound', '/usr/bin/csound']:
-            if os.path.exists(path) and not os.path.isdir(path):
-                _csoundbin = path
-                return path
-        return None
-    elif sys.platform == 'win32':
-        return None
-    else:
-        raise PlatformNotSupported
-    
+    return None
+
 
 def getVersion() -> Tuple[int, int, int]:
     """
@@ -159,7 +166,7 @@ def getVersion() -> Tuple[int, int, int]:
     csound = findCsound()
     if not csound:
         raise IOError("Csound not found")
-    cmd = '{csound} --help'.format(csound=csound).split()
+    cmd = '{csound} --version'.format(csound=csound).split()
     proc = subprocess.Popen(cmd, stderr=subprocess.PIPE)
     proc.wait()
     lines = proc.stderr.readlines()
@@ -187,8 +194,7 @@ def getVersion() -> Tuple[int, int, int]:
 def csoundSubproc(args, piped=True):
     """
     Calls csound with the given args in a subprocess, returns
-    such subprocess. 
-
+    such subprocess.
     """
     csound = findCsound()
     if not csound:
@@ -217,6 +223,8 @@ def runCsd(csdfile:str,
            piped = False,
            extra:List[str] = None) -> subprocess.Popen:
     """
+    Run the given .csd as a csound subprocess
+
     Args:
         csdfile: the path to a .csd file
         outdev: "dac" to output to the default device, the label of the
@@ -262,10 +270,9 @@ def runCsd(csdfile:str,
 
 def joinCsd(orc: str, sco="", options:List[str] = None) -> str:
     """
-    Join an orc and a score (both as a string) and return a consolidated
-    csd structure (as string)
+    Join an orc and a score (both as str), returns a consolidated
+    csd as string
 
-    open("out.csd", "w").write(join_csd(orc, sco, options))
     """
     optionstr = "" if options is None else "\n".join(options)
     csd = r"""
@@ -291,6 +298,17 @@ def joinCsd(orc: str, sco="", options:List[str] = None) -> str:
 
 @dataclasses.dataclass
 class CsoundProc:
+    """
+    A CsoundProc wraps a running csound subprocess
+
+    Attributes:
+        proc: the running csound subprocess
+        backend: the backend used
+        outdev: the output device
+        sr: the sample rate of the running process
+        nchnls: the number of channels
+        csdstr: the csd being run, as a str
+    """
     proc: subprocess.Popen
     backend: str
     outdev: str
@@ -299,9 +317,12 @@ class CsoundProc:
     csdstr: str = ""
 
 
-
 def testCsound(dur=8., nchnls=2, backend=None, device="dac", sr:int=None, verbose=True
                ) -> CsoundProc:
+    """
+    Test the current csound installation for realtime output with
+    the given configuration
+    """
     backend = backend or getDefaultBackend().name
     sr = sr or getSamplerateForBackend(backend)
     printchan = "printk2 kchn" if verbose else ""
@@ -331,26 +352,48 @@ endin
                       nchnls=nchnls, csdstr=csd)
     
 
-ScoreEvent = namedtuple("ScoreEvent", "kind name start dur args")
+class ScoreEvent(NamedTuple):
+    """
+    A ScoreEvent represent an event line in the score
+
+    Attributes:
+        kind: 'i' for isntrument event, 'f' for table definition
+        p1: the p1 of the event
+        start: the start time of the event
+        dur: the duration of the event
+        args: any other args of the event (starting with p4)
+    """
+    kind: str
+    p1: U[str, int, float]
+    start: float
+    dur: float
+    args: List[U[float, str]]
 
 
 def parseScore(sco: str) -> Generator[ScoreEvent]:
+    """
+    Parse a score given as string, returns a seq. of ScoreEvents
+    """
     for line in sco.splitlines():
         words = line.split()
         w0 = words[0]
-        if w0 == 'i':
+        if w0 in {'i', 'f'}:
+            kind = w0
             name = words[1]
+            if namenum := misc.asnumber(name) is not None:
+                name = namenum
             t0 = float(words[2])
             dur = float(words[3])
             rest = words[4:]
-        elif w0[0] == 'i':
+        elif w0[0] in {'i', 'f'}:
+            kind = w0[0]
             name = w0[1:]
             t0 = float(words[1])
             dur = float(words[2])
             rest = words[3:]
         else:
             continue
-        yield ScoreEvent("i", name, t0, dur, rest)
+        yield ScoreEvent(kind, name, t0, dur, rest)
 
 
 def opcodesList(cached=True) -> List[str]:
@@ -375,7 +418,7 @@ def opcodesList(cached=True) -> List[str]:
    
 def saveAsGen23(data: Seq[float], outfile:str, fmt="%.12f", header="") -> None:
     """
-    Saves the points to a gen23 table
+    Saves the data to a gen23 table
 
     .. note::
         gen23 is a 1D list of numbers in text format, sepparated by a space
@@ -385,8 +428,8 @@ def saveAsGen23(data: Seq[float], outfile:str, fmt="%.12f", header="") -> None:
         outfile: The path to save the data to. Recommended extension: '.gen23'
         fmt: If saving frequency tables, fmt can be "%.1f" and save space, for
             amplitude the default if "%.12f" is best
-        header: If specified it is included as a comment as the first line Csound
-            will skip it. It is there just to document what is in the table
+        header: If specified it is included as a comment as the first line
+            (csound will skip it). It is there just to document what is in the table
 
 
     Example
@@ -395,10 +438,10 @@ def saveAsGen23(data: Seq[float], outfile:str, fmt="%.12f", header="") -> None:
     .. code-block:: python
 
         import bpf4
-        from maelzel.snd import csoundlib as cs
+        from csoundengine import csoundlib
         a = bpf.linear(0, 0, 1, 10, 2, 300)
         dt = 0.01
-        cs.points_to_gen23(a[::dt].ys, "out.gen23", header=f"dt={dt}")
+        csoundlib.saveAsGen23(a[::dt].ys, "out.gen23", header=f"dt={dt}")
 
 
     In csound:
@@ -420,9 +463,9 @@ def saveAsGen23(data: Seq[float], outfile:str, fmt="%.12f", header="") -> None:
 
 def matrixAsWav(outfile: str, mtx: np.ndarray, dt: float, t0=0.) -> None:
     """
-    Save the data in m as a wav file. This is not a real soundfile
-    but it is used to transfer the data in binary form to be 
-    read in csound
+    Save the data in the 2D matrix `mtx` as a wav file. This is not a real
+    soundfile but it is used to transfer the data in binary form to be
+    read in csound.
 
     Format::
 
@@ -482,6 +525,17 @@ def matrixAsGen23(outfile: str, mtx: np.ndarray, dt:float, t0=0, include_header=
 
 @dataclasses.dataclass
 class AudioDevice:
+    """
+    An AudioDevice holds information about a an audio device for a given backend
+
+    Attributes:
+        index: the index of this audio device, as passed to adcXX or dacXX
+        id: the device identification (dac3, adc2, etc)
+        name: the name of the device
+        kind: 'output' / 'input'
+        ins: the number of inputs
+        outs: the number of outputs
+    """
     index: int
     id: str
     name: str
@@ -531,10 +585,10 @@ def getAudioDevices(backend:str=None) -> Tuple[List[AudioDevice], List[AudioDevi
     if not backend:
         backend = getDefaultBackend().name
     if backend == "jack" and not isJackRunning():
-        raise AudioBackendNotAvailable("jack is not running")
+        raise RuntimeError("jack is not running")
     if backend == "pulse":
         if not isPulseaudioRunning():
-            raise AudioBackendNotAvailable("pulseaudio is not running")
+            raise RuntimeError("pulseaudio is not running")
         return ([AudioDevice(0, id="adc", name="adc", kind="input", ins=2, outs=2)],
                 [AudioDevice(0, id="dac", name="dac", kind="output", ins=2, outs=2)])
 
@@ -549,7 +603,7 @@ def getAudioDevices(backend:str=None) -> Tuple[List[AudioDevice], List[AudioDevi
     elif backend in {'alsa'}:
         regex_all = r"([0-9]+):\s((?:adc|dac):.*)\((.*)\)"
     else:
-        raise AudioBackendNotAvailable(f"Operation not available for backend {backend}")
+        raise RuntimeError(f"Operation not available for backend {backend}")
     for line in lines:
         line = line.decode("ascii")
         match = re.search(regex_all, line)
@@ -580,9 +634,7 @@ def getSamplerateForBackend(backend: U[str, AudioBackend] = None) -> float:
     0 if failed
     """
     audiobackend = getAudioBackend(backend)
-
     FAILED = 0
-
 
     if not audiobackend.isAvailable():
         raise AudioBackendNotAvailable
@@ -608,11 +660,13 @@ def getSamplerateForBackend(backend: U[str, AudioBackend] = None) -> float:
 
 @cachetools.cached(cache=cachetools.TTLCache(1, 30))
 def isJackRunning() -> bool:
+    """ Return True if jack is available and running"""
     return _csoundTestJackRunning()
 
 
 @cachetools.cached(cache=cachetools.TTLCache(1, 30))
 def isPulseaudioRunning() -> bool:
+    """ Return True if Pulseaudio is running """
     retcode = subprocess.call(["pulseaudio", "--check"])
     return retcode == 0
 
@@ -625,6 +679,7 @@ def _csoundTestJackRunning():
 
 @cachetools.cached(cache=cachetools.TTLCache(1, 30))
 def isBackendAvailable(backend: str) -> bool:
+    """ Returns True if the given audio backend is available """
     if backend == 'jack':
         out = isJackRunning()
     elif backend == 'pulse':
@@ -650,7 +705,9 @@ def getAudioBackends() -> List[AudioBackend]:
     backends = [backend for backend in backends if backend.isAvailable()]
     return backends
 
+
 def getAudioBackend(name:str=None) -> Opt[AudioBackend]:
+    """ Given the name of the backend, return the AudioBackend structure """
     if name is None:
         return getDefaultBackend()
     return audioBackends.get(name)
@@ -710,6 +767,8 @@ _csoundFormatOptions = {'-3', '-f', '--format=24bit', '--format=float',
 
 def csoundOptionForSampleFormat(fmt:str) -> str:
     """
+    Returns the command-line option for the given sample format.
+
     Given a sample format of the form pcmXX or floatXX, where
     XX is the bit-rate, returns the corresponding command-line option
     for csound
@@ -733,7 +792,63 @@ def csoundOptionForSampleFormat(fmt:str) -> str:
 
 
 class Csd:
-    def __init__(self, sr=44100, ksmps=64, nchnls=2, a4=442, options=None,
+    """
+    A Csd object can be used to build a csound script by adding
+    global code, instruments, score events, etc.
+
+    Args:
+        sr: the sample rate of the generated audio
+        ksmps: the samples per cycle to use
+        nchnls: the number of output channels
+        a4: the reference frequency
+        optiosn (list[str]): any number of extra options passed to csound
+        nodisplay: if True, avoid outputting debug information
+        carry: should carry be enabled in the score?
+
+    Example
+    =======
+
+    .. code::
+
+        >>> from csoundengine import csoundlib
+        >>> csd = Csd(ksmps=32, nchnls=4)
+        >>> csd.addInstr('sine', r'''
+        ...   ifreq = p4
+        ...   outch 1, oscili:a(0.1, ifreq)
+        ... ''')
+        >>> sound1 = csd.addSndfile("sounds/sound1.wav")
+        >>> csd.playTable(tabnum)
+        >>> csd.addEvent('sine', 0, 2, [1000])
+        >>> csd.writeCsd('out.csd')
+    """
+
+    _builtinInstrs = {
+        '_playgen1': r'''
+        pset 0, 0, 0, 0,    1,     1,      1,    0.05, 0,         0
+        kgain = p4
+        kspeed = p5
+        ksampsplayed = 0
+        itabnum, ichan, ifade, ioffset passign 6
+        inumsamples = nsamp(itabnum)
+        itabsr = ftsr(itabnum)
+        istartframe = ioffset * itabsr
+        ksampsplayed += ksmps * kspeed
+        aouts[] loscilx kgain, kspeed, itabnum, 4, 1, istartframe
+        aenv = linsegr:a(0, ifade, 1, ifade, 0)
+        aouts = aouts * aenv
+        inumouts = lenarray(aouts)
+        kchan = 0
+        while kchan < inumouts do
+            outch kchan+ichan, aouts[kchan]
+            kchan += 1
+        od
+        if ksampsplayed >= inumsamples then
+            turnoff
+        endif
+        '''
+    }
+
+    def __init__(self, sr=44100, ksmps=64, nchnls=2, a4=442., options:List[str]=None,
                  nodisplay=False, carry=False):
         self._strLastIndex = 20
         self._str2index: Dict[str, int] = {}
@@ -764,8 +879,7 @@ class Csd:
         Add an instrument ("i") event to the score
 
         Args:
-
-            instr: the instr number or name, as passed to add_instr
+            instr: the instr number or name, as passed to addInstr
             start: the start time
             dur: the duration of the event
             args: pargs beginning at p4
@@ -778,6 +892,9 @@ class Csd:
         self.score.append(event)
 
     def strset(self, s:str) -> int:
+        """
+        Add a strset to this csd
+        """
         idx = self._str2index.get(s)
         if idx is not None:
             return idx
@@ -830,12 +947,22 @@ class Csd:
             start: the same as f 1 2 3
 
         Returns:
+            the table number
+
+        .. note::
+
+            The length of the data should not excede 2000 items. If the seq is longer,
+            it is advised to save the seq. as either a gen23 or a wav file and load
+            the table from an external file.
 
         """
+        if len(seq) > 2000:
+            raise ValueError("tables longer than 2000 items are currently not supported")
         if start > 0:
             start = round(start, 8)
         pargs = [tabnum, start, -len(seq), -2]
         pargs.extend(seq)
+
         return self._addTable(pargs)
 
     def addEmptyTable(self, size:int, tabnum: int=0) -> int:
@@ -851,7 +978,17 @@ class Csd:
         pargs = (tabnum, 0, -size, -2, 0)
         return self._addTable(pargs)
 
-    def addSndfile(self, sndfile, tabnum=0, start=0):
+    def addSndfile(self, sndfile:str, tabnum=0, start=0.) -> int:
+        """ Add a table which will load this sndfile
+
+        Args:
+            sndfile: the soundfile to load
+            tabnum: fix the table number or use 0 to generate a unique table number
+            start: when to load this soundfile (normally this should be left 0)
+
+        Returns:
+            the table number
+            """
         tabnum = self._assignTableIndex(tabnum)
         pargs = [tabnum, start, 0, -1, sndfile, 0, 0, 0]
         self._addTable(pargs)
@@ -875,7 +1012,8 @@ class Csd:
         """
         self.score.append(("e", dur))
 
-    def setComment(self, comment:str):
+    def setComment(self, comment:str) -> None:
+        """ Add a comment to the renderer soundfile """
         self.setOptions(f'-+id_comment="{comment}"')
 
     def setSampleFormat(self, fmt: str) -> None:
@@ -909,21 +1047,43 @@ class Csd:
             stream.write("\n")
             
     def addInstr(self, instr: U[int, str], instrstr: str) -> None:
+        """ Add an instrument definition to this csd """
         self.instrs[instr] = instrstr
 
     def addGlobalCode(self, code: str) -> None:
+        """ Add code to the instr 0 """
         self.globalcodes.append(code)
 
     def setOptions(self, *options: str) -> None:
+        """ Adds options to this csd """
         for opt in options:
             if opt in _csoundFormatOptions:
                 self._sampleFormat = opt
             self.options.append(opt)
 
     def dump(self) -> str:
+        """ Returns a string with the .csd """
         stream = io.StringIO()
         self.writeCsd(stream)
         return stream.getvalue()
+
+    def playTable(self, tabnum:int, start:float, dur:float=-1,
+                  gain=1., speed=1., chan=1, fade=0.05,
+                  skip=0.) -> None:
+        """ Add an event to play the given table
+
+        Example
+        =======
+
+        >>> csd = Csd()
+        >>> tabnum = csd.addSndfile("stereo.wav")
+        >>> csd.playTable(tabnum, tabnum, start=1, fade=0.1, speed=0.5)
+        >>> csd.writeCsd("out.csd")
+        """
+        if self.instrs.get('_playgen1') is None:
+            self.addInstr('_playgen1', self._builtinInstrs['_playgen1'])
+        args = [gain, speed, tabnum, chan, fade, skip]
+        self.addEvent('_playgen1', start=start, dur=dur, args=args)
 
     def writeCsd(self, stream:U[str, IO]) -> None:
         """
@@ -1030,40 +1190,51 @@ class Csd:
                       piped=piped, extra=extra)
 
 
-def mincer(sndfile, timecurve, pitchcurve, outfile=None, dt=0.002, 
-           lock=False, fftsize=2048, ksmps=128, debug=False):
+def mincer(sndfile:str, outfile:str,
+           timecurve:U[Curve, float], pitchcurve:[Curve, float],
+           dt=0.002, lock=False, fftsize=2048, ksmps=128, debug=False
+           ) -> None:
     """
-    sndfile: the path to a soundfile
-    timecurve: a bpf mapping time to playback time or a scalar indicating a timeratio
-               (2 means twice as fast)
-               1 to leave unmodified
-    pitchcurve: a bpf mapping x=time, y=pitchscale. or a scalar indicating a freqratio
-                (2 means an octave higher) 
-                1 to leave unmodified
+    Stretch/Pitchshift a soundfile using csound's mincer opcode
 
-    outfile: the path to a resulting outfile
+    Args:
+        sndfile: the path to a soundfile
+        timecurve: a func mapping time to playback time or a scalar indicating
+            a timeratio (2 means twice as fast, 1 to leave unmodified)
+        pitchcurve: a func time to pitchscale, or a scalar indicating a freqratio
+        outfile: the path to a resulting outfile. The resulting file is always a
+            32-bit float .wav file
+        dt: the sampling period to sample the curves
+        lock: should mincer be run with phase-locking?
+        fftsize: the size of the fft
+        ksmps: the ksmps to pass to the csound process
+        debug: run csound with debug information
 
-    Returns: a dictionary with information about the process 
+    .. note::
 
-    NB: if the mapped time excedes the bounds of the sndfile,
-        silence is generated. For example, a negative time
-        or a time exceding the duration of the sndfile
+        If the mapped time excedes the bounds of the sndfile, silence is generated.
+        For example, a negative time or a time exceding the duration of the sndfile
 
-    NB2: the samplerate and number of channels of of the generated file matches 
-         that of the input file
+    .. note::
 
-    NB3: the resulting file is always a 32-bit float .wav file
+        The samplerate and number of channels of of the generated file matches
+        that of the input file
 
-    ** Example 1: stretch a soundfile 2x
+    Examples
+    ========
 
-       timecurve = bpf.linear(0, 0, totaldur*2, totaldur)
-       outfile = mincer(sndfile, timecurve, 1)
+        # Example 1: stretch a soundfile 2x
+
+        >>> from csoundengine import csoundlib
+        >>> import bpf4
+        >>> import sndfileio
+        >>> snddur = sndfileio.sndinfo("mono.wav").duration
+        >>> timecurve = bpf4.linear(0, 0, snddur*2, snddur)
+        >>> mincer(sndfile, "mono2.wav", timecurve=timecurve, pitchcurve=1)
     """
     import bpf4 as bpf
     import sndfileio
-    
-    if outfile is None:
-        outfile = filetools.addSuffix(sndfile, "-mincer")
+
     info = sndfileio.sndinfo(sndfile)
     sr = info.samplerate
     nchnls = info.channels
@@ -1085,8 +1256,6 @@ def mincer(sndfile, timecurve, pitchcurve, outfile=None, dt=0.002,
     np.savetxt(time_gen23, timebpf.map(ts), fmt=fmt, header=str(dt), comments="")
     _, pitch_gen23 = tempfile.mkstemp(prefix='pitch-', suffix='.gen23')
     np.savetxt(pitch_gen23, pitchbpf.map(ts), fmt=fmt, header=str(dt), comments="")
-    if outfile is None:
-        outfile = filetools.addSuffix(sndfile, '-mincer')
     csd = f"""
     <CsoundSynthesizer>
     <CsOptions>
@@ -1231,10 +1400,6 @@ def recInstr(body:str, events:list, init="", outfile:str=None,
     return outfile, proc
 
 
-def normalize_path(path:str) -> str:
-    return os.path.abspath(os.path.expanduser(path))
-
-
 def _ftsaveReadText(path):
     # a file can have multiple tables saved
     lines = iter(open(path))
@@ -1318,6 +1483,7 @@ def getNchnls(backend: str=None, device:str=None, indevice:str=None,
 
 def defaultDevicesForBackend(backendname:str=None) -> Tuple[str, str]:
     """
+    Get the default input and output devices for the backend
 
     Args:
         backendname (str): the name of the backend to use
@@ -1479,41 +1645,12 @@ def dumpDevices(backend:str=None):
         print("  ", dev)
 
 
-def instrName(instrdef: str) -> U[int, str]:
-    """
-    Given a csound instrument, returns the name/instr number in the
-    instrument definition. If the instrument has more than one number/name,
-    raises an Exception (see instr_names)
-
-    Args:
-        code (str): the code defining an instrument
-
-    Returns:
-        the name/instrument number
-
-    Example
-    =======
-
-        >>> instr = '''
-        instr 10
-            outch 1, oscili:a(0.1, 440)
-        endin
-        '''
-        >>> instrName(instr)
-        10
-
-    """
-    names = instrNames(instrdef)
-    if len(names) > 1:
-        raise ValueError("Instrument has multiple numbers/names")
-    return instrNames(instrdef)[0]
-
-
 def instrNames(instrdef: str) -> List[U[int, str]]:
     """
-    Given a csound instrument, returns the list of names/instrument numbers
-    in the instrument definition. Most of the time this list will have
-    one single element, either an instrument number or a name
+    Returns the list of names/instrument numbers in the instrument definition.
+
+    Most of the time this list will have one single element, either an instrument
+    number or a name
 
     Args:
         code (str): the code defining an instrument
@@ -1524,11 +1661,11 @@ def instrNames(instrdef: str) -> List[U[int, str]]:
     Example
     =======
 
-        >>> instr = '''
-        instr 10, foo
-            outch 1, oscili:a(0.1, 440)
-        endin
-        '''
+        >>> instr = r'''
+        ... instr 10, foo
+        ...     outch 1, oscili:a(0.1, 440)
+        ... endin
+        ... '''
         >>> instrNames(instr)
         [10, "foo"]
 
@@ -1550,13 +1687,13 @@ def instrNames(instrdef: str) -> List[U[int, str]]:
 class ParsedInstrBody:
     """
     Attributes:
-        * pfieldsIndexToName: maps p index to name
-        * pfieldsText: a (multiline) string collecting all lines
+        pfieldsIndexToName: maps p index to name
+        pfieldsText: a (multiline) string collecting all lines
             which deal with pfields (ifoo = p4 / ibar, ibaz passign ... / etc)
-        * body: the body of the instr without any pfields declarations
-        * pfieldsDefaults: default values used by pfields (via pset)
-        * pfieldsUsed: a set of all pfields used, both named and unnamed
-        * outChannels: output channels explicitely used (out, outs, outch with
+        body: the body of the instr without any pfields declarations
+        pfieldsDefaults: default values used by pfields (via pset)
+        pfieldsUsed: a set of all pfields used, both named and unnamed
+        outChannels: output channels explicitely used (out, outs, outch with
             a constant)
     """
     pfieldsIndexToName: dict[int, str]
@@ -1567,6 +1704,7 @@ class ParsedInstrBody:
     outChannels: Opt[set[int]] = None
 
     def numPfields(self) -> int:
+        """ Returns the number of pfields in this instrument """
         return max(self.pfieldsUsed)
 
 
@@ -1574,8 +1712,7 @@ class ParsedInstrBody:
 def instrParseBody(body: str) -> ParsedInstrBody:
     """
     Parses the body of the instrument and returns information
-    about the pfields used, the output channels, etc.
-    Returns a ParsedInstrBody
+    about pfields used, output channels, etc.
 
     Args:
         body (str): the body of the instr (between instr/endin)
@@ -1622,8 +1759,7 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                 args = line.strip()[5:].split(",")
                 channels = args[::2]
                 for chans in channels:
-                    chan = misc.asnumber(chans)
-                    if chan is not None:
+                    if chan := misc.asnumber(chans) is not None:
                         outchannels.add(chan)
             rest_lines.append(line)
 

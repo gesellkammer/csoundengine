@@ -338,7 +338,7 @@ class Session:
         self.engine = self._getEngine()
 
         if config['define_builtin_instrs']:
-            self.defBuiltinInstrs()
+            self._defBuiltinInstrs()
 
         self.activeSessions[name] = self
 
@@ -358,7 +358,7 @@ class Session:
         synth = self._synths.pop(synthid, None)
         if synth is None:
             return
-        logger.debug(f"Synth({synth.instrName}, id={synthid}) deallocated")
+        logger.debug(f"Synth({synth.instr.name}, id={synthid}) deallocated")
         self.engine.unsched(synthid, delay)
         synth._playing = False
         if synth.table:
@@ -551,9 +551,10 @@ class Session:
     def instrnum(self, instrname: str, priority: int = 1) -> int:
         """
         For a defined Instr (identified by `instrname`) and a priority,
-        return the concrete instrument number (as seen by the csound process
-        itself) for this instrument. This returned instrument number will not
-        be a unique (fractional) instance number.
+        return the concrete instrument number for this instrument.
+
+        This returned instrument number will not be a unique (fractional)
+        instance number.
 
         Args:
             instrname: the name of a defined Instr
@@ -708,7 +709,6 @@ class Session:
     def unschedByName(self, instrname: str) -> None:
         """
         Unschedule all playing synths created from given instr
-        (as identified by the name)
         """
         synths = self.findSynthsByName(instrname)
         for synth in synths:
@@ -733,7 +733,7 @@ class Session:
         """
         out = []
         for synthid, synth in self._synths.items():
-            if synth.instrName == instrname:
+            if synth.instr.name == instrname:
                 out.append(synth)
         return out
 
@@ -902,7 +902,7 @@ class Session:
             renderer.registerInstr(instrdef)
         return renderer
 
-    def defBuiltinInstrs(self):
+    def _defBuiltinInstrs(self):
         for csoundInstr in builtinInstrs:
             self.registerInstr(csoundInstr)
 

@@ -78,6 +78,7 @@ __all__ = [
     'activeEngines',
     'config',
     'logger',
+    'csoundlib'
 ]
 
 
@@ -615,7 +616,10 @@ class Engine:
             >>> e.sched('vco', dur=4, args=[1000, 0.1])
         """
         assert self.started
-        instrn = csoundlib.instrName(instrcode)
+        instrn = csoundlib.instrNames(instrcode)
+        if isinstance(instrn, list):
+           raise ValueError("Only one name/number is allowed. Use multiple defInstrs")
+        assert isinstance(instrn, (int, str))
         if instrn in self._reservedInstrnums:
             raise ValueError(f"Instrument {instrn} is reserved")
         self._instrRegistry[instrn] = instrcode

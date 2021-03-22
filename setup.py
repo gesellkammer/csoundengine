@@ -30,7 +30,8 @@ setup(
         "cachetools",
         "configdict>=0.4",
         "bpf4",
-        "numpyx>=0.5"
+        "numpyx>=0.5",
+        "pitchtools>=1.0"
     ],
     license="BSD",
     classifiers=[

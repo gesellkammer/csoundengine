@@ -12,13 +12,22 @@ schedule events, etc. The interaction is very transparent and any .csd script ca
 The :class:`~csoundengine.session.Session` class implements a high-level interface. It builds on top of :class:`~csoundengine.engine.Engine`. 
 Both an Engine and its associated Session are conceived to run in real-time. See :class:`~csoundengine.renderer.Renderer` for offline rendering  
 
-.. automodapi:: csoundengine.engine
+.. automodapi:: csoundengine
     :no-inheritance-diagram:
+
+----------
 
 .. automodapi:: csoundengine.session
     :no-inheritance-diagram:
 
+----------
+
 .. automodapi:: csoundengine.offline
+    :no-inheritance-diagram:
+
+----------
+
+.. automodapi:: csoundengine.csoundlib
     :no-inheritance-diagram:
 
 

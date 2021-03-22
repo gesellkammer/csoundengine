@@ -55,11 +55,9 @@ Each engine can have an associated :class:`~csoundengine.session.Session`. A Ses
 higher level interface, allowing to:
 
 * Define instrument templates (an :class:`~csoundengine.instr.Instr`), which can be instantiated at any order of evaluation, allowing to implement processing chains of any complexity
-
 * An :class:`~csoundengine.instr.Instr` can have named parameters which can be used to control the event.
+* A :class:`~csoundengine.session.Session` provides a series of built-in :class:`~csoundengine.instr.Instr`'s to perform some common tasks, like playing samples from memory or from disk, perform audio analysis, etc.
 
-* A :class:`~csoundengine.session.Session` provides a series of built-in :class:`~csoundengine.instr.Instr`'s to perform some common tasks,
-like playing samples from memory or from disk, perform audio analysis, etc.
 
 .. code-block:: python
     

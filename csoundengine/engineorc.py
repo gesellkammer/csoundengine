@@ -349,8 +349,11 @@ instr ${playgen1}
     aenv *= a(ksubgain)
     aouts = aouts * aenv
     inumouts = lenarray(aouts)
-    ichans[] genarray ichan, ichan+inumouts-1
-    poly0 inumouts, "outch", ichans, aouts
+    kchan = 0
+    while kchan < inumouts do
+        outch kchan+ichan, aouts[kchan]
+        kchan += 1
+    od
     if ksampsplayed >= inumsamples then
         turnoff
     endif

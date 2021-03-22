@@ -38,7 +38,9 @@
 
     
     <link rel="index" title="Index" href="../genindex.html" />
-    <link rel="search" title="Search" href="../search.html" /> 
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="bestSampleFormatForExtension" href="csoundengine.csoundlib.bestSampleFormatForExtension.html" />
+    <link rel="prev" title="Instr" href="csoundengine.Instr.html" /> 
 </head>
 
 <body class="wy-body-for-nav">
@@ -83,11 +85,26 @@
               
             
             
-              <ul>
+              <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../Introduction.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../Installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../Tutorial.html">Tutorial</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../Reference.html">Reference</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../Reference.html">Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../Reference.html#introduction">Introduction</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="../Reference.html#module-csoundengine">csoundengine Package</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="../Reference.html#csoundengine">csoundengine</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../Reference.html#functions">Functions</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="../Reference.html#classes">Classes</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="csoundengine.Engine.html">Engine</a></li>
+<li class="toctree-l4"><a class="reference internal" href="csoundengine.Instr.html">Instr</a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#">Renderer</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../Reference.html#module-csoundengine.csoundlib">csoundengine.csoundlib Module</a></li>
+</ul>
+</li>
 </ul>
 
             
@@ -136,6 +153,8 @@
     
       <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
         
+          <li><a href="../Reference.html">Reference</a> &raquo;</li>
+        
       <li>Renderer</li>
     
     
@@ -162,6 +181,21 @@
 <em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">csoundengine.</span></code><code class="sig-name descname"><span class="pre">Renderer</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nchnls</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ksmps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a4</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">maxpriorities</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucketsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/csoundengine/offline.html#Renderer"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#csoundengine.Renderer" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>A Renderer is used when rendering offline.</p>
+<p>Instruments with higher priority are assured to be evaluated later
+in the chain. Instruments within a given priority are evaluated in
+the order they are defined (first defined is evaluated first)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>sr</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>]) – the sampling rate</p></li>
+<li><p><strong>nchnls</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – number of channels</p></li>
+<li><p><strong>ksmps</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>]) – csound ksmps</p></li>
+<li><p><strong>a4</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>]) – reference frequency</p></li>
+<li><p><strong>maxpriorities</strong> – max. groups</p></li>
+<li><p><strong>bucketsize</strong> – max. number of instruments per priority group</p></li>
+</ul>
+</dd>
+</dl>
 <p class="rubric">Methods Summary</p>
 <table class="longtable docutils align-default">
 <colgroup>
@@ -205,6 +239,9 @@
 <tr class="row-even"><td><p><a class="reference internal" href="#csoundengine.Renderer.strSet" title="csoundengine.Renderer.strSet"><code class="xref py py-obj docutils literal notranslate"><span class="pre">strSet</span></code></a>(s)</p></td>
 <td><p>Set a string in this renderer.</p></td>
 </tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#csoundengine.Renderer.writeCsd" title="csoundengine.Renderer.writeCsd"><code class="xref py py-obj docutils literal notranslate"><span class="pre">writeCsd</span></code></a>(outfile)</p></td>
+<td><p>Generate the csd for this renderer, write it to <cite>outfile</cite></p></td>
+</tr>
 </tbody>
 </table>
 <p class="rubric">Methods Documentation</p>
@@ -226,7 +263,7 @@
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>event</strong> (<a class="reference internal" href="csoundengine.offline.ScoreEvent.html#csoundengine.offline.ScoreEvent" title="csoundengine.offline.ScoreEvent"><code class="xref py py-class docutils literal notranslate"><span class="pre">ScoreEvent</span></code></a>) – the event to automate, as returned by sched</p></li>
+<li><p><strong>event</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">ScoreEvent</span></code>) – the event to automate, as returned by sched</p></li>
 <li><p><strong>param</strong> (<em>str</em>) – the name of the parameter to automate. The instr should
 have a corresponding line of the sort “kparam = pn”</p></li>
 <li><p><strong>pairs</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Union</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>], <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>]) – the automateion data as a flat list [t0, y0, t1, y1, …], where
@@ -265,7 +302,7 @@ time of the automated event will be used.</p></li>
 <dd class="field-odd"><p><strong>eventid</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – the event id, as returned by sched</p>
 </dd>
 <dt class="field-even">Return type</dt>
-<dd class="field-even"><p><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code>[<a class="reference internal" href="csoundengine.offline.ScoreEvent.html#csoundengine.offline.ScoreEvent" title="csoundengine.offline.ScoreEvent"><code class="xref py py-class docutils literal notranslate"><span class="pre">ScoreEvent</span></code></a>]</p>
+<dd class="field-even"><p><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">ScoreEvent</span></code>]</p>
 </dd>
 <dt class="field-odd">Returns</dt>
 <dd class="field-odd"><p>the ScoreEvent if it exists, or None</p>
@@ -283,7 +320,7 @@ time of the automated event will be used.</p></li>
 value</p>
 </dd>
 <dt class="field-even">Return type</dt>
-<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code>[<a class="reference internal" href="csoundengine.offline.ScoreEvent.html#csoundengine.offline.ScoreEvent" title="csoundengine.offline.ScoreEvent"><code class="xref py py-class docutils literal notranslate"><span class="pre">ScoreEvent</span></code></a>]</p>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">ScoreEvent</span></code>]</p>
 </dd>
 <dt class="field-odd">Returns</dt>
 <dd class="field-odd"><p>a list of all scheduled events with the given p1</p>
@@ -363,7 +400,7 @@ instrument)</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type</dt>
-<dd class="field-even"><p><a class="reference internal" href="csoundengine.offline.ScoreEvent.html#csoundengine.offline.ScoreEvent" title="csoundengine.offline.ScoreEvent"><code class="xref py py-class docutils literal notranslate"><span class="pre">ScoreEvent</span></code></a></p>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">ScoreEvent</span></code></p>
 </dd>
 <dt class="field-odd">Returns</dt>
 <dd class="field-odd"><p>a ScoreEvent, holding the csound event (p1, start, dur, args)</p>
@@ -425,6 +462,17 @@ the given string</p>
 </dl>
 </dd></dl>
 
+<dl class="py method">
+<dt id="csoundengine.Renderer.writeCsd">
+<code class="sig-name descname"><span class="pre">writeCsd</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">outfile</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/csoundengine/offline.html#Renderer.writeCsd"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#csoundengine.Renderer.writeCsd" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate the csd for this renderer, write it to <cite>outfile</cite></p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
 </dd></dl>
 
 </div>
@@ -434,6 +482,10 @@ the given string</p>
            
           </div>
           <footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+        <a href="csoundengine.csoundlib.bestSampleFormatForExtension.html" class="btn btn-neutral float-right" title="bestSampleFormatForExtension" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="csoundengine.Instr.html" class="btn btn-neutral float-left" title="Instr" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
 
   <hr/>
 

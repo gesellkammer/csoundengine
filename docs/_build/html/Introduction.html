@@ -162,7 +162,7 @@
             
   <div class="section" id="introduction">
 <h1>Introduction<a class="headerlink" href="#introduction" title="Permalink to this headline">¶</a></h1>
-<p>The core of this package is the <a class="reference internal" href="api/csoundengine.engine.Engine.html#csoundengine.engine.Engine" title="csoundengine.engine.Engine"><code class="xref py py-class docutils literal notranslate"><span class="pre">Engine</span></code></a> class, which wraps a csound
+<p>The core of this package is the <code class="xref py py-class docutils literal notranslate"><span class="pre">Engine</span></code> class, which wraps a csound
 process and allows transparent control over all parameters, while providing
 sane defaults. It uses the csound API to communicate with a running csound
 instance. All audio processing is run in a separate performance thread.</p>
@@ -207,14 +207,13 @@ instance. All audio processing is run in a separate performance thread.</p>
 </div>
 <div class="section" id="session-high-level-interface">
 <h2>Session - high level interface<a class="headerlink" href="#session-high-level-interface" title="Permalink to this headline">¶</a></h2>
-<p>Each engine can have an associated <a class="reference internal" href="api/csoundengine.session.Session.html#csoundengine.session.Session" title="csoundengine.session.Session"><code class="xref py py-class docutils literal notranslate"><span class="pre">Session</span></code></a>. A Session provides a
+<p>Each engine can have an associated <code class="xref py py-class docutils literal notranslate"><span class="pre">Session</span></code>. A Session provides a
 higher level interface, allowing to:</p>
 <ul class="simple">
 <li><p>Define instrument templates (an <code class="xref py py-class docutils literal notranslate"><span class="pre">Instr</span></code>), which can be instantiated at any order of evaluation, allowing to implement processing chains of any complexity</p></li>
 <li><p>An <code class="xref py py-class docutils literal notranslate"><span class="pre">Instr</span></code> can have named parameters which can be used to control the event.</p></li>
-<li><p>A <a class="reference internal" href="api/csoundengine.session.Session.html#csoundengine.session.Session" title="csoundengine.session.Session"><code class="xref py py-class docutils literal notranslate"><span class="pre">Session</span></code></a> provides a series of built-in <code class="xref py py-class docutils literal notranslate"><span class="pre">Instr</span></code>’s to perform some common tasks,</p></li>
+<li><p>A <code class="xref py py-class docutils literal notranslate"><span class="pre">Session</span></code> provides a series of built-in <code class="xref py py-class docutils literal notranslate"><span class="pre">Instr</span></code>’s to perform some common tasks, like playing samples from memory or from disk, perform audio analysis, etc.</p></li>
 </ul>
-<p>like playing samples from memory or from disk, perform audio analysis, etc.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">csoundengine</span> <span class="kn">import</span> <span class="o">*</span>
 
 <span class="c1"># Create an Engine and a corresponding Session using default options</span>

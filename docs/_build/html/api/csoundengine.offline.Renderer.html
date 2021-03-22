@@ -91,7 +91,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../Tutorial.html">Tutorial</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="../Reference.html">Reference</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="../Reference.html#introduction">Introduction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../Reference.html#module-csoundengine.engine">csoundengine.engine Module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../Reference.html#module-csoundengine">csoundengine Package</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../Reference.html#module-csoundengine.session">csoundengine.session Module</a></li>
 <li class="toctree-l2 current"><a class="reference internal" href="../Reference.html#module-csoundengine.offline">csoundengine.offline Module</a><ul class="current">
 <li class="toctree-l3 current"><a class="reference internal" href="../Reference.html#id3">Classes</a><ul class="current">
@@ -101,6 +101,7 @@
 </li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="../Reference.html#module-csoundengine.csoundlib">csoundengine.csoundlib Module</a></li>
 </ul>
 </li>
 </ul>
@@ -179,6 +180,21 @@
 <em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">csoundengine.offline.</span></code><code class="sig-name descname"><span class="pre">Renderer</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nchnls</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ksmps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a4</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">maxpriorities</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucketsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/csoundengine/offline.html#Renderer"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#csoundengine.offline.Renderer" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>A Renderer is used when rendering offline.</p>
+<p>Instruments with higher priority are assured to be evaluated later
+in the chain. Instruments within a given priority are evaluated in
+the order they are defined (first defined is evaluated first)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>sr</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>]) – the sampling rate</p></li>
+<li><p><strong>nchnls</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – number of channels</p></li>
+<li><p><strong>ksmps</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>]) – csound ksmps</p></li>
+<li><p><strong>a4</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>]) – reference frequency</p></li>
+<li><p><strong>maxpriorities</strong> – max. groups</p></li>
+<li><p><strong>bucketsize</strong> – max. number of instruments per priority group</p></li>
+</ul>
+</dd>
+</dl>
 <p class="rubric">Methods Summary</p>
 <table class="longtable docutils align-default">
 <colgroup>

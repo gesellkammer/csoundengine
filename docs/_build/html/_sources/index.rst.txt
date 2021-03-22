@@ -9,6 +9,8 @@ csoundengine - Documentation
 
 This package implements a simple interface to run and control a csound process.
 
+The source code of this package lives in https://github.com/gesellkammer/csoundengine
+
 .. toctree::
    :maxdepth: 2
 

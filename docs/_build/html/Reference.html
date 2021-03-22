@@ -39,7 +39,7 @@
     
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="getEngine" href="api/csoundengine.engine.getEngine.html" />
+    <link rel="next" title="activeEngines" href="api/csoundengine.activeEngines.html" />
     <link rel="prev" title="Tutorial" href="Tutorial.html" /> 
 </head>
 
@@ -91,14 +91,18 @@
 <li class="toctree-l1"><a class="reference internal" href="Tutorial.html">Tutorial</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#introduction">Introduction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#module-csoundengine.engine">csoundengine.engine Module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-csoundengine">csoundengine Package</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#csoundengine">csoundengine</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#functions">Functions</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.engine.getEngine.html">getEngine</a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.engine.activeEngines.html">activeEngines</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.activeEngines.html">activeEngines</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.getEngine.html">getEngine</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.groupSynths.html">groupSynths</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#classes">Classes</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.engine.Engine.html">Engine</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.Engine.html">Engine</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.Instr.html">Instr</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.Renderer.html">Renderer</a></li>
 </ul>
 </li>
 </ul>
@@ -119,6 +123,53 @@
 <li class="toctree-l3"><a class="reference internal" href="#id3">Classes</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/csoundengine.offline.Renderer.html">Renderer</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/csoundengine.offline.ScoreEvent.html">ScoreEvent</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-csoundengine.csoundlib">csoundengine.csoundlib Module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id4">Functions</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.bestSampleFormatForExtension.html">bestSampleFormatForExtension</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.csoundOptionForSampleFormat.html">csoundOptionForSampleFormat</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.csoundSubproc.html">csoundSubproc</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.defaultDevicesForBackend.html">defaultDevicesForBackend</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.dumpDevices.html">dumpDevices</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.findCsound.html">findCsound</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.ftsaveRead.html">ftsaveRead</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.getAudioBackend.html">getAudioBackend</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.getAudioBackendNames.html">getAudioBackendNames</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.getAudioBackends.html">getAudioBackends</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.getAudioDevices.html">getAudioDevices</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.getDefaultBackend.html">getDefaultBackend</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.getNchnls.html">getNchnls</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.getSamplerateForBackend.html">getSamplerateForBackend</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.getVersion.html">getVersion</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.instrNames.html">instrNames</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.instrParseBody.html">instrParseBody</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.isBackendAvailable.html">isBackendAvailable</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.isJackRunning.html">isJackRunning</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.isPulseaudioRunning.html">isPulseaudioRunning</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.joinCsd.html">joinCsd</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.matrixAsGen23.html">matrixAsGen23</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.matrixAsWav.html">matrixAsWav</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.mincer.html">mincer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.nextpow2.html">nextpow2</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.normalizeInstrumentName.html">normalizeInstrumentName</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.opcodesList.html">opcodesList</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.parseScore.html">parseScore</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.recInstr.html">recInstr</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.runCsd.html">runCsd</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.saveAsGen23.html">saveAsGen23</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.testCsound.html">testCsound</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#id5">Classes</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.AudioBackend.html">AudioBackend</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.AudioDevice.html">AudioDevice</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.Csd.html">Csd</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.CsoundProc.html">CsoundProc</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.ParsedInstrBody.html">ParsedInstrBody</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/csoundengine.csoundlib.ScoreEvent.html">ScoreEvent</a></li>
 </ul>
 </li>
 </ul>
@@ -196,15 +247,18 @@
 <h1>Reference<a class="headerlink" href="#reference" title="Permalink to this headline">¶</a></h1>
 <div class="section" id="introduction">
 <h2>Introduction<a class="headerlink" href="#introduction" title="Permalink to this headline">¶</a></h2>
-<p>At the core of the <cite>csoundengine</cite> library is the <a class="reference internal" href="api/csoundengine.engine.Engine.html#csoundengine.engine.Engine" title="csoundengine.engine.Engine"><code class="xref py py-class docutils literal notranslate"><span class="pre">Engine</span></code></a> class, which wraps a csound process.
+<p>At the core of the <cite>csoundengine</cite> library is the <code class="xref py py-class docutils literal notranslate"><span class="pre">Engine</span></code> class, which wraps a csound process.
 This class provides a simple way to start and communicate with csound, define instruments,
 schedule events, etc. The interaction is very transparent and any .csd script can be adapted to be run using an Engine.</p>
-<p>The <a class="reference internal" href="api/csoundengine.session.Session.html#csoundengine.session.Session" title="csoundengine.session.Session"><code class="xref py py-class docutils literal notranslate"><span class="pre">Session</span></code></a> class implements a high-level interface. It builds on top of <a class="reference internal" href="api/csoundengine.engine.Engine.html#csoundengine.engine.Engine" title="csoundengine.engine.Engine"><code class="xref py py-class docutils literal notranslate"><span class="pre">Engine</span></code></a>.
+<p>The <a class="reference internal" href="api/csoundengine.session.Session.html#csoundengine.session.Session" title="csoundengine.session.Session"><code class="xref py py-class docutils literal notranslate"><span class="pre">Session</span></code></a> class implements a high-level interface. It builds on top of <code class="xref py py-class docutils literal notranslate"><span class="pre">Engine</span></code>.
 Both an Engine and its associated Session are conceived to run in real-time. See <code class="xref py py-class docutils literal notranslate"><span class="pre">Renderer</span></code> for offline rendering</p>
 </div>
-<div class="section" id="module-csoundengine.engine">
-<span id="csoundengine-engine-module"></span><h2>csoundengine.engine Module<a class="headerlink" href="#module-csoundengine.engine" title="Permalink to this headline">¶</a></h2>
-<p>An Engine implements a simple interface to run and control a csound process.</p>
+<div class="section" id="module-csoundengine">
+<span id="csoundengine-package"></span><h2>csoundengine Package<a class="headerlink" href="#module-csoundengine" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="csoundengine">
+<h3>csoundengine<a class="headerlink" href="#csoundengine" title="Permalink to this headline">¶</a></h3>
+<p>csoundengine implements a simple interface to run and control a csound
+process.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">csoundengine</span> <span class="kn">import</span> <span class="n">Engine</span>
 <span class="c1"># create an engine with default options for the platform</span>
 <span class="n">engine</span> <span class="o">=</span> <span class="n">Engine</span><span class="p">()</span>
@@ -235,6 +289,63 @@ Both an Engine and its associated Session are conceived to run in real-time. See
 <span class="n">engine</span><span class="o">.</span><span class="n">unsched</span><span class="p">(</span><span class="n">event</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>A higher level layer (<code class="xref py py-class docutils literal notranslate"><span class="pre">Session</span></code>) allows a more ergonomic interface, with features like
+named arguments for instruments, default values for arguments, the possibility
+to schedule an instrument after or before another instrument to build process chains,
+built-in instruments to play a sample from disk/memory, offline rendering, etc.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">csoundengine</span> <span class="kn">import</span> <span class="o">*</span>
+
+<span class="c1"># create an Engine and a corresponding Session with default options</span>
+<span class="n">session</span> <span class="o">=</span> <span class="n">Engine</span><span class="p">()</span><span class="o">.</span><span class="n">session</span><span class="p">()</span>
+
+<span class="c1"># create a master audio channel</span>
+<span class="n">session</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">initChannel</span><span class="p">(</span><span class="s2">&quot;master&quot;</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s1">&#39;a&#39;</span><span class="p">)</span>
+
+<span class="c1"># define instruments</span>
+<span class="n">session</span><span class="o">.</span><span class="n">defInstr</span><span class="p">(</span><span class="s2">&quot;synth&quot;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">  |ibus, kmidi=60, kamp=0.1, ktransp=0, ifade=0.5|</span>
+<span class="s1">  asig vco2 kamp, mtof:k(kmidi+ktransp)</span>
+<span class="s1">  asig *= linsegr:a(0, ifade, 1, ifade, 0)</span>
+<span class="s1">  busout(ibus, asig)</span>
+<span class="s1">&#39;&#39;&#39;</span><span class="p">)</span>
+
+<span class="n">session</span><span class="o">.</span><span class="n">defInstr</span><span class="p">(</span><span class="s2">&quot;filter&quot;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">  |ibus, kcutoff=1000, kresonance=0.9|</span>
+<span class="s1">  asig = busin(ibus)</span>
+<span class="s1">  asig = moogladder2(asig, kcutoff, kresonance)</span>
+<span class="s1">  chnmix(asig, &quot;master&quot;)</span>
+<span class="s1">&#39;&#39;&#39;</span><span class="p">)</span>
+
+<span class="n">session</span><span class="o">.</span><span class="n">defInstr</span><span class="p">(</span><span class="s2">&quot;master&quot;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">  asig = chnget:a(&quot;master&quot;)</span>
+<span class="s1">  asig compress2 asig, asig, -120, -40, -12, 3, 0.1, 0.01, 0.05</span>
+<span class="s1">  outch 1, asig</span>
+<span class="s1">  chnclear(&quot;master&quot;)</span>
+<span class="s1">&#39;&#39;&#39;</span><span class="p">)</span>
+
+<span class="c1"># start a master instance at the end of the evaluation chain</span>
+<span class="n">master</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">sched</span><span class="p">(</span><span class="s2">&quot;master&quot;</span><span class="p">,</span> <span class="n">priority</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+
+<span class="n">dur</span> <span class="o">=</span> <span class="mi">5</span>
+<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">midinote</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">60</span><span class="p">,</span> <span class="mi">72</span><span class="p">,</span> <span class="mi">2</span><span class="p">)):</span>
+    <span class="c1"># for each synth, we create a bus to plug it to an effect, in this case a filter</span>
+    <span class="n">bus</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">newBus</span><span class="p">()</span>
+    <span class="c1"># start time for synth and effect</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">i</span> <span class="o">*</span> <span class="mi">1</span>
+    <span class="c1"># Schedule a synth</span>
+    <span class="n">synth</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">sched</span><span class="p">(</span><span class="s2">&quot;synth&quot;</span><span class="p">,</span> <span class="n">delay</span><span class="o">=</span><span class="n">start</span><span class="p">,</span> <span class="n">dur</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">kmidi</span><span class="o">=</span><span class="n">midinote</span><span class="p">,</span> <span class="n">ibus</span><span class="o">=</span><span class="n">bus</span><span class="o">.</span><span class="n">busnum</span><span class="p">)</span>
+    <span class="c1"># Automate the transposition of the pitch so that it goes 2 semitones</span>
+    <span class="n">synth</span><span class="o">.</span><span class="n">automatep</span><span class="p">(</span><span class="s1">&#39;ktransp&#39;</span><span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">dur</span><span class="p">,</span> <span class="o">-</span><span class="mi">2</span><span class="p">],</span> <span class="n">delay</span><span class="o">=</span><span class="n">start</span><span class="p">)</span>
+    <span class="c1"># Schedule the filter for this synth, with a priority higher than the</span>
+    <span class="c1"># synth, so that it is evaluated later in the chain</span>
+    <span class="n">filt</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">sched</span><span class="p">(</span><span class="s2">&quot;filter&quot;</span><span class="p">,</span> <span class="n">delay</span><span class="o">=</span><span class="n">start</span><span class="p">,</span> <span class="n">dur</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">priority</span><span class="o">=</span><span class="n">synth</span><span class="o">.</span><span class="n">priority</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span>
+        <span class="n">kcutoff</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span> <span class="n">kresonance</span><span class="o">=</span><span class="mf">0.92</span><span class="p">,</span> <span class="n">ibus</span><span class="o">=</span><span class="n">bus</span><span class="o">.</span><span class="n">busnum</span><span class="p">,</span>
+        <span class="n">whenfinished</span><span class="o">=</span><span class="k">lambda</span> <span class="n">p1</span><span class="p">,</span> <span class="n">bus</span><span class="o">=</span><span class="n">bus</span><span class="p">:</span> <span class="n">bus</span><span class="o">.</span><span class="n">free</span><span class="p">())</span>
+    <span class="c1"># Automate the cutoff freq. of the filter</span>
+    <span class="n">filt</span><span class="o">.</span><span class="n">automatep</span><span class="p">(</span><span class="s1">&#39;kcutoff&#39;</span><span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2000</span><span class="p">,</span> <span class="n">dur</span><span class="o">*</span><span class="mf">0.8</span><span class="p">,</span> <span class="mi">500</span><span class="p">,</span> <span class="n">dur</span><span class="p">,</span> <span class="mi">6000</span><span class="p">],</span> <span class="n">delay</span><span class="o">=</span><span class="n">start</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
 <div class="section" id="functions">
 <h3>Functions<a class="headerlink" href="#functions" title="Permalink to this headline">¶</a></h3>
 <table class="longtable docutils align-default">
@@ -243,11 +354,14 @@ Both an Engine and its associated Session are conceived to run in real-time. See
 <col style="width: 90%" />
 </colgroup>
 <tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.engine.getEngine.html#csoundengine.engine.getEngine" title="csoundengine.engine.getEngine"><code class="xref py py-obj docutils literal notranslate"><span class="pre">getEngine</span></code></a>(name)</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.activeEngines.html#csoundengine.activeEngines" title="csoundengine.activeEngines"><code class="xref py py-obj docutils literal notranslate"><span class="pre">activeEngines</span></code></a>()</p></td>
+<td><p>Returns a list with the names of the active engines</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.getEngine.html#csoundengine.getEngine" title="csoundengine.getEngine"><code class="xref py py-obj docutils literal notranslate"><span class="pre">getEngine</span></code></a>(name)</p></td>
 <td><p>Get an already created engine.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.engine.activeEngines.html#csoundengine.engine.activeEngines" title="csoundengine.engine.activeEngines"><code class="xref py py-obj docutils literal notranslate"><span class="pre">activeEngines</span></code></a>()</p></td>
-<td><p>Returns a list with the names of the active engines</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.groupSynths.html#csoundengine.groupSynths" title="csoundengine.groupSynths"><code class="xref py py-obj docutils literal notranslate"><span class="pre">groupSynths</span></code></a>(synths)</p></td>
+<td><p>Groups synths together to form a SynthGroup</p></td>
 </tr>
 </tbody>
 </table>
@@ -260,13 +374,20 @@ Both an Engine and its associated Session are conceived to run in real-time. See
 <col style="width: 90%" />
 </colgroup>
 <tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.engine.Engine.html#csoundengine.engine.Engine" title="csoundengine.engine.Engine"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Engine</span></code></a>([name, sr, ksmps, backend, outdev, …])</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.Engine.html#csoundengine.Engine" title="csoundengine.Engine"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Engine</span></code></a>([name, sr, ksmps, backend, outdev, …])</p></td>
 <td><p>Create a csound Engine, which controls an underlying csound process.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.Instr.html#csoundengine.Instr" title="csoundengine.Instr"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Instr</span></code></a>(name, body[, args, init, tabledef, …])</p></td>
+<td><p>An Instr is a template used to schedule a concrete instrument at a Session or a Renderer.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.Renderer.html#csoundengine.Renderer" title="csoundengine.Renderer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Renderer</span></code></a>([sr, nchnls, ksmps, a4, …])</p></td>
+<td><p>A Renderer is used when rendering offline.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 </div>
+<hr class="docutils" />
 <div class="section" id="module-csoundengine.session">
 <span id="csoundengine-session-module"></span><h2>csoundengine.session Module<a class="headerlink" href="#module-csoundengine.session" title="Permalink to this headline">¶</a></h2>
 <p>This module provides a high-level interface to control un underlying
@@ -387,6 +508,7 @@ outch 1, a0
 </table>
 </div>
 </div>
+<hr class="docutils" />
 <div class="section" id="module-csoundengine.offline">
 <span id="csoundengine-offline-module"></span><h2>csoundengine.offline Module<a class="headerlink" href="#module-csoundengine.offline" title="Permalink to this headline">¶</a></h2>
 <p>This module provides an interface to offline rendering using the same
@@ -428,6 +550,160 @@ mechanisms as a Session.</p>
 </table>
 </div>
 </div>
+<hr class="docutils" />
+<div class="section" id="module-csoundengine.csoundlib">
+<span id="csoundengine-csoundlib-module"></span><h2>csoundengine.csoundlib Module<a class="headerlink" href="#module-csoundengine.csoundlib" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="id4">
+<h3>Functions<a class="headerlink" href="#id4" title="Permalink to this headline">¶</a></h3>
+<table class="longtable docutils align-default">
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 90%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">NamedTuple</span></code>(typename[, fields])</p></td>
+<td><p>Typed version of namedtuple.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.bestSampleFormatForExtension.html#csoundengine.csoundlib.bestSampleFormatForExtension" title="csoundengine.csoundlib.bestSampleFormatForExtension"><code class="xref py py-obj docutils literal notranslate"><span class="pre">bestSampleFormatForExtension</span></code></a>(ext)</p></td>
+<td><p>Given an extension, return the best sample format.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.csoundOptionForSampleFormat.html#csoundengine.csoundlib.csoundOptionForSampleFormat" title="csoundengine.csoundlib.csoundOptionForSampleFormat"><code class="xref py py-obj docutils literal notranslate"><span class="pre">csoundOptionForSampleFormat</span></code></a>(fmt)</p></td>
+<td><p>Returns the command-line option for the given sample format.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.csoundSubproc.html#csoundengine.csoundlib.csoundSubproc" title="csoundengine.csoundlib.csoundSubproc"><code class="xref py py-obj docutils literal notranslate"><span class="pre">csoundSubproc</span></code></a>(args[, piped])</p></td>
+<td><p>Calls csound with the given args in a subprocess, returns such subprocess.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.defaultDevicesForBackend.html#csoundengine.csoundlib.defaultDevicesForBackend" title="csoundengine.csoundlib.defaultDevicesForBackend"><code class="xref py py-obj docutils literal notranslate"><span class="pre">defaultDevicesForBackend</span></code></a>([backendname])</p></td>
+<td><p>Get the default input and output devices for the backend</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.dumpDevices.html#csoundengine.csoundlib.dumpDevices" title="csoundengine.csoundlib.dumpDevices"><code class="xref py py-obj docutils literal notranslate"><span class="pre">dumpDevices</span></code></a>([backend])</p></td>
+<td><p>Print a list of audio devices for the given backend.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.findCsound.html#csoundengine.csoundlib.findCsound" title="csoundengine.csoundlib.findCsound"><code class="xref py py-obj docutils literal notranslate"><span class="pre">findCsound</span></code></a>()</p></td>
+<td><p>Find the csound binary.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.ftsaveRead.html#csoundengine.csoundlib.ftsaveRead" title="csoundengine.csoundlib.ftsaveRead"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ftsaveRead</span></code></a>(path[, mode])</p></td>
+<td><p>Read a file saved by ftsave, returns a list of tables</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.getAudioBackend.html#csoundengine.csoundlib.getAudioBackend" title="csoundengine.csoundlib.getAudioBackend"><code class="xref py py-obj docutils literal notranslate"><span class="pre">getAudioBackend</span></code></a>([name])</p></td>
+<td><p>Given the name of the backend, return the AudioBackend structure</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.getAudioBackendNames.html#csoundengine.csoundlib.getAudioBackendNames" title="csoundengine.csoundlib.getAudioBackendNames"><code class="xref py py-obj docutils literal notranslate"><span class="pre">getAudioBackendNames</span></code></a>()</p></td>
+<td><p>Similar to get_audiobackends, but returns the names of the backends.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.getAudioBackends.html#csoundengine.csoundlib.getAudioBackends" title="csoundengine.csoundlib.getAudioBackends"><code class="xref py py-obj docutils literal notranslate"><span class="pre">getAudioBackends</span></code></a>()</p></td>
+<td><p>Return a list of supported audio backends as they would be passed to -+rtaudio</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.getAudioDevices.html#csoundengine.csoundlib.getAudioDevices" title="csoundengine.csoundlib.getAudioDevices"><code class="xref py py-obj docutils literal notranslate"><span class="pre">getAudioDevices</span></code></a>([backend])</p></td>
+<td><p>Returns (indevices, outdevices), where each of these lists is an AudioDevice.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.getDefaultBackend.html#csoundengine.csoundlib.getDefaultBackend" title="csoundengine.csoundlib.getDefaultBackend"><code class="xref py py-obj docutils literal notranslate"><span class="pre">getDefaultBackend</span></code></a>()</p></td>
+<td><p>Get the default backend for platform, discard any backend which is not available at the moment</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.getNchnls.html#csoundengine.csoundlib.getNchnls" title="csoundengine.csoundlib.getNchnls"><code class="xref py py-obj docutils literal notranslate"><span class="pre">getNchnls</span></code></a>([backend, device, indevice, …])</p></td>
+<td><p>Get the default number of channels for a given device</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.getSamplerateForBackend.html#csoundengine.csoundlib.getSamplerateForBackend" title="csoundengine.csoundlib.getSamplerateForBackend"><code class="xref py py-obj docutils literal notranslate"><span class="pre">getSamplerateForBackend</span></code></a>([backend])</p></td>
+<td><p>Returns the samplerate reported by the given backend, or 0 if failed</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.getVersion.html#csoundengine.csoundlib.getVersion" title="csoundengine.csoundlib.getVersion"><code class="xref py py-obj docutils literal notranslate"><span class="pre">getVersion</span></code></a>()</p></td>
+<td><p>Returns the csound version as tuple (major, minor, patch) so that ‘6.03.0’ is (6, 3, 0)</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.instrNames.html#csoundengine.csoundlib.instrNames" title="csoundengine.csoundlib.instrNames"><code class="xref py py-obj docutils literal notranslate"><span class="pre">instrNames</span></code></a>(instrdef)</p></td>
+<td><p>Returns the list of names/instrument numbers in the instrument definition.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.instrParseBody.html#csoundengine.csoundlib.instrParseBody" title="csoundengine.csoundlib.instrParseBody"><code class="xref py py-obj docutils literal notranslate"><span class="pre">instrParseBody</span></code></a>(body)</p></td>
+<td><p>Parses the body of the instrument and returns information about pfields used, output channels, etc.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.isBackendAvailable.html#csoundengine.csoundlib.isBackendAvailable" title="csoundengine.csoundlib.isBackendAvailable"><code class="xref py py-obj docutils literal notranslate"><span class="pre">isBackendAvailable</span></code></a>(backend)</p></td>
+<td><p>Returns True if the given audio backend is available</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.isJackRunning.html#csoundengine.csoundlib.isJackRunning" title="csoundengine.csoundlib.isJackRunning"><code class="xref py py-obj docutils literal notranslate"><span class="pre">isJackRunning</span></code></a>()</p></td>
+<td><p>Return True if jack is available and running</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.isPulseaudioRunning.html#csoundengine.csoundlib.isPulseaudioRunning" title="csoundengine.csoundlib.isPulseaudioRunning"><code class="xref py py-obj docutils literal notranslate"><span class="pre">isPulseaudioRunning</span></code></a>()</p></td>
+<td><p>Return True if Pulseaudio is running</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.joinCsd.html#csoundengine.csoundlib.joinCsd" title="csoundengine.csoundlib.joinCsd"><code class="xref py py-obj docutils literal notranslate"><span class="pre">joinCsd</span></code></a>(orc[, sco, options])</p></td>
+<td><p>Join an orc and a score (both as str), returns a consolidated csd as string</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">lru_cache</span></code>([maxsize, typed])</p></td>
+<td><p>Least-recently-used cache decorator.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.matrixAsGen23.html#csoundengine.csoundlib.matrixAsGen23" title="csoundengine.csoundlib.matrixAsGen23"><code class="xref py py-obj docutils literal notranslate"><span class="pre">matrixAsGen23</span></code></a>(outfile, mtx, dt[, t0, …])</p></td>
+<td><p>Save a numpy 2D array as gen23</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.matrixAsWav.html#csoundengine.csoundlib.matrixAsWav" title="csoundengine.csoundlib.matrixAsWav"><code class="xref py py-obj docutils literal notranslate"><span class="pre">matrixAsWav</span></code></a>(outfile, mtx, dt[, t0])</p></td>
+<td><p>Save the data in the 2D matrix <cite>mtx</cite> as a wav file.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.mincer.html#csoundengine.csoundlib.mincer" title="csoundengine.csoundlib.mincer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">mincer</span></code></a>(sndfile, outfile, timecurve, pitchcurve)</p></td>
+<td><p>Stretch/Pitchshift a soundfile using csound’s mincer opcode</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.nextpow2.html#csoundengine.csoundlib.nextpow2" title="csoundengine.csoundlib.nextpow2"><code class="xref py py-obj docutils literal notranslate"><span class="pre">nextpow2</span></code></a>(n)</p></td>
+<td><p>Returns the power of 2 higher or equal than n</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.normalizeInstrumentName.html#csoundengine.csoundlib.normalizeInstrumentName" title="csoundengine.csoundlib.normalizeInstrumentName"><code class="xref py py-obj docutils literal notranslate"><span class="pre">normalizeInstrumentName</span></code></a>(name)</p></td>
+<td><p>Transform name so that it can be accepted as an instrument name</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.opcodesList.html#csoundengine.csoundlib.opcodesList" title="csoundengine.csoundlib.opcodesList"><code class="xref py py-obj docutils literal notranslate"><span class="pre">opcodesList</span></code></a>([cached])</p></td>
+<td><p>Return a list of the opcodes present</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.parseScore.html#csoundengine.csoundlib.parseScore" title="csoundengine.csoundlib.parseScore"><code class="xref py py-obj docutils literal notranslate"><span class="pre">parseScore</span></code></a>(sco)</p></td>
+<td><p>Parse a score given as string, returns a seq.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.recInstr.html#csoundengine.csoundlib.recInstr" title="csoundengine.csoundlib.recInstr"><code class="xref py py-obj docutils literal notranslate"><span class="pre">recInstr</span></code></a>(body, events[, init, outfile, sr, …])</p></td>
+<td><p>Record one instrument for a given duration</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.runCsd.html#csoundengine.csoundlib.runCsd" title="csoundengine.csoundlib.runCsd"><code class="xref py py-obj docutils literal notranslate"><span class="pre">runCsd</span></code></a>(csdfile[, outdev, indev, backend, …])</p></td>
+<td><p>Run the given .csd as a csound subprocess</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.saveAsGen23.html#csoundengine.csoundlib.saveAsGen23" title="csoundengine.csoundlib.saveAsGen23"><code class="xref py py-obj docutils literal notranslate"><span class="pre">saveAsGen23</span></code></a>(data, outfile[, fmt, header])</p></td>
+<td><p>Saves the data to a gen23 table</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.testCsound.html#csoundengine.csoundlib.testCsound" title="csoundengine.csoundlib.testCsound"><code class="xref py py-obj docutils literal notranslate"><span class="pre">testCsound</span></code></a>([dur, nchnls, backend, device, …])</p></td>
+<td><p>Test the current csound installation for realtime output with the given configuration</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="id5">
+<h3>Classes<a class="headerlink" href="#id5" title="Permalink to this headline">¶</a></h3>
+<table class="longtable docutils align-default">
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 90%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.AudioBackend.html#csoundengine.csoundlib.AudioBackend" title="csoundengine.csoundlib.AudioBackend"><code class="xref py py-obj docutils literal notranslate"><span class="pre">AudioBackend</span></code></a>(name, alwaysAvailable, …[, …])</p></td>
+<td><p>An AudioBackend holds information about a csound audio backend</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.AudioDevice.html#csoundengine.csoundlib.AudioDevice" title="csoundengine.csoundlib.AudioDevice"><code class="xref py py-obj docutils literal notranslate"><span class="pre">AudioDevice</span></code></a>(index, id, name, kind[, ins, outs])</p></td>
+<td><p>An AudioDevice holds information about a an audio device for a given backend</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.Csd.html#csoundengine.csoundlib.Csd" title="csoundengine.csoundlib.Csd"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Csd</span></code></a>([sr, ksmps, nchnls, a4, options, …])</p></td>
+<td><p>A Csd object can be used to build a csound script by adding global code, instruments, score events, etc.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.CsoundProc.html#csoundengine.csoundlib.CsoundProc" title="csoundengine.csoundlib.CsoundProc"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CsoundProc</span></code></a>(proc, backend, outdev, sr, nchnls)</p></td>
+<td><p>A CsoundProc wraps a running csound subprocess</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">IO</span></code>()</p></td>
+<td><p>Generic base class for TextIO and BinaryIO.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.ParsedInstrBody.html#csoundengine.csoundlib.ParsedInstrBody" title="csoundengine.csoundlib.ParsedInstrBody"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ParsedInstrBody</span></code></a>(pfieldsIndexToName, …[, …])</p></td>
+<td><p><dl class="py attribute">
+<dt id="csoundengine.csoundlib.pfieldsIndexToName">
+<code class="sig-prename descclassname"><span class="pre">csoundengine.csoundlib.</span></code><code class="sig-name descname"><span class="pre">pfieldsIndexToName</span></code><a class="headerlink" href="#csoundengine.csoundlib.pfieldsIndexToName" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="api/csoundengine.csoundlib.ScoreEvent.html#csoundengine.csoundlib.ScoreEvent" title="csoundengine.csoundlib.ScoreEvent"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ScoreEvent</span></code></a>(kind, p1, int, float], start, …)</p></td>
+<td><p>A ScoreEvent represent an event line in the score</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 </div>
 
 
@@ -436,7 +712,7 @@ mechanisms as a Session.</p>
           </div>
           <footer>
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
-        <a href="api/csoundengine.engine.getEngine.html" class="btn btn-neutral float-right" title="getEngine" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="api/csoundengine.activeEngines.html" class="btn btn-neutral float-right" title="activeEngines" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
         <a href="Tutorial.html" class="btn btn-neutral float-left" title="Tutorial" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
     </div>
 

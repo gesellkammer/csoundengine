@@ -101,4 +101,5 @@ from .instr import Instr
 from .offline import Renderer
 from .config import config
 from .session import groupSynths
+from . import csoundlib
 

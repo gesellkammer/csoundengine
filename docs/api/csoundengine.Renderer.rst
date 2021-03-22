@@ -22,6 +22,7 @@ Renderer
       ~Renderer.setCsoundOptions
       ~Renderer.setp
       ~Renderer.strSet
+      ~Renderer.writeCsd
 
    .. rubric:: Methods Documentation
 
@@ -37,3 +38,4 @@ Renderer
    .. automethod:: setCsoundOptions
    .. automethod:: setp
    .. automethod:: strSet
+   .. automethod:: writeCsd
