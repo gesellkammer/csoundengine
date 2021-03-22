@@ -4,7 +4,7 @@
 from setuptools import setup
 
 readme = open('README.rst').read()
-version = (0, 1, 0)
+version = (0, 1, 1)
 
 setup(
     name='csoundengine',
