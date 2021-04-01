@@ -11,10 +11,13 @@ Renderer
    .. autosummary::
 
       ~Renderer.addGlobalCode
+      ~Renderer.assignBus
       ~Renderer.automatep
       ~Renderer.generateCsd
       ~Renderer.getEventById
       ~Renderer.getEventsByP1
+      ~Renderer.playSample
+      ~Renderer.readSoundfile
       ~Renderer.registerInstr
       ~Renderer.registeredInstrs
       ~Renderer.render
@@ -27,10 +30,13 @@ Renderer
    .. rubric:: Methods Documentation
 
    .. automethod:: addGlobalCode
+   .. automethod:: assignBus
    .. automethod:: automatep
    .. automethod:: generateCsd
    .. automethod:: getEventById
    .. automethod:: getEventsByP1
+   .. automethod:: playSample
+   .. automethod:: readSoundfile
    .. automethod:: registerInstr
    .. automethod:: registeredInstrs
    .. automethod:: render

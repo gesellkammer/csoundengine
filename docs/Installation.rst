@@ -13,7 +13,7 @@ Dependencies
 `csoundengine` has following dependencies:
 
 * csound >= 6.15 (https://github.com/csound/csound/releases)
-* csound-plugins (https://github.com/csound-plugins/csound-plugins/releases)
+* csound-plugins >= 1.3.1 (https://github.com/csound-plugins/csound-plugins/releases)
 
 
 --------------
@@ -42,7 +42,7 @@ Install csound-plugins
 ^^^^^^^^^^^^^^^^^^^^^^
 
 Download the linux package from https://github.com/csound-plugins/csound-plugins/releases, unzip 
-and copy the contents to `/usr/local/lib/csound/plugins64-6.0`
+and copy the contents to ``/usr/local/lib/csound/plugins64-6.0``
 
 --------------
 
@@ -52,13 +52,13 @@ macOS
 Install csound
 ^^^^^^^^^^^^^^
 
-Download and install the `.dmg` package from https://github.com/csound/csound/releases
+Download and install the ``.dmg`` package from https://github.com/csound/csound/releases
 
 Install csound-plugins
 ^^^^^^^^^^^^^^^^^^^^^^
 
 Download the macOS package from https://github.com/csound-plugins/csound-plugins/releases, unzip 
-and copy the contents to `/Library/Frameworks/CsoundLib64.framework/Versions/6.0/Resources/Opcodes64`
+and copy the contents to ``/Library/Frameworks/CsoundLib64.framework/Versions/6.0/Resources/Opcodes64``
 (which should exist and be already populated with the plugins shipped with csound itself)
 
 
@@ -76,6 +76,6 @@ Install csound-plugins
 ^^^^^^^^^^^^^^^^^^^^^^
 
 Download the windows package from https://github.com/csound-plugins/csound-plugins/releases, unzip 
-and copy the contents to `C:\Program Files\Csound6_x64\plugins64` (which should exist and be already 
+and copy the contents to ``C:\Program Files\Csound6_x64\plugins64`` (which should exist and be already
 populated with the plugins shipped with csound itself)
 

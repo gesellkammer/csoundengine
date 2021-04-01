@@ -1,84 +1,38 @@
 from __future__ import annotations
 from string import Template
+from functools import lru_cache
+from typing import List
+import re
 
+# In all templates we make the difference between substitutions which
+# are constant (with the form ${subst} and substitutions which respond
+# to the configuration of a specific engine / offline renderer ({subst})
 
 _orc = r"""
-sr     = {sr}
-ksmps  = {ksmps}
-nchnls = {nchnls}
-nchnls_i = {nchnls_i}
+sr     = ${sr}
+ksmps  = ${ksmps}
+nchnls = ${nchnls}
+nchnls_i = ${nchnls_i}
 0dbfs  = 1
-A4     = {a4}
+A4     = ${a4}
 
-{includes}
+${includes}
 
 gi__responses ftgen  ${responses}, 0, ${numtokens}, -2, 0
 gi__subgains  ftgen  ${subgains},  0, 100, -2, 1
-ga__buses[] init {numAudioBuses}
-gi__busrefs ftgen ${busrefs}, 0, {numAudioBuses}, -2, 0
+gi__tokenToInstrnum ftgen ${tokenToInstrnum}, 0, ${maxNumInstrs}, -2, 0
 
-{globalcode}
-
+${globalcode}
 
 ; ---------------------------------
 ;          builtin-instruments
 ; ---------------------------------
 
-instr _init
+instr __init
     ftset gi__subgains, 1
     prints "<<< Init done >>>\n"
     turnoff
 endin
-
-instr ${highestInstrnum}
-    ; this is used to prevent a crash when an opcode is defined as part 
-    ; of globalcode, and later on an instr is defined with a high instrnum
-    turnoff
-endin
-
-instr ${cleanbuses}
-    zeroarray ga__buses
-endin
-
-opcode _bususe, 0, i
-    iidx xin
-    ; prints "using bus %d \n", iidx
-    ival tab_i iidx, gi__busrefs
-    tabw_i ival+1, iidx, gi__busrefs
-    atstop "_busdec", 0, -1, iidx
-endop
-
-instr _busdec
-    iidx = p4
-    ival tab_i iidx, gi__busrefs
-    tabw_i ival-1, iidx, gi__busrefs
-endin
-
-opcode busnew, i, 0
-    iidx ftfind gi__busrefs, 0
-    if iidx < 0 then
-        initerror "Out of buses"
-    endif
-    xout iidx    
-endop
-
-opcode busmix, 0, ia
-    iidx, asig xin
-    _bususe(iidx)
-    ga__buses[iidx] = ga__buses[iidx] + asig
-endop
-
-opcode busout, 0, ia
-    iidx, asig xin
-    _bususe(iidx)
-    ga__buses[iidx] = asig
-endop
-
-opcode busin, a, i
-    iidx xin
-    _bususe(iidx)
-    xout ga__buses[iidx]
-endop
 
 opcode _panstereo, aa, aak
     ; kpos: 0-1
@@ -110,8 +64,9 @@ instr ${nstrnum}
         tabw_i inum, itoken, gi__responses
         outvalue "__sync__", itoken
     endif
+    turnoff
 endin
-
+     
 instr ${tabwrite}
     itab = p4
     iidx = p5
@@ -124,17 +79,6 @@ instr ${chnset}
     Schn = p4
     ival = p5
     chnset ival, Schn
-    turnoff
-endin
-
-; this is used to fill a table with the given pargs
-instr ${filltable}
-    itoken, ifn, itabidx, ilen passign 4
-    iArgs[] passign 8, 8+ilen
-    copya2ftab iArgs, ifn, itabidx
-    if itoken > 0 then
-        outvalue "__sync__", itoken
-    endif
     turnoff
 endin
 
@@ -160,8 +104,6 @@ instr ${maketable}
     iempty = p7
     isr = p8
     inumchannels = p9
-    prints ">>> instr maketable\n"
-
     if (iempty == 1) then
         ifn ftgen itabnum, 0, ilen, -2, 0
     else
@@ -224,46 +166,6 @@ instr ${automateTableViaTable}
     tablew ky, iargidx, iargtab
 endin
 
-instr ${automate}
-    iargtab = p4
-    iargidx = p5
-    inumpairs = p6
-    imode = p7   ; 0 = linear, 1 = cos, 2 = lag
-    iparam = p8
-    idataidx = 9
-
-    if ftexists:i(iargtab) == 0 then
-        initerror sprintf("Table %d doesn't exist", iargtab)
-    endif
-    if ftlen(iargtab) <= iargidx then
-        initerror sprintf("Table too small (%d <= %d)", ftlen(iargtab), iargidx)
-    endif
-
-    ilen = inumpairs*2
-    iValues[] passign idataidx, idataidx+ilen
-    ; WTF: slicearray's end index is inclusive
-    iXs[] slicearray iValues, 0, ilen-1, 2
-    iYs[] slicearray iValues, 1, ilen-1, 2
-    kt timeinsts
-    if imode == 0 then
-        ky bpf kt, iXs, iYs
-    elseif imode == 1 then
-        ky bpfcos kt, iXs, iYs
-    elseif imode == 2 then
-        ky bpf kt, iXs, iYs
-        ilagtime = max(iparam, 0.05)
-        ky = lag(ky, ilagtime)
-    else
-        throwerror "init", sprintf("imode %d not supported", imode)
-    endif
-    if ftexists:k(iargtab) == 0 then
-        throwerror "warning", \
-            sprintf("automate: dest table (%d) was freed, stopping", iargtab)
-        turnoff
-    endif
-    tablew ky, iargidx, iargtab
-endin
-
 instr ${uniqinstance}
     itoken = p4
     ip1    = p5
@@ -306,12 +208,12 @@ instr ${playsndfile}
     ifade  = p8
     idur = filelen(Spath)
     know init 0
-    iwsize = ispeed == 1 ? 1 : 4
+    iwsize = 4   ; cubic interpolation
     aouts[] diskin2 Spath, kspeed, 0, 0, 0, iwsize
     inumouts = lenarray(aouts)
     ichans[] genarray ichan, ichan+inumouts-1
     aenv linsegr 0, ifade, 1, ifade, 0
-    aenv *= intrp(kgain)
+    aenv *= interp(kgain)
     aouts = aouts * aenv
     poly0 inumouts, "outch", ichans, aouts
     know += 1/kspeed
@@ -396,10 +298,10 @@ instr ${testaudio}
     imode passign 4
     kchan init -1
     if imode == 0 then
-        ; prints "Testaudio: pink noise mode\n"
+        prints "Testaudio: pink noise mode\n"
         a0 pinker
     elseif imode == 1 then
-        ; prints "Testaudio: sine tone mode\n"
+        prints "Testaudio: sine tone mode\n"
         a0 oscili 0.1, 1000
     endif
     kswitch metro 1
@@ -410,32 +312,120 @@ instr ${testaudio}
     endif
 endin
 
-schedule "_init", 0, 1
+schedule "__init", 0, 1
 
 """
 
-_instrNames = [
-    'turnoff',
-    'chnset',
-    'filltable',
-    'freetable',
-    'maketable',
-    'playsndfile',
-    'uniqinstance',
-    'scheduniq',
-    'strset',
-    'playgen1',
-    'ftsetparams',
-    'pwrite',
-    'automate',
-    'testaudio',
-    'tabwrite',
-    'automateTableViaTable',
-    'automatePargViaTable',
-    'readSndfile',
-    'pingback',
-    'nstrnum'
-]
+_busOrc = r'''
+
+; The actual buses
+ga__buses[]   init ${numAudioBuses}
+
+; This table keeps track of the number of references a bus has
+gi__busrefs ftgen 0, 0, ${numAudioBuses}, -2, 0
+
+; A pool of bus indexes
+gi__buspool pool_gen ${numAudioBuses}
+
+; A dict mapping bustoken to bus number
+gi__bustoken2num dict_new "int:float"
+
+chn_k "_busTokenCount", 3
+
+instr __businit
+    chnset 0, "_busTokenCount"
+    prints "__businit done!\n"
+    turnoff
+endin
+
+instr ${clearbuses}
+    zeroarray ga__buses
+endin
+
+opcode busassign, i, j
+    itoken xin
+    if itoken == -1 then
+        itoken chnget "_busTokenCount"
+    endif
+    ibus pool_pop gi__buspool, -1
+    if ibus == -1 then
+        initerror "busassign failed, out of buses"
+    endif
+    dict_set gi__bustoken2num, itoken, ibus
+    chnset itoken+1, "_busTokenCount"
+    xout ibus
+endop
+
+instr _busassign
+    itoken = p4
+    ibus busassign itoken
+    turnoff
+endin
+
+instr _busrelease
+    itoken = p4
+    ibus dict_get gi__bustoken2num, itoken, -1
+    if ibus == -1 then
+        initerror sprintf("itoken %d has no bus assigned to it", itoken)
+    endif
+    irefs tab_i ibus, gi__busrefs
+    if irefs <= 1 then
+        if pool_isfull:i(gi__buspool) == 1 then
+            initerror "Bus pool is full!"
+        endif
+        pool_push gi__buspool, ibus
+        dict_del gi__bustoken2num, itoken
+        tabw_i 0, ibus, gi__busrefs
+    else   
+        tabw_i irefs-1, ibus, gi__busrefs
+    endif
+    turnoff    
+endin
+
+opcode _bususe, i, i
+    itoken xin
+    ibus dict_get gi__bustoken2num, itoken, -1
+    if ibus == -1 then
+        ibus = busassign(itoken)
+    endif
+    irefs tab_i ibus, gi__busrefs
+    tabw_i irefs+1, ibus, gi__busrefs
+    atstop "_busrelease", 0, 0.1, itoken
+    xout ibus
+endop
+
+opcode busin, a, i
+    itoken xin
+    ibus = _bususe(itoken)
+    xout ga__buses[ibus]
+endop
+
+opcode busout, 0, ia
+    itoken, asig xin
+    ibus = _bususe(itoken)
+    ga__buses[ibus] = asig
+endop
+
+opcode busmix, 0, ia
+    itoken, asig xin
+    ibus = _bususe(itoken)
+    ga__buses[ibus] = ga__buses[ibus] + asig
+endop
+
+schedule "__businit", 0, 1
+'''
+
+
+def _extractInstrNames(s:str) -> List[str]:
+    names = []
+    for line in s.splitlines():
+        if match := re.search(r"\binstr\s+\$\{(\w+)\}", line):
+            instrname = match.group(1)
+            names.append(instrname)
+    return names
+
+
+_instrNames = _extractInstrNames(_orc)
 
 # Constants
 CONSTS = {
@@ -446,16 +436,45 @@ CONSTS = {
     'reservedTablesStart': 500,
     'reservedInstrsStart': 500,
     'numReservedTables': 2000,
+    'maxNumInstrs': 10000
 }
 
-_tableNames = ['responses', 'subgains', 'busrefs']
+_tableNames = ['responses', 'subgains', 'tokenToInstrnum']
 
 BUILTIN_INSTRS = {k:i for i, k in enumerate(_instrNames, start=CONSTS['reservedInstrsStart'])}
-BUILTIN_INSTRS['cleanbuses'] = CONSTS['postProcInstrnum']
+BUILTIN_INSTRS['clearbuses'] = CONSTS['postProcInstrnum']
 BUILTIN_TABLES = {name:i for i, name in enumerate(_tableNames, start=1)}
 
 
-ORC_TEMPLATE = Template(_orc).safe_substitute(
-            **{name: f"{num} ; {name}" for name, num in BUILTIN_INSTRS.items()},
-            **BUILTIN_TABLES,
-            **CONSTS)
+@lru_cache(maxsize=0)
+def orcTemplate(busSupport=True) -> Template:
+    parts = [_orc]
+    if busSupport:
+        parts.append(_busOrc)
+    orc = "\n".join(parts)
+    subs = {name:f"{num} ; {name}" for name, num in BUILTIN_INSTRS.items()}
+    subs.update(BUILTIN_TABLES)
+    subs.update(CONSTS)
+    return Template(Template(orc).safe_substitute(**subs))
+
+
+
+def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
+            backend:str, a4:float, globalcode:str="", includestr:str="",
+            numAudioBuses:int=32):
+    template = orcTemplate(busSupport=numAudioBuses>0)
+    return template.substitute(
+            sr=sr,
+            ksmps=ksmps,
+            nchnls=nchnls,
+            nchnls_i=nchnls_i,
+            backend=backend,
+            a4=a4,
+            globalcode=globalcode,
+            includes=includestr,
+            numAudioBuses=numAudioBuses)
+
+
+def busSupportCode(numAudioBuses:int, clearBusesInstrnum:int) -> str:
+    return Template(_busOrc).substitute(numAudioBuses=numAudioBuses,
+                                        clearbuses=f'{clearBusesInstrnum} ;  clearbuses')

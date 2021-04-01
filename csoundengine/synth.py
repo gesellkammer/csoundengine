@@ -47,7 +47,7 @@ class AbstrSynth:
     def isPlaying(self) -> bool:
         raise NotImplementedError()
 
-    def wait(self, pollinterval: float = None, sleepfunc=time.sleep) -> None:
+    def wait(self, pollinterval: float = 0.02, sleepfunc=time.sleep) -> None:
         """
         Wait until this synth has stopped
 
@@ -55,8 +55,6 @@ class AbstrSynth:
             pollinterval: polling interval in seconds
             sleepfunc: the function to call when sleeping, defaults to time.sleep
         """
-        if pollinterval is None:
-            pollinterval = max(0.01, config['wait_poll_interval'])
         tools.setSigintHandler()
         try:
             while self.isPlaying():

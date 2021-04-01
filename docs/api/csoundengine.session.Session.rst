@@ -17,7 +17,6 @@ Session
    .. autosummary::
 
       ~Session.activeSynths
-      ~Session.defBuiltinInstrs
       ~Session.defInstr
       ~Session.findSynthsByName
       ~Session.getInstr
@@ -43,7 +42,6 @@ Session
    .. rubric:: Methods Documentation
 
    .. automethod:: activeSynths
-   .. automethod:: defBuiltinInstrs
    .. automethod:: defInstr
    .. automethod:: findSynthsByName
    .. automethod:: getInstr

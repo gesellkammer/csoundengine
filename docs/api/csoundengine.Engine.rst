@@ -19,11 +19,11 @@ Engine
       ~Engine.assignBus
       ~Engine.automateTable
       ~Engine.automatep
+      ~Engine.bufferLatency
+      ~Engine.compile
       ~Engine.controlLatency
-      ~Engine.defInstr
       ~Engine.evalCode
       ~Engine.fillTable
-      ~Engine.freeBus
       ~Engine.freeTable
       ~Engine.getControlChannel
       ~Engine.getTableData
@@ -38,7 +38,6 @@ Engine
       ~Engine.restart
       ~Engine.sched
       ~Engine.schedCallback
-      ~Engine.sendCode
       ~Engine.session
       ~Engine.setChannel
       ~Engine.setSubGain
@@ -55,7 +54,7 @@ Engine
       ~Engine.udpSendScoreline
       ~Engine.udpSetChannel
       ~Engine.unsched
-      ~Engine.unschedFuture
+      ~Engine.unschedAll
 
    .. rubric:: Attributes Documentation
 
@@ -66,11 +65,11 @@ Engine
    .. automethod:: assignBus
    .. automethod:: automateTable
    .. automethod:: automatep
+   .. automethod:: bufferLatency
+   .. automethod:: compile
    .. automethod:: controlLatency
-   .. automethod:: defInstr
    .. automethod:: evalCode
    .. automethod:: fillTable
-   .. automethod:: freeBus
    .. automethod:: freeTable
    .. automethod:: getControlChannel
    .. automethod:: getTableData
@@ -85,7 +84,6 @@ Engine
    .. automethod:: restart
    .. automethod:: sched
    .. automethod:: schedCallback
-   .. automethod:: sendCode
    .. automethod:: session
    .. automethod:: setChannel
    .. automethod:: setSubGain
@@ -102,4 +100,4 @@ Engine
    .. automethod:: udpSendScoreline
    .. automethod:: udpSetChannel
    .. automethod:: unsched
-   .. automethod:: unschedFuture
+   .. automethod:: unschedAll

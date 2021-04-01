@@ -18,5 +18,7 @@ The source code of this package lives in https://github.com/gesellkammer/csounde
    Installation
    Tutorial
    Reference
+   Builtin-Opcodes
+
 
 

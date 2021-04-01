@@ -36,6 +36,8 @@ from .config import config
 from . import csoundlib
 from .instr import Instr
 from . import tools
+from . import engineorc
+
 from emlib import misc, iterlib
 import numpy as np
 
@@ -76,7 +78,7 @@ class Renderer:
         bucketsize: max. number of instruments per priority group
 
     """
-    _builtinInstrs = '''
+    _offlineOrc = '''
         instr _automatePargViaTable
           ip1 = p4
           ipindex = p5
@@ -113,12 +115,11 @@ class Renderer:
           endif
           turnoff
         endin
-
     '''
 
     def __init__(self, sr: int = None, nchnls: int = 2, ksmps: int = None,
-                 a4: float = None,
-                 maxpriorities=10, bucketsize=100):
+                 a4: float = None, maxpriorities=10, bucketsize=100,
+                 numAudioBuses=1000):
         """
 
         """
@@ -136,11 +137,14 @@ class Renderer:
         self._instrdefs: Dict[str, Instr] = {}
         self._instanceCounters: Dict[int, int] = {}
         self._numInstancesPerInstr = 10000
+        self._numAudioBuses = numAudioBuses
 
         # a list of i events, starting with p1
         self.events: List[List[float]] = []
         self.unscheduledEvents: List[List[float]] = []
-        self._csd.addGlobalCode(_textwrap.dedent(self._builtinInstrs))
+        self._csd.addGlobalCode(_textwrap.dedent(self._offlineOrc))
+        self._busSystemInitialized = False
+        self._busTokenCount = 0
 
     def _commitInstrument(self, instrname: str, priority=1) -> int:
         """
@@ -212,7 +216,6 @@ class Renderer:
               priority=1,
               pargs: U[List[float], Dict[str, float]] = None,
               tabargs: Dict[str, float] = None,
-              unique: bool = True,
               **pkws) -> ScoreEvent:
         """
         Schedule an event
@@ -228,7 +231,6 @@ class Renderer:
             tabargs: a dict of the form param: value, to initialize
                 values in the exchange table (if defined by the given
                 instrument)
-            unique: if True, schedule a unique instance.
 
         Returns:
             a ScoreEvent, holding the csound event (p1, start, dur, args)
@@ -243,12 +245,25 @@ class Renderer:
         else:
             tabnum = 0
         args = tools.instrResolveArgs(instr, tabnum, pargs, pkws)
-        p1 = self._getUniqueP1(instrnum) if unique else instrnum
+        p1 = self._getUniqueP1(instrnum)
         self._csd.addEvent(p1, start=delay, dur=dur, args=args)
         eventId = self._generateEventId()
         event = ScoreEvent(p1, delay, dur, args, eventId)
         self._eventsIndex[eventId] = event
         return event
+
+    def _initBusSystem(self) -> None:
+        if self._busSystemInitialized:
+            return
+        code = engineorc.busSupportCode(numAudioBuses=self._numAudioBuses)
+        self._csd.addGlobalCode(code)
+        self._busSystemInitialized = True
+
+    def assignBus(self) -> int:
+        self._initBusSystem()
+        token = self._busTokenCount
+        self._busTokenCount += 1
+        return token
 
     def _generateEventId(self) -> int:
         out = self._idCounter
@@ -408,6 +423,15 @@ class Renderer:
         args = [event.p1, len(pairs)//2]
         args.extend(pairs)
         self._csd.addEvent("_pwrite", start=delay, dur=0.1, args=args)
+
+    def readSoundfile(self, path: str, tabnum:int=None, chan=0, start=0) -> int:
+        return self._csd.addSndfile(sndfile=path, tabnum=tabnum, start=start)
+
+    def playSample(self, tabnum:int, delay=0., chan=1, speed=1., gain=1., fade=0.,
+                   starttime=0., dur=-1) -> None:
+        self._csd.playTable(tabnum=tabnum, start=delay, dur=dur,
+                            gain=gain, speed=speed, chan=chan, fade=fade,
+                            skip=starttime)
 
     def automatep(self, event: ScoreEvent, param: str,
                   pairs: U[List[float], np.ndarray],

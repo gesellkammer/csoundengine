@@ -4,9 +4,9 @@ csound process. The core is a Session, which is associated with an Engine
 (there can be only one Session per Engine) and enables following features:
 
 * Declaration of instrument templates which are independent of their
-  order of evaluation (:class:`Instr`)
+  order of evaluation (:class:`~csoundengine.instr.Instr`)
 * pfields default values and names
-* Associated parameter table. An :class:`Instr` can define a table with
+* Associated parameter table. An :class:`csoundengine.instr.Instr` can define a table with
   named slots. This can be used to exchange information with a specific
   instrument instance
 * Inline pfield declaration
@@ -31,12 +31,13 @@ An Instr can define default values for any of its p-fields:
 .. code::
 
     s = Engine().getSession()
-    Intr('sine', args={'kamp': 0.1, 'kfreq': 1000, body=r'''
+    Intr('sine', r'''
         kamp = p5
         kfreq = p6
         a0 = oscili:a(kamp, kfreq)
         outch 1, a0
-    ''').register(s)
+    ''', args={'kamp': 0.1, 'kfreq': 1000}
+    ).register(s)
     # We schedule an event of sine, kamp will take the default (0.1)
     synth = s.sched('sine', kfreq=440)
     synth.stop()
@@ -62,7 +63,7 @@ The same can be achieved via an associated table:
     Intr('sine', r'''
         a0 = oscili:a(kamp, kfreq)
         outch 1, a0
-    ''', tabledef=dict(amp=0.1, freq=1000
+    ''', tabledef=dict(amp=0.1, freq=1000)
     ).register(s)
     synth = s.sched('sine', tabargs=dict(freq=440))
     synth.stop()
@@ -119,7 +120,6 @@ if TYPE_CHECKING:
 __all__ = [
     'Session',
     'getSession',
-    'Bus'
 ]
 
 @dataclasses.dataclass
@@ -137,73 +137,6 @@ class _ReifiedInstr:
     qname: str
     instrnum: int
     priority: int
-
-
-class Bus:
-    """
-    A Bus is used to send/mix audio between instruments to build processing
-    chains. A Bus is allocated by python and the bus number is passed
-    to an instance to read/write to the bus. It is used in conjuction
-    with the opcodes `busin`, `busout` and `busmix`. A Bus is **reference
-    counted** and disposed when the last client ceases to use it.
-
-    Example
-    =======
-
-        >>> e = Engine(...)
-        >>> e.defInstr('''
-        ... instr 10
-        ...   ibus = p4
-        ...   asig vco2 0.1, kfreq
-        ...   busout(ibus, asig)
-        ... endin
-        ... ''')
-        >>> e.defInstr('''
-        ... instr 20
-        ...   ibus = p4
-        ...   asig = busin(ibus)
-        ...   ; do something with asig
-        ...   asig *= 0.5
-        ...   outch 1, asig
-        ... ''')
-        >>> bus = Bus(e)
-        >>> s1 = e.sched(10, 0, 4, (bus.busnum,))
-        >>> s2 = e.sched(20, 0, 4, (bus.busnum,))
-        # The bus can be freed but it will still remain allocated
-        # as long as there are clients accessing it
-        >>> bus.free()
-
-    """
-
-    def __init__(self, engine: U[str, Engine], busnum: int = None):
-        if busnum is None:
-            engine = engine if isinstance(engine, Engine) else getEngine(engine)
-            busnum = engine.assignBus()
-        self.busnum = busnum
-        self.engineName: str = engine if isinstance(engine, str) else engine.name
-        self._freed = False
-
-    def __repr__(self):
-        return f"Bus({self.busnum}, engine='{self.engineName}'"
-
-    def __int__(self):
-        return self.busnum
-
-    def __float__(self):
-        return float(self.busnum)
-
-    def free(self) -> None:
-        """ Free this Bus. Bear in mind that if the bus is still being used
-        by any instr instance it will not be freed immediately but when all
-        clients of the bus have stopped """
-        if self._freed:
-            return
-        if engine := getEngine(self.engineName):
-            engine.freeBus(self.busnum)
-            self._freed = True
-
-    def __del__(self):
-        self.free()
 
 
 class Session:
@@ -466,12 +399,12 @@ class Session:
             # An instr with named table args
             >>> session.defInstr('filter', '''
             ... {bus=0, cutoff=1000, resonance=0.9}
-            ... a0 = busget(kbus)
+            ... a0 = busin(kbus)
             ... a0 = moogladder2(a0, kcutoff, kresonance)
             ... outch 1, a0
             ... ''')
 
-            >>> bus = session.engine.newBus()
+            >>> bus = session.engine.assignBus()
             >>> synth = session.sched('sine', 0, dur=10, ibus=bus, kmidi=67)
             >>> synth.setp(kmidi=60, delay=2)
 
@@ -496,7 +429,7 @@ class Session:
         oldinstr = self.instrRegistry.get(instr.name)
         if instr.init and (oldinstr is None or instr.init != oldinstr.init):
             self._initCodes.append(instr.init)
-            self.engine.sendCode(instr.init)
+            self.engine.compile(instr.init)
         self._clearCacheForInstr(instr.name)
         self.instrRegistry[instr.name] = instr
 
@@ -524,8 +457,8 @@ class Session:
         qname = f"{name}:{priority}"
         instrdef = self.instrRegistry.get(name)
         instrnum = self._registerInstrAtPriority(name, priority)
-        instrtxt = tools.instrWrapBody(instrdef.body, instrnum)
-        self.engine.defInstr(instrcode=instrtxt)
+        instrtxt = tools.instrWrapBody(instrdef.body, instrnum, addNotificationCode=True)
+        self.engine.compile(instrtxt)
         rinstr = _ReifiedInstr(qname, instrnum, priority)
         self._registerReifiedInstr(name, priority, rinstr)
         return rinstr
@@ -568,7 +501,7 @@ class Session:
         rinstr = self._prepareSched(instrname, priority)
         return rinstr.instrnum
 
-    def newBus(self, kind='audio') -> Bus:
+    def newBus(self, kind='audio') -> int:
         """ Creates a bus in the engine
 
         Example
@@ -587,15 +520,15 @@ class Session:
         ... asig *= 0.5
         ... outch 1, asig
         ... ''')
-        >>> bus = s.newBus()
-        >>> chain = [s.sched('sender', ibus=bus.busnum),
-        ...          s.sched('reveiver', ibus=bus.busnum)]
+        >>> bus = s.assignBus()
+        >>> chain = [s.sched('sender', ibus=bus),
+        ...          s.sched('reveiver', ibus=bus)]
         >>> for synth in chain:
         ...     synth.stop()
         """
         if kind != 'audio':
-            raise ValueError("For now only audio buses are implemented")
-        return Bus(self.engine)
+            raise ValueError("Only audio buses are supported")
+        return self.engine.assignBus()
 
     def sched(self,
               instrname: str,
@@ -724,7 +657,7 @@ class Session:
             self.unsched(synthid, delay=0)
 
         if force or (cancel_future and futureSynths):
-            self.engine.unschedFuture()
+            self.engine.unschedAll()
             self._synths.clear()
 
     def findSynthsByName(self, instrname: str) -> List[Synth]:
@@ -745,7 +678,7 @@ class Session:
         self.engine.restart()
         for i, initcode in enumerate(self._initCodes):
             print(f"code #{i}: initCode")
-            self.engine.sendCode(initcode)
+            self.engine.compile(initcode)
 
     def readSoundfile(self, path: str, chan=0, free=False) -> TableProxy:
         """
@@ -970,7 +903,7 @@ def groupSynths(synths: List[AbstrSynth]) -> SynthGroup:
     ... asig *= 0.5
     ... outch 1, asig
     ... ''')
-    >>> bus = s.newBus()
+    >>> bus = s.assignBus()
     >>> chain = groupSynths([s.sched('sender', ibus=bus.busnum),
     ...                    s.sched('reveiver', ibus=bus.busnum)])
     >>> chain[0].setp('kfreq', 440)

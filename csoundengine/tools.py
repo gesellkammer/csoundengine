@@ -125,16 +125,17 @@ def instrResolveArgs(instr: Instr,
         allargs.extend(instr.pargsTranslate(kws=pargs))
     return allargs
 
-def instrWrapBody(body:str, instrnum:int, comment:str= '', notify=True) -> str:
+def instrWrapBody(body:str, instrid:U[int, str], comment:str= '',
+                  addNotificationCode=False) -> str:
     s = """
 instr {instrnum}  {commentstr}
     {notifystr}
     {body}
 endin
     """
-    notifystr  = 'atstop "_notifyDealloc", 0, 0.1, p1' if notify else ''
+    notifystr  = 'atstop "_notifyDealloc", 0, 0.1, p1' if addNotificationCode else ''
     commentstr = "; " + comment if comment else ""
-    s = s.format(instrnum=instrnum, body=body, notifystr=notifystr,
+    s = s.format(instrnum=instrid, body=body, notifystr=notifystr,
                  commentstr=commentstr)
     s = textwrap.dedent(s)
     return s

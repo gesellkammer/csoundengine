@@ -1,3 +1,7 @@
+"""
+This module provides many utilities based on the csound binary
+
+"""
 from __future__ import annotations
 
 import math as _math
@@ -8,13 +12,13 @@ import re
 import shutil as _shutil
 import logging as _logging
 import textwrap as _textwrap
-import io
-import tempfile
+import io as _io
+import tempfile as _tempfile
 import cachetools
 import dataclasses
 from typing import List, Union as U, Optional as Opt, Generator, \
-    Sequence as Seq, Dict, Tuple, IO, NamedTuple, Callable
-from functools import lru_cache
+    Sequence as Seq, Dict, Tuple, Callable
+from functools import lru_cache as _lru_cache
 
 import numpy as np
 
@@ -345,14 +349,14 @@ endin
     orc = _textwrap.dedent(orc)
     logger.debug(orc)
     csd = joinCsd(orc, sco=sco)
-    tmp = tempfile.mktemp(suffix=".csd")
+    tmp = _tempfile.mktemp(suffix=".csd")
     open(tmp, "w").write(csd)
     proc = runCsd(tmp, outdev=device, backend=backend)
     return CsoundProc(proc=proc, backend=backend, outdev=device, sr=sr,
                       nchnls=nchnls, csdstr=csd)
     
-
-class ScoreEvent(NamedTuple):
+@dataclasses.dataclass
+class ScoreEvent:
     """
     A ScoreEvent represent an event line in the score
 
@@ -978,19 +982,21 @@ class Csd:
         pargs = (tabnum, 0, -size, -2, 0)
         return self._addTable(pargs)
 
-    def addSndfile(self, sndfile:str, tabnum=0, start=0.) -> int:
+    def addSndfile(self, sndfile:str, tabnum=0, start=0., skiptime=0, chan=0) -> int:
         """ Add a table which will load this sndfile
 
         Args:
             sndfile: the soundfile to load
             tabnum: fix the table number or use 0 to generate a unique table number
             start: when to load this soundfile (normally this should be left 0)
+            skiptime: begin reading at `skiptime` seconds into the file.
+            chan: channel number to read. 0 denotes read all channels.
 
         Returns:
             the table number
             """
         tabnum = self._assignTableIndex(tabnum)
-        pargs = [tabnum, start, 0, -1, sndfile, 0, 0, 0]
+        pargs = [tabnum, start, 0, -1, sndfile, skiptime, 0, chan]
         self._addTable(pargs)
         return tabnum
 
@@ -1032,7 +1038,7 @@ class Csd:
             self.setOptions(option)
             self._sampleFormat = option
 
-    def writeScore(self, stream:IO) -> None:
+    def writeScore(self, stream) -> None:
         """
         Write the score to `stream`
 
@@ -1063,7 +1069,7 @@ class Csd:
 
     def dump(self) -> str:
         """ Returns a string with the .csd """
-        stream = io.StringIO()
+        stream = _io.StringIO()
         self.writeCsd(stream)
         return stream.getvalue()
 
@@ -1085,7 +1091,7 @@ class Csd:
         args = [gain, speed, tabnum, chan, fade, skip]
         self.addEvent('_playgen1', start=start, dur=dur, args=args)
 
-    def writeCsd(self, stream:U[str, IO]) -> None:
+    def writeCsd(self, stream) -> None:
         """
         Args:
             stream: the stream to write to. Either an open file, a io.StringIO
@@ -1181,7 +1187,7 @@ class Csd:
         if self._sampleFormat is None and not output.startswith('dac'):
             self.setSampleFormat(bestSampleFormatForExtension(os.path.splitext(output)[1]))
 
-        tmp = tempfile.mktemp(suffix=".csd")
+        tmp = _tempfile.mktemp(suffix=".csd")
         with open(tmp, "w") as f:
             self.writeCsd(f)
         logger.debug(f"Csd.run :: tempfile = {tmp}")
@@ -1252,9 +1258,9 @@ def mincer(sndfile:str, outfile:str,
     assert isinstance(pitchcurve, (int, float, bpf.core.BpfInterface))
     ts = np.arange(t0, t1+dt, dt)
     fmt = "%.12f"
-    _, time_gen23 = tempfile.mkstemp(prefix='time-', suffix='.gen23')
+    _, time_gen23 = _tempfile.mkstemp(prefix='time-', suffix='.gen23')
     np.savetxt(time_gen23, timebpf.map(ts), fmt=fmt, header=str(dt), comments="")
-    _, pitch_gen23 = tempfile.mkstemp(prefix='pitch-', suffix='.gen23')
+    _, pitch_gen23 = _tempfile.mkstemp(prefix='pitch-', suffix='.gen23')
     np.savetxt(pitch_gen23, pitchbpf.map(ts), fmt=fmt, header=str(dt), comments="")
     csd = f"""
     <CsoundSynthesizer>
@@ -1318,7 +1324,7 @@ def mincer(sndfile:str, outfile:str,
     </CsScore>
     </CsoundSynthesizer>
     """
-    _, csdfile = tempfile.mkstemp(suffix=".csd")
+    _, csdfile = _tempfile.mkstemp(suffix=".csd")
     with open(csdfile, "w") as f:
         f.write(csd)
     subprocess.call(["csound", "-f", csdfile])
@@ -1376,7 +1382,7 @@ def recInstr(body:str, events:list, init="", outfile:str=None,
 
     csd = Csd(sr=sr, ksmps=ksmps, nchnls=nchnls, a4=a4)
     if not outfile:
-        outfile = tempfile.mktemp(suffix='.wav', prefix='csdengine-rec-')
+        outfile = _tempfile.mktemp(suffix='.wav', prefix='csdengine-rec-')
 
     if init:
         csd.addGlobalCode(init)
@@ -1624,12 +1630,12 @@ def _getNchnlsPortaudio(indevice:str, outdevice:str
     else:
         max_output_channels = -1
     if max_input_channels == -1 and max_output_channels == -1:
-        dumpDevices()
+        dumpAudioDevices()
         raise ValueError(f"Device {indevice} / {outdevice} not found")
     return max_input_channels, max_output_channels
 
 
-def dumpDevices(backend:str=None):
+def dumpAudioDevices(backend:str=None):
     """
     Print a list of audio devices for the given backend. If backend is not
     given, the default backend (of all available backends for the current
@@ -1656,7 +1662,8 @@ def instrNames(instrdef: str) -> List[U[int, str]]:
         code (str): the code defining an instrument
 
     Returns:
-        a list of names/instrument numbers
+        a list of names/instrument numbers. An empty list is returned if
+        this is not a valid instr definition
 
     Example
     =======
@@ -1680,12 +1687,103 @@ def instrNames(instrdef: str) -> List[U[int, str]]:
             asnum = misc.asnumber(n)
             out.append(asnum if asnum is not None else n)
         return out
-    raise ValueError("No instrument definition found")
+    raise []  #  ValueError("No instrument definition found")
+
+
+@dataclasses.dataclass
+class ParsedBlock:
+    """
+    A ParsedBlock represents a block (am instr, opcode, instr0 line, etc) in a
+    csound orchestra
+    """
+    kind: str
+    text: str
+    startLine: int
+    endLine: int = -1
+    name: str = ''
+    attrs: Opt[Dict[str, str]] = None
+
+    def __post_init__(self):
+        if self.endLine == -1:
+            self.endLine = self.startLine
+
+
+def parseOrc(code: str, keepComments=True) -> List[ParsedBlock]:
+    """
+    Parse orchestra code into blocks, where each block is either
+    an instr, an opcode, a header line, a comment or an instr0 line
+    """
+    context = []
+    block = None
+    blocks = []
+    for i, line in enumerate(code.splitlines()):
+        strippedline = line.strip()
+        if not strippedline:
+            continue
+        if match := re.search(r"\binstr\s+(\d+|[a-zA-Z_]\w+)", line):
+            context.append('instr')
+            block = {
+                'name': match.group(1),
+                'startLine': i,
+                'lines': [line]
+            }
+        elif strippedline == "endin":
+            assert context[-1] == "instr"
+            context.pop()
+            block['endLine'] = i
+            block['lines'].append(line)
+            blocks.append(ParsedBlock(kind='instr',
+                                      startLine=block['startLine'],
+                                      endLine=block['endLine'],
+                                      text='\ņ'.join(block['lines']),
+                                      name=block['name']))
+        elif strippedline == 'endop':
+            assert context[-1] == "opcode"
+            context.pop()
+            block['endLine'] = i
+            block['lines'].append(line)
+            blocks.append(ParsedBlock(kind='opcode',
+                                      startLine=block['startLine'],
+                                      endLine=block['endLine'],
+                                      text='\n'.join(block['lines']),
+                                      name=block['name'],
+                                      attrs={'outargs':block['outargs'],
+                                              'inargs':block['inargs']}))
+        elif context and context[-1] in {'instr', 'opcode'}:
+            block['lines'].append(line)
+        elif match := re.search(r"^\s*(sr|ksmps|kr|A4|0dbfs|nchnls|nchnls_i)\s*=\s*(\d+)", line):
+            blocks.append(ParsedBlock(kind='header',
+                                      name=match.group(1),
+                                      startLine=i,
+                                      text=line,
+                                      attrs={'value':match.group(2)}))
+        elif re.search(r"^\s*(;|\/\/)", line):
+            if keepComments:
+                blocks.append(ParsedBlock(kind='comment',
+                                          startLine=i,
+                                          text=line))
+        elif match := re.search(r"^\s*opcode\s+(\w+)\s*,\s*([0ika\[\]]*),\s*([0ikaoOjJpP\[\]]*)", line):
+            context.append('opcode')
+            block = {
+                'name': match.group(1),
+                'startLine': i,
+                'lines': [line],
+                'outargs': match.group(2),
+                'inargs': match.group(3)
+            }
+        else:
+            blocks.append(ParsedBlock(kind='instr0',
+                                      startLine=i,
+                                      text=line))
+    return blocks
 
 
 @dataclasses.dataclass
 class ParsedInstrBody:
     """
+    This class hold the result of parsing the body
+    of an instrument
+
     Attributes:
         pfieldsIndexToName: maps p index to name
         pfieldsText: a (multiline) string collecting all lines
@@ -1708,7 +1806,7 @@ class ParsedInstrBody:
         return max(self.pfieldsUsed)
 
 
-@lru_cache(maxsize=1000)
+@_lru_cache(maxsize=1000)
 def instrParseBody(body: str) -> ParsedInstrBody:
     """
     Parses the body of the instrument and returns information
