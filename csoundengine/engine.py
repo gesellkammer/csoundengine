@@ -6,7 +6,7 @@ An Engine implements a simple interface to run and control a csound process.
     from csoundengine import Engine
     # create an engine with default options for the platform
     engine = Engine()
-    engine.compile('''
+    engine.compile(r'''
       instr synth
         kmidinote = p4
         kamp = p5
@@ -32,6 +32,23 @@ An Engine implements a simple interface to run and control a csound process.
     # stop the synth:
     engine.unsched(event)
 
+See also :class:`~csoundengine.session.Session` for a higher level interface:
+
+.. code::
+
+    from csoundengine import *
+    session = Engine().session()
+    session.defInstr('mysynth', r'''
+        |kmidinote=60, kamp=0.1, kcutoff=3000|
+        kfreq = mtof:k(kmidinote)
+        asig = vco2:a(kamp, kfreq)
+        asig = moogladder2(asig, kcutoff, 0.9)
+        aenv = linsegr:a(0, 0.1, 1, 0.1, 0)
+        asig *= aenv
+        outs asig, asig
+    ''')
+    synth = session.sched('mysynth', kmidinote=67, kcutoff=2000)
+    synth.setp(kmidinote=60, delay=2)
 
 """
 from __future__ import annotations
@@ -615,6 +632,12 @@ class Engine:
         return self.buffersize/self.sr * self.numbuffers
 
     def controlLatency(self) -> float:
+        """
+        Time latency between a scheduled action and its response. This is
+        normally ksmps/sr * 2 but the actual latency varies if the engine is
+        being run in realtime (in that case init-pass is done async, which
+        might result in longer latency).
+        """
         return self.ksmps/self.sr * 2
 
     def sync(self) -> None:
@@ -733,10 +756,6 @@ class Engine:
             idx (int): the index to modify
             value (float): the new value
             delay (float): delay time in seconds
-
-        .. note::
-
-            If no delay is needed it is possible to write to a table by
 
         """
         assert self.started
@@ -1608,8 +1627,9 @@ class Engine:
             pidx: the pfield index. If the pfield to modify if p4, pidx should be 4
             pairs: the automation data is given as a flat seq. of pairs (time, value).
                 Times are relative to the start of the automation event
-            mode: one of 'linear', 'cos', 'expon(xx)', 'smooth'. See the opcode `interp1d`
-                for more information
+            mode: one of 'linear', 'cos', 'expon(xx)', 'smooth'. See the csound opcode
+                `interp1d` for more information
+                (https://csound-plugins.github.io/csound-plugins/opcodes/interp1d.html)
             delay: the time delay to start the automation.
 
         Example

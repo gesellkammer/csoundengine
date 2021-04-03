@@ -9,10 +9,12 @@ Example
 
     from csoundengine import *
     renderer = Renderer(sr=44100, nchnls=2)
+
     Instr('saw', r'''
       kmidi = p5
       outch 1, oscili:a(0.1, mtof:k(kfreq))
     ''').register(renderer)
+
     score = [('saw', 0,   2, 60),
              ('saw', 1.5, 4, 67),
              ('saw', 1.5, 4, 67.1)]
@@ -74,8 +76,34 @@ class Renderer:
         nchnls: number of channels
         ksmps: csound ksmps
         a4: reference frequency
-        maxpriorities: max. groups
+        maxpriorities: max. number of priority groups. This will determine
+            how long an effects chain can be
         bucketsize: max. number of instruments per priority group
+
+    Example
+    =======
+
+    .. code-block:: python
+
+        from csoundengine import *
+        renderer = Renderer(sr=44100, nchnls=2)
+
+        Instr('saw', r'''
+          kmidi = p5
+          outch 1, oscili:a(0.1, mtof:k(kfreq))
+        ''').register(renderer)
+
+        score = [('saw', 0,   2, 60),
+                 ('saw', 1.5, 4, 67),
+                 ('saw', 1.5, 4, 67.1)]
+        events = [renderer.sched(ev[0], delay=ev[1], dur=ev[2], pargs=ev[3:])
+                  for ev in score]
+
+        # offline events can be modified just like real-time events
+        renderer.automatep(events[0], 'kmidi', pairs=[0, 60, 2, 59])
+        renderer.setp(events[1], 3, 'kmidi', 67.2)
+        renderer.render("out.wav")
+
 
     """
     _offlineOrc = '''
@@ -187,6 +215,27 @@ class Renderer:
     def registerInstr(self, instr: Instr) -> None:
         """
         Register an Instr to be used in this Renderer
+
+        Example
+        =======
+
+            >>> from csoundengine import *
+            >>> renderer = Renderer(sr=44100, nchnls=2)
+            >>> instrs = [
+            ... Instr('vco', r'''
+            ...   |kmidi=60|
+            ...   outch 1, vco2:a(0.1, mtof:k(kmidi))
+            ...   '''),
+            ... Instr('sine', r'''
+            ...   |kmidi=60|
+            ...   outch 1, oscili:a(0.1, mtof:k(kmidi))
+            ... ''')]
+            >>> for instr in instrs:
+            ...     renderer.registerInstr(instr)
+            >>> renderer.sched('vco', dur=4, kmidi=67)
+            >>> renderer.sched('sine', 2, dur=3, kmidi=68)
+            >>> renderer.render('out.wav')
+
         """
         self._instrdefs[instr.name] = instr
 
@@ -199,6 +248,13 @@ class Renderer:
     def addGlobalCode(self, code: str) -> None:
         """
         Add global code (instr 0)
+
+        Example
+        =======
+
+        >>> from csoundengine import *
+        >>> renderer = Renderer(...)
+        >>> renderer.addGlobalCode("giMelody[] fillarray 60, 62, 64, 65, 67, 69, 71")
         """
         self._csd.addGlobalCode(code)
 
@@ -234,6 +290,28 @@ class Renderer:
 
         Returns:
             a ScoreEvent, holding the csound event (p1, start, dur, args)
+
+
+        Example
+        =======
+
+            >>> from csoundengine import *
+            >>> renderer = Renderer(sr=44100, nchnls=2)
+            >>> instrs = [
+            ... Instr('vco', r'''
+            ...   |kmidi=60|
+            ...   outch 1, vco2:a(0.1, mtof:k(kmidi))
+            ...   '''),
+            ... Instr('sine', r'''
+            ...   |kamp=0.1, kmidi=60|
+            ...   outch 1, oscili:a(kamp, mtof:k(kmidi))
+            ... ''')]
+            >>> for instr in instrs:
+            ...     renderer.registerInstr(instr)
+            >>> renderer.sched('vco', dur=4, kmidi=67)
+            >>> renderer.sched('sine', 2, dur=3, kmidi=68)
+            >>> renderer.render('out.wav')
+
         """
         instr = self._instrdefs.get(instrname)
         if not instr:
@@ -260,6 +338,14 @@ class Renderer:
         self._busSystemInitialized = True
 
     def assignBus(self) -> int:
+        """
+        Assign a bus number
+
+        Example
+        =======
+
+            TODO
+        """
         self._initBusSystem()
         token = self._busTokenCount
         self._busTokenCount += 1
@@ -424,11 +510,41 @@ class Renderer:
         args.extend(pairs)
         self._csd.addEvent("_pwrite", start=delay, dur=0.1, args=args)
 
-    def readSoundfile(self, path: str, tabnum:int=None, chan=0, start=0) -> int:
-        return self._csd.addSndfile(sndfile=path, tabnum=tabnum, start=start)
+    def readSoundfile(self, path: str, tabnum:int=None, chan=0, start=0., skiptime=0.) -> int:
+        """
+        Add code to this offline renderer to load a soundfile
+
+        Args:
+            path: the path of the soundfile to load
+            tabnum: the table number to assign, or None to autoassign a number
+            chan: the channel to read, or 0 to read all channels
+            start: moment in the score to read this soundfile
+            skiptime: skip this time at the beginning of the soundfile
+
+        Returns:
+            the assigned table number
+        """
+        return self._csd.addSndfile(sndfile=path, tabnum=tabnum,
+                                    start=start, skiptime=skiptime)
 
     def playSample(self, tabnum:int, delay=0., chan=1, speed=1., gain=1., fade=0.,
                    starttime=0., dur=-1) -> None:
+        """
+        Add an instrument definition and an event to play the given
+        table as sound (assumes that the table was allocated via
+        :meth:`~Renderer.readSoundFile` or any other GEN1 ftgen
+
+        Args:
+            tabnum: the table number to play
+            delay: when to start playback
+            chan: the channel to play
+            speed: the speed to play at
+            gain: apply a gain to playback
+            fade: fade-in / fade-out ramp, in seconds
+            starttime: playback does not start at the beginning of
+                the table but at `starttime`
+            dur: duration of playback. -1=until end of sample
+        """
         self._csd.playTable(tabnum=tabnum, start=delay, dur=dur,
                             gain=gain, speed=speed, chan=chan, fade=fade,
                             skip=starttime)
@@ -443,7 +559,7 @@ class Renderer:
             event: the event to automate, as returned by sched
             param (str): the name of the parameter to automate. The instr should
                 have a corresponding line of the sort "kparam = pn"
-            pairs: the automateion data as a flat list [t0, y0, t1, y1, ...], where
+            pairs: the automateion data as a flat list ``[t0, y0, t1, y1, ...]``, where
                 the times are relative to the start of the automation event
             mode (str): one of "linear", "cos", "smooth", "exp=xx" (see interp1d)
             delay: start time of the automation event. If None is given, the start

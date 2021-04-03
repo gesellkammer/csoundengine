@@ -42,9 +42,11 @@ class AbstrSynth:
             pass
 
     def stop(self, delay=0., stopParent=False) -> None:
+        """ Stop this synth """
         raise NotImplementedError()
 
     def isPlaying(self) -> bool:
+        """ Is this synth playing? """
         raise NotImplementedError()
 
     def wait(self, pollinterval: float = 0.02, sleepfunc=time.sleep) -> None:
@@ -65,14 +67,29 @@ class AbstrSynth:
 
     def set(self, *args, **kws) -> None:
         """
-        Set a value of an associated table. Multiple syntaxes are possible::
+        Set a value of a param table. Multiple syntaxes are possible::
 
             synth.set('key1', value1, ['key2', value2, ...])
             synth.set(0, value1, 1, value2)
             synth.set(key1=value1, [key2=value2, ...])
 
         See Also:
-            :meth:`~AbstractSynth.pwrite`
+
+            * :meth:`~AbstractSynth.setp`
+
+        Example
+        =======
+
+        .. code::
+
+            from csoundengine import *
+            session = Engine().session()
+            session.defInstr('sine', r'''
+                {amp=0.1, freq=1000}
+                outch 1, oscili:a(kamp, kfreq)
+            ''')
+            synth = session.sched('sine', kfreq=440)
+            synth.set('kfreq', 2000, delay=3)
         """
         raise NotImplementedError()
 
@@ -108,6 +125,7 @@ class AbstrSynth:
         raise NotImplementedError()
 
     def hasParamTable(self) -> bool:
+        """ Does this synth have an associated parameter table?"""
         raise NotImplementedError()
 
     def automateTable(self, param: str, pairs: U[List[float], np.ndarray],
@@ -119,7 +137,9 @@ class AbstrSynth:
         Args:
             param: the named parameter as defined in the Instr
             pairs: a flat list of pairs of the form [time0, val0, time1, val1, ...]
-            mode: one of "linear", "cos", "lag"
+            mode: one of 'linear', 'cos', 'expon(xx)', 'smooth'. See the csound opcode
+                `interp1d` for more information
+                (https://csound-plugins.github.io/csound-plugins/opcodes/interp1d.html)
             delay: time offset to start automation
         """
         raise NotImplementedError()
@@ -141,7 +161,9 @@ class AbstrSynth:
                 body contains the line "kfreq = p5", "kfreq" could be used as param)
             pairs (List[float] | np.ndarray): 1D sequence of floats with the form
                 [x0, y0, x1, y1, x2, y2, ...]
-            mode (str): one of "linear", "cos", "smooth", "exp=xx",
+            mode: one of 'linear', 'cos', 'expon(xx)', 'smooth'. See the csound opcode
+                `interp1d` for more information
+                (https://csound-plugins.github.io/csound-plugins/opcodes/interp1d.html)
             delay (float): 0 to start as soon as possible, otherwise the delay
                 before the automateion starts
 
@@ -169,13 +191,6 @@ class AbstrSynth:
 
 class Synth(AbstrSynth):
     """
-    A user does NOT normally create a Synth: a Synth is created
-    when an Instr is scheduled
-
-    .. note::
-
-        The lifetime of the underlying csound event is not bound to the Synth
-        object. In order to stop a synth .stop() must be called explicitely
 
     Args:
         engine: the engine instance where this synth belongs to
@@ -200,6 +215,24 @@ class Synth(AbstrSynth):
         pargs: the pargs used to create this synth
         synthGroup: the group this synth belongs to (if any)
         table (ParamTable): an associated Table (if defined)
+
+    Example
+    =======
+
+    .. code::
+
+        from csoundengine import *
+        session = Engine().session()
+        session.defInstr('vco', r'''
+            |kamp=0.1, kmidi=60, ktransp=0|
+            asig vco2 kamp, mtof:k(kmidi+ktransp)
+            asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
+            outch 1, asig
+        ''')
+        midis = [60, 62, 64]
+        synths = [session.sched('vco', kamp=0.2, kmidi=midi) for midi in midis]
+        # synths is a list of Synth
+        synths[1].automatep('ktransp', [0, 0, 10, -1])
     """
 
     def __init__(self,
@@ -249,9 +282,11 @@ class Synth(AbstrSynth):
 
     @property
     def p1(self) -> float:
+        """ The synth id (corresponds to the p1 value) """
         return self.synthid
 
     def isPlaying(self) -> bool:
+        """ Is this Synth playing """
         now = time.time()
         if self.dur>0:
             return self._playing and self.startTime<now<self.startTime+self.dur
@@ -267,7 +302,7 @@ class Synth(AbstrSynth):
             return None
         return self.table.mapping.keys()
 
-    def set(self, *args, **kws) -> None:
+    def set(self, *args, delay=0., **kws) -> None:
         if not self._playing:
             logger.error("synth not playing")
             return
@@ -276,12 +311,23 @@ class Synth(AbstrSynth):
             logger.error("This synth has no associated table, skipping")
             return
 
-        if args:
-            for key, value in iterlib.pairwise(args):
-                self.table[key] = value
-        if kws:
-            for key, value in kws.items():
-                self.table[key] = value
+        if delay > 0:
+            if args:
+                for key, value in iterlib.pairwise(args):
+                    slotidx = self.table.paramIndex(key)
+                    self.engine.tableWrite(self.table.tableIndex, slotidx, value, delay=delay)
+            if kws:
+                for key, value in kws.items():
+                    slotidx = self.table.paramIndex(key)
+                    self.engine.tableWrite(self.table.tableIndex, slotidx, value,
+                                           delay=delay)
+        else:
+            if args:
+                for key, value in iterlib.pairwise(args):
+                    self.table[key] = value
+            if kws:
+                for key, value in kws.items():
+                    self.table[key] = value
 
     def get(self, slot: U[int, str], default: float = None) -> Opt[float]:
         if not self._playing:
@@ -347,6 +393,7 @@ class Synth(AbstrSynth):
         self.engine.setp(self.synthid, *pairs, delay=delay)
 
     def hasParamTable(self) -> bool:
+        """ Returns True if this synth has an associated parameter table """
         return self.table is not None
 
     def automateTable(self, param: str, pairs: U[List[float], np.ndarray],

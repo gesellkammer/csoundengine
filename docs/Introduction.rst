@@ -1,11 +1,14 @@
 Introduction 
-------------
+============
 
 The core of this package is the :class:`~csoundengine.engine.Engine` class, which wraps a csound
 process and allows transparent control over all parameters, while providing 
 sane defaults. It uses the csound API to communicate with a running csound
 instance. All audio processing is run in a separate performance thread.
 
+
+Engine - Low level interface
+----------------------------
 
 .. code-block:: python
 
@@ -14,7 +17,7 @@ instance. All audio processing is run in a separate performance thread.
     engine = Engine()
     
     # Define an instrument
-    engine.defInstr('''
+    engine.compile('''
       instr synth
         ; pfields of the instrument
         kmidinote = p4
@@ -49,7 +52,7 @@ instance. All audio processing is run in a separate performance thread.
 
 
 Session - high level interface
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+------------------------------
 
 Each engine can have an associated :class:`~csoundengine.session.Session`. A Session provides a
 higher level interface, allowing to:
@@ -67,7 +70,7 @@ higher level interface, allowing to:
     session = Engine().session()
 
     # create a master audio channel
-    masterbus = session.newBus()
+    masterbus = session.assignBus()
 
     # define instruments
     session.defInstr("synth", r'''
@@ -94,7 +97,7 @@ higher level interface, allowing to:
     ''')
 
     # Start a master instance at the end of the evaluation chain
-    master = session.sched("master", imasterbus=masterbus.busnum, priority=10)
+    master = session.sched("master", imasterbus=masterbus, priority=10)
 
     # Launch some notes
     for i, midinote in enumerate(range(60, 72, 2)):
@@ -105,7 +108,7 @@ higher level interface, allowing to:
         start = i * 1
         
         # Schedule a synth
-        synth = session.sched("synth", delay=start, dur=5, kmidi=midinote, ibus=bus.busnum)
+        synth = session.sched("synth", delay=start, dur=5, kmidi=midinote, ibus=bus)
         
         # Automate pitch transposition so that it descends 2 semitones over the
         # duration of the event
@@ -119,8 +122,8 @@ higher level interface, allowing to:
                              priority=synth.priority+1,
                              kcutoff=2000, 
                              kresonance=0.92, 
-                             ibus=bus.busnum, 
-                             imasterbus=masterbus.busnum,
+                             ibus=bus, 
+                             imasterbus=masterbus,
                              whenfinished=lambda p1, bus=bus: bus.free())
         
         # Automate the cutoff freq. of the filter

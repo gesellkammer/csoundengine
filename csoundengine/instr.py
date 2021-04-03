@@ -10,7 +10,8 @@ from typing import Dict, Optional as Opt, List, Union as U, Sequence as Seq, Tup
 class Instr:
     """
     An Instr is a template used to schedule a concrete instrument
-    at a Session or a Renderer. It must be registered to be used.
+    at a :class:`~csoundengine.session.Session` or a :class:`~csoundengine.offline.Renderer`.
+    It must be registered to be used.
 
     Args:
         name: the name of the instrument
@@ -31,28 +32,28 @@ class Instr:
             if True, the associated table is freed when the note is finished
         doc: some documentation describing what this instr does
 
+
     Attributes:
         name: the name of this Instr
         body: the body of the instr (the text inside instr xxx/endin)
-        args: a dict like `{'ibus': 1, 'kfreq': 440}`, defining pfields and
+        args: a dict like ``{'ibus': 1, 'kfreq': 440}``, defining pfields and
             their default values. The mapping between pfield name and index
             is done by order, starting with p5.
         init: any global code needed
         tabledef: similar to args, but not using pfields but a table. In this
             case all variables are k-type and do not need the "k" prefix
         numchans: currently not used
-        preschedCallback: a callback called whenever an instance of this Instr
-            is scheduled
         freetable: if True, the Instr generates code to free the param table
         doc: some text documenting the use/purpose of this Instr
+
 
     Example
     =======
 
-    .. code::
+    .. code-block:: python
 
-        s = Engine().getSession()
-        Intr('sine', r'''
+        s = Engine().session()
+        Instr('sine', r'''
             kfreq = p5
             kamp = p6
             a0 = oscili:a(kamp, kfreq)
@@ -63,15 +64,16 @@ class Instr:
 
     An Instr can define default values for any of its p-fields:
 
-    .. code::
+    .. code-block:: python
 
-        s = Engine().getSession()
-        Intr('sine', args={'kamp': 0.1, 'kfreq': 1000, body=r'''
+        s = Engine().session()
+        Instr('sine', r'''
             kamp = p5
             kfreq = p6
             a0 = oscili:a(kamp, kfreq)
             outch 1, a0
-        ''').register(s)
+        ''', args={'kamp': 0.1, 'kfreq': 1000}
+        ).register(s)
         # We schedule an event of sine, kamp will take the default (0.1)
         synth = s.sched('sine', kfreq=440)
         synth.stop()
@@ -80,8 +82,8 @@ class Instr:
 
     .. code::
 
-        s = Engine().getSession()
-        Intr('sine', r'''
+        s = Engine().session()
+        Instr('sine', r'''
             |kamp=0.1, kfreq=1000|
             a0 = oscili:a(kamp, kfreq)
             outch 1, a0
@@ -93,14 +95,26 @@ class Instr:
 
     .. code-block:: python
 
-        s = Engine().getSession()
-        Intr('sine', r'''
+        s = Engine().session()
+        Instr('sine', r'''
             a0 = oscili:a(kamp, kfreq)
             outch 1, a0
         ''', tabledef=dict(amp=0.1, freq=1000
         ).register(s)
         synth = s.sched('sine', tabargs=dict(freq=440))
         synth.stop()
+
+
+    An inline syntax exists also for tables:
+
+    .. code::
+
+        Intr('sine', r'''
+            {amp=0.1, freq=1000}
+            a0 = oscili:a(kamp, kfreq)
+            outch 1, a0
+        ''')
+
 
     This will create a table and fill it will the given/default values,
     and generate code to read from the table and free the table after
@@ -122,24 +136,49 @@ class Instr:
         a0 = oscili:a(kamp, kfreq)
         outch 1, a0
 
-    An inline syntax exists also for tables:
+    An Instr can also be used to define instruments for offline rendering (see
+    :class:`~csoundengine.offline.Renderer`)
 
-    .. code::
+    .. code-block:: python
 
-        Intr('sine', r'''
-            {amp=0.1, freq=1000}
-            a0 = oscili:a(kamp, kfreq)
-            outch 1, a0
-        ''')
+        from csoundengine import *
+        renderer = Renderer(sr=44100, nchnls=2)
+
+        instrs = [
+            Instr('saw', r'''
+              kmidi = p5
+              outch 1, oscili:a(0.1, mtof:k(kmidi))
+            '''),
+            Instr('sine', r'''
+              |kamp=0.1, kmidi=60|
+              asig oscili kamp, mtof:k(kmidi)
+              asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
+              outch 1, asig
+            ''')
+        ]
+
+        for instr in instrs:
+            instr.register(renderer)
+
+        score = [('saw', 0,   2, 60),
+                 ('sine', 1.5, 4, 67),
+                 ('saw', 1.5, 4, 67.1)]
+
+        events = [renderer.sched(ev[0], delay=ev[1], dur=ev[2], pargs=ev[3:])
+                  for ev in score]
+
+        # offline events can be modified just like real-time events
+        renderer.automatep(events[0], 'kmidi', pairs=[0, 60, 2, 59])
+        renderer.setp(events[1], 3, 'kmidi', 67.2)
+        renderer.render("out.wav")
 
     """
     __slots__ = (
-    'body', 'name', 'args', 'init', '_tableDefaultValues', '_tableNameToIndex', 'tabledef',
-    'numchans', 'mustFreeTable', 'doc',
-    '_numpargs', '_recproc', '_check', '_preschedCallback',
-    'pargsIndexToName',
-    'pargsNameToIndex',
-    'pargsDefaultValues')
+        'body', 'name', 'args', 'init', '_tableDefaultValues', '_tableNameToIndex',
+        'tabledef', 'numchans', 'mustFreeTable', 'doc',
+        'pargsIndexToName', 'pargsNameToIndex', 'pargsDefaultValues',
+        '_numpargs', '_recproc', '_check', '_preschedCallback',
+    )
 
     def __init__(self,
                  name: str,
@@ -229,7 +268,10 @@ class Instr:
             return ", ".join(
                     f"p{i}: {pname}" for i, pname in sorted(pargs.items()) if i != 4)
 
-    def dump(self):
+    def dump(self) -> str:
+        """
+        Returns a string with the generated code of this Instr
+        """
         header = f"Instr(name='{self.name}')"
         sections = ["", header]
         pargsStr = self._pargsRepr()
@@ -247,20 +289,43 @@ class Instr:
         sections.append(self.body)
         return "\n".join(sections)
 
-    def register(self, session) -> Instr:
+    def register(self, renderer) -> Instr:
         """
-        Register this Instr with a Session. This is the
+        Register this Instr with a Session or an offline renderer. This is the
         same as session.registerInstr(csoundinstr)
 
         Args:
-            session (str|Session): the name of the Session or the Session itself
+            renderer: the name of a Session as str, the Session itself or
+                an offline Renderer
 
         Returns:
             self. This enables a declaration like: ``instr = Instr(...).register(session)``
+
+        Example
+        =======
+
+        .. code::
+
+            # Create an instrument and register it at a Session and
+            # at an offline Renderer
+            from csoundengine import *
+            session = Engine().session()
+            renderer = Renderer(sr=44100)
+
+            synth = Instr('synth', r'''
+                |kmidi=60|
+                outch 1, oscili:a(0.1, mtof:k(kmidi))
+            ''')
+
+            synth.register(session)
+            synth.register(renderer)
         """
-        from . import engine
-        s = session if isinstance(session, engine.Session) else engine.getSession(session)
-        s.registerInstr(self)
+        if isinstance(renderer, str):
+            from .session import getSession
+            session = getSession(renderer)
+            session.registerInstr(self)
+        else:
+            renderer.registerInstr(self)
         return self
 
     def pargIndex(self, parg: U[int, str]) -> int:

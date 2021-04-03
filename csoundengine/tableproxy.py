@@ -11,6 +11,32 @@ class TableProxy:
     """
     A TableProxy is a proxy to an existing csound table
 
+    .. note::
+
+        A TableProxy is **never** created by the user directly. It is returned
+        by certain operations within a :class:`~csoundengine.session.Session`,
+        like :meth:`~csoundengine.session.Session.readSoundfile` or
+        :meth:`~csoundengine.session.Session.makeTable`
+
+    Example
+    =======
+
+    .. code::
+
+        >>> from csoundengine import *
+        >>> session = Engine().session()
+        >>> table = session.readSoundfile("mono.wav")
+        # table is a TableProxy
+        >>> table.plot()
+
+    .. image:: assets/tableproxy-plot.png
+
+    .. code::
+
+        >>> table.plotSpectrogram()
+
+    .. image:: assets/tableproxy-plotspectrogram.png
+
     """
     def __init__(self,
                  tabnum: int,
@@ -112,23 +138,35 @@ class TableProxy:
         """
         A proxy to Session.playSample
 
-        Possible kws:
-            dur: the duration of playback (-1 to play the whole sample)
-            chan: the channel to play the sample to. In the case of multichannel
-                  samples, this is the first channel
-            pan: a value between 0-1. -1 means default, which is 0 for mono,
-                0.5 for stereo. For multichannel (3+) samples, panning is not
-                taken into account
-            gain: gain factor. See also: gaingroup
-            speed: speed of playback
-            loop: True/False or -1 to loop as defined in the file itself (not all
-                file formats define loop points)
-            delay: time to wait before playback starts
-            start: the starting playback time (0=play from beginning)
-            fade: fade in/out in secods. -1=default
-            gaingroup: the idx of a gain group. The gain of all samples routed to the
-                same group are scaled by the same value and can be altered as a group
-                via Engine.setSubGain(idx, gain)
+        Possible kws
+        ------------
+
+        dur:
+            the duration of playback (-1 to play the whole sample)
+        chan:
+            the channel to play the sample to. In the case of multichannel
+            samples, this is the first channel
+        pan:
+            a value between 0-1. -1 means default, which is 0 for mono,
+            0.5 for stereo. For multichannel (3+) samples, panning is not
+            taken into account
+        gain:
+            gain factor. See also: gaingroup
+        speed:
+            speed of playback
+        loop:
+            True/False or -1 to loop as defined in the file itself (not all
+            file formats define loop points)
+        delay:
+            time to wait before playback starts
+        start:
+            the starting playback time (0=play from beginning)
+        fade:
+            fade in/out in secods. -1=default
+        gaingroup:
+            the idx of a gain group. The gain of all samples routed to the
+            same group are scaled by the same value and can be altered as a group
+            via Engine.setSubGain(idx, gain)
 
         Returns:
              A Synth. Modulatable parameters: gain, speed, chan, pan

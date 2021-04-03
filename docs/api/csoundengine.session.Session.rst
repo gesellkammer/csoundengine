@@ -6,24 +6,18 @@ Session
 .. autoclass:: Session
    :show-inheritance:
 
-   .. rubric:: Attributes Summary
-
-   .. autosummary::
-
-      ~Session.activeSessions
-
    .. rubric:: Methods Summary
 
    .. autosummary::
 
       ~Session.activeSynths
+      ~Session.assignBus
       ~Session.defInstr
       ~Session.findSynthsByName
       ~Session.getInstr
       ~Session.instrnum
       ~Session.makeRenderer
       ~Session.makeTable
-      ~Session.newBus
       ~Session.playSample
       ~Session.readSoundfile
       ~Session.registerInstr
@@ -35,20 +29,16 @@ Session
       ~Session.unschedByName
       ~Session.unschedLast
 
-   .. rubric:: Attributes Documentation
-
-   .. autoattribute:: activeSessions
-
    .. rubric:: Methods Documentation
 
    .. automethod:: activeSynths
+   .. automethod:: assignBus
    .. automethod:: defInstr
    .. automethod:: findSynthsByName
    .. automethod:: getInstr
    .. automethod:: instrnum
    .. automethod:: makeRenderer
    .. automethod:: makeTable
-   .. automethod:: newBus
    .. automethod:: playSample
    .. automethod:: readSoundfile
    .. automethod:: registerInstr

@@ -2,16 +2,22 @@
 Built-in Opcodes
 ================
 
+Whenever an :class:`~csoundengine.engine.Engine` is created, some user-defined opcodes (``UDO``) 
+are defined, which can be used from any code within this :class:`~csoundengine.engine.Engine`.
+ 
+
 1. Bus Opcodes
 ==============
 
-These opcodes are present whenever a csound :class:`csoundengine.engine.Engine` is created with
-``numAudioBuses > 0``. They implement a pool of audio buses. The number of buses in the pool is determined
-by the `numAudioBuses` argument. An audio bus contains audio from the same performance cycle; all active
-buses are cleared at the end of the cycle so they cannot be used to implement feedback or pass audio
-to instrument instances with a lower priority.
+These opcodes are present whenever a csound :class:`~csoundengine.engine.Engine` is created with
+``numAudioBuses > 0`` (enabled by default). They implement a pool of audio buses. The number of buses in 
+the pool is determined by the `numAudioBuses` argument. An audio bus contains audio from the same 
+performance cycle; all active buses are cleared at the end of the cycle so they cannot be used to 
+implement feedback or pass audio to instrument instances with a lower priority.
 
-A bus can be created in python via :meth:`Engine.assignBus` or directly in csound via ``busassign``
+A bus can be created in python via :meth:`csoundengine.engine.Engine.assignBus` or directly in csound via ``busassign``
+
+These user-defined-opcodes are also present for offline rendering
 
 -----
 

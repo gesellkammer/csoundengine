@@ -97,9 +97,8 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
 """
 
 from .engine import *
+from .config import config
+from .session import Session, getSession, groupSynths
 from .instr import Instr
 from .offline import Renderer
-from .config import config
-from .session import groupSynths
 from .csoundlib import dumpAudioDevices
-
