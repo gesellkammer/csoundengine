@@ -141,7 +141,7 @@ class ParamTable:
         values = self.array
         return {key:values[idx] for key, idx in self.mapping.items()}
 
-    def _getNamed(self, key: U[str, int]) -> float:
+    def _getNamed(self, key: str) -> float:
         idx: int = self.mapping.get(key, -1)
         if idx<0:
             raise KeyError(f"key {key} not known (keys={list(self.mapping.keys())}")

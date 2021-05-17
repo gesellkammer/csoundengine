@@ -3,7 +3,7 @@ from scipy import signal
 import numpy as np
 import matplotlib.pyplot as plt
 from configdict import ConfigDict
-from . import tools
+from . import internalTools
 
 
 config = ConfigDict("csoundengine.plotting")
@@ -32,7 +32,7 @@ def _frames_to_samples(frames:np.ndarray, hop_length=512, n_fft:int=None) -> np.
 
 
 def _plot_matplotlib(samples: np.ndarray, samplerate: int) -> None:
-    numch = tools.arrayNumChannels(samples)
+    numch = internalTools.arrayNumChannels(samples)
     numsamples = samples.shape[0]
     dur = numsamples / samplerate
     times = np.linspace(0, dur, numsamples)
@@ -47,7 +47,7 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int) -> None:
             axes = f.add_subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
         if i < numch - 1:
             plt.setp(axes.get_xticklabels(), visible=False)
-        chan = tools.getChannel(samples, i)
+        chan = internalTools.getChannel(samples, i)
         axes.plot(times, chan, linewidth=1)
         plt.xlim([0, dur])
 
@@ -86,7 +86,7 @@ def plotSamples(samples: np.ndarray, samplerate: int, profile: str= 'auto') -> N
     else:
         raise ValueError("profile should be one of 'low', 'medium' or 'high'")
     targetsr = samplerate
-    numch = tools.arrayNumChannels(samples)
+    numch = internalTools.arrayNumChannels(samples)
     numsamples = samples.shape[0]
     if maxpoints < numsamples:
         targetsr = min(maxsr, (samplerate * numsamples) // maxpoints)
@@ -104,7 +104,7 @@ def plotSamples(samples: np.ndarray, samplerate: int, profile: str= 'auto') -> N
         if i < numch - 1:
             plt.setp(axes.get_xticklabels(), visible=False)
 
-        chan = tools.getChannel(samples, i)
+        chan = internalTools.getChannel(samples, i)
         env = _envelope(np.ascontiguousarray(chan), hop_length)
         samples_top = env
         samples_bottom = -env

@@ -2,7 +2,7 @@ from __future__ import annotations
 import time
 import numpy as np
 from .config import config, logger
-from . import tools
+from . import internalTools
 from emlib import iterlib
 import weakref as _weakref
 
@@ -57,13 +57,13 @@ class AbstrSynth:
             pollinterval: polling interval in seconds
             sleepfunc: the function to call when sleeping, defaults to time.sleep
         """
-        tools.setSigintHandler()
+        internalTools.setSigintHandler()
         try:
             while self.isPlaying():
                 sleepfunc(pollinterval)
         except:
             raise
-        tools.removeSigintHandler()
+        internalTools.removeSigintHandler()
 
     def set(self, *args, **kws) -> None:
         """
@@ -252,7 +252,7 @@ class Synth(AbstrSynth):
         """
         AbstrSynth.__init__(self, engine=engine, autostop=autostop, priority=priority)
         self.synthid: float = synthid
-        self.instr: Opt[Instr] = instr
+        self.instr: Instr = instr
         self.startTime: float = starttime or time.time()
         self.dur: float = dur
         self.pargs: List[float] = pargs
@@ -346,11 +346,12 @@ class Synth(AbstrSynth):
 
     def setp(self, *args, delay=0., **kws) -> None:
         """
-        Modify a parg of this synth. Multiple pargs can be modified
-        simultaneously. It only makes sense to modify a parg if a k-rate
-        variable was assigned to this parg (see example). A parg can be
-        referred to via an integer, corresponding to the p index
-        (5 would refer to p5), or to the name of the assigned k-rate
+        Modify a parg of this synth.
+
+        Multiple pargs can be modified simultaneously. It only makes sense
+        to modify a parg if a k-rate variable was assigned to this parg
+        (see example). A parg can be referred to via an integer, corresponding
+        to the p index (5 would refer to p5), or to the name of the assigned k-rate
         variable as a string (for example, if there is a line "kfreq = p6",
         both 6 and "kfreq" refer to the same parg).
 

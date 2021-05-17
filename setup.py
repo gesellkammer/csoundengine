@@ -35,7 +35,8 @@ setup(
         "configdict>=0.4",
         "bpf4",
         "numpyx>=0.5",
-        "pitchtools>=1.0"
+        "pitchtools>=1.0",
+        "sounddevice"
     ],
     license="BSD",
     classifiers=[

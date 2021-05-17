@@ -148,14 +148,14 @@ An inline syntax exists also for tables:
 
 from __future__ import annotations
 import dataclasses
-from typing import TYPE_CHECKING, Dict, List, Union as U, Optional as Opt
-from .engine import Engine, getEngine
+from typing import TYPE_CHECKING, Dict, List, Union as U, Optional as Opt, Callable
+from .engine import Engine, getEngine, CsoundError
 from .instr import Instr
 from .synth import AbstrSynth, Synth, SynthGroup
 from .tableproxy import TableProxy
 from .paramtable import ParamTable
 from .config import config, logger
-from . import tools as tools
+from . import internalTools as tools
 from .sessioninstrs import builtinInstrs
 import time
 import numpy as np
@@ -166,16 +166,13 @@ if TYPE_CHECKING:
 __all__ = [
     'Session',
     'getSession',
-    # 'TableProxy',
-    # 'Synth',
-    # 'SynthGroup'
 ]
 
 @dataclasses.dataclass
 class _ReifiedInstr:
     """
     A _ReifiedInstr is just a marker of a concrete instr sent to the
-    engine for a given Instr. An Instr is an abstract declaration without
+    engine for a given Instr template. An Instr is an abstract declaration without
     a specific instr number and thus without a specific order of execution.
     To be able to schedule an instrument at different places in the chain,
     the same instrument is redeclared (lazily) as different instrument numbers
@@ -198,7 +195,7 @@ class Session:
     .. note:: 
     
         The user **does not** create an instance of this class directly.
-        It is returned by either :meth:`~csoundengine.engine.Engine.session`
+        It is returned by either calling :meth:`engine.session()<csoundengine.engine.Engine.session>`
         or :func:`~csoundengine.session.getSession`
     
     Args:
@@ -207,9 +204,10 @@ class Session:
     Example
     =======
 
-    In order to add an instrument to a Session, an :class:`~csoundengine.instr.Instr`
-    is created and registered with the Session. Alternatively, the shortcut
-    :meth:`~Session.defInstr` can be used to create and register an Instr at once.
+    In order to add an instrument to a :class:`~csoundengine.session.Session`,
+    an :class:`~csoundengine.instr.Instr` is created and registered with the Session.
+    Alternatively, the shortcut :meth:`~Session.defInstr` can be used to create and
+    register an :class:`~csoundengine.instr.Instr` at once.
 
     .. code::
 
@@ -223,7 +221,8 @@ class Session:
         synth = s.sched('sine', kfreq=440, kamp=0.1)
         synth.stop()
 
-    An Instr can define default values for any of its p-fields:
+    An :class:`~csoundengine.instr.Instr` can define default values for any of its
+    p-fields:
 
     .. code::
 
@@ -312,15 +311,16 @@ class Session:
         self._bucketsize: int = 1000
         self._numbuckets: int = 10
         self._buckets: List[Dict[str, int]] = [{} for _ in range(self._numbuckets)]
+
         # A dict of the form: {instrname: {priority: reifiedInstr }}
         self._reifiedInstrDefs: Dict[str, Dict[int, _ReifiedInstr]] = {}
 
         self._synths: Dict[float, Synth] = {}
         self._isDeallocCallbackSet = False
-        self._whenfinished = {}
-        self._initCodes = []
-        self._tabnumToTable: Dict[int:TableProxy] = {}
-        self._pathToTable: Dict[str:TableProxy] = {}
+        self._whenfinished: Dict[float, Callable] = {}
+        self._initCodes: List[str] = []
+        self._tabnumToTable: Dict[int, TableProxy] = {}
+        self._pathToTable: Dict[str, TableProxy] = {}
         self.engine = self._getEngine()
 
         if config['define_builtin_instrs']:
@@ -366,6 +366,7 @@ class Session:
         result is cached in Session.engine
         """
         engine = getEngine(self.name)
+        assert engine is not None
         if not self._isDeallocCallbackSet:
             engine.registerOutvalueCallback("__dealloc__", self._deallocCallback)
             self._isDeallocCallbackSet = True
@@ -399,8 +400,7 @@ class Session:
                         overrides: Dict[str, float] = None,
                         wait=True) -> int:
         """
-        Create and initialize the table associated with instr. Returns
-        the index
+        Create and init the table associated with instr, returns the index
 
         Args:
             instr: the instrument to create a table for
@@ -414,6 +414,7 @@ class Session:
         values = instr._tableDefaultValues
         if overrides:
             values = instr.overrideTable(overrides)
+        assert values is not None
         if len(values)<1:
             logger.warning(f"instr table with no init values (instr={instr})")
             return self.engine.makeTable(size=config['associated_table_min_size'],
@@ -424,13 +425,13 @@ class Session:
 
     def defInstr(self, name: str, body: str, **kws) -> Instr:
         """
-        Shortcut to create an Instr an register it with this session
+        Create an :class:`~csoundengine.instr.Instr` and register it with this session
 
         Args:
             name (str): the name of the created instr
             body (str): the body of the instrument. It can have named
                 pfields (see example) or a table declaration
-            **kws: any keywords are passed on to the Instr constructor.
+            kws: any keywords are passed on to the Instr constructor.
                 See the documentation of Instr for more information.
 
         Returns:
@@ -472,8 +473,9 @@ class Session:
 
     def registerInstr(self, instr: Instr) -> None:
         """
-        Register the given Instr in this session. It evaluates
-        any init code, if necessary
+        Register the given Instr in this session.
+
+        It evaluates any init code, if necessary
 
         Args:
             instr: the Instr to register
@@ -481,8 +483,11 @@ class Session:
         """
         oldinstr = self.instrRegistry.get(instr.name)
         if instr.init and (oldinstr is None or instr.init != oldinstr.init):
-            self._initCodes.append(instr.init)
-            self.engine.compile(instr.init)
+            try:
+                self.engine.compile(instr.init)
+                self._initCodes.append(instr.init)
+            except CsoundError:
+                raise CsoundError(f"Could not compile init code for instr {instr.name}")
         self._clearCacheForInstr(instr.name)
         self.instrRegistry[instr.name] = instr
 
@@ -509,18 +514,23 @@ class Session:
         assert isinstance(priority, int) and 1<=priority<=10
         qname = f"{name}:{priority}"
         instrdef = self.instrRegistry.get(name)
+        if instrdef is None:
+            raise ValueError(f"instrument {name} not registered")
         instrnum = self._registerInstrAtPriority(name, priority)
         instrtxt = tools.instrWrapBody(instrdef.body, instrnum, addNotificationCode=True)
-        self.engine.compile(instrtxt)
+        try:
+            self.engine.compile(instrtxt)
+        except CsoundError:
+            raise CsoundError(f"Could not compile body for instr {name}")
         rinstr = _ReifiedInstr(qname, instrnum, priority)
         self._registerReifiedInstr(name, priority, rinstr)
         return rinstr
 
     def getInstr(self, name: str) -> Instr:
         """
-        Returns the CsoundInstr defined under name
+        Returns the :class:`~csoundengine.instr.Instr` defined under name
         """
-        return self.instrRegistry.get(name)
+        return self.instrRegistry[name]
 
     def _getReifiedInstr(self, name: str, priority: int) -> Opt[_ReifiedInstr]:
         registry = self._reifiedInstrDefs.get(name)
@@ -536,8 +546,10 @@ class Session:
 
     def instrnum(self, instrname: str, priority: int = 1) -> int:
         """
-        For a defined Instr (identified by `instrname`) and a priority,
-        return the concrete instrument number for this instrument.
+        Return the instr number for the given Instr at the given priority
+
+        For a defined :class:`~csoundengine.instr.Instr` (identified by `instrname`)
+        and a priority, return the concrete instrument number for this instrument.
 
         This returned instrument number will not be a unique (fractional)
         instance number.
@@ -588,13 +600,13 @@ class Session:
               delay=0.,
               dur=-1.,
               priority: int = 1,
-              pargs: U[List[float], Dict[str, float]] = None,
+              pargs: U[List[float], Dict[str, float]] = [],
               tabargs: Dict[str, float] = None,
               whenfinished=None,
               **pkws
               ) -> Synth:
         """
-        Schedule the instrument identified by 'instrName'
+        Schedule the instrument identified by *instrname*
 
         Args:
             instrname: the name of the instrument, as defined via defInstr
@@ -611,11 +623,13 @@ class Session:
                 if given, it will be called when this instance stops
 
         Returns:
-            a Synth, which is a handle to the instance (can be stopped, etc.)
+            a :class:`~csoundengine.synth,Synth`, which is a handle to the instance
+            (can be stopped, etc.)
         """
         assert isinstance(priority, int) and 1<=priority<=10
         assert instrname in self.instrRegistry
         instr = self.getInstr(instrname)
+        table: Opt[ParamTable]
         if instr._tableDefaultValues is not None:
             # the instruments has an associated table
             tableidx = self._makeInstrTable(instr, overrides=tabargs, wait=True)
@@ -645,7 +659,11 @@ class Session:
         """
         Returns a list of playing synths
 
-        sortby: either "start" (sort by start time) or None (unsorted)
+        Args:
+            sortby: either "start" (sort by start time) or None (unsorted)
+
+        Returns:
+            a list of active :class:`Synths<csoundengine.synth.Synth>`
         """
         synths = [synth for synth in self._synths.values() if synth.isPlaying()]
         if sortby == "start":
@@ -668,7 +686,7 @@ class Session:
         """
         for synthid in synthids:
             synth = self._synths.get(synthid)
-            if synth.isPlaying() or delay>0:
+            if synth and synth.isPlaying() or delay>0:
                 # We just need to unschedule it from csound. If the synth is playing,
                 # it will be deallocated and the callback will be fired
                 self.engine.unsched(synthid, delay)
@@ -806,7 +824,14 @@ class Session:
                                        _instrnum=_instrnum, block=block,
                                        callback=callback, sr=sr)
         if data is not None:
-            nchnls = tools.arrayNumChannels(data)
+            if isinstance(data, np.ndarray):
+                nchnls = tools.arrayNumChannels(data)
+            elif isinstance(data, list):
+                nchnls = 1
+                assert isinstance(data[0], float)
+            else:
+                raise TypeError(f"data should be np.ndarray or list[float], got "
+                                f"{type(data)} = {data=}")
             numframes = len(data)
         else:
             numframes = size

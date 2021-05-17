@@ -37,7 +37,7 @@ import textwrap as _textwrap
 from .config import config
 from . import csoundlib
 from .instr import Instr
-from . import tools
+from . import internalTools
 from . import engineorc
 
 from emlib import misc, iterlib
@@ -61,6 +61,36 @@ class ScoreEvent:
     dur: float
     args: List[float]
     eventId: int = 0
+    renderer: Opt[Renderer] = None
+
+    def setp(self, delay:float, *args, **kws) -> None:
+        """
+        Modify a parg of this synth.
+
+        Multiple pargs can be modified simultaneously. It only makes sense
+        to modify a parg if a k-rate variable was assigned to this parg
+        (see Renderer.setp for an example). A parg can be referred to via an integer,
+        corresponding to the p index (5 would refer to p5), or to the name
+        of the assigned k-rate variable as a string (for example, if there
+        is a line "kfreq = p6", both 6 and "kfreq" refer to the same parg).
+
+        Example
+        =======
+
+            >>> from csoundengine import *
+            >>> r = Renderer()
+            >>> Instr('sine', r'''
+            ... |kamp=0.1, kfreq=1000|
+            ... outch 1, oscili:ar(kamp, freq)
+            ... ''')
+            >>> event = r.sched('sine', 0, dur=4, pargs=[0.1, 440])
+            >>> event.setp(2, kfreq=880)
+            >>> event.setp(3, 'kfreq', 660, 'kamp', 0.5)
+
+        """
+        if not self.renderer:
+            raise RuntimeError("This ScoreEvent has no associated renderer")
+        self.renderer.setp(self, delay=delay, *args, **kws)
 
 
 class Renderer:
@@ -239,6 +269,55 @@ class Renderer:
         """
         self._instrdefs[instr.name] = instr
 
+    def defInstr(self, name: str, body: str, **kws) -> Instr:
+        """
+        Create an :class:`~csoundengine.instr.Instr` and register it with this renderer
+
+        Args:
+            name (str): the name of the created instr
+            body (str): the body of the instrument. It can have named
+                pfields (see example) or a table declaration
+            kws: any keywords are passed on to the Instr constructor.
+                See the documentation of Instr for more information.
+
+        Returns:
+            the created Instr. If needed, this instr can be registered
+            at any other Renderer/Session
+
+        Example
+        =======
+
+            >>> from csoundengine import *
+            >>> renderer = Renderer()
+            # An Instr with named pfields
+            >>> renderer.defInstr('synth', '''
+            ... |ibus, kamp=0.5, kmidi=60|
+            ... kfreq = mtof:k(lag:k(kmidi, 1))
+            ... a0 vco2 kamp, kfreq
+            ... a0 *= linsegr:a(0, 0.1, 1, 0.1, 0)
+            ... busout ibus, a0
+            ... ''')
+            # An instr with named table args
+            >>> renderer.defInstr('filter', '''
+            ... {bus=0, cutoff=1000, resonance=0.9}
+            ... a0 = busin(kbus)
+            ... a0 = moogladder2(a0, kcutoff, kresonance)
+            ... outch 1, a0
+            ... ''')
+
+            >>> bus = renderer.assignBus()
+            >>> synth = renderer.sched('sine', 0, dur=10, ibus=bus, kmidi=67)
+            >>> synth.setp(kmidi=60, delay=2)
+
+            >>> filt = session.sched('filter', 0, dur=synth.dur, priority=synth.priority+1,
+            ...                      tabargs={'bus': bus, 'cutoff': 1000})
+            >>> filt.automateTable('cutoff', [3, 1000, 6, 200, 10, 4000])
+            >>> bus.free()
+        """
+        instr = Instr(name=name, body=body, **kws)
+        self.registerInstr(instr)
+        return instr
+
     def registeredInstrs(self) -> KeysView:
         """
         Returns a seq. with the names of all registered Instrs
@@ -322,7 +401,7 @@ class Renderer:
             tabnum = self._csd.addTableFromSeq(tableinit)
         else:
             tabnum = 0
-        args = tools.instrResolveArgs(instr, tabnum, pargs, pkws)
+        args = internalTools.instrResolveArgs(instr, tabnum, pargs, pkws)
         p1 = self._getUniqueP1(instrnum)
         self._csd.addEvent(p1, start=delay, dur=dur, args=args)
         eventId = self._generateEventId()
@@ -333,19 +412,32 @@ class Renderer:
     def _initBusSystem(self) -> None:
         if self._busSystemInitialized:
             return
-        code = engineorc.busSupportCode(numAudioBuses=self._numAudioBuses)
+        code = engineorc.busSupportCode(numAudioBuses=self._numAudioBuses,
+                                        clearBusesInstrnum=engineorc.CONSTS['postProcInstrnum'])
         self._csd.addGlobalCode(code)
         self._busSystemInitialized = True
 
-    def assignBus(self) -> int:
+    def assignBus(self, kind='audio') -> int:
         """
         Assign a bus number
 
         Example
         =======
 
-            TODO
+            >>> from csoundengine.offline import Renderer
+            >>> r = Renderer()
+            >>> Instr('vco', r'''
+            ...     kfreq=p4
+            ...     kamp=p5
+            ...     asig vco2 1, kfreq
+            ...     aenv = linsegr:a(0, 0.01, 1, 0.01, 0)
+            ...     aenv *= lag:a(a(kamp), 0.1)
+            ...     asig *= aenv
+            ...     outch 1, asig
+            ... ''').register(r)
         """
+        if kind != 'audio':
+            raise ValueError("Only audio buses are supported at the moment")
         self._initBusSystem()
         token = self._busTokenCount
         self._busTokenCount += 1
@@ -366,7 +458,8 @@ class Renderer:
         Examples
         ========
 
-            >>> renderer = Renderer(...)
+            >>> from csoundengine.offline import Renderer
+            >>> renderer = Renderer()
             >>> instr = Instr("sine", ...)
             >>> renderer.registerInstr(instr)
             >>> renderer.sched("sine", ...)
@@ -403,15 +496,20 @@ class Renderer:
             outfile = tempfile.mktemp(suffix=".wav")
         if not self._csd.score:
             raise ValueError("score is empty")
-        kws = {}
         if quiet:
-            kws['supressdisplay'] = True
-            kws['piped'] = True
+            run_suppressdisplay = True
+            run_piped = True
+        else:
+            run_suppressdisplay = False
+            run_piped = False
+
         if samplefmt is None:
             ext = os.path.splitext(outfile)[1]
             samplefmt = csoundlib.bestSampleFormatForExtension(ext)
         self._csd.setSampleFormat(samplefmt)
-        proc = self._csd.run(output=outfile, **kws)
+        proc = self._csd.run(output=outfile,
+                             suppressdisplay=run_suppressdisplay,
+                             piped=run_piped)
         if openWhenDone:
             proc.wait()
             misc.open_with_standard_app(outfile, wait=True)
@@ -506,9 +604,9 @@ class Renderer:
                 idx = instr.pargIndex(k)
                 pairsd[idx] = v
         pairs = iterlib.flatdict(pairsd)
-        args = [event.p1, len(pairs)//2]
-        args.extend(pairs)
-        self._csd.addEvent("_pwrite", start=delay, dur=0.1, args=args)
+        pargs = [event.p1, len(pairs)//2]
+        pargs.extend(pairs)
+        self._csd.addEvent("_pwrite", start=delay, dur=0.1, args=pargs)
 
     def readSoundfile(self, path: str, tabnum:int=None, chan=0, start=0., skiptime=0.) -> int:
         """

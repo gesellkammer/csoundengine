@@ -1,7 +1,7 @@
 from __future__ import annotations
 from string import Template
 from functools import lru_cache
-from typing import List
+from typing import List, Dict, Any
 import re
 
 # In all templates we make the difference between substitutions which
@@ -30,7 +30,7 @@ ${globalcode}
 
 instr __init
     ftset gi__subgains, 1
-    prints "<<< Init done >>>\n"
+    ;; prints "<<< Init done >>>\n"
     turnoff
 endin
 
@@ -204,7 +204,7 @@ instr ${playsndfile}
     Spath  = p4
     kgain  = p5
     kspeed = p6
-    ichan  = p6
+    ichan  = p7
     ifade  = p8
     idur = filelen(Spath)
     know init 0
@@ -227,28 +227,34 @@ instr ${readSndfile}
     Spath = strget(p5)
     itab = p6
     ichan = p7
-    itab ftgen 0, 0, -1, Spath, 0, 0, ichan
-    tabw_i itab, itoken, gi__responses
+    itab2 ftgen itab, 0, 0, -1, Spath, 0, 0, ichan
+    ; prints ">>> Spath: %s, itab: %d, itab2: %d \n", Spath, itab, itab2
+    tabw_i itab2, itoken, gi__responses
     outvalue "__sync__", itoken
 endin
 
 instr ${playgen1}
-    ;             4     5      6       7     8     9          10
-    ;             gain, speed, tabnum, chan, fade, starttime, gaingroup
-    pset 0, 0, 0, 0,    1,     1,      1,    0.05, 0,         0
+    ;             4     5      6       7     8     9          10        11
+    ;             gain, speed, tabnum, chan, fade, starttime, gaingroup lagtime
+    pset 0, 0, 0, 1,    1,     1,      1,    0.05, 0,         0,        0.01
     kgain = p4
     kspeed = p5
     ksampsplayed = 0
-    itabnum, ichan, ifade, ioffset, igaingroup passign 6
+    itabnum, ichan, ifade, ioffset, igaingroup, ilagtime passign 6
+    ifade = max(ifade, ksmps/sr*2)
     inumsamples = nsamp(itabnum)
     itabsr = ftsr(itabnum)
+    if itabsr <= 0 then
+        initerror sprintf("Could not determine sr for table %d", itabnum)
+    endif
     istartframe = ioffset * itabsr
     ksampsplayed += ksmps * kspeed
     ; ar[] loscilx xamp, kcps, ifn, iwsize, ibas, istrt
-    aouts[] loscilx kgain, kspeed, itabnum, 4, 1, istartframe
+    aouts[] loscilx 1, kspeed, itabnum, 4, 1, istartframe
     aenv = linsegr:a(0, ifade, 1, ifade, 0)
-    ksubgain = table:k(igaingroup, gi__subgains)
-    aenv *= a(ksubgain)
+    kgain *= table:k(igaingroup, gi__subgains)
+    again = lag:a(a(kgain), ilagtime)
+    aenv *= again
     aouts = aouts * aenv
     inumouts = lenarray(aouts)
     kchan = 0
@@ -312,6 +318,23 @@ instr ${testaudio}
     endif
 endin
 
+instr ${tableInfo}
+    itabnum, itok1, itok2, itok3, itok4 passign 4
+    if ftexists(itabnum) == 0 then
+        initerror sprintf("Table %d does not exist", itabnum)
+    endif
+    isr ftsr itabnum
+    ichnls ftchnls itabnum
+    inumframes nsamp itabnum
+    ilen ftlen itabnum
+    
+    tabw_i isr, itok1, gi__responses
+    tabw_i ichnls, itok2, gi__responses
+    tabw_i inumframes, itok3, gi__responses
+    tabw_i ilen, itok4, gi__responses
+    outvalue "__sync__", itok1
+endin
+
 schedule "__init", 0, 1
 
 """
@@ -334,7 +357,6 @@ chn_k "_busTokenCount", 3
 
 instr __businit
     chnset 0, "_busTokenCount"
-    prints "__businit done!\n"
     turnoff
 endin
 
@@ -452,7 +474,8 @@ def orcTemplate(busSupport=True) -> Template:
     if busSupport:
         parts.append(_busOrc)
     orc = "\n".join(parts)
-    subs = {name:f"{num} ; {name}" for name, num in BUILTIN_INSTRS.items()}
+    subs: Dict[str, Any] = {name:f"{num} ; {name}"
+                            for name, num in BUILTIN_INSTRS.items()}
     subs.update(BUILTIN_TABLES)
     subs.update(CONSTS)
     return Template(Template(orc).safe_substitute(**subs))

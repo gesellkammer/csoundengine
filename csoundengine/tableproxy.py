@@ -4,7 +4,8 @@ import numpy as np
 from typing import Optional as Opt, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .engine import Synth, Session
+    from .synth import Synth
+    from .session import Session
 
 
 class TableProxy:
@@ -80,7 +81,9 @@ class TableProxy:
         to the csound memory (a view)
         """
         if self._array is None:
-            self._array = self.session.engine.csound.table(self.tabnum)
+            csound = self.session.engine.csound
+            assert csound is not None
+            self._array = csound.table(self.tabnum)
         return self._array
 
     def getDuration(self) -> float:

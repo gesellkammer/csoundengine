@@ -16,46 +16,55 @@ import io as _io
 import tempfile as _tempfile
 import cachetools
 import dataclasses
+from . import jacktools
 from typing import List, Union as U, Optional as Opt, Generator, \
-    Sequence as Seq, Dict, Tuple, Callable
+    Sequence as Seq, Dict, Tuple, Callable, Set, Any
 from functools import lru_cache as _lru_cache
 
 import numpy as np
 
-from emlib import misc
+from emlib import misc, textlib
 
 
 logger = _logging.getLogger("csoundengine")
 
 
+
+@cachetools.cached(cache=cachetools.TTLCache(1, 10))
+def _isPulseaudioRunning() -> bool:
+    """ Return True if Pulseaudio is running """
+    retcode = subprocess.call(["pulseaudio", "--check"])
+    return retcode == 0
+
+
 Curve = Callable[[float], float]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(unsafe_hash=True)
 class AudioBackend:
     """
-    An AudioBackend holds information about a csound audio backend
+    Holds information about a csound audio backend
 
     Attributes:
         name: the name of this backend
         alwaysAvailable: is this backend always available?
-        supportsSystemSr: does this backend have a system samplerate?
+        hasSystemSr: does this backend have a system samplerate?
         needsRealtime: the backend needs to be run in realtime
         platforms: a list of platform for which this backend is available
         dac: the name of the default output device
         adc: the name of the default input device
         longname: an alternative name for the backend
-        alias: an alias for the backend
+        _checkFunc: a function returning True if this backend is available
     """
     name: str
     alwaysAvailable: bool
-    supportsSystemSr: bool
+    hasSystemSr: bool
     needsRealtime: bool
-    platforms: List[str]
-    dac: str = "dac"  
+    platforms: Tuple[str, ...] = dataclasses.field(repr=False)
+    dac: str = "dac"
     adc: str = "adc"
     longname: str = ""
-    alias: str = ""
+    _checkFunc: Opt[Callable] = dataclasses.field(default=None, repr=False)
 
     def __post_init__(self):
         if not self.longname:
@@ -65,51 +74,64 @@ class AudioBackend:
         """ Is this backend available? """
         if sys.platform not in self.platforms:
             return False
-        return self.alwaysAvailable or isBackendAvailable(self.name)
+        if self.alwaysAvailable:
+            return True
+        if self._checkFunc:
+            return self._checkFunc()
+        return isBackendAvailable(self.name)
+
+    def getSystemSr(self) -> Opt[float]:
+        """Get the system samplerate for this backend, if available"""
+        if not self.hasSystemSr:
+            return None
+        if self.name == 'jack' and sys.platform == "linux":
+            return _getJackSrViaClient()
+        return _getCsoundSystemSr(self.name)
 
 
 _backend_jack = AudioBackend('jack',
                              alwaysAvailable=False,
-                             supportsSystemSr=True,
+                             hasSystemSr=True,
                              needsRealtime=False,
-                             platforms=['linux', 'darwin', 'win32'],
+                             platforms=('linux', 'darwin', 'win32'),
                              dac="dac:system:playback_",
-                             adc="adc:system:capture_")
+                             adc="adc:system:capture_",
+                             _checkFunc=jacktools.isJackRunning)
 
 _backend_pacb = AudioBackend('pa_cb',
                              alwaysAvailable=True,
-                             supportsSystemSr=False,
+                             hasSystemSr=False,
                              needsRealtime=False,
                              longname="portaudio-callback",
-                             alias='portaudio',
-                             platforms=['linux', 'darwin', 'win32'])
+                             platforms=('linux', 'darwin', 'win32'))
 
 _backend_pabl = AudioBackend('pa_bl',
                              alwaysAvailable=True,
-                             supportsSystemSr=False,
+                             hasSystemSr=False,
                              needsRealtime=False,
                              longname="portaudio-blocking",
-                             platforms=['linux', 'darwin', 'win32'])
+                             platforms=('linux', 'darwin', 'win32'))
 
 _backend_auhal = AudioBackend('auhal',
                               alwaysAvailable=True,
-                              supportsSystemSr=True,
+                              hasSystemSr=True,
                               needsRealtime=False,
                               longname="coreaudio",
-                              platforms=['darwin'])
+                              platforms=('darwin',))
 
 _backend_pulse = AudioBackend('pulse',
                               alwaysAvailable=False,
-                              supportsSystemSr=False,
+                              hasSystemSr=False,
                               needsRealtime=False,
                               longname="pulseaudio",
-                              platforms=['linux'])
+                              platforms=('linux',),
+                              _checkFunc=_isPulseaudioRunning)
 
 _backend_alsa = AudioBackend('alsa',
                              alwaysAvailable=True,
-                             supportsSystemSr=False,
+                             hasSystemSr=False,
                              needsRealtime=True,
-                             platforms=['linux'])
+                             platforms=('linux',))
 
 audioBackends: Dict[str, AudioBackend] = {
     'jack' : _backend_jack,
@@ -137,8 +159,6 @@ _csoundbin = None
 _OPCODES = None
 
 
-# --- Exceptions ---
-
 def nextpow2(n:int) -> int:
     """ Returns the power of 2 higher or equal than n"""
     return int(2 ** _math.ceil(_math.log(n, 2)))
@@ -146,7 +166,7 @@ def nextpow2(n:int) -> int:
 
 def findCsound() -> Opt[str]:
     """
-    Find the csound binary. If found, returns its path. Otherwise, returns None
+    Find the csound binary or None if not found
     """
     global _csoundbin
     if _csoundbin:
@@ -159,26 +179,51 @@ def findCsound() -> Opt[str]:
     return None
 
 
-def getVersion() -> Tuple[int, int, int]:
+def _getVersionViaApi() -> Tuple[int, int, int]:
     """
-    Returns the csound version as tuple (major, minor, patch) so that
-    '6.03.0' is (6, 3, 0)
+    Returns the csound version as tuple (major, minor, patch)
+    """
+    import ctcsound
+    csound = ctcsound.Csound()
+    v = csound.version()
+    vs = str(v)
+    patch = int(vs[-1])
+    minor = int(vs[-3:-1])
+    major = int(vs[:-3])
+    return (major, minor, patch)
 
-    Raises IOError if either csound is not present or its version 
+
+def getVersion(useApi=True) -> Tuple[int, int, int]:
+    """
+    Returns the csound version as tuple (major, minor, patch)
+
+    Args:
+        useApi: if True, the API is used to query the version. Otherwise
+            the output of "csound --version" is parsed. Both versions might
+            differ
+
+    Returns:
+        the versions as a tuple (major:int, minor:int, patch:int)
+
+    Raises RuntimeError if csound is not present or its version
     can't be parsed
     """
+    if useApi:
+        return _getVersionViaApi()
     csound = findCsound()
     if not csound:
         raise IOError("Csound not found")
     cmd = '{csound} --version'.format(csound=csound).split()
     proc = subprocess.Popen(cmd, stderr=subprocess.PIPE)
     proc.wait()
+    if proc.stderr is None:
+        return (0, 0, 0)
     lines = proc.stderr.readlines()
     if not lines:
-        raise IOError("Could not read csounds output")
-    for line in lines:
-        if line.startswith(b"Csound version"):
-            line = line.decode('utf8')
+        raise RuntimeError("Could not read csounds output")
+    for bline in lines:
+        if bline.startswith(b"Csound version"):
+            line = bline.decode('utf8')
             matches = re.findall(r"(\d+\.\d+(\.\d+)?)", line)
             if matches:
                 version = matches[0]
@@ -192,30 +237,124 @@ def getVersion() -> Tuple[int, int, int]:
                     major, minor, patch = list(map(int, version.split(".")[:3]))
                 return (major, minor, patch)
     else:
-        raise IOError("Did not found a csound version")
+        raise RuntimeError("Did not found a csound version")
 
 
-def csoundSubproc(args, piped=True):
+def csoundSubproc(args: List[str], piped=True) -> subprocess.Popen:
     """
-    Calls csound with the given args in a subprocess, returns
-    such subprocess.
+    Calls csound with given args in a subprocess, returns such subprocess.
+
+    Args:
+        args: the args passed to csound
+        piped: if True, stdout and stderr are piped to the Popen object
+
+    Returns:
+        the subprocess.Popen object
+
+    Raises RuntimeError if csound is not found
     """
     csound = findCsound()
     if not csound:
-        return
+        raise RuntimeError("Csound not found")
     p = subprocess.PIPE if piped else None
     callargs = [csound]
     callargs.extend(args)
-    logger.debug(f"csound_subproc> args={callargs}")
     return subprocess.Popen(callargs, stderr=p, stdout=p)
     
 
+def getSystemSr(backend: str) -> Opt[float]:
+    """
+    Get the system samplerate for a given backend
+
+    None is returned if the backend does not support a system sr
+
+    Args:
+        backend: the name of the backend (jack, pa_cb, auhal, etc)
+
+    Returns:
+        the system sr if the backend reports this information, or None
+
+    .. note::
+
+        Not all backends support a system sr. At the moment
+        only **jack** and **coreaudio** (auhal) report a system-sr
+    """
+    b = getAudioBackend(backend)
+    if not b:
+        raise ValueError(f"backend {backend} not known")
+    return b.getSystemSr()
+
+
+def _getJackSrViaClient() -> float:
+    import jack
+    c = jack.Client("query")
+    sr = c.samplerate
+    c.close()
+    return sr
+
+
+def _getCsoundSystemSr(backend:str) -> float:
+    if backend not in {'jack', 'auhal'}:
+        raise ValueError(f"backend {backend} does not support system sr")
+    import ctcsound
+    csound = ctcsound.Csound()
+    csound.setOption(f"-+rtaudio={backend}")
+    csound.setOption("-odac")
+    csound.setOption("--use-system-sr")
+    csound.start()
+    sr = csound.sr()
+    csound.stop()
+    return sr
+
+
 def getDefaultBackend() -> AudioBackend:
     """
-    Get the default backend for platform, discard any backend which is
-    not available at the moment
+    Get the default active backend for platform
+
+    Discard any backend which is not available at the moment
     """
-    return getAudioBackends()[0]
+    return availableAudioBackends()[0]
+
+
+_pluginsFolders = {
+    'float64': {
+        'linux': '$HOME/.local/lib/csound/6.0/plugins64',
+        'darwin': '$HOME/Library/csound/6.0/plugins64',
+        'win32': '%LOCALAPPDATA%/csound/6.0/plugins64'
+    },
+    'float32': {
+        'linux': '$HOME/.local/lib/csound/6.0/plugins32',
+        'darwin': '$HOME/Library/csound/6.0/plugins32',
+        'win32': '%LOCALAPPDATA%/csound/6.0/plugins32'
+    }
+}
+
+
+def getUserPluginsFolder(float64=True) -> str:
+    """
+    Returns the user plugins folder for this platform
+
+    Args:
+        float64: if True, report the folder for 64-bit plugins
+
+    Returns:
+        the user plugins folder for this platform
+
+    **Folders for 64-bit plugins**:
+
+    ======== ======================================================
+     OS       Folder
+    ======== ======================================================
+     Linux    ``~/.local/lib/csound/6.0/plugins64``
+     macOS    ``~/Library/csound/6.0/plugins64``
+     windows  ``C:/Users/<User>/AppData/Local/csound/6.0/plugins64``
+    ======== ======================================================
+
+    For 32-bit plugins the folder is the same, but ends in 32 (``.../plugins32``)
+    """
+    arch = 'float64' if float64 else 'float32'
+    folder = _pluginsFolders[arch][sys.platform]
+    return os.path.expandvars(folder)
 
 
 def runCsd(csdfile:str,
@@ -274,9 +413,15 @@ def runCsd(csdfile:str,
 
 def joinCsd(orc: str, sco="", options:List[str] = None) -> str:
     """
-    Join an orc and a score (both as str), returns a consolidated
-    csd as string
+    Joins an orc and a score (both as str), returns a csd as string
 
+    Args:
+        orc: the text of the orchestra
+        sco: the text of the score
+        options: any command line options to be included
+
+    Returns:
+        the text of the csd
     """
     optionstr = "" if options is None else "\n".join(options)
     csd = r"""
@@ -321,11 +466,11 @@ class CsoundProc:
     csdstr: str = ""
 
 
-def testCsound(dur=8., nchnls=2, backend=None, device="dac", sr:int=None, verbose=True
+def testCsound(dur=8., nchnls=2, backend:str=None, device="dac", sr:int=None,
+               verbose=True
                ) -> CsoundProc:
     """
-    Test the current csound installation for realtime output with
-    the given configuration
+    Test the current csound installation for realtime output
     """
     backend = backend or getDefaultBackend().name
     sr = sr or getSamplerateForBackend(backend)
@@ -374,40 +519,60 @@ class ScoreEvent:
     args: List[U[float, str]]
 
 
-def parseScore(sco: str) -> Generator[ScoreEvent]:
+def parseScore(sco: str) -> Generator[ScoreEvent, None, None]:
     """
-    Parse a score given as string, returns a seq. of ScoreEvents
+    Parse a score given as string, returns a seq. of :class:`ScoreEvent`
     """
+    p1: U[str, int]
     for line in sco.splitlines():
         words = line.split()
         w0 = words[0]
         if w0 in {'i', 'f'}:
             kind = w0
-            name = words[1]
-            if namenum := misc.asnumber(name) is not None:
-                name = namenum
+            p1 = words[1]
+            if namenum := misc.asnumber(p1) is not None:
+                p1 = namenum
             t0 = float(words[2])
             dur = float(words[3])
             rest = words[4:]
         elif w0[0] in {'i', 'f'}:
             kind = w0[0]
-            name = w0[1:]
+            p1 = w0[1:]
             t0 = float(words[1])
             dur = float(words[2])
             rest = words[3:]
         else:
             continue
-        yield ScoreEvent(kind, name, t0, dur, rest)
+        args: List[U[float, str]] = []
+        for w in rest:
+            if w.startswith('"'):
+                args.append(w)
+            else:
+                arg = misc.asnumber(w)
+                assert isinstance(arg, (int, float))
+                args.append(arg)
+        yield ScoreEvent(kind, p1, t0, dur, args)
 
 
-def opcodesList(cached=True) -> List[str]:
+def opcodesList(cached=True, opcodedir=None) -> List[str]:
     """
     Return a list of the opcodes present
+
+    Args:
+        cached: if True, results are remembers between calls
+        opcodedir: if given, plugin libraries will be loaded from
+            this path (option --opcode-dir in csound)
+
+    Returns:
+        a list of all available opcodes
     """
     global _OPCODES
     if _OPCODES is not None and cached:
         return _OPCODES
-    s = csoundSubproc(['-z'])
+    options = ["-z"]
+    if opcodedir:
+        options.append(f'--opcode-dir={opcodedir}')
+    s = csoundSubproc(options)
     lines = s.stderr.readlines()
     allopcodes = []
     for line in lines:
@@ -465,61 +630,136 @@ def saveAsGen23(data: Seq[float], outfile:str, fmt="%.12f", header="") -> None:
         np.savetxt(outfile, data, fmt=fmt)
 
 
-def matrixAsWav(outfile: str, mtx: np.ndarray, dt: float, t0=0.) -> None:
+def _metadataAsComment(d: Dict[str, Any], maxSignificantDigits=10,
+                       sep=", ") -> str:
+    fmt = f"%.{maxSignificantDigits}g"
+    parts = []
+    for key, val in d.items():
+        if isinstance(val, int):
+            valstr = str(val)
+        elif isinstance(val, float):
+            valstr = fmt % val
+        elif isinstance(val, str):
+            valstr = f'"{val}"'
+        else:
+            raise TypeError(f"Value should be int, float or str, got {val}")
+        parts.append(f"{key}: {valstr}")
+    return sep.join(parts)
+
+
+def saveMatrixAsWav(outfile: str, data: np.ndarray,
+                    metadata:Dict[str, U[str, float]]=None,
+                    encoding="float32",
+                    title:str='',
+                    sr:int=44100) -> None:
     """
-    Save the data in the 2D matrix `mtx` as a wav file. This is not a real
-    soundfile but it is used to transfer the data in binary form to be
-    read in csound.
+    Save the data in `data` as a wav file.
 
-    Format::
+    This is not a real soundfile but it is used to transfer the data in
+    binary form to be read by another program. To distinguish this from a
+    normal wav file an extension '.mtx' is recommended. Data is saved
+    always flat, and a header including the shape of mtx is included
+    before the data.
 
-        header: headerlength, dt, numcols, numrows, t0
-        rows: each row has `numcol` number of items
+    Header Format
+    -------------
+    ::
+        headerlength, numrows, numcolumns, ...
+
+    The description of each metadata value is included as wav metadata
+    at the comment key with the format:
+
+        columns: 'HeaderSize NumRows NumColumns ...'
+
+    This metadata can be retrieved in csound via::
+
+        Scomment = sfreadmeta("sndfile.mtx", "comment")
+        imeta = dict_loadstr(Scomment)
+        ikeyC = dict_get(imeta, "keyC")
 
     Args:
-        outfile (str): The path where the data is written to (must have a .wav extension)
-        mtx (numpy array): a numpy array of shape (numcols, numsamples). A 2D matrix
+        outfile (str): The path where the data is written to
+        data (numpy array): a numpy array of shape (numcols, numsamples). A 2D matrix
             representing a series of streams sampled at a regular period (dt)
-        dt (float): the sampling period of the matrix
-        t0 (float): the sampling offset of the matrix (t = row*dt + t0)
+        metadata: Any float values here are included in the header, and the description
+            of this data is included as metadata in the wav file
+        encoding: the data can be encoded in float32 or float64
+        title: if given will be included in the soundfile metadata
+        sr: sample rate. I
     """
     assert isinstance(outfile, str)
-    assert isinstance(dt, float)
-    assert isinstance(t0, float)
+    assert encoding == 'float32' or encoding == 'float64'
+    if os.path.splitext(outfile)[1] != ".mtx":
+        logger.warning(f"The extension should be .mtx, but asked to save"
+                       f"the matrix as {outfile}")
+    if len(data.shape) > 1 and data.shape[1] > 1023:
+        raise ValueError("Only matrices with less than 1024 rows can be saved "
+                         "via this method")
+
     import sndfileio
-    mtx_flat = mtx.ravel()
-    numrows, numcols = mtx.shape
-    header = np.array([5, dt, numcols, numrows, t0], dtype=float)
-    sndwriter = sndfileio.sndwrite_chunked(sr=44100, outfile=outfile, encoding="flt32")
-    sndwriter.write(header)
-    sndwriter.write(mtx_flat)
+    header = [3, data.shape[0], data.shape[1]]
+    allmeta = {'HeaderSize': 3,
+               'NumRows': data.shape[0],
+               'NumColumns': data.shape[1]}
+    columns = ['HeaderSize', 'NumRows', 'NumColumns']
+
+    if metadata:
+        for k, v in metadata.items():
+            if isinstance(v, (int, float)):
+                header.append(v)
+                allmeta[k] = v
+                columns.append(k)
+        headersize = len(allmeta)
+        allmeta['HeaderSize'] = headersize
+        header[0] = headersize
+
+        for k, v in metadata.items():
+            if isinstance(v, str):
+                allmeta[k] = v
+
+    allmeta['columns'] = " ".join(columns)
+    wavmeta = {'comment': _metadataAsComment(allmeta),
+               'software': 'MTX1'}
+    if title:
+        wavmeta['title'] = title
+    sndwriter = sndfileio.sndwrite_chunked(outfile=outfile, sr=sr,
+                                           encoding=encoding, metadata=wavmeta,
+                                           fileformat='wav')
+    sndwriter.write(np.array(header, dtype=float))
+    sndwriter.write(data.ravel())
     sndwriter.close()
 
 
-def matrixAsGen23(outfile: str, mtx: np.ndarray, dt:float, t0=0, include_header=True
-                  ) -> None:
+
+def saveMatrixAsGen23(outfile: str, mtx: np.ndarray, extradata:List[float]=None,
+                      include_header=True
+                      ) -> None:
     """
     Save a numpy 2D array as gen23
 
     Args:
         outfile (str): the path to save the data to. Suggestion: use '.gen23' as ext
         mtx (np.ndarray): a 2D array of floats
-        dt (float): the sampling period
-        t0 (float): start of sampling time
-        include_header (bool): if True, the saved data will be preluded by a header
-            of the form ``[header size, dt, numcols, numrows, t0]``
+        extradata: if given, this data will be prependedto the data in `mtx`.
+            Implies `include_header=True`
+        include_header: if True, a header of the form [headersize, numrows, numcolumns]
+            is prepended to the data.
 
     .. note::
         The format used by gen23 is a text format with numbers separated by any space.
         When read inside csound the table is of course 1D but can be interpreted as
         2D with the provided header metadata.
+
     """
     numrows, numcols = mtx.shape
     mtx = mtx.round(6)
     with open(outfile, "w") as f:
-        if include_header:
-            header = np.array([5, dt, numcols, numrows, t0], dtype=float)
-            f.write(" ".join(header.astype(str)))
+        if include_header or extradata:
+            header = [3, numrows, numcols]
+            if extradata:
+                header.extend(extradata)
+            header[0] = len(header)
+            f.write(" ".join(np.array(header).astype(str)))
             f.write("\n")
         for row in mtx:
             rowstr = " ".join(row.astype(str))
@@ -588,10 +828,10 @@ def getAudioDevices(backend:str=None) -> Tuple[List[AudioDevice], List[AudioDevi
     """
     if not backend:
         backend = getDefaultBackend().name
-    if backend == "jack" and not isJackRunning():
+    if backend == "jack" and not jacktools.isJackRunning():
         raise RuntimeError("jack is not running")
     if backend == "pulse":
-        if not isPulseaudioRunning():
+        if not _isPulseaudioRunning():
             raise RuntimeError("pulseaudio is not running")
         return ([AudioDevice(0, id="adc", name="adc", kind="input", ins=2, outs=2)],
                 [AudioDevice(0, id="dac", name="dac", kind="output", ins=2, outs=2)])
@@ -632,18 +872,25 @@ def getAudioDevices(backend:str=None) -> Tuple[List[AudioDevice], List[AudioDevi
     return indevices, outdevices
 
 
-def getSamplerateForBackend(backend: U[str, AudioBackend] = None) -> float:
+def getSamplerateForBackend(backend: U[str, AudioBackend] = None) -> int:
     """
     Returns the samplerate reported by the given backend, or
     0 if failed
     """
-    audiobackend = getAudioBackend(backend)
+    if isinstance(backend, str):
+        audiobackend = getAudioBackend(backend)
+        if audiobackend is None:
+            raise ValueError(f"Backend {backend} not known")
+    else:
+        audiobackend = backend
+    assert isinstance(audiobackend, AudioBackend)
+
     FAILED = 0
 
     if not audiobackend.isAvailable():
-        raise AudioBackendNotAvailable
+        raise RuntimeError(f"Audiobackend {audiobackend} is not available")
 
-    if not audiobackend.supportsSystemSr:
+    if not audiobackend.hasSystemSr:
         return 44100
 
     if audiobackend.name == 'jack' and _shutil.which('jack_samplerate') is not None:
@@ -655,24 +902,11 @@ def getSamplerateForBackend(backend: U[str, AudioBackend] = None) -> float:
     srlines = [line for line in proc.stdout.readlines() 
                if line.startswith(b"system sr:")]
     if not srlines:
-        logger.error(f"get_sr: Failed to get sr with backend {backend.name}")
+        logger.error(f"get_sr: Failed to get sr with backend {audiobackend.name}")
         return FAILED
-    sr = float(srlines[0].split(b":")[1].strip())
+    sr = int(srlines[0].split(b":")[1].strip())
     logger.debug(f"get_sr: sample rate query output: {srlines}")
     return sr if sr > 0 else FAILED
-
-
-@cachetools.cached(cache=cachetools.TTLCache(1, 30))
-def isJackRunning() -> bool:
-    """ Return True if jack is available and running"""
-    return _csoundTestJackRunning()
-
-
-@cachetools.cached(cache=cachetools.TTLCache(1, 30))
-def isPulseaudioRunning() -> bool:
-    """ Return True if Pulseaudio is running """
-    retcode = subprocess.call(["pulseaudio", "--check"])
-    return retcode == 0
 
 
 def _csoundTestJackRunning():
@@ -681,33 +915,55 @@ def _csoundTestJackRunning():
     return b'could not connect to JACK server' not in proc.stderr.read()
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 30))
+@cachetools.cached(cache=cachetools.TTLCache(1, 15))
 def isBackendAvailable(backend: str) -> bool:
     """ Returns True if the given audio backend is available """
     if backend == 'jack':
-        out = isJackRunning()
+        out = jacktools.isJackRunning()
     elif backend == 'pulse':
-        out = isPulseaudioRunning()
+        out = _isPulseaudioRunning()
     else:
         indevices, outdevices = getAudioDevices(backend=backend)
         out = bool(indevices or outdevices)
     return out
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 30))
-def getAudioBackends() -> List[AudioBackend]:
+def availableAudioBackends() -> List[AudioBackend]:
     """
-    Return a list of supported audio backends as they would be passed
-    to -+rtaudio
+    Return a list of available audio backends
 
-    Only those backends currently available are returned
+    Only those backends supported for the current platform and
+    currently available are returned.
     (for example, jack will not be returned in linux if the
     jack server is not running)
+
+    Example
+    =======
+
+        >>> from csoundengine import *
+        >>> [backend.name for backend in availableAudioBackends()]
+        ['jack', 'pa_cb', 'pa_bl', 'alsa']
 
     """
     backends = _platformBackends[sys.platform]
     backends = [backend for backend in backends if backend.isAvailable()]
     return backends
+
+
+def dumpAudioBackends() -> None:
+    """
+    Prints all **available** backends and their properties as a table
+    """
+    rows = []
+    headers = "name longname sr".split()
+    for b in availableAudioBackends():
+        if b.hasSystemSr:
+            sr = getSystemSr(b.name)
+        else:
+            sr = "-"
+        rows.append((b.name, b.longname, sr))
+    from emlib.misc import print_table
+    print_table(rows, headers=headers, showindex=False)
 
 
 def getAudioBackend(name:str=None) -> Opt[AudioBackend]:
@@ -719,16 +975,13 @@ def getAudioBackend(name:str=None) -> Opt[AudioBackend]:
 
 def getAudioBackendNames() -> List[str]:
     """
-    Similar to get_audiobackends, but returns the names of the
-    backends. The AudioBackend class can be retrieved via
-
-    audio_backends[backend_name]
+    Returns a list with the names of the available audio backends
 
     Returns:
         a list with the names of all available backends for the
         current platform
     """
-    backends = getAudioBackends()
+    backends = availableAudioBackends()
     return [backend.name for backend in backends]
 
 
@@ -736,7 +989,7 @@ def _quoteIfNeeded(arg:U[float, int, str]) -> U[float, int, str]:
     return arg if not isinstance(arg, str) else f'"{arg}"'
 
 
-def _eventStartTime(event:tuple) -> float:
+def _eventStartTime(event:U[list, tuple]) -> float:
     kind = event[0]
     if kind == "e":           # end
         return event[1]
@@ -746,7 +999,7 @@ def _eventStartTime(event:tuple) -> float:
         assert len(event) >= 3
         return event[2]
 
-_normalizer = misc.make_replacer({".":"_", ":":"_", " ":"_"})
+_normalizer = textlib.makeReplacer({".":"_", ":":"_", " ":"_"})
 
 
 def normalizeInstrumentName(name:str) -> str:
@@ -792,7 +1045,7 @@ def csoundOptionForSampleFormat(fmt:str) -> str:
         --format=double
 
     """
-    return _fmtoptions.get(fmt)
+    return _fmtoptions[fmt]
 
 
 class Csd:
@@ -867,7 +1120,7 @@ class Csd:
         self.nchnls = nchnls
         self.a4 = a4
         self._sampleFormat: Opt[str] = None
-        self._definedTables = set()
+        self._definedTables: Set[int] = set()
         self._minTableIndex = 1
         self.nodisplay = nodisplay
         self.enableCarry = carry
@@ -908,17 +1161,16 @@ class Csd:
         return idx
 
     def _assignTableIndex(self, tabnum=0) -> int:
-        defined_ftables = self._definedTables
         if tabnum > 0:
-            if tabnum in defined_ftables:
+            if tabnum in self._definedTables:
                 raise ValueError(f"ftable {tabnum} already defined")
         else:
             for tabnum in range(self._minTableIndex, 9999):
-                if tabnum not in defined_ftables:
+                if tabnum not in self._definedTables:
                     break
             else:
                 raise IndexError("All possible ftable slots used!")
-        defined_ftables.add(tabnum)
+        self._definedTables.add(tabnum)
         return tabnum
 
 
@@ -939,7 +1191,7 @@ class Csd:
         self.score.append(pargs)
         return tabnum
 
-    def addTableFromSeq(self, seq: Seq[float], tabnum:int=0, start=0
+    def addTableFromSeq(self, seq: U[Seq[float], np.ndarray], tabnum:int=0, start=0
                         ) -> int:
         """
         Create a ftable, fill it with seq, return the ftable index
@@ -966,7 +1218,6 @@ class Csd:
             start = round(start, 8)
         pargs = [tabnum, start, -len(seq), -2]
         pargs.extend(seq)
-
         return self._addTable(pargs)
 
     def addEmptyTable(self, size:int, tabnum: int=0) -> int:
@@ -1163,7 +1414,7 @@ class Csd:
             output:str,
             inputdev:str=None,
             backend: str = None,
-            supressdisplay=False,
+            suppressdisplay=False,
             piped=False,
             extra: List[str] = None) -> subprocess.Popen:
         """
@@ -1174,7 +1425,7 @@ class Csd:
                 as the -o argument to csound.
             inputdev: the input device to use when running in realtime
             backend: the backend to use
-            supressdisplay: if True, debugging information is supressed
+            suppressdisplay: if True, debugging information is supressed
             piped: if True, stdout and stderr are piped through
                 the Popen object, accessible through .stdout and .stderr
                 streams
@@ -1192,14 +1443,15 @@ class Csd:
             self.writeCsd(f)
         logger.debug(f"Csd.run :: tempfile = {tmp}")
         return runCsd(tmp, outdev=output, indev=inputdev,
-                      backend=backend, nodisplay=supressdisplay,
+                      backend=backend, nodisplay=suppressdisplay,
                       piped=piped, extra=extra)
 
 
 def mincer(sndfile:str, outfile:str,
-           timecurve:U[Curve, float], pitchcurve:[Curve, float],
+           timecurve:U[Curve, float],
+           pitchcurve:U[Curve, float],
            dt=0.002, lock=False, fftsize=2048, ksmps=128, debug=False
-           ) -> None:
+           ) -> dict:
     """
     Stretch/Pitchshift a soundfile using csound's mincer opcode
 
@@ -1215,6 +1467,10 @@ def mincer(sndfile:str, outfile:str,
         fftsize: the size of the fft
         ksmps: the ksmps to pass to the csound process
         debug: run csound with debug information
+
+    Returns:
+        a dict with information about the process (keys: outfile,
+        csdstr, csd)
 
     .. note::
 
@@ -1506,10 +1762,12 @@ def defaultDevicesForBackend(backendname:str=None) -> Tuple[str, str]:
     if backendname is None:
         backend = getDefaultBackend()
     else:
-        backend = getAudioBackend(backendname)
-    if not backend:
-        backends = getAudioBackendNames()
-        raise ValueError(f"Backend {backendname} not known. Possible backends: {backends}")
+        _backend = getAudioBackend(backendname)
+        if _backend is None:
+            backends = getAudioBackendNames()
+            raise ValueError(
+                f"Backend {backendname} not known. Possible backends: {backends}")
+        backend = _backend
     return (backend.adc, backend.dac)
 
 
@@ -1530,7 +1788,7 @@ def _getNchnlsJack(indevice:str, outdevice:str) -> Tuple[int, int]:
         indevice = "system:capture_.*"
     if outdevice == "dac" or outdevice is None:
         outdevice = "system:playback_.*"
-    if not isJackRunning():
+    if not jacktools.isJackRunning():
         return 0, 0
     indevs, outdevs = getAudioDevices('jack')
     outports = []
@@ -1544,7 +1802,17 @@ def _getNchnlsJack(indevice:str, outdevice:str) -> Tuple[int, int]:
     return len(inports), len(outports)
 
 
-def _getNchnlsJackViaJackclient(indevice:str, outdevice:str
+def _isJackRunningViaJackclient() -> bool:
+    import jack
+    try:
+        client = jack.Client("query", no_start_server=True)
+    except jack.JackOpenError:
+        return False
+    client.close()
+    return True
+
+
+def _getNchnlsJackViaJackclient(indevice:Opt[str], outdevice:Opt[str]
                                 ) -> Tuple[int, int]:
     """
     Get the number of ports for the given clients using JACK-Client
@@ -1593,7 +1861,11 @@ def _parsePortaudioDeviceName(name:str) -> Tuple[str, str, int, int]:
     """
     Parses a string like "HDA Intel PCH: CX20590 Analog (hw:0,0) [ALSA, 2 in, 4 out]"
 
-    Returns a tuple: ("HDA Intel PCH: CX20590 Analog (hw:0,0)", "ALSA", 2, 4)
+    Args:
+        name: the name of the device
+
+    Returns:
+        a tuple: ("HDA Intel PCH: CX20590 Analog (hw:0,0)", "ALSA", 2, 4)
     """
     devname, rest = name.split("[")
     rest = rest.replace("]", "")
@@ -1608,7 +1880,7 @@ def _parsePortaudioDeviceName(name:str) -> Tuple[str, str, int, int]:
     return devname.strip(), api, inch, outch
 
 
-def _getNchnlsPortaudio(indevice:str, outdevice:str
+def _getNchnlsPortaudio(indevice:Opt[str], outdevice:Opt[str]
                         ) -> Tuple[int, int]:
     indevs, outdevs = getAudioDevices(backend="portaudio")
     assert indevice != "dac" and outdevice != "adc"
@@ -1637,9 +1909,10 @@ def _getNchnlsPortaudio(indevice:str, outdevice:str
 
 def dumpAudioDevices(backend:str=None):
     """
-    Print a list of audio devices for the given backend. If backend is not
-    given, the default backend (of all available backends for the current
-    platform) is chosen
+    Print a list of audio devices for the given backend.
+
+    If backend is not given, the default backend (of all available backends
+    for the current platform) is chosen
     """
     indevs, outdevs = getAudioDevices(backend=backend)
     print("Input Devices:")
@@ -1682,19 +1955,22 @@ def instrNames(instrdef: str) -> List[U[int, str]]:
         if not line.startswith("instr "):
             continue
         names = line[6:].split(",")
-        out = []
+        out: List[U[str, int]] = []
         for n in names:
             asnum = misc.asnumber(n)
-            out.append(asnum if asnum is not None else n)
+            if asnum is None:
+                out.append(n)
+            else:
+                assert isinstance(asnum, int)
+                out.append(asnum)
         return out
-    raise []  #  ValueError("No instrument definition found")
+    return []  #  ValueError("No instrument definition found")
 
 
 @dataclasses.dataclass
 class ParsedBlock:
     """
-    A ParsedBlock represents a block (am instr, opcode, instr0 line, etc) in a
-    csound orchestra
+    A ParsedBlock represents a block (am instr, opcode, etc) in an orchestra
     """
     kind: str
     text: str
@@ -1708,49 +1984,59 @@ class ParsedBlock:
             self.endLine = self.startLine
 
 
+@dataclasses.dataclass
+class _OrcBlock:
+    name: str
+    startLine: int
+    lines: List[str]
+    endLine: int = 0
+    outargs: str = ""
+    inargs: str = ""
+
 def parseOrc(code: str, keepComments=True) -> List[ParsedBlock]:
     """
-    Parse orchestra code into blocks, where each block is either
-    an instr, an opcode, a header line, a comment or an instr0 line
+    Parse orchestra code into blocks
+
+    Each block is either an instr, an opcode, a header line, a comment
+    or an instr0 line
     """
     context = []
-    block = None
-    blocks = []
+    blocks: List[ParsedBlock] = []
+    block = _OrcBlock("", 0, [])
     for i, line in enumerate(code.splitlines()):
         strippedline = line.strip()
         if not strippedline:
             continue
         if match := re.search(r"\binstr\s+(\d+|[a-zA-Z_]\w+)", line):
             context.append('instr')
-            block = {
-                'name': match.group(1),
-                'startLine': i,
-                'lines': [line]
-            }
+            block = _OrcBlock(name=match.group(1),
+                              startLine=i,
+                              lines=[line])
         elif strippedline == "endin":
             assert context[-1] == "instr"
             context.pop()
-            block['endLine'] = i
-            block['lines'].append(line)
+            assert block.name
+            block.endLine = i
+            block.lines.append(line)
             blocks.append(ParsedBlock(kind='instr',
-                                      startLine=block['startLine'],
-                                      endLine=block['endLine'],
-                                      text='\ņ'.join(block['lines']),
-                                      name=block['name']))
+                                      startLine=block.startLine,
+                                      endLine=block.endLine,
+                                      text='\ņ'.join(block.lines),
+                                      name=block.name))
         elif strippedline == 'endop':
             assert context[-1] == "opcode"
             context.pop()
-            block['endLine'] = i
-            block['lines'].append(line)
+            block.endLine = i
+            block.lines.append(line)
             blocks.append(ParsedBlock(kind='opcode',
-                                      startLine=block['startLine'],
-                                      endLine=block['endLine'],
-                                      text='\n'.join(block['lines']),
-                                      name=block['name'],
-                                      attrs={'outargs':block['outargs'],
-                                              'inargs':block['inargs']}))
+                                      startLine=block.startLine,
+                                      endLine=block.endLine,
+                                      text='\n'.join(block.lines),
+                                      name=block.name,
+                                      attrs={'outargs':block.outargs,
+                                              'inargs':block.inargs}))
         elif context and context[-1] in {'instr', 'opcode'}:
-            block['lines'].append(line)
+            block.lines.append(line)
         elif match := re.search(r"^\s*(sr|ksmps|kr|A4|0dbfs|nchnls|nchnls_i)\s*=\s*(\d+)", line):
             blocks.append(ParsedBlock(kind='header',
                                       name=match.group(1),
@@ -1764,13 +2050,12 @@ def parseOrc(code: str, keepComments=True) -> List[ParsedBlock]:
                                           text=line))
         elif match := re.search(r"^\s*opcode\s+(\w+)\s*,\s*([0ika\[\]]*),\s*([0ikaoOjJpP\[\]]*)", line):
             context.append('opcode')
-            block = {
-                'name': match.group(1),
-                'startLine': i,
-                'lines': [line],
-                'outargs': match.group(2),
-                'inargs': match.group(3)
-            }
+            block = _OrcBlock(name=match.group(1),
+                              startLine = i,
+                              lines = [line],
+                              outargs = match.group(2),
+                              inargs = match.group(3)
+                              )
         else:
             blocks.append(ParsedBlock(kind='instr0',
                                       startLine=i,
@@ -1781,8 +2066,7 @@ def parseOrc(code: str, keepComments=True) -> List[ParsedBlock]:
 @dataclasses.dataclass
 class ParsedInstrBody:
     """
-    This class hold the result of parsing the body
-    of an instrument
+    This class holds the result of parsing the body of an instrument
 
     Attributes:
         pfieldsIndexToName: maps p index to name
@@ -1803,14 +2087,15 @@ class ParsedInstrBody:
 
     def numPfields(self) -> int:
         """ Returns the number of pfields in this instrument """
+        if not self.pfieldsUsed:
+            return 3
         return max(self.pfieldsUsed)
 
 
 @_lru_cache(maxsize=1000)
 def instrParseBody(body: str) -> ParsedInstrBody:
     """
-    Parses the body of the instrument and returns information
-    about pfields used, output channels, etc.
+    Parses the body of an instrument, returns pfields used, output channels, etc.
 
     Args:
         body (str): the body of the instr (between instr/endin)
@@ -1871,8 +2156,11 @@ def instrParseBody(body: str) -> ParsedInstrBody:
 
 def bestSampleFormatForExtension(ext: str) -> str:
     """
-    Given an extension, return the best sample format. Float64
-    is not considered necessary for holding sound information
+    Given an extension, return the best sample format.
+
+    .. note::
+
+        float64 is not considered necessary for holding sound information
 
     Args:
         ext (str): the extension of the file will determine the format

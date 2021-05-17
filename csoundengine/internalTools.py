@@ -2,9 +2,9 @@ from __future__ import annotations
 import numpy as np
 import sys
 import os
-from typing import Optional as Opt, TYPE_CHECKING, Union as U, List, Dict
+from typing import Optional as Opt, TYPE_CHECKING, Union as U, List, Dict, Any
 from .config import config
-from . import ujacktools
+from . import jacktools
 import signal
 import math
 import textwrap
@@ -12,7 +12,7 @@ import textwrap
 if TYPE_CHECKING:
     from .instr import Instr
 
-_registry = {}
+_registry: Dict[str, Any] = {}
 
 
 def m2f(midinote: float, a4:float) -> float:
@@ -99,7 +99,7 @@ def removeSigintHandler():
 
 def determineNumbuffers(backend:str, buffersize:int) -> int:
     if backend == 'jack':
-        info = ujacktools.get_info()
+        info = jacktools.getInfo()
         numbuffers = int(math.ceil(info.blocksize / buffersize))
     else:
         numbuffers = 2
@@ -108,10 +108,10 @@ def determineNumbuffers(backend:str, buffersize:int) -> int:
 
 def instrResolveArgs(instr: Instr,
                      p4: int,
-                     pargs: U[List[float], Dict[str, float]],
-                     pkws: Dict[str, float]
+                     pargs: U[List[float], Dict[str, float]]=None,
+                     pkws: Dict[str, float]=None
                      ) -> List[float]:
-    allargs = [p4]
+    allargs: List[float] = [float(p4)]
     if not pargs and not instr.pargsDefaultValues and not pkws:
         return allargs
     if isinstance(pargs, list):
@@ -139,6 +139,12 @@ endin
                  commentstr=commentstr)
     s = textwrap.dedent(s)
     return s
+
+
+def addLineNumbers(code: str) -> str:
+    lines = [f"{i:03d}  {line}"
+             for i, line in enumerate(code.splitlines(), start=1)]
+    return "\n".join(lines)
 
 
 _platforms = {

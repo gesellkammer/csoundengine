@@ -6,7 +6,7 @@ import shutil
 import cachetools
 import dataclasses
 from typing import Optional as Opt
-
+import jack
 try:
     import jack
     JACK_INSTALLED = True
@@ -17,8 +17,8 @@ except OSError:
 class PlatformNotSupportedError(Exception): pass
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 60))
-def jack_running() -> bool:
+@cachetools.cached(cache=cachetools.TTLCache(1, 20))
+def isJackRunning() -> bool:
     """
     Returns True if jack is running.
 
@@ -26,10 +26,10 @@ def jack_running() -> bool:
         The result is cached for a certain amount of time. Use `jack_running_check`
         for an uncached version
     """
-    return jack_running_check()
+    return isJackRunningUncached()
 
 
-def jack_running_check() -> bool:
+def isJackRunningUncached() -> bool:
     """
     Returns True if jack is running.
     """
@@ -56,8 +56,8 @@ class JackInfo:
     blocksize: int  = 0
 
 
-def get_info() -> JackInfo:
-    if not jack_running():
+def getInfo() -> JackInfo:
+    if not isJackRunning():
         return JackInfo(running=False)
     c = jack.Client("ujacktools", no_start_server=True)
     return JackInfo(running=True,

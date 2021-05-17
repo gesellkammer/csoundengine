@@ -239,7 +239,7 @@ class Instr:
         self.init = init if init else None
         self.numchans = numchans
         self.doc = doc
-        self._numpargs = None
+        self._numpargs: Opt[int] = None
         self._recproc = None
         self._check = config['check_pargs']
         self._preschedCallback = preschedCallback
@@ -323,6 +323,7 @@ class Instr:
         if isinstance(renderer, str):
             from .session import getSession
             session = getSession(renderer)
+            assert session is not None
             session.registerInstr(self)
         else:
             renderer.registerInstr(self)
@@ -510,7 +511,7 @@ class Instr:
         """
         return self._tableDefaultValues is not None and len(self._tableDefaultValues)>0
 
-    def overrideTable(self, d: Dict[str, float], **kws) -> List[float]:
+    def overrideTable(self, d: Dict[str, float]=None, **kws) -> List[float]:
         """
         Overrides default values in the exchange table
         Returns the initial values
@@ -561,7 +562,8 @@ def _checkInstr(instr: str) -> str:
     return errmsg
 
 
-def _parse_inline_args(body: U[str, list[str]]) -> tuple[str, Opt[dict[str, float]], str]:
+def _parse_inline_args(body: U[str, list[str]]
+                       ) -> tuple[str, Opt[dict[str, float]], str]:
     """
     Parse an instr body with a possible args declaration (see below).
 
@@ -569,12 +571,14 @@ def _parse_inline_args(body: U[str, list[str]]) -> tuple[str, Opt[dict[str, floa
         body: the body of the instrument as a string or as a list of lines
 
     Returns:
-        a tuple (delimiters, fields, body without fields declaration), with:
+        a tuple (delimiters, fields, body without fields declaration)
+
+        Where:
 
         * delimiters: the string "||" or "{}", identifying the kind of inline declaration
         * fields: a dictionary mapping field name to default value
         * body without declaration: the body of the instrument, as a string, without
-            the line declaring fields.
+          the line declaring fields.
 
         In the case that the body has no inline declaration delimiters will be an empty
         string
@@ -606,7 +610,10 @@ def _parse_inline_args(body: U[str, list[str]]) -> tuple[str, Opt[dict[str, floa
     lines = body if isinstance(body, list) else body.splitlines()
     delimiters, linenum = _detect_inline_args(lines)
     if not delimiters:
+        if isinstance(body, list):
+            body = "\n".join(body)
         return "", None, body
+    assert linenum is not None
     pfields = {}
     line2 = lines[linenum].strip()
     parts = line2[1:-1].split(",")
@@ -620,11 +627,10 @@ def _parse_inline_args(body: U[str, list[str]]) -> tuple[str, Opt[dict[str, floa
     return delimiters, pfields, body2
 
 def _tabledefGenerateCode(tabledef: dict) -> str:
-    lines = []
+    lines: List[str] = []
     idx = 0
     maxidx = len(tabledef)
-    _ = lines.append
-    _(f"""
+    lines.append(f"""
     ; --- start generated table code
     i_params = p4
     if ftexists(i_params) == 0 then
@@ -636,9 +642,9 @@ def _tabledefGenerateCode(tabledef: dict) -> str:
     endif
     """)
     for key, value in tabledef.items():
-        _(f"k{key} tab {idx}, i_params")
+        lines.append(f"k{key} tab {idx}, i_params")
         idx += 1
-    _("; --- end generated table code\n")
+    lines.append("; --- end generated table code\n")
     return textlib.joinPreservingIndentation(lines)
 
 def _pfieldsMergeDeclaration(args: Dict[str, float], body: str, startidx=4
@@ -688,6 +694,7 @@ def _pfieldsMergeDeclaration(args: Dict[str, float], body: str, startidx=4
         if body_n:
             pfields[idx] = (body_n, 0.)
         else:
+            assert args_n is not None
             pfields[idx] = (args_n, args[args_n])
     return pfields
 

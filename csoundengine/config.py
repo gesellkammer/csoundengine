@@ -4,7 +4,9 @@ from configdict import ConfigDict
 modulename = 'csoundengine.engine'
 
 logger = logging.getLogger('csoundengine')
-
+_handler = logging.StreamHandler()
+_handler.setFormatter(logging.Formatter("*** csoundengine: %(message)s\n"))
+logger.addHandler(_handler)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 #                  CONFIG                   #
@@ -45,8 +47,8 @@ _('macos.backend', 'pa_cb',
 _('windows.backend', 'pa_cb',
   choices=('pa_cb', 'pa_bl'))
 _('fallback_backend', 'pa_cb',
-  choices=('pa_cb', 'pa_bl'),
-  doc="Fallback backend used if the preferred backend is not available")
+  choices=('pa_cb', 'pa_bl', ''),
+  doc="Fallback backend if the preferred backend is not available.")
 _('A4', 442,
   range=(410, 460),
   doc="Frequency for A4")

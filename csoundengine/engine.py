@@ -53,11 +53,13 @@ See also :class:`~csoundengine.session.Session` for a higher level interface:
 """
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING, Optional as Opt, Union as U, Sequence as Seq, \
-    KeysView, Callable, Dict, List, Tuple, Set
+    KeysView, Callable, Dict, List, Tuple
 import ctypes as _ctypes
 import atexit as _atexit
 import queue as _queue
+import textwrap as _textwrap
 
 import time
 
@@ -65,17 +67,18 @@ import numpy as np
 
 from emlib import iterlib, net
 from emlib.containers import IntPool
-import numpyx
 
 from .config import config, logger
 from . import csoundlib
-from . import ujacktools as jacktools
-from . import tools
+from . import jacktools as jacktools
+from . import internalTools
 from . import engineorc
 from .engineorc import CONSTS
 from .errors import CsoundError
+
 if TYPE_CHECKING:
     from . import session as _session
+    import socket
 
 try:
     import ctcsound
@@ -101,21 +104,32 @@ __all__ = [
 _UNSET = float("-inf")
 
 
+callback_t = Callable[[str, float], None]
+
+
 def _generateUniqueEngineName(prefix="engine") -> str:
-    for i in range(10000):
+    i = 0
+    while True:
         name = f"{prefix}{i}"
         if name not in Engine.activeEngines:
             return name
+        i += 1
+
 
 def _asEngine(e: U[str, Engine]) -> Engine:
     if isinstance(e, Engine):
         return e
-    return getEngine(e)
+    out = getEngine(e)
+    if out is None:
+        raise ValueError(f"No engine found with name {e}")
+    return out
 
 
 def some(x, otherwise=False):
     """
-    This allows to code like::
+    Returns x if it is not None, and *otherwise* if it is
+
+    This allows code like::
 
         myvar = some(myvar) or default
 
@@ -126,9 +140,19 @@ def some(x, otherwise=False):
     return x if x is not None else otherwise
 
 
+@dataclasses.dataclass
+class TableInfo:
+    tableNumber: int
+    sr: float
+    numChannels: int
+    numFrames: int
+    size: int
+
+
 class Engine:
     """
-    Create a csound Engine, which controls an underlying csound process.
+    Create a csound Engine
+
     Default values can be configured via `config.edit()`.
 
     .. note::
@@ -207,7 +231,7 @@ class Engine:
                  name:str = None,
                  sr:int = None,
                  ksmps:int = None,
-                 backend:str = None,
+                 backend:str = 'default',
                  outdev:str=None,
                  indev:str=None,
                  a4:int = None,
@@ -230,18 +254,19 @@ class Engine:
             raise KeyError(f"engine {name} already exists")
         cfg = config
         if backend is None or backend == 'default':
-            backend = cfg[f'{tools.platform}.backend']
+            backend = cfg[f'{internalTools.platform}.backend']
         backends = csoundlib.getAudioBackendNames()
         if backend not in backends:
+            logger.error(f'** Unknown backend "{backend}" **')
             # should we fallback?
             fallback_backend = cfg['fallback_backend']
             if not fallback_backend:
-                raise CsoundError(f"The backend {backend} is not available, "
-                                  f"possible backends: {backends}. "
-                                  f"no fallback backend defined")
-            logger.info(f"The backend {backend} is not available. "
-                         f"possible backends: {backends}. "
-                         f"Fallback backend: {fallback_backend}")
+                raise CsoundError(f'The backend "{backend}" is not available, '
+                                  f'possible backends: {backends}. '
+                                  f'No fallback backend defined')
+            logger.warning(f"The backend {backend} is not available.\n"
+                           f"Possible backends: {backends}.\n"
+                           f"Using fallback backend: {fallback_backend}")
             backend = fallback_backend
         if outdev is None or indev is None:
             defaultin, defaultout = csoundlib.defaultDevicesForBackend(backend)
@@ -299,44 +324,45 @@ class Engine:
         self.buffersize = buffersize
         self.numbuffers = (numbuffers or
                            config['numbuffers'] or
-                           tools.determineNumbuffers(self.backend, buffersize=buffersize))
+                           internalTools.determineNumbuffers(self.backend or "portaudio",
+                                                             buffersize=buffersize))
         if udpserver is None: udpserver = config['start_udp_server']
+        self._uddocket: Opt[socket.socket] = None
+        self._sendAddr: Opt[Tuple[str, int]] = None
+        self.udpport = 0
         if udpserver:
             self.udpport = udpport or net.findport()
             self._udpsocket = net.udpsocket()
             self._sendAddr = ("127.0.0.1", self.udpport)
-        else:
-            self.udpport = None
-            self._udpsocket = None
-            self._sendAddr = None
-
-        self._perfThread: Opt[ctcsound.CsoundPerformanceThread] = None
+        self._perfThread: ctcsound.CsoundPerformanceThread
         self.csound: Opt[ctcsound.Csound] = None            # the csound object
         self._fracnumdigits = 4        # number of fractional digits used for unique instances
         self._exited = False           # are we still running?
 
         # counters to create unique instances for each instrument
-        self._instanceCounters = {}
+        self._instanceCounters: Dict[int, int] = {}
 
         # Maps instrname/number: code
-        self._instrRegistry:Dict[U[str, int], str] = {}
+        self._instrRegistry: Dict[U[str, int], str] = {}
 
-        self._outvalueCallbacks = {}   # a dict of callbacks, reacting to outvalue opcodes
+        # a dict of callbacks, reacting to outvalue opcodes
+        self._outvalueCallbacks: Dict[bytes, callback_t] = {}
 
         # Maps used for strSet / strGet
-        self._indexToStr: Dict[int:str] = {}
-        self._strToIndex: Dict[str:int] = {}
+        self._indexToStr: Dict[int, str] = {}
+        self._strToIndex: Dict[str, int] = {}
         self._strLastIndex = 20
 
         # global code added to this engine
-        self._globalcode = {}
+        self._globalcode: Dict[str, str] = {}
 
         # this will be a numpy array pointing to a csound table of
         # NUMTOKENS size. When an instrument wants to return a value to the
         # host, the host sends a token, the instr sets table[token] = value
         # and calls 'outvale "__sync__", token' to signal that an answer is
         # ready
-        self._responsesTable: Opt[np.ndarray] = None
+        # self._responsesTable: Opt[np.ndarray] = None
+        self._responsesTable: np.ndarray
 
         # a table with sub-mix gains which can be used to group
         # synths, samples, etc.
@@ -353,7 +379,7 @@ class Engine:
 
         # a dict of token:callback, used to register callbacks when asking for
         # feedback from csound
-        self._responseCallbacks = {}
+        self._responseCallbacks: Dict[int, Callable] = {}
 
         # a dict mapping tableindex to fractional instr number
         self._assignedTables: Dict[int, float] = {}
@@ -391,6 +417,7 @@ class Engine:
                      ) -> Opt[float]:
         n = timeout // period
         table = self._responsesTable
+        assert table is not None
         while n > 0:
             response = table[token]
             if response == _UNSET:
@@ -451,10 +478,10 @@ class Engine:
         buffersize = self.buffersize
         optB = buffersize*self.numbuffers
         if self.backend == 'jack':
-            if not jacktools.jack_running():
+            if not jacktools.isJackRunning():
                 logger.error("jack is not running")
                 raise RuntimeError("jack is not running")
-            jackinfo = jacktools.get_info()
+            jackinfo = jacktools.getInfo()
             self.sr = jackinfo.samplerate
             if optB < jackinfo.blocksize*2:
                 optB = jackinfo.blocksize*2
@@ -474,10 +501,15 @@ class Engine:
                 clientname = self.name.strip().replace(" ", "_")
                 options.append(f'-+jack_client=csoundengine.{clientname}')
 
-        if self.udpport is not None:
+        if self.udpport:
             options.append(f"--port={self.udpport}")
 
+        options.append(f"--opcode-dir={csoundlib.getUserPluginsFolder()}")
+
         cs = ctcsound.Csound()
+        if cs.version() < 6150:
+            ver = cs.version() / 1000
+            raise RuntimeError(f"Csound's version should be >= 6.15, got {ver:.2f}")
         for opt in options:
             cs.setOption(opt)
         if self.includes:
@@ -500,7 +532,11 @@ class Engine:
         logger.debug(f"     Options: {options}")
         logger.debug(orc)
         logger.debug("--------------------------------------------------------------")
-        cs.compileOrc(orc)
+        err = cs.compileOrc(orc)
+        if err:
+            logger.error("Error compiling base orchestra")
+            logger.error(internalTools.addLineNumbers(orc))
+            raise CsoundError(f"Error compiling base ochestra, error: {err}")
         logger.info(f"Starting csound with options: {options}")
         cs.start()
         pt = ctcsound.CsoundPerformanceThread(cs.csound())
@@ -509,7 +545,7 @@ class Engine:
         self.csound = cs
         self._perfThread = pt
         if config['set_sigint_handler']:
-            tools.setSigintHandler()
+            internalTools.setSigintHandler()
         self._setupCallbacks()
         self._subgainsTable = self.csound.table(self._builtinTables['subgains'])
         self._responsesTable = self.csound.table(self._builtinTables['responses'])
@@ -537,14 +573,17 @@ class Engine:
         self.csound.cleanup()
         self._exited = True
         self.csound = None
-        self._perfThread = None
+        # self._perfThread = None
+        # self._perfThread = None
         self._instanceCounters = {}
         self._instrRegistry = {}
         self.activeEngines.pop(self.name, None)
         self.started = False
 
     def start(self):
-        """ Start this engine. The call to .start() is only needed if
+        """ Start this engine.
+
+        The call to .start() is only needed if
          the Engine was created with autostart=False """
         if self.started:
             return
@@ -568,16 +607,12 @@ class Engine:
         self.start()
         
     def _outcallback(self, _, channelName, valptr, chantypeptr):
-        funcOrFuncs = self._outvalueCallbacks.get(channelName)
-        if not funcOrFuncs:
+        func = self._outvalueCallbacks.get(channelName)
+        if not func:
             return
-        if callable(funcOrFuncs):
-            val = _ctypes.cast(valptr, _MYFLTPTR).contents.value
-            funcOrFuncs(channelName, val)
-            return
-        for i, func in enumerate(funcOrFuncs):
-            val = _ctypes.cast(valptr, _MYFLTPTR).contents.value
-            func(channelName, val)
+        assert callable(func)
+        val = _ctypes.cast(valptr, _MYFLTPTR).contents.value
+        func(channelName, val)
 
     def _setupCallbacks(self) -> None:
 
@@ -597,13 +632,16 @@ class Engine:
                 logger.error(f"Unknown sync token: {token}")
 
         self._outvalueCallbacks[bytes("__sync__", "ascii")] = _syncCallback
+        assert self.csound is not None
         self.csound.setOutputChannelCallback(self._outcallback)
 
-    def registerOutvalueCallback(self, chan:str, func: Callable[[str, float], None]) -> None:
+    def registerOutvalueCallback(self, chan:str, func: callback_t) -> None:
         """
-        Register a function `(channelname, newvalue) -> None`, which will be called
-        whenever the given channel is modified via the "outvalue" opcode. Multiple
-        functions per channel can be registered
+        Set a callback to be fired when "outvalue" is used in csound
+
+        Register a function `(channelname:str, newvalue:float) -> None`,
+        which will be called whenever the given channel is modified via
+        the "outvalue" opcode. Multiple functions per channel can be registered
 
         Args:
             chan: the name of a channel
@@ -618,25 +656,25 @@ class Engine:
                                "is already present. The new one will replace the old one")
             self._outvalueCallbacks[key] = func
         else:
-            if not previousCallback:
-                self._outvalueCallbacks[key] = [func]
-            else:
-                assert isinstance(previousCallback, list)
-                previousCallback.append(func)
+            if previousCallback:
+                logger.warning(f"Callback for channel {chan} already set, replacing it")
+            self._outvalueCallbacks[key] = func
 
     def bufferLatency(self) -> float:
         """
-        The latency (in seconds) of the communication to the underlying csound process.
+        The latency (in seconds) of the communication to the csound process.
+
         This latency depens on the buffersize and number of buffers
         """
         return self.buffersize/self.sr * self.numbuffers
 
     def controlLatency(self) -> float:
         """
-        Time latency between a scheduled action and its response. This is
-        normally ksmps/sr * 2 but the actual latency varies if the engine is
-        being run in realtime (in that case init-pass is done async, which
-        might result in longer latency).
+        Time latency between a scheduled action and its response.
+
+        This is normally ``ksmps/sr * 2`` but the actual latency varies if
+        the engine is being run in realtime (in that case init-pass is done
+        async, which might result in longer latency).
         """
         return self.ksmps/self.sr * 2
 
@@ -653,20 +691,24 @@ class Engine:
             >>> e.sync()
             >>> # do something with the tables
         """
+        assert self._perfThread
         self._perfThread.flushMessageQueue()
         token = self._getSyncToken()
         pargs = [self._builtinInstrs['pingback'], 0, 0.01, token]
-        self._eventNotify(token, pargs)
+        self._eventWait(token, pargs)
 
     def compile(self, code:str, block=False) -> None:
         """
-        Send orchestra code to the running csound instance. The code
-        sent can be any orchestra code
+        Send orchestra code to the running csound instance.
+
+        The code sent can be any orchestra code
 
         Args:
-            code (str): the code to send
+            code (str): the code to compile
             block (bool): if True, this method will block until the code
-                has taken effect
+                has been compiled
+
+        Raises `CsoundError` if the compilation failed
 
         .. note::
 
@@ -685,16 +727,25 @@ class Engine:
             >>> code = open("myopcodes.udo").read()
             >>> e.compile(code)
         """
-        if self.udpport is not None and config['prefer_udp']:
+        if self.udpport and config['prefer_udp']:
             logger.debug("Sengind code via udp: ")
             logger.debug(code)
             self._udpSend(code)
 
         else:
+            assert self.csound is not None
             if block:
-                self.csound.compileOrc(code)
+                err = self.csound.compileOrc(code)
+                if err:
+                    logger.error("compileOrc error: ")
+                    logger.error(internalTools.addLineNumbers(code))
+                    raise CsoundError(f"Could not compile code")
             else:
-                self.csound.compileOrcAsync(code)
+                err = self.csound.compileOrcAsync(code)
+                if err:
+                    logger.error("compileOrcAsync error: ")
+                    logger.error(internalTools.addLineNumbers(code))
+                    raise CsoundError(f"Could not compile async")
 
         blocks = csoundlib.parseOrc(code)
         names = [b.name for b in blocks
@@ -710,13 +761,12 @@ class Engine:
                 if name not in self._instrNumCache:
                     self._registerNamedInstr(name)
 
-    def evalCode(self, code:str, once=False) -> float:
+    def evalCode(self, code:str) -> float:
         """
         Evaluate code, return the result of the evaluation
 
         Args:
             code (str): the code to evaluate
-            once (bool): if True, any code will be evaluated only once
 
         Returns:
             the result of the evaluation
@@ -739,10 +789,7 @@ class Engine:
             >>> e.evalCode('return getinstrnum("myinstr")')
 
         """
-        assert self.started
-        if once:
-            if (out := self._globalcode.get(code)) is not None:
-                return out
+        assert self.csound is not None
         logger.debug(f"evalCode: \n{code}")
         self._globalcode[code] = out = self.csound.evalCode(code)
         return out
@@ -766,12 +813,14 @@ class Engine:
             arr[idx] = value
         else:
             pargs = [self._builtinInstrs['tabwrite'], delay, 1, tabnum, idx, value]
+            assert self._perfThread is not None
             self._perfThread.scoreEvent(0, "i", pargs)
 
     def getTableData(self, idx:int) -> Opt[np.ndarray]:
         """
-        Returns a numpy array pointing to the data of the table. Any modifications
-        to this array will modify the table itself
+        Returns a numpy array pointing to the data of the table.
+
+        Any modifications to this array will modify the table itself
 
         Args:
             idx (int): the table index
@@ -785,23 +834,23 @@ class Engine:
 
         >>> # TODO
         """
+        assert self.csound is not None
         return self.csound.table(idx)
 
-    def sched(self, instr:U[int, float, str], delay:float = 0, dur:float = -1,
+    def sched(self, instr:U[int, float, str], delay=0., dur=-1.,
               args:U[np.ndarray, Seq[U[float, str]]] = None) -> float:
         """
         Schedule an instrument
 
         Args:
-
             instr : the instrument number/name. If it is a fractional number,
                 that value will be used as the instance number.
-            delay    : time to wait before instrument is started
-            dur      : duration of the event
-            args     : any other args expected by the instrument, starting with p4
-                (as a list of floats/strings, or as a numpy float array). Any
+            delay: time to wait before instrument is started
+            dur: duration of the event
+            args: any other args expected by the instrument, starting with p4
+                (as a list of floats/strings, or a numpy array). Any
                 string arguments will be converted to a string index via strSet. These
-                can be retrieved via strget in the csound instrument
+                can be retrieved in csound via strget
 
         Returns: 
             a fractional p1 of the instr started, which identifies this event
@@ -834,25 +883,29 @@ class Engine:
         """
         assert self.started
         instrfrac = instr if isinstance(instr, float) else self._assignEventId(instr)
-        pargs = [instrfrac, delay, dur]
         if not args:
             pargs = [instrfrac, delay, dur]
+            self._perfThread.scoreEvent(0, "i", pargs)
         elif isinstance(args, np.ndarray):
-            pargs = np.empty((len(np.ndarray)+3,), dtype=float)
-            pargs[0] = instrfrac
-            pargs[1] = delay
-            pargs[2] = dur
-            pargs[3:] = args
+            pargsnp = np.empty((len(args)+3,), dtype=float)
+            pargsnp[0] = instrfrac
+            pargsnp[1] = delay
+            pargsnp[2] = dur
+            pargsnp[3:] = args
+            self._perfThread.scoreEvent(0, "i", pargsnp)
         else:
+            pargs = [instrfrac, delay, dur]
             pargs.extend(a if not isinstance(a, str) else self.strSet(a) for a in args)
-        self._perfThread.scoreEvent(0, "i", pargs)
+            self._perfThread.scoreEvent(0, "i", pargs)
         return instrfrac
 
     def _nstrnum(self, instrname:str, delay=0.) -> int:
         """ Query the instrument number corresponding to instrument name """
         token = self._getSyncToken()
         msg = f'i {self._builtinInstrs["nstrnum"]} {delay} 0.1 {token} "{instrname}"'
-        return int(self._inputMessageNotify(token, msg))
+        out = self._inputMessageWait(token, msg)
+        assert out is not None
+        return int(out)
 
     def _registerNamedInstr(self, name:str, delay=0.) -> None:
         """
@@ -867,7 +920,7 @@ class Engine:
             instrnum = self._responsesTable[synctoken]
             self._instrNumCache[instrname] = int(instrnum)
 
-        self._inputMessageNotify(synctoken, msg, callback=callback)
+        self._inputMessageWithCallback(synctoken, msg, callback)
 
 
     def _instrNameToNumber(self, instrname:str) -> int:
@@ -911,6 +964,7 @@ class Engine:
         """
         Remove all playing and future events
         """
+        assert self.csound is not None
         self.csound.rewindScore()
 
     def session(self):
@@ -1038,10 +1092,10 @@ class Engine:
             self._perfThread.flushMessageQueue()
         elif len(data) < 1900:
             # data can be passed as p-args directly
-            pargs = np.zeros((len(data)+4,), dtype=float)
-            pargs[0:4] = [tabnum, 0, len(data), -2]
-            pargs[4:] = data
-            self._perfThread.scoreEvent(0, "f", pargs)
+            arr = np.zeros((len(data)+4,), dtype=float)
+            arr[0:4] = [tabnum, 0, len(data), -2]
+            arr[4:] = data
+            self._perfThread.scoreEvent(0, "f", arr)
             self._perfThread.flushMessageQueue()
         else:
             self._makeTableNotify(data=data, tabnum=tabnum, sr=sr)
@@ -1050,19 +1104,21 @@ class Engine:
 
     def setTableMetadata(self, tabnum:int, sr:int, numchannels:int = 1) -> None:
         """
-        Set metadata for a table holding sound samples. When csound reads a soundfile
-        into a table, it stores some additional data, like samplerate and number of
-        channels. A table created by other means and then filled with samples normally
-        does not have this information. In most of the times this is ok, but there are
-        some opcodes which need this information (loscil, for example). This
-        method allows to set this information for such tables.
+        Set metadata for a table holding sound samples.
+
+        When csound reads a soundfile into a table, it stores some additional data,
+        like samplerate and number of channels. A table created by other means and
+        then filled with samples normally does not have this information. In most
+        of the times this is ok, but there are some opcodes which need this information
+        (loscil, for example). This method allows to set this information for such
+        tables.
         """
         pargs = [self._builtinInstrs['ftsetparams'], 0, -1, tabnum, sr, numchannels]
         self._perfThread.scoreEvent(0, "i", pargs)
 
     def _registerSync(self, token:int) -> _queue.Queue:
         table = self._responsesTable
-        q = _queue.Queue()
+        q: _queue.Queue = _queue.Queue()
         self._responseCallbacks[token] = lambda token, q=q, t=table: q.put(t[token])
         return q
 
@@ -1085,9 +1141,96 @@ class Engine:
         """
         token = self._getSyncToken()
         pargs = [self._builtinInstrs['pingback'], delay, 0.01, token]
-        self._eventNotify(token, pargs, callback=lambda token: callback())
+        self._eventWithCallback(token, pargs, lambda token: callback())
 
-    def _eventNotify(self, token:int, pargs, callback=None, timeout=1) -> Opt[float]:
+    def _eventWait(self, token:int, pargs:Seq[float], timeout=1) -> Opt[float]:
+        q = self._registerSync(token)
+        self._perfThread.scoreEvent(0, "i", pargs)
+        try:
+            outvalue = q.get(block=True, timeout=timeout)
+            return outvalue if outvalue != _UNSET else None
+        except _queue.Empty:
+            raise TimeoutError(f"{token=}, {pargs=}")
+
+    def plotTable(self, tabnum: int, sr: int=0) -> None:
+        """
+        Plot the content of the table via matplotlib.pyplot
+
+        Args:
+            tabnum: the table to plot
+            sr: the samplerate of the data
+        """
+        from csoundengine import plotting
+        data = self.getTableData(tabnum)
+        if data is None:
+            raise ValueError(f"Table {tabnum} is invalid")
+        if sr:
+            plotting.plotSamples(data, samplerate=sr)
+        else:
+            plotting.plt.plot(data)
+
+    def schedSync(self, instr:U[int, float, str], delay:float = 0, dur:float = -1,
+                  args:U[np.ndarray, Seq[U[float, str]]] = None,
+                  timeout=-1):
+        """
+        Schedule an instr, wait for a sync message
+
+        Similar to :meth:`~Engine.sched` but waits until the instrument sends a
+        sync message.
+
+        .. note::
+
+            In this case, args should start with p5 since the sync token
+            is sent as p4
+
+        Args:
+            instr: the instrument number/name. If it is a fractional number,
+                that value will be used as the instance number.
+            delay: time to wait before instrument is started
+            dur: duration of the event
+            args: any other args expected by the instrument, starting with p4
+                (as a list of floats/strings, or as a numpy float array). Any
+                string arguments will be converted to a string index via strSet. These
+                can be retrieved via strget in the csound instrument
+            timeout: if a non-negative number is given, this function will block
+                at most this time and then raise a TimeoutError
+
+        Returns:
+            a fractional p1
+
+        Example
+        =======
+
+        TODO
+        """
+        assert self.started
+        instrfrac = instr if isinstance(instr, float) else self._assignEventId(instr)
+        token = self._getSyncToken()
+        q = self._registerSync(token)
+        if not args:
+            pargs = [instrfrac, delay, dur, token]
+            self._perfThread.scoreEvent(0, "i", pargs)
+        elif isinstance(args, np.ndarray):
+            pargsnp = np.empty((len(args)+4,), dtype=float)
+            pargsnp[0] = instrfrac
+            pargsnp[1] = delay
+            pargsnp[2] = dur
+            pargsnp[3] = token
+            pargsnp[4:] = args
+            self._perfThread.scoreEvent(0, "i", pargsnp)
+        else:
+            pargs = [instrfrac, delay, dur, token]
+            pargs.extend(a if not isinstance(a, str) else self.strSet(a) for a in args)
+            self._perfThread.scoreEvent(0, "i", pargs)
+        try:
+            outvalue = q.get(block=True, timeout=timeout)
+            return outvalue if outvalue != _UNSET else None
+        except _queue.Empty:
+            raise TimeoutError(f"{token=}, {instr=}")
+        return instrfrac
+
+
+    def _eventWithCallback(self, token:int, pargs, callback) -> None:
         """
         Create a csound "i" event with the given pargs with the possibility
         of receiving a notification from the instrument
@@ -1102,33 +1245,50 @@ class Engine:
         Args:
             token: a token as returned by self._getToken()
             pargs: the pfields passed to the event (beginning by p1)
-            callback: if a callback is not passed, this method will block until a response
-                is received from the csound event
-            timeout: how long to wait for a response in blocking mode
-
-        Returns:
-            in blocking mode, it returns the value returned by the instrument. If
-            a callback is given the callback will be called with the return value
-            as argument
+            callback: A function (returnValue) -> None. It will be called when the instr
+                outvalues a "__sync__" message.
         """
         assert token == pargs[3]
-        if callback:
-            self._responseCallbacks[token] = callback
-            self._perfThread.scoreEvent(0, "i", pargs)
-            return None
-
-        q = self._registerSync(token)
+        table = self._responsesTable
+        self._responseCallbacks[token] = lambda token, t=table: callback(t[token])
         self._perfThread.scoreEvent(0, "i", pargs)
-        try:
-            outvalue = q.get(block=True, timeout=timeout)
-            return outvalue
-        except _queue.Empty:
-            raise TimeoutError(f"{token=}, {pargs=}")
+        return None
 
-    def _inputMessageNotify(self, token:int, inputMessage:str, callback=None,
-                            timeout=1) -> Opt[float]:
+    def _inputMessageWait(self, token:int, inputMessage:str,
+                          timeout=1) -> Opt[float]:
         """
-        This function passes the gien inputMesage to csound and before that
+        This function passes the str inputMessage to csound and waits for
+        the instr to notify us with a "__sync__" outvalue
+
+        If the instr returned a value via gi__responses, this value
+        is returned. Otherwise None is returned
+
+        The input message should pass the token:
+
+            itoken = p4
+            tabw kreturnValue, itoken, gi__responses
+            ; or tabw_i ireturnValue, itoken, gi__responses
+            outvalue "__sync__", itoken
+
+        Args:
+            token: a sync token, assigned via _getSyncToken
+            inputMessage: the input message passed to csound
+            timeout: a timeout for blocking
+
+        Return:
+            a float response, or None if the instrument did not set a response value
+        """
+        q = self._registerSync(token)
+        self._perfThread.inputMessage(inputMessage)
+        try:
+            value = q.get(block=True, timeout=timeout)
+            return value if value != _UNSET else None
+        except _queue.Empty:
+            raise TimeoutError(f"{token=}, {inputMessage=}")
+
+    def _inputMessageWithCallback(self, token:int, inputMessage:str, callback) -> None:
+        """
+        This function passes the str inputMessage to csound and before that
         sets a callback waiting for an outvalue notification. If no callback
         is passed the function will block until the instrument notifies us
         via outvalue "__sync__"
@@ -1139,24 +1299,13 @@ class Engine:
             callback: if given, this function will be called when the instrument
                 notifies us via `outvalue "__sync__", token`. The callback should
                 be of kind `(token:int) -> None`
-            timeout: a timeout for blocking
         """
-        self._responsesTable[token] = _UNSET
-        if callback:
-            self._responseCallbacks[token] = callback
-            self._perfThread.inputMessage(inputMessage)
-            return None
-
-        q = self._registerSync(token)
+        self._responseCallbacks[token] = callback
         self._perfThread.inputMessage(inputMessage)
-        try:
-            value = q.get(block=True, timeout=timeout)
-            return value
-        except _queue.Empty:
-            raise TimeoutError(f"{token=}, {inputMessage=}")
+        return None
 
-    def _makeTableNotify(self, data:U[List[float], np.ndarray]=None, size=0, tabnum=0, callback=None, sr:int=0,
-                         timeout=1) -> int:
+    def _makeTableNotify(self, data:U[Seq[float], np.ndarray]=None, size=0, tabnum=0,
+                         callback=None, sr:int=0) -> int:
         """
         Create a table with data (or an empty table of the given size).
         Let csound generate a table index if needed
@@ -1165,22 +1314,20 @@ class Engine:
             data: the data to put in the table
             tabnum: the table number to create, 0 to let csound generate
                 a table number
-            callback: a callback of the form (token, value) -> None
-                where value will hold the table number. If no callback
-                is given this method will block until csound notifies that
-                the table has been created and returns the table number
+            callback: a callback of the form () -> None
+                If no callback is given this method will block until csound notifies
+                that the table has been created and returns the table number
             sr: only needed if filling sample data. If given, it is used to fill
                 metadata in csound, as if this table had been read via gen01
-            timeout: how long to wait in blocking mode
 
         Returns:
-            * if set to block (no callback), returns the table index
-            * if a callback is given, returns -1 and the callback will be
-              called when the value is ready
+            returns the table number
         """
         token = self._getSyncToken()
         maketableInstrnum = self._builtinInstrs['maketable']
         delay = 0
+        if tabnum is None:
+            tabnum = self._assignTableNumber()
         if data is None:
             assert size > 1
             # create an empty table of the given size
@@ -1189,39 +1336,43 @@ class Engine:
             numchannels = 1
             pargs = [maketableInstrnum, delay, 0.01, token, tabnum, size, empty,
                      sr, numchannels]
-            tabnum = self._eventNotify(token, pargs, callback=callback, timeout=timeout)
-            return int(tabnum)
         else:
             if not isinstance(data, np.ndarray):
                 data = np.asarray(data)
-            numchannels = tools.arrayNumChannels(data)
+            numchannels = internalTools.arrayNumChannels(data)
             numitems = len(data) * numchannels
             if numchannels > 1:
                 data = data.ravel()
-
             if numitems < 1900:
                 # create a table with the given data
                 # if the table is small we can create it and fill it in one go
                 empty = 0
-                numchannels = tools.arrayNumChannels(data)
+                numchannels = internalTools.arrayNumChannels(data)
                 if numchannels > 1:
                     data = data.flatten()
                 pargs = [maketableInstrnum, delay, 0.01, token, tabnum, numitems, empty,
                          sr, numchannels]
                 pargs.extend(data)
-                tabnum = self._eventNotify(token, pargs, callback=callback, timeout=timeout)
-                return int(tabnum)
             else:
                 # create an empty table, fill it via a pointer
                 empty = 1
                 pargs = [maketableInstrnum, delay, 0.01, token, tabnum, numitems, empty,
                          sr, numchannels]
                 # the next line blocks until the table is created
-                tabnum = self._eventNotify(token, pargs)
-                assert tabnum is not None
-
-                self.fillTable(int(tabnum), data=data, method='pointer', block=False)
-                return int(tabnum)
+                if not callback:
+                    self._eventWait(token, pargs)
+                    self.fillTable(int(tabnum), data=data, method='pointer', block=False)
+                else:
+                    def callback2(*args, self=self, data=data, callback=callback):
+                        self.fillTable(tabnum, data=data, method='pointer', block=False)
+                        callback(*args)
+                    self._eventWithCallback(token, pargs, callback2)
+                return tabnum
+        if callback:
+            self._eventWithCallback(token, pargs, callback)
+        else:
+            self._eventWait(token, pargs)
+        return tabnum
 
     def setChannel(self, channel:str, value:U[float, str, np.ndarray],
                    method:str=None, delay=0.) -> None:
@@ -1253,6 +1404,7 @@ class Engine:
         >>> eventid = e.sched(10)
         >>> e.setChannel("mastergain", 0.5)
         """
+        assert self.csound is not None
         isaudio = isinstance(value, np.ndarray)
         if isaudio:
             method = "api"
@@ -1281,8 +1433,9 @@ class Engine:
                 s = f'i {instrnum} {delay} 0.01 "{channel}" "{value}"'
                 self._perfThread.inputMessage(s)
         elif method == 'udp':
-            if self.udpport is None:
+            if not self.udpport:
                 raise RuntimeError("This server has been started without udp support")
+            assert isinstance(value, (float, str))
             self.udpSetChannel(channel, value)
         else:
             raise ValueError(f"method {method} not supported "
@@ -1378,6 +1531,7 @@ class Engine:
         ...     print(f"freq: {freq:.1f}")
         ...     time.sleep(0.1)
         """
+        assert self.csound is not None
         value, errorCode = self.csound.controlChannel(channel)
         if errorCode != 0:
             raise KeyError(f"control channel {channel} not found")
@@ -1390,9 +1544,21 @@ class Engine:
         Args:
             data: the data to put into the table
             tabnum: the table number
-            method: the method used, one of 'pointer' or 'api'
+            method: the method used, one of 'pointer' or 'api'.
             block: this is only used for the api method
+
+        Example
+        -------
+
+            >>> from csoundengine import *
+            >>> import numpy as np
+            >>> e = Engine()
+            >>> arr = np.linspace(0, 1, 100)
+            >>> tabnum = e.makeEmptyTable(len(arr))
+            >>> e.fillTable(tabnum, data=arr)
+            >>> e.plotTable(tabnum)
         """
+        assert self.csound is not None
         if len(data.shape) == 2:
             data = data.flatten()
         else:
@@ -1402,8 +1568,8 @@ class Engine:
             f"tabnum should be an int > 0, got {tabnum}"
 
         if method == 'pointer':
-            # block has no meaning here
-            numpyptr: np.array = self.csound.table(tabnum)
+            # this is always blocking
+            numpyptr: np.ndarray = self.csound.table(tabnum)
             if numpyptr is None:
                 raise IndexError(f"Table {tabnum} does not exist")
             size = len(numpyptr)
@@ -1419,10 +1585,55 @@ class Engine:
         else:
             raise KeyError("Method not supported. Must be pointer or score")
 
+    def tableInfo(self, tabnum: int) -> TableInfo:
+        """
+        Retrieve information about the given table
+
+        Args:
+            tabnum: the table number
+
+        Returns:
+            a TableInfo with fields `tableNumber`, `sr` (``ftsr``),
+            `numChannels` (``ftchnls``), `numFrames` (``nsamps``), 
+            `size` (``ftlen``). 
+            
+        .. note::
+        
+            Some information, like *sr*, is only available for tables
+            allocated via GEN01 (for example, using :meth:`~Engine.readSoundfile`).
+            This data can also be set explicitely via :meth:`~Engine.setTableMetadata`
+
+        Example
+        -------
+
+            >>> from csoundengine import *
+            >>> e = Engine()
+            >>> tabnum = e.readSoundfile("stereo.wav", block=True)
+            >>> e.tableInfo(tabnum)
+            TableInfo(tableNumber=200, sr=44100.0, numChannels=2, numFrames=88200, size=176401)
+        """
+        toks = [self._getSyncToken() for _ in range(4)]
+
+        pargs = [self._builtinInstrs['tableInfo'], 0, 0.01, tabnum]
+        pargs.extend(toks)
+        q = _queue.Queue()
+
+        def callback(tok0, q=q, t=self._responsesTable, toks=toks):
+            values = [t[tok] for tok in toks]
+            q.put(values)
+
+        self._responseCallbacks[toks[0]] = callback
+        self._perfThread.scoreEvent(0, "i", pargs)
+        vals = q.get(block=True)
+        for tok in toks:
+            self._releaseToken(tok)
+        return TableInfo(tableNumber=tabnum, sr=vals[0], numChannels=int(vals[1]),
+                         numFrames=int(vals[2]), size=int(vals[3]))
+
     def readSoundfile(self, path:str, tabnum:int = None, chan=0,
                       callback=None, block=False) -> int:
         """
-        Read a soundfile into a table, returns the table number
+        Read a soundfile into a table (via GEN1), returns the table number
 
         Args:
             path: the path to the soundfile
@@ -1440,15 +1651,26 @@ class Engine:
         >>> e = Engine()
         >>> tabnum = e.readSoundfile("stereo.wav", block=True)
         >>> eventid = e.playSample(tabnum)
+        # Reduce the gain to 0.8 and playback speed to 0.5 after 2 seconds
+        >>> e.setp(eventid, 4, 0.8, 5, 0.5, delay=2)
         """
+        if block and callback:
+            raise ValueError("blocking mode not supported when a callback is given")
+
         if not block and not callback:
             return self._readSoundfileAsync(path=path, tabnum=tabnum, chan=chan)
+
         if tabnum is None:
             tabnum = self._assignTableNumber()
         token = self._getSyncToken()
-        ipath = self.strSet(path)
-        pargs = [self._builtinInstrs['readSndfile'], 0, 0.01, token, ipath, tabnum, chan]
-        self._eventNotify(token, pargs, callback=callback)
+        p1 = self._builtinInstrs['readSndfile']
+        msg = f'i {p1} 0 0.01 {token} "{path}" {tabnum} {chan}'
+        if callback:
+            self._inputMessageWithCallback(token, msg, callback)
+        else:
+            assert block
+            self._inputMessageWait(token, msg)
+        return tabnum
 
     def _readSoundfileAsync(self, path:str, tabnum:int=None, chan=0) -> int:
         assert self.started
@@ -1460,7 +1682,7 @@ class Engine:
 
     def getUniqueInstrInstance(self, instr: U[int, str]) -> float:
         """
-        Returns a truly unique instance number (a float p1) for the given instr
+        Returns a unique instance number (a float p1) for `instr`
 
         Args:
             instr (int|str): an already defined csound instrument
@@ -1471,16 +1693,18 @@ class Engine:
         if isinstance(instr, int):
             token = self._getSyncToken()
             pargs = [self._builtinInstrs['uniqinstance'], 0, 0.01, token, instr]
-            uniqinstr = self._eventNotify(token, pargs)
+            uniqinstr = self._eventWait(token, pargs)
+            if uniqinstr is None:
+                raise RuntimeError("failed to get unique instance")
             return uniqinstr
         else:
             raise NotImplementedError("str instrs not implemented yet")
 
     def playSample(self, tabnum:int, delay=0., chan=1, speed=1., gain=1., fade=0.,
-                   starttime=0., gaingroup=0, dur=-1.) -> float:
+                   starttime=0., gaingroup=0, lagtime=0.01, dur=-1.) -> float:
         """
-        Play a sample already loaded into a table. Speed and gain can be modified
-        via setp while playing
+        Play a sample already loaded into a table.
+        Speed and gain can be modified via setp while playing
 
         Args:
             tabnum (int): the table where the sample data was loaded
@@ -1491,6 +1715,7 @@ class Engine:
             fade (float): fadein/fadeout time in seconds
             starttime (float): playback can be started from anywhere within the table
             gaingroup (int): multiple instances can be gain-moulated via gaingroups
+            lagtime (float): a lag value for dynamic pfields (see below)
             dur (float): the duration of playback. Use -1 to play until the end
 
         Returns:
@@ -1505,20 +1730,21 @@ class Engine:
         Example
         =======
 
-        >>> from csoundengine import *
-        >>> e = Engine()
-        >>> import sndfileio
-        >>> sample, sr = sndfileio.sndread("stereo.wav")
-        # modify the sample in python
-        >>> sample *= 0.5
-        >>> tabnum = e.makeTable(sample, sr=sr, block=True)
-        >>> eventid = e.playSample(tabnum)
-        # gain (p4) and speed (p5) can be modified while playing
-        # Play at half speed
-        >>> e.setp(eventid, 5, 0.5)
+            >>> from csoundengine import *
+            >>> e = Engine()
+            >>> import sndfileio
+            >>> sample, sr = sndfileio.sndread("stereo.wav")
+            # modify the sample in python
+            >>> sample *= 0.5
+            >>> tabnum = e.makeTable(sample, sr=sr, block=True)
+            >>> eventid = e.playSample(tabnum)
+            # gain (p4) and speed (p5) can be modified while playing
+            # Play at half speed
+            >>> e.setp(eventid, 5, 0.5)
         """
+        args = [gain, speed, tabnum, chan, fade, starttime, gaingroup, lagtime]
         return self.sched(self._builtinInstrs['playgen1'], delay=delay, dur=dur,
-                          args=[gain, speed, tabnum, chan, fade, starttime, gaingroup])
+                          args=args)
 
     def playSoundFromDisc(self, path:str, delay=0., chan=0, speed=1., fade=0.01
                           ) -> float:
@@ -1537,15 +1763,18 @@ class Engine:
         """
         assert self.started
         p1 = self._assignEventId(self._builtinInstrs['playsndfile'])
+        #pargs = [p1, delay, -1, self.strSet(path), chan, speed, fade]
+        #self._perfThread.scoreEvent(0, "i", pargs)
         msg = f"i {p1} {delay} -1 \"{path}\" {chan} {speed} {fade}"
         self._perfThread.inputMessage(msg)
         return p1
 
     def setp(self, p1:float, *pairs, delay=0.) -> None:
         """
-        Modify a parg of an active synth. Multiple pargs can be modified
-        simultaneously. If only makes sense to modify a parg if a k-rate
-        variable was assigned to this parg (see example)
+        Modify a parg of an active synth.
+
+        Multiple pargs can be modified simultaneously. If only makes sense to
+        modify a parg if a k-rate variable was assigned to this parg (see example)
 
         Args:
             p1 (float): the p1 of the instrument to automate
@@ -1556,7 +1785,7 @@ class Engine:
         =======
 
         >>> engine = Engine(...)
-        >>> engine.compile('''
+        >>> engine.compile(r'''
         ... instr 10
         ...   kamp = p5
         ...   kfreq = p6
@@ -1595,7 +1824,7 @@ class Engine:
         =======
 
         >>> e = Engine(...)
-        >>> e.compile('''
+        >>> e.compile(r'''
         ... instr 10
         ...   itab = p4
         ...   kamp  table 0, itab
@@ -1632,11 +1861,14 @@ class Engine:
                 (https://csound-plugins.github.io/csound-plugins/opcodes/interp1d.html)
             delay: the time delay to start the automation.
 
+        Returns:
+            the p1 associated with the automation synth
+
         Example
         =======
 
         >>> e = Engine()
-        >>> e.compile('''
+        >>> e.compile(r'''
         ... instr 10
         ...   kfreq = p4
         ...   outch 1, oscili:a(0.1, kfreq)
@@ -1653,9 +1885,19 @@ class Engine:
         return self.sched(self._builtinInstrs['automatePargViaTable'], delay=delay,
                           dur=dur, args=args)
 
-    def strSet(self, *s:str) -> int:
+    def strSet(self, s:str, sync=False) -> int:
         """
         Assign a numeric index to a string to be used inside csound
+
+        Args:
+            s: the string to set
+            sync: if True, block until the csound process receives the message
+
+        Returns:
+            the index associated with *s*. When passed to a csound instrument
+            it can be used to retrieve the original string via
+            ``Sstr = strget(idx)``
+
         """
         assert self.started
         stringIndex = self._strToIndex.get(s)
@@ -1667,13 +1909,16 @@ class Engine:
         self._perfThread.inputMessage(msg)
         self._strToIndex[s] = stringIndex
         self._indexToStr[stringIndex] = s
+        if sync:
+            self.sync()
         return stringIndex
 
     def strGet(self, index:int) -> Opt[str]:
         """
-        Get the string previously set via strSet. This method will not
-        retrieve any string set internally via the `strset` opcode,
-        only strings set via :meth:`~Engine.strSet`
+        Get the string previously set via strSet.
+
+        This method will not retrieve any string set internally via the
+        `strset` opcode, only strings set via :meth:`~Engine.strSet`
 
         Example
         =======
@@ -1730,9 +1975,10 @@ class Engine:
 
     def udpSendOrc(self, code: str) -> None:
         """
-        Send orchestra code via UDP. The code string can be of
-        any size (if the code is too long for a UDP package, it is
-        split into multiple packages)
+        Send orchestra code via UDP.
+
+        The code string can be of any size (if the code is too long for a UDP
+        package, it is split into multiple packages)
 
         Args:
             code (str): the code to send
@@ -1755,7 +2001,7 @@ class Engine:
         =======
 
         >>> e = Engine(udpserver=True)
-        >>> e.compile('''
+        >>> e.compile(r'''
         ... instr 10
         ...   ifreq = p4
         ...   outch 1, oscili:a(0.1, ifreq)
@@ -1798,26 +2044,28 @@ class Engine:
         >>> # TODO
         """
         assert self.started
+        assert self._subgainsTable is not None
         self._subgainsTable[idx] = gain
 
     def assignBus(self) -> int:
         """
-        Assign one audio bus, returns the bus number. This can be used
-        together with the built-in opcodes `busout`, `busin` and `busmix`.
-        From csound a bus can also be assigned by calling `busassign`
+        Assign one audio bus, returns the bus number.
+
+        This can be used together with the built-in opcodes `busout`, `busin`
+        and `busmix`. From csound a bus can also be assigned by calling `busassign`
 
         Example
         =======
 
         >>> e = Engine(...)
-        >>> e.compile('''
+        >>> e.compile(r'''
         ... instr 10
         ...   ibus = p4
         ...   asig vco2 0.1, kfreq
         ...   busout(ibus, asig)
         ... endin
         ... ''')
-        >>> e.compile('''
+        >>> e.compile(r'''
         ... instr 20
         ...   ibus = p4
         ...   asig = busin(ibus)
