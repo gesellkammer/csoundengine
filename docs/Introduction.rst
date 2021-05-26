@@ -68,9 +68,6 @@ higher level interface, allowing to:
     # Create an Engine and a corresponding Session using default options
     session = Engine().session()
 
-    # create a master audio channel
-    masterbus = session.assignBus()
-
     # define instruments
     session.defInstr("synth", r'''
       |ibus, kmidi=60, kamp=0.1, ktransp=0, ifade=0.5|
@@ -95,28 +92,30 @@ higher level interface, allowing to:
       outch 1, asig
     ''')
 
+    # create a master audio channel
+    masterbus = session.assignBus()
+
     # Start a master instance at the end of the evaluation chain
     master = session.sched("master", imasterbus=masterbus, priority=10)
 
     # Launch some notes
     for i, midinote in enumerate(range(60, 72, 2)):
         # for each synth, we create a bus to plug it to an effect, in this case a filter
-        bus = session.newBus()
-        
-        # start time for synth and effect
-        start = i * 1
+        bus = session.assignBus()
+
+        delay = i
         
         # Schedule a synth
-        synth = session.sched("synth", delay=start, dur=5, kmidi=midinote, ibus=bus)
+        synth = session.sched("synth", delay=delay, dur=5, kmidi=midinote, ibus=bus)
         
         # Automate pitch transposition so that it descends 2 semitones over the
         # duration of the event
-        synth.automatep('ktransp', [0, 0, dur, -2], delay=start)
+        synth.automatep('ktransp', [0, 0, dur, -2], delay=delay)
         
         # Schedule the filter for this synth, with a priority higher than the
         # synth, so that it is evaluated later in the chain
         filt = session.sched("filter", 
-                             delay=start, 
+                             delay=delay,
                              dur=synth.dur, 
                              priority=synth.priority+1,
                              kcutoff=2000, 
@@ -124,5 +123,6 @@ higher level interface, allowing to:
                              ibus=bus, 
                              imasterbus=masterbus)
         
-        # Automate the cutoff freq. of the filter
+        # Automate the cutoff freq. of the filter, so that it starts at 2000 Hz,
+        # it drops to 500 Hz by 80% of the note and goes up to 6000 Hz at the end
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start) 
