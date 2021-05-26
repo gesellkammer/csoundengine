@@ -650,29 +650,43 @@ def saveMatrixAsWav(outfile: str, data: np.ndarray,
                     title:str='',
                     sr:int=44100) -> None:
     """
-    Save the data in `data` as a wav file.
+    Save `data` in wav format
 
-    This is not a real soundfile but it is used to transfer the data in
+    This is not a real soundfile. It is used to transfer the data in
     binary form to be read by another program. To distinguish this from a
-    normal wav file an extension '.mtx' is recommended. Data is saved
-    always flat, and a header including the shape of mtx is included
+    normal wav file an extension `.mtx` is recommended. Data is saved
+    always flat, and a header with the shape of `data` is included
     before the data.
 
-    Header Format
-    -------------
-    ::
+    **Header Format**::
+
         headerlength, numrows, numcolumns, ...
 
     The description of each metadata value is included as wav metadata
-    at the comment key with the format:
+    at the comment key with the format::
 
-        columns: 'HeaderSize NumRows NumColumns ...'
+        "numRows: xx, numColumns: xx, columns: 'headerSize numRows numColumns ...'"
 
-    This metadata can be retrieved in csound via::
+    This metadata can be retrieved in csound via:
 
-        Scomment = sfreadmeta("sndfile.mtx", "comment")
+    .. code-block:: csound
+
+        itabnum ftgen 0, 0, 0, -1, "sndfile.mtx", 0, 0, 1
+        Scomment = filereadmeta("sndfile.mtx", "comment")
         imeta = dict_loadstr(Scomment)
-        ikeyC = dict_get(imeta, "keyC")
+        ScolumnNames = dict_get(imeta, "columns")
+        idatastart = tab_i(0, itabnum)
+        inumrows = dict_get(imeta, "numRows")
+        ; inumrows can also be retrieved by reading the table at index 1
+        ; inumrows = tab_i(1, itabnum)
+        inumcols = tab_i(2, itabnum)
+        ; The data at (krow, kcol) can be read via
+        kvalue = tab(idatastart + krow*inumcols + kcol, itabnum)
+
+        ; Alternatively an array can be created as a view:
+        kArr[] memview itabnum, idatastart
+        reshapearray kArr, inumrows, inumcols
+        kvalue = kArr[krow][kcol]
 
     Args:
         outfile (str): The path where the data is written to
@@ -695,10 +709,10 @@ def saveMatrixAsWav(outfile: str, data: np.ndarray,
 
     import sndfileio
     header = [3, data.shape[0], data.shape[1]]
-    allmeta = {'HeaderSize': 3,
-               'NumRows': data.shape[0],
-               'NumColumns': data.shape[1]}
-    columns = ['HeaderSize', 'NumRows', 'NumColumns']
+    allmeta = {'headerSize': 3,
+               'numRows': data.shape[0],
+               'numColumns': data.shape[1]}
+    columns = ['headerSize', 'numRows', 'numColumns']
 
     if metadata:
         for k, v in metadata.items():
@@ -725,7 +739,6 @@ def saveMatrixAsWav(outfile: str, data: np.ndarray,
     sndwriter.write(np.array(header, dtype=float))
     sndwriter.write(data.ravel())
     sndwriter.close()
-
 
 
 def saveMatrixAsGen23(outfile: str, mtx: np.ndarray, extradata:List[float]=None,
