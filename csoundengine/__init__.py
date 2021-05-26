@@ -90,8 +90,7 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
         # Schedule the filter for this synth, with a priority higher than the
         # synth, so that it is evaluated later in the chain
         filt = session.sched("filter", delay=start, dur=5, priority=synth.priority+1,
-            kcutoff=2000, kresonance=0.92, ibus=bus.busnum,
-            whenfinished=lambda p1, bus=bus: bus.free())
+            kcutoff=2000, kresonance=0.92, ibus=bus.busnum)
         # Automate the cutoff freq. of the filter
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
 """

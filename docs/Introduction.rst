@@ -122,8 +122,7 @@ higher level interface, allowing to:
                              kcutoff=2000, 
                              kresonance=0.92, 
                              ibus=bus, 
-                             imasterbus=masterbus,
-                             whenfinished=lambda p1, bus=bus: bus.free())
+                             imasterbus=masterbus)
         
         # Automate the cutoff freq. of the filter
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start) 

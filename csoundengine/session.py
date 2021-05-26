@@ -465,7 +465,6 @@ class Session:
             >>> filt = session.sched('filter', 0, dur=synth.dur, priority=synth.priority+1,
             ...                      tabargs={'bus': bus, 'cutoff': 1000})
             >>> filt.automateTable('cutoff', [3, 1000, 6, 200, 10, 4000])
-            >>> bus.free()
 
         See Also
         ~~~~~~~~
