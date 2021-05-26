@@ -6,7 +6,7 @@ import shutil
 import cachetools
 import dataclasses
 from typing import Optional as Opt
-import jack
+
 try:
     import jack
     JACK_INSTALLED = True

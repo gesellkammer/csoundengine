@@ -1,7 +1,7 @@
 from __future__ import annotations
 import time
 import numpy as np
-from .config import config, logger
+from .config import logger
 from . import internalTools
 from emlib import iterlib
 import weakref as _weakref

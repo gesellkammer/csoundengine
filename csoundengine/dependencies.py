@@ -2,16 +2,13 @@ import os
 import sys
 import urllib.request, urllib.error
 
-from functools import lru_cache
-
 from . import csoundlib
 from pathlib import Path
 import tempfile
 import shutil
 import subprocess
-from typing import Union as U, List, Dict, Any
+from typing import Union as U, List, Dict
 import logging
-import appdirs
 from datetime import datetime
 import json
 from configdict import ConfigDict
