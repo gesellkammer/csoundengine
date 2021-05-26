@@ -253,23 +253,32 @@ class Engine:
         elif name in Engine.activeEngines:
             raise KeyError(f"engine {name} already exists")
         cfg = config
+        availableBackends = csoundlib.getAudioBackendNames(available=True)
         if backend is None or backend == 'default':
             backend = cfg[f'{internalTools.platform}.backend']
-        backends = csoundlib.getAudioBackendNames()
-        if backend not in backends:
-            logger.error(f'** Unknown backend "{backend}" **')
-            # should we fallback?
-            fallback_backend = cfg['fallback_backend']
-            if not fallback_backend:
-                raise CsoundError(f'The backend "{backend}" is not available, '
-                                  f'possible backends: {backends}. '
-                                  f'No fallback backend defined')
-            logger.warning(f"The backend {backend} is not available.\n"
-                           f"Possible backends: {backends}.\n"
-                           f"Using fallback backend: {fallback_backend}")
-            backend = fallback_backend
+        elif backend not in availableBackends:
+            knownBackends = csoundlib.getAudioBackendNames(available=False)
+            if backend not in knownBackends:
+                logger.error(f"Backend {backend} unknown. Available backends: "
+                             f"{availableBackends}")
+            else:
+                logger.error(f"Backend {backend} not avaibale. Available backends: "
+                             f"{availableBackends}")
+
+        cascadingBackends = [b.strip() for b in backend.split(",")]
+        resolvedBackend = internalTools.resolveOption(cascadingBackends,
+                                                      availableBackends)
+        if not resolvedBackend:
+            logger.error(f'Could not find any available backends for {backend}')
+            logger.error(f'    Available backends: {", ".join(availableBackends)}')
+            logger.error('To configure the default backends, do:\n'
+                         '    from csoundengine import config\n'
+                         '    config.edit()\n'
+                         f'And edit the "{internalTools.platform}.backend" key.')
+            raise CsoundError(f'Backend "{resolvedBackend}" not available')
+
         if outdev is None or indev is None:
-            defaultin, defaultout = csoundlib.defaultDevicesForBackend(backend)
+            defaultin, defaultout = csoundlib.defaultDevicesForBackend(resolvedBackend)
             if outdev is None:
                 outdev = defaultout
             if indev is None:
@@ -278,11 +287,11 @@ class Engine:
         commandlineOptions = commandlineOptions if commandlineOptions is not None else []
         sr = sr if sr is not None else cfg['sr']
         if sr == 0:
-            sr = csoundlib.getSamplerateForBackend(backend)
+            sr = csoundlib.getSamplerateForBackend(resolvedBackend)
             if not sr:
                 # failed to get sr for backend
                 sr = 44100
-                logger.error(f"Failed to get sr for backend {backend}, using default: {sr}")
+                logger.error(f"Failed to get sr for backend {resolvedBackend}, using default: {sr}")
         if a4 is None: a4 = cfg['A4']
         if ksmps is None: ksmps = cfg['ksmps']
         if nchnls_i is None:
@@ -291,7 +300,8 @@ class Engine:
             nchnls = cfg['nchnls']
 
         if nchnls == 0 or nchnls_i == 0:
-            inchnls, outchnls = csoundlib.getNchnls(backend, device=outdev, indevice=indev)
+            inchnls, outchnls = csoundlib.getNchnls(resolvedBackend, device=outdev,
+                                                    indevice=indev)
             nchnls = nchnls or outchnls
             nchnls_i = nchnls_i or inchnls
 
@@ -304,7 +314,7 @@ class Engine:
             commandlineOptions.append('-d')
         self.name = name
         self.sr = sr
-        self.backend = backend
+        self.backend = resolvedBackend
         self.a4 = a4
         self.ksmps = ksmps
         self.outdev = outdev
@@ -397,6 +407,10 @@ class Engine:
             self.start()
             self.sync()
 
+    @property
+    def softwareBufferSize(self) -> int:
+        return self.buffersize * self.numbuffers
+
     def __repr__(self):
         return f"Engine(name={self.name}, backend={self.backend}, " \
                f"out={self.outdev}, nchnls={self.nchnls})"
@@ -479,7 +493,7 @@ class Engine:
         optB = buffersize*self.numbuffers
         if self.backend == 'jack':
             if not jacktools.isJackRunning():
-                logger.error("jack is not running")
+                logger.error("Asked to use jack as backend, but jack is not running")
                 raise RuntimeError("jack is not running")
             jackinfo = jacktools.getInfo()
             self.sr = jackinfo.samplerate
@@ -573,8 +587,6 @@ class Engine:
         self.csound.cleanup()
         self._exited = True
         self.csound = None
-        # self._perfThread = None
-        # self._perfThread = None
         self._instanceCounters = {}
         self._instrRegistry = {}
         self.activeEngines.pop(self.name, None)
@@ -663,8 +675,11 @@ class Engine:
     def bufferLatency(self) -> float:
         """
         The latency (in seconds) of the communication to the csound process.
+        ::
 
-        This latency depens on the buffersize and number of buffers
+            bufferLatency = softwareBufferSize / sr
+
+        This latency depends on the buffersize and number of buffers
         """
         return self.buffersize/self.sr * self.numbuffers
 

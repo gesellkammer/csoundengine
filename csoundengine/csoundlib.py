@@ -17,6 +17,7 @@ import tempfile as _tempfile
 import cachetools
 import dataclasses
 from . import jacktools
+from .internalTools import normalizePlatform
 from typing import List, Union as U, Optional as Opt, Generator, \
     Sequence as Seq, Dict, Tuple, Callable, Set, Any
 from functools import lru_cache as _lru_cache
@@ -133,7 +134,7 @@ _backend_alsa = AudioBackend('alsa',
                              needsRealtime=True,
                              platforms=('linux',))
 
-audioBackends: Dict[str, AudioBackend] = {
+allAudioBackends: Dict[str, AudioBackend] = {
     'jack' : _backend_jack,
     'auhal': _backend_auhal,
     'pa_cb': _backend_pacb,
@@ -144,15 +145,11 @@ audioBackends: Dict[str, AudioBackend] = {
 }
 
 
-_platformBackends: Dict[str, List[AudioBackend]] = {
+_backendsByPlatform: Dict[str, List[AudioBackend]] = {
     'linux': [_backend_jack, _backend_pacb, _backend_alsa, _backend_pabl, _backend_pulse],
     'darwin': [_backend_jack, _backend_auhal, _backend_pacb],
     'win32': [_backend_pacb, _backend_pabl]
 }
-
-"""
-helper functions to work with csound
-"""
 
 
 _csoundbin = None
@@ -928,25 +925,42 @@ def isBackendAvailable(backend: str) -> bool:
     return out
 
 
-def availableAudioBackends() -> List[AudioBackend]:
-    """
-    Return a list of available audio backends
 
-    Only those backends supported for the current platform and
-    currently available are returned.
-    (for example, jack will not be returned in linux if the
-    jack server is not running)
+def audioBackends(available=False, platform:str=None) -> List[AudioBackend]:
+    """
+    Return a list of audio backends for the given platform
+    
+    Args:
+        available: if True, only available backends are returned. This
+            is only possible if querying backends for the current platform
+        platform: defaults to the current platform. Possible values: 'linux',
+            'macos', 'windows', but also any value returned by sys.platform
+
+    Returns:
+        a list of AudioBackend
+        
+    If available is True, only those backends supported for the current 
+    platform and currently available are returned. For example, jack will 
+    not be returned in linux if the jack server is not running.
 
     Example
     =======
 
         >>> from csoundengine import *
-        >>> [backend.name for backend in availableAudioBackends()]
+        >>> [backend.name for backend in audioBackends(available=True)]
         ['jack', 'pa_cb', 'pa_bl', 'alsa']
-
     """
-    backends = _platformBackends[sys.platform]
-    backends = [backend for backend in backends if backend.isAvailable()]
+    if platform is not None:
+        platform = normalizePlatform(platform)
+    if available:
+        platform = sys.platform
+    elif platform is None:
+        platform = sys.platform
+    if available and platform != sys.platform:
+        available = False
+    backends = _backendsByPlatform[platform]
+    if available:
+        backends = [b for b in backends if b.isAvailable()]
     return backends
 
 
@@ -956,7 +970,7 @@ def dumpAudioBackends() -> None:
     """
     rows = []
     headers = "name longname sr".split()
-    for b in availableAudioBackends():
+    for b in audioBackends(available=True):
         if b.hasSystemSr:
             sr = getSystemSr(b.name)
         else:
@@ -970,19 +984,37 @@ def getAudioBackend(name:str=None) -> Opt[AudioBackend]:
     """ Given the name of the backend, return the AudioBackend structure """
     if name is None:
         return getDefaultBackend()
-    return audioBackends.get(name)
+    return allAudioBackends.get(name)
 
 
-def getAudioBackendNames() -> List[str]:
+def getAudioBackendNames(available=False, platform:str=None) -> List[str]:
     """
-    Returns a list with the names of the available audio backends
+    Returns a list with the names of the audio backends
+
+    Args:
+        available: if True, return the names for only those backends which are
+            currently available
+        platform: if given, return only names for those backends present in the
+            given platform
 
     Returns:
         a list with the names of all available backends for the
         current platform
+
+    Example
+    =======
+
+        >>> from csoundengine.csoundlib import *
+        >>> getAudioBackendNames()   # in Linux
+        ['jack', 'pa_cb', 'pa_bl', 'alsa', 'pulse']
+        >>> getAudioBackendNames(platform='macos')
+        ['pa_cb', 'pa_bl', 'auhal']
+        # In linux with pulseaudio disabled
+        >>> getAudioBackendNames(available=True)
+        ['jack', 'pa_cb', 'pa_bl', 'alsa']
     """
-    backends = availableAudioBackends()
-    return [backend.name for backend in backends]
+    backends = audioBackends(available=available, platform=platform)
+    return [b.name for b in backends]
 
 
 def _quoteIfNeeded(arg:U[float, int, str]) -> U[float, int, str]:

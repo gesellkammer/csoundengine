@@ -3,7 +3,6 @@ import numpy as np
 import sys
 import os
 from typing import Optional as Opt, TYPE_CHECKING, Union as U, List, Dict, Any
-from .config import config
 from . import jacktools
 import signal
 import math
@@ -51,10 +50,6 @@ def defaultSoundfontPath() -> Opt[str]:
     path = _registry.get(key)
     if path:
         return path
-    userpath = config['generalmidi_soundfont']
-    if userpath and os.path.exists(userpath):
-        _registry[key] = userpath
-        return userpath
     if sys.platform == 'linux':
         paths = ["/usr/share/sounds/sf2/FluidR3_GM.sf2"]
         path = next((path for path in paths if os.path.exists(path)), None)
@@ -147,12 +142,58 @@ def addLineNumbers(code: str) -> str:
     return "\n".join(lines)
 
 
-_platforms = {
+# Maps platform values as given by sys.platform to more readable aliases
+_platformAliases = {
     'linux2': 'linux',
     'linux': 'linux',
     'darwin': 'macos',
+    'macos': 'macos',
     'win32': 'windows',
+    'windows': 'windows'
 }
 
-platform = _platforms[sys.platform]
+platform = _platformAliases[sys.platform]
+
+
+# Maps possible platform names to names as returned by sys.platform
+_normalizedPlatforms = {
+    'linux': 'linux',
+    'win32': 'win32',
+    'darwin': 'darwin',
+    'windows': 'win32',
+    'macos': 'darwin'
+}
+
+def platformAlias(platform: str) -> str:
+    """
+    Return the platform alias (macos, windows, linux) for the
+    given platform (instead of darwin, win32, etc)
+
+    This is the opposite of `normalizePlatform`
+    """
+    out = _platformAliases.get(platform)
+    if out is None:
+        raise KeyError(f"Platform {platform} unknown, possible values are"
+                       f" {_platformAliases.keys()}")
+    return out
+
+
+def normalizePlatform(s:str) -> str:
+    """Return the platform as given by sys.platform
+
+    This is the opposite of `platformAlias`
+    """
+    out = _normalizedPlatforms.get(s)
+    if out is None:
+        raise KeyError(f"Platform {s} not known")
+    return out
+
+
+def resolveOption(prioritizedOptions:List[str], availableOptions:List[str]
+                  ) -> Opt[str]:
+    for opt in prioritizedOptions:
+        if opt in availableOptions:
+            return opt
+    return None
+
 

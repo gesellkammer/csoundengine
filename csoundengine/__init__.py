@@ -96,7 +96,7 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
 """
 from .dependencies import checkDependencies
-checkDependencies()
+checkDependencies(force=False, tryfix=True)
 
 from .engine import *
 from .config import config
@@ -105,6 +105,6 @@ from .instr import Instr
 from .offline import Renderer
 from . import csoundlib
 from .csoundlib import (dumpAudioDevices, dumpAudioBackends,
-                        getAudioBackend, availableAudioBackends)
+                        getAudioBackend, audioBackends)
 
 

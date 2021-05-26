@@ -1,11 +1,12 @@
 import logging
 from configdict import ConfigDict
+from . import csoundlib
 
 modulename = 'csoundengine.engine'
 
 logger = logging.getLogger('csoundengine')
 _handler = logging.StreamHandler()
-_handler.setFormatter(logging.Formatter("*** csoundengine: %(message)s\n"))
+_handler.setFormatter(logging.Formatter("*** csoundengine: %(message)s"))
 logger.addHandler(_handler)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
@@ -14,6 +15,18 @@ logger.addHandler(_handler)
 
 config = ConfigDict(modulename.replace(".", ":"))
 _ = config.addKey
+
+
+def _validateBackend(cfg: dict, key:str, s: str) -> bool:
+    platform = key.split(".")[0]
+    possibleBackends = csoundlib.getAudioBackendNames(available=False, platform=platform)
+    for backend in (b.strip() for b in s.split(',')):
+        if backend not in possibleBackends:
+            logger.error(f"Backend '{backend}' unknown. "
+                         f"Possible backends: {possibleBackends}")
+            return False
+    return True
+
 
 _('sr', 0,
   choices=(0, 22050, 44100, 48000, 88200, 96000),
@@ -40,15 +53,15 @@ _('buffersize', 0,
   doc="-b value. 0=determine buffersize depending on ksmps & backend")
 _('numbuffers', 0,
   doc="determines the -B value as a multiple of the buffersize. 0=auto")
-_('linux.backend', 'jack',
-  choices=('jack', 'pa_cb', 'pa_bl', 'pulse', 'alsa')),
+_('linux.backend', 'jack, pulse, pa_cb',
+  doc="a comma separated list of backends (possible backends: jack, pulse, pa_cb, alsa)",
+  validatefunc=_validateBackend),
 _('macos.backend', 'pa_cb',
-  choices=('auhal', 'pa_cb', 'pa_bl'))
+  doc="a comma separated list of backends (possible backends: pa_cb, auhal)",
+  validatefunc=_validateBackend),
 _('windows.backend', 'pa_cb',
-  choices=('pa_cb', 'pa_bl'))
-_('fallback_backend', 'pa_cb',
-  choices=('pa_cb', 'pa_bl', ''),
-  doc="Fallback backend if the preferred backend is not available.")
+  doc="a comma separated list of backends (possible backends: pa_cb, pa_bl)",
+  validatefunc=_validateBackend)
 _('A4', 442,
   range=(410, 460),
   doc="Frequency for A4")
@@ -60,7 +73,7 @@ _('set_sigint_handler', True,
   doc='Set a sigint handler to prevent csound crash with CTRL-C')
 _('generalmidi_soundfont', '')
 _('suppress_output', True,
-  doc='Supress csound´s debugging information')
+  doc='Suppress csound´s debugging information')
 _('unknown_parameter_fail_silently', True,
   doc='Do not raise if a synth tries to set an unknown parameter')
 _('define_builtin_instrs', True,

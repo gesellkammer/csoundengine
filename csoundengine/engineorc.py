@@ -455,7 +455,7 @@ CONSTS = {
     'eventMaxSize': 1999,
     'highestInstrnum': 11500,
     'postProcInstrnum': 11000,
-    'reservedTablesStart': 500,
+    'reservedTablesStart': 300,
     'reservedInstrsStart': 500,
     'numReservedTables': 2000,
     'maxNumInstrs': 10000
