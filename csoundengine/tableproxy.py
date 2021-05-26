@@ -120,8 +120,9 @@ class TableProxy:
     def plotSpectrogram(self, fftsize=2048, mindb=-90, maxfreq:int=None, overlap=4,
                         minfreq:int=0) -> None:
         """
-        Plot a spectrogram of the sample data in this table. Requires that
-        the samplerate is set
+        Plot a spectrogram of the sample data in this table.
+
+        Requires that the samplerate is set
 
         Args:
             fftsize (int): the size of the fft

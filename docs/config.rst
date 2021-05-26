@@ -97,21 +97,18 @@ numbuffers:
     | *determines the -B value as a multiple of the buffersize. 0=auto*
 
 linux.backend:
-    | Default: **jack**  -- `str`
-    | Choices: ``jack, pa_cb, pa_bl, pulse, alsa``
+    | Default: **jack, pulse, pa_cb**  -- `str`
+    | A comma-separated list of backends, in descending priority
 
 macos.backend:
-    | Default: **pa_cb**  -- `str`
-    | Choices: ``auhal, pa_cb, pa_bl``
+    | Default: **auhal, pa_cb**  -- `str`
+    | A comma-separated list of backends, in descending priority
+    | Possible backends: auhal (coreaudio), pa_cb (portaudio callbacks)
 
 windows.backend:
     | Default: **pa_cb**  -- `str`
-    | Choices: ``pa_cb, pa_bl``
-
-fallback_backend:
-    | Default: **pa_cb**  -- `str`
-    | Choices: ``pa_cb, pa_bl``
-    | *Fallback backend used if the preferred backend is not available*
+    | A comma-separated list of backends, in descending priority
+    | Possible backends: pa_cb (portaudio callbacks), pa_bl (portaudio blocking)
 
 A4:
     | Default: **442**  -- `int`

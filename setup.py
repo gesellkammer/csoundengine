@@ -32,7 +32,7 @@ setup(
         "sndfileio",
         "emlib",
         "cachetools",
-        "configdict>=0.4",
+        "configdict>=0.8",
         "bpf4",
         "numpyx>=0.5",
         "pitchtools>=1.0",

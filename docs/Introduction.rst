@@ -1,14 +1,13 @@
 Introduction 
 ============
 
-The core of this package is the :class:`~csoundengine.engine.Engine` class, which wraps a csound
-process and allows transparent control over all parameters, while providing 
-sane defaults. It uses the csound API to communicate with a running csound
-instance. All audio processing is run in a separate performance thread.
+Engine Class - Low level interface
+----------------------------------
 
-
-Engine - Low level interface
-----------------------------
+The core of this package is the :class:`~csoundengine.engine.Engine` class,
+which wraps a csound process and allows transparent control over all parameters,
+while providing sane defaults. It uses the csound API to communicate with a running
+csound instance. All audio processing is run in a separate performance thread.
 
 .. code-block:: python
 

@@ -1,5 +1,8 @@
 """
-An Engine implements a simple interface to run and control a csound process.
+Engine class
+============
+
+An :class:`Engine` implements a simple interface to run and control a csound process.
 
 .. code::
 
@@ -19,18 +22,20 @@ An Engine implements a simple interface to run and control a csound process.
         outs asig, asig
       endin
     ''')
-    # start a synth with indefinite duration
-    event = engine.sched("synth", args=[67, 0.1, 3000])
 
-    # any parameter can be modified afterwords:
+    # start a synth with indefinite duration. This returns a unique (fractional)
+    # instance number
+    p1 = engine.sched("synth", args=[67, 0.1, 3000])
+
+    # any parameter with k-rate can be modified while running:
     # change midinote
-    engine.setp(event, 4, 67)
+    engine.setp(p1, 4, 67)
 
     # modify cutoff
-    engine.setp(event, 6, 1000, delay=4)
+    engine.setp(p1, 6, 1000, delay=4)
 
     # stop the synth:
-    engine.unsched(event)
+    engine.unsched(p1)
 
 See also :class:`~csoundengine.session.Session` for a higher level interface:
 
@@ -47,8 +52,19 @@ See also :class:`~csoundengine.session.Session` for a higher level interface:
         asig *= aenv
         outs asig, asig
     ''')
+    # Session sched returns a Synth object
     synth = session.sched('mysynth', kmidinote=67, kcutoff=2000)
+
+    # Change the midinote after 2 seconds
     synth.setp(kmidinote=60, delay=2)
+
+Defaults for Engine / Session can be customized via::
+
+    from csoundengine import *
+    config.edit()
+
+For more information, see
+`Configuration <https://csoundengine.readthedocs.io/en/latest/config.html>
 
 """
 from __future__ import annotations
@@ -150,9 +166,10 @@ class TableInfo:
 
 class Engine:
     """
-    Create a csound Engine
+    Create a csound :class:`Engine`
 
-    Default values can be configured via `config.edit()`.
+    Default values can be configured via `config.edit()`, see
+    `Configuration <https://csoundengine.readthedocs.io/en/latest/config.html>
 
     .. note::
 
@@ -183,7 +200,8 @@ class Engine:
         ... endin
         ... ''')
         >>> eventid = engine.sched('testoutput', args=[1.])
-        >>> # wait, then evaluate next line to stop
+        ...
+        # wait, then evaluate next line to stop
         >>> engine.unsched(eventid)
         >>> engine.stop()
 
@@ -894,6 +912,11 @@ class Engine:
         ...     e.setp(eventid, 5, cutoff)
         ...     time.sleep(0.01)
         >>> e.unsched(eventid)
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~csoundengine.engine.Engine.unschedAll`
         """
         assert self.started
         instrfrac = instr if isinstance(instr, float) else self._assignEventId(instr)
@@ -968,6 +991,11 @@ class Engine:
         >>> eventid = e.sched(10, 0, -1)
         >>> e.unsched(eventid, 10)
 
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.unschedAll`
+
         """
         if isinstance(p1, str):
             p1 = self._instrNameToNumber(p1)
@@ -977,6 +1005,11 @@ class Engine:
     def unschedAll(self) -> None:
         """
         Remove all playing and future events
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~csoundengine.engine.Engine.unsched`
         """
         assert self.csound is not None
         self.csound.rewindScore()
@@ -1085,6 +1118,14 @@ class Engine:
         >>> sample *= 0.5
         >>> tabnum = e.makeTable(sample, sr=sr, block=True)
         >>> e.playSample(tabnum)
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~csoundengine.engine.Engine.readSoundfile`
+        :meth:`~csoundengine.engine.Engine.fillTable`
+
+
         """
         if tabnum < 0:
             tabnum = self._assignTableNumber(p1=_instrnum)
@@ -1166,6 +1207,44 @@ class Engine:
         except _queue.Empty:
             raise TimeoutError(f"{token=}, {pargs=}")
 
+    def plotTableSpectrogram(self, tabnum: int, fftsize=2048, mindb=-90,
+                             maxfreq:int=None, overlap:int=4, minfreq:int=0,
+                             sr:int=44100
+                             ) -> None:
+        """
+        Plot a spectrogram of the audio data in the given table
+
+        Requires that the samplerate is set, either because it was read via
+        gen01 (or using .readSoundfile), or it was manually set via setTableMetadata
+
+        Args:
+            tabnum: the table to plot
+            fftsize (int): the size of the fft
+            mindb (int): the min. dB to plot
+            maxfreq (int): the max. frequency to plot
+            overlap (int): the number of overlaps per window
+            minfreq (int): the min. frequency to plot
+            sr: the fallback samplerate
+
+        Example
+        -------
+
+            >>> from csoundengine import *
+            >>> e = Engine()
+            >>> tabnum = e.readSoundfile("mono.wav", block=True)
+            >>> e.plotTableSpectrogram(tabnum)
+
+        .. image:: ../assets/tableproxy-plotspectrogram.png
+
+        """
+        from . import plotting
+        data = self.getTableData(tabnum)
+        tabinfo = self.tableInfo(tabnum)
+        if tabinfo.sr > 0:
+            sr = tabinfo.sr
+        plotting.plotSpectrogram(data, sr, fftsize=fftsize, mindb=mindb,
+                                 maxfreq=maxfreq, minfreq=minfreq, overlap=overlap)
+
     def plotTable(self, tabnum: int, sr: int=0) -> None:
         """
         Plot the content of the table via matplotlib.pyplot
@@ -1173,6 +1252,22 @@ class Engine:
         Args:
             tabnum: the table to plot
             sr: the samplerate of the data
+
+        Example
+        -------
+
+            >>> from csoundengine import *
+            >>> e = Engine()
+            >>> tabnum = e.readSoundfile("mono.wav", block=True)
+            >>> e.plotTable(tabnum)
+
+        .. image:: ../assets/tableproxy-plot.png
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~csoundengine.engine.Engine.readSoundfile`
+        :meth:`~csoundengine.engine.Engine.makeTable`
         """
         from csoundengine import plotting
         data = self.getTableData(tabnum)
@@ -1571,6 +1666,13 @@ class Engine:
             >>> tabnum = e.makeEmptyTable(len(arr))
             >>> e.fillTable(tabnum, data=arr)
             >>> e.plotTable(tabnum)
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.makeTable`
+        :meth:`~Engine.plotTable`
+        :meth:`~Engine.readSoundfile`
         """
         assert self.csound is not None
         if len(data.shape) == 2:
@@ -1625,6 +1727,11 @@ class Engine:
             >>> tabnum = e.readSoundfile("stereo.wav", block=True)
             >>> e.tableInfo(tabnum)
             TableInfo(tableNumber=200, sr=44100.0, numChannels=2, numFrames=88200, size=176401)
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.readSoundfile`
         """
         toks = [self._getSyncToken() for _ in range(4)]
 
@@ -1667,6 +1774,13 @@ class Engine:
         >>> eventid = e.playSample(tabnum)
         # Reduce the gain to 0.8 and playback speed to 0.5 after 2 seconds
         >>> e.setp(eventid, 4, 0.8, 5, 0.5, delay=2)
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.playSample`
+        :meth:`~Engine.makeTable`
+        :meth:`~Engine.fillTable`
         """
         if block and callback:
             raise ValueError("blocking mode not supported when a callback is given")
@@ -1735,8 +1849,7 @@ class Engine:
         Returns:
             the instance number of the playing instrument.
 
-        Dynamic pfields
-        ---------------
+        ** Dynamic pfields **
 
         - p4: gain
         - p5: speed
@@ -1755,6 +1868,13 @@ class Engine:
             # gain (p4) and speed (p5) can be modified while playing
             # Play at half speed
             >>> e.setp(eventid, 5, 0.5)
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.makeTable`
+        :meth:`~Engine.readSoundfile`
+
         """
         args = [gain, speed, tabnum, chan, fade, starttime, gaingroup, lagtime]
         return self.sched(self._builtinInstrs['playgen1'], delay=delay, dur=dur,
@@ -1774,6 +1894,13 @@ class Engine:
 
         Returns:
             the instance number of the scheduled event
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.readSoundfile`
+        :meth:`~Engine.playSample`
+
         """
         assert self.started
         p1 = self._assignEventId(self._builtinInstrs['playsndfile'])
@@ -1809,6 +1936,11 @@ class Engine:
         ... ''')
         >>> p1 = engine.sched(10, pargs=[0.1, 440])
         >>> engine.setp(p1, 5, 0.2, 6, 880, delay=0.5)
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.automatep`
         """
         numpairs = len(pairs) // 2
         assert len(pairs) % 2 == 0 and numpairs <= 5
@@ -1851,6 +1983,12 @@ class Engine:
         >>> eventid = e.sched(10, 0, 10, args=(tabnum,))
         # automate the frequency (slot 1)
         >>> e.automateTable(tabnum, 1, [0, 1000, 3, 200, 5, 200])
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.automatep`
+
         """
         # tabpairs table will be freed by the instr itself
         tabpairs = self.makeTable(pairs, tabnum=0, block=True)
@@ -1890,6 +2028,11 @@ class Engine:
         ... ''')
         >>> eventid = e.sched(10, 0, 10, args=(1000,))
         >>> e.automatep(eventid, 4, [0, 1000, 3, 200, 5, 200])
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.setp`
         """
         # table will be freed by the instr itself
         tabnum = self.makeTable(pairs, tabnum=0, block=True)
@@ -1911,6 +2054,11 @@ class Engine:
             the index associated with *s*. When passed to a csound instrument
             it can be used to retrieve the original string via
             ``Sstr = strget(idx)``
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.strGet`
 
         """
         assert self.started
@@ -1941,6 +2089,13 @@ class Engine:
         >>> idx = e.strSet("foo")
         >>> e.strGet(idx)
         foo
+
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.strSet`
+
         """
         return self._indexToStr.get(index)
 
@@ -2067,6 +2222,8 @@ class Engine:
 
         This can be used together with the built-in opcodes `busout`, `busin`
         and `busmix`. From csound a bus can also be assigned by calling `busassign`
+
+        For more information, see `Bus Opcodes <https://csoundengine.readthedocs.io/en/latest/Builtin-Opcodes.html#bus-opcodes>`_
 
         Example
         =======
