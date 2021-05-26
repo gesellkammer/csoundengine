@@ -209,9 +209,14 @@ def checkDependencies(force=True, tryfix=True):
 
     Raises RuntimeError if any dependency is missing
     """
+    # Skip checks if only building docs
+    if 'sphinx' in sys.modules:
+        return
+
     if force:
         _checkDependencies(tryfix=tryfix)
         return
+
     state = _getState()
     timeSinceLastrun = datetime.now() - datetime.fromisoformat(state['last_run'])
     if timeSinceLastrun.days > 30:
