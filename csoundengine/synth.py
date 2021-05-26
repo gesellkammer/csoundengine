@@ -436,8 +436,8 @@ class SynthGroup(AbstrSynth):
     """
     A SynthGroup is used to control multiple synths created
     to work together. Such multiple synths can be groups of
-     similar synths, as in additive synthesis, or processing
-     chains which work as an unity.
+    similar synths, as in additive synthesis, or processing
+    chains which work as an unity.
 
     Attributes:
         synths (List[AbstrSynth]): the list of synths in this group

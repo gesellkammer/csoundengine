@@ -802,17 +802,16 @@ def getAudioDevices(backend:str=None) -> Tuple[List[AudioDevice], List[AudioDevi
 
         For jack an audio device is a client
 
-        Each returned device is an AudioDevice instance with attributes:
+    Each returned device is an AudioDevice instance with attributes:
 
-        index: The device index
-        label: adc{index} for input devices, dac{index} for output devices.
-            The label can be passed to csound directly with either the -i or the -o flag
-            (``-i{label}`` or ``-o{label}``)
-        name: A description of the device
-        kind: 'input' for an input device, 'output' for an output device.
-        ins: number of input channels
-        outs: number of output channels
-
+    * index: The device index
+    * label: adc{index} for input devices, dac{index} for output devices.
+        The label can be passed to csound directly with either the -i or the -o flag
+        (``-i{label}`` or ``-o{label}``)
+    * name: A description of the device
+    * kind: 'input' for an input device, 'output' for an output device.
+    * ins: number of input channels
+    * outs: number of output channels
 
     Backends::
 

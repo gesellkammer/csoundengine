@@ -141,14 +141,13 @@ Dependencies
 
 * python >= 3.8
 * csound >= 6.15 (https://github.com/csound/csound/releases)
-* csound-plugins (https://github.com/csound-plugins/csound-plugins/releases)
-
-With all external dependencies in place, installation is simple:
 
 .. code-block:: bash
 
     pip install csoundengine
 
+csoundengine also needs many csound plugins (https://github.com/csound-plugins/csound-plugins/releases),
+but these are installed automatically if needed.
 
 Documentation
 -------------

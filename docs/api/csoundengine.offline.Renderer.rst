@@ -13,6 +13,7 @@ Renderer
       ~Renderer.addGlobalCode
       ~Renderer.assignBus
       ~Renderer.automatep
+      ~Renderer.defInstr
       ~Renderer.generateCsd
       ~Renderer.getEventById
       ~Renderer.getEventsByP1
@@ -32,6 +33,7 @@ Renderer
    .. automethod:: addGlobalCode
    .. automethod:: assignBus
    .. automethod:: automatep
+   .. automethod:: defInstr
    .. automethod:: generateCsd
    .. automethod:: getEventById
    .. automethod:: getEventsByP1
