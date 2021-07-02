@@ -120,7 +120,7 @@ def _copyFiles(files: List[str], dest: str, sudo=False) -> None:
 def pluginsInstalled(force=False) -> bool:
     """Returns True if the needed plugins are already installed"""
     opcodes = set(csoundlib.opcodesList(cached=not force,
-                                        opcodedir=csoundlib.getUserPluginsFolder()))
+                                        opcodedir=csoundlib.userPluginsFolder()))
     neededOpcodes = {"atstop", "pwrite", "pread", "initerror",
                      "dict_new", "dict_set", "dict_get",
                      "pool_gen", "pool_pop", "pool_push", "pool_isfull"
@@ -143,7 +143,7 @@ def installPlugins(force=False) -> None:
     zipped = downloadLatestPluginForPlatform()
     assert zipped.exists() and zipped.suffix == ".zip"
     unzippedFolder = _zipExtract(zipped)
-    pluginsFolder = csoundlib.getUserPluginsFolder(float64=True)
+    pluginsFolder = csoundlib.userPluginsFolder(float64=True)
     os.makedirs(pluginsFolder, exist_ok=True)
     if sys.platform == "linux":
         plugins = [plugin.as_posix() for plugin in unzippedFolder.glob("*.so")]

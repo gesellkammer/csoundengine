@@ -68,6 +68,7 @@ class ParamTable:
     def paramIndex(self, param: str) -> Opt[int]:
         """
         Returns the index corresponding to the named parameter
+
         Returns None if the parameter does not exist
         """
         if not self.mapping:

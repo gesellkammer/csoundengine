@@ -30,30 +30,25 @@ ${globalcode}
 
 instr __init
     ftset gi__subgains, 1
-    ;; prints "<<< Init done >>>\n"
-    turnoff
 endin
 
-opcode _panstereo, aa, aak
-    ; kpos: 0-1
-    a0, a1, kpos xin
+opcode _panweights, kk, k
+    kpos xin    
     imax = 1.4142
-    kamp0 = bpf:k(kpos, 0, imax, 0.5, 1, 1, 0)
-    kamp1 = bpf:k(kpos, 0, 0,    0.5, 1, 1, imax)
-    a0 *= kamp0
-    a1 *= kamp1
-    xout a0, a1
-endop
-
-instr _notifyDealloc
-    outvalue "__dealloc__", p4
-    turnoff
-endin
+    kampL = bpf:k(kpos, 0, imax, 0.5, 1, 1, 0)
+    kampR = bpf:k(kpos, 0, 0,    0.5, 1, 1, imax)
+    xout kampL, kampR
+endop 
 
 instr ${turnoff}
     iwhich = p4
-    turnoff2 iwhich, 4, 1
-    turnoff
+    turnoff2_i iwhich, 4, 1
+endin
+
+instr ${turnoff_future}
+    iwhich = p4
+    ; prints "turnoff_future: %f\n", iwhich
+    turnoff3 iwhich
 endin
 
 instr ${nstrnum}
@@ -64,7 +59,6 @@ instr ${nstrnum}
         tabw_i inum, itoken, gi__responses
         outvalue "__sync__", itoken
     endif
-    turnoff
 endin
      
 instr ${tabwrite}
@@ -72,20 +66,17 @@ instr ${tabwrite}
     iidx = p5
     ival = p6
     tabw_i ival, iidx, itab
-    turnoff
 endin
 
 instr ${chnset}
     Schn = p4
     ival = p5
     chnset ival, Schn
-    turnoff
 endin
 
 instr ${pingback}
     itoken = p4
     outvalue "__sync__", itoken
-    turnoff
 endin
 
 ; can make a table with data or just empty of a given size
@@ -118,7 +109,6 @@ instr ${maketable}
         tabw_i ifn, itoken, gi__responses
         outvalue "__sync__", itoken
     endif
-    turnoff
 endin
 
 instr ${automatePargViaTable}
@@ -126,8 +116,14 @@ instr ${automatePargViaTable}
     ipindex = p5
     itabpairs = p6  ; a table containing flat pairs t0, y0, t1, y1, ...
     imode = p7;  interpolation method
+    iovertake = p8
     Sinterpmethod = strget(imode)
     ftfree itabpairs, 1
+    
+    if iovertake == 1 then
+        icurrval = pread:i(ip1, ipindex)
+        tabw_i icurrval, 1, itabpairs
+    endif
 
     kt timeinsts
     kidx bisect kt, itabpairs, 2, 0
@@ -140,11 +136,13 @@ instr ${automateTableViaTable}
     iargidx = p5
     idatatab = p6
     imode = p7
-    Smode = strget(imode)
     idatastep = p8
     idataoffset = p9
+    iovertake = p10
+    
     ftfree idatatab, 1
-
+    Smode = strget(imode)
+    
     if ftexists:i(iargtab) == 0 then
         initerror sprintf("Instr table %d doesn't exist", iargtab)
     endif
@@ -154,6 +152,11 @@ instr ${automateTableViaTable}
 
     if ftlen(iargtab) <= iargidx then
         initerror sprintf("Table too small (%d <= %d)", ftlen(iargtab), iargidx)
+    endif
+    
+    if iovertake == 1 then
+        icurrval = tab_i(iargidx, iargtab)
+        tabw_i icurrval, 1, idatatab
     endif
 
     kt timeinsts
@@ -190,14 +193,12 @@ instr ${scheduniq}
     schedule iargs
     tabw_i iuniq, itoken, gi__responses
     outvalue "__sync__", itoken
-    turnoff
 endin
 
 instr ${freetable}
     ifn = p4
     idelay = p5
     ftfree ifn, 0
-    turnoff
 endin
 
 instr ${playsndfile}
@@ -271,13 +272,11 @@ instr ${strset}
     Sstr = p4
     idx  = p5
     strset idx, Sstr
-    turnoff
 endin
 
 instr ${ftsetparams}
     itabnum, isr, inumchannels passign 4
     ftsetparams itabnum, isr, inumchannels
-    turnoff
 endin
 
 instr ${pwrite}
@@ -296,7 +295,6 @@ instr ${pwrite}
     else
         initerror sprintf("Max. pairs is 5, got %d", inumpairs)
     endif
-    turnoff
 endin
 
 instr ${testaudio}
@@ -341,22 +339,31 @@ schedule "__init", 0, 1
 
 _busOrc = r'''
 
+#define _BUSUNSET #${BUSUNSET}#
+
 ; The actual buses
 ga__buses[]   init ${numAudioBuses}
+gi__bustable ftgen 0, 0, ${numControlBuses}, -2, 0
+; gk__buses[]   init ${numControlBuses}
 
 ; This table keeps track of the number of references a bus has
 gi__busrefs ftgen 0, 0, ${numAudioBuses}, -2, 0
+gi__busrefsk ftgen 0, 0, ${numControlBuses}, -2, 0
 
 ; A pool of bus indexes
 gi__buspool pool_gen ${numAudioBuses}
+gi__buspoolk pool_gen ${numControlBuses} 
 
 ; A dict mapping bustoken to bus number
 gi__bustoken2num dict_new "int:float"
+gi__bustoken2numk dict_new "int:float"
 
 chn_k "_busTokenCount", 3
 
 instr __businit
     chnset 0, "_busTokenCount"
+    ; gk__buses = $$_BUSUNSET
+    ftset gi__bustable, $$_BUSUNSET
     turnoff
 endin
 
@@ -364,15 +371,21 @@ instr ${clearbuses}
     zeroarray ga__buses
 endin
 
-opcode busassign, i, j
-    itoken xin
+opcode busassign, i, io
+    itoken, ikind xin
     if itoken == -1 then
         itoken chnget "_busTokenCount"
     endif
-    ibus pool_pop gi__buspool, -1
+    if ikind == 0 then
+        ibus pool_pop gi__buspool, -1
+    else
+        ibus pool_pop gi__buspoolk, -1
+    endif
+    
     if ibus == -1 then
         initerror "busassign failed, out of buses"
     endif
+    
     dict_set gi__bustoken2num, itoken, ibus
     chnset itoken+1, "_busTokenCount"
     xout ibus
@@ -380,16 +393,17 @@ endop
 
 instr _busassign
     itoken = p4
-    ibus busassign itoken
-    turnoff
+    ikind = p5
+    ibus busassign itoken, ikind
 endin
 
-instr _busrelease
+instr _busrelease  ; release audio bus
     itoken = p4
-    ibus dict_get gi__bustoken2num, itoken, -1
-    if ibus == -1 then
+    ibus dict_get gi__bustoken2num, itoken, -99999999
+    if ibus == -99999999 then
         initerror sprintf("itoken %d has no bus assigned to it", itoken)
     endif
+    
     irefs tab_i ibus, gi__busrefs
     if irefs <= 1 then
         if pool_isfull:i(gi__buspool) == 1 then
@@ -401,7 +415,27 @@ instr _busrelease
     else   
         tabw_i irefs-1, ibus, gi__busrefs
     endif
-    turnoff    
+endin
+
+instr _busreleasek
+    itoken = p4
+    ibus dict_get gi__bustoken2num, itoken, -99999999
+    if ibus == -99999999 then
+        initerror sprintf("itoken %d has no bus assigned to it", itoken)
+    endif
+    irefs tab_i ibus, gi__busrefsk
+    if irefs <= 1 then
+        if pool_isfull:i(gi__buspoolk) == 1 then
+            initerror "Bus pool is full!"
+        endif
+        pool_push gi__buspoolk, ibus
+        dict_del gi__bustoken2num, itoken
+        tabw_i 0, ibus, gi__busrefsk
+        ; gk__buses[ibus] = $$_BUSUNSET
+        tabw_i $$_BUSUNSET, ibus, gi__bustable
+    else   
+        tabw_i irefs-1, ibus, gi__busrefsk
+    endif
 endin
 
 opcode _bususe, i, i
@@ -412,14 +446,74 @@ opcode _bususe, i, i
     endif
     irefs tab_i ibus, gi__busrefs
     tabw_i irefs+1, ibus, gi__busrefs
-    atstop "_busrelease", 0, 0.1, itoken
+    atstop "_busrelease", 0, 0, itoken
     xout ibus
 endop
+
+instr _busaddref
+    itoken = p4
+    ibus dict_get gi__bustoken2num, itoken, -1
+    if ibus == -1 then
+        ibus = busassign(itoken)
+    endif
+    irefs tab_i ibus, gi__busrefs
+    tabw_i irefs+1, ibus, gi__busrefs
+endin
+
+opcode _bususek, i, i
+    itoken xin
+    ibus dict_get gi__bustoken2num, itoken, -9999999
+    if ibus == -9999999 then
+        ibus = busassign(itoken, 1)
+    endif
+    irefs tab_i ibus, gi__busrefsk
+    tabw_i irefs+1, ibus, gi__busrefsk
+    atstop "_busreleasek", 0, 0, itoken
+    xout ibus
+endop
+
+opcode _busget, i, ii
+    itoken, ikind xin
+    ibus dict_get gi__bustoken2num, itoken, -9999999
+    if ibus == -9999999 then
+        ibus = busassign(itoken, ikind)
+        prints "Assigning k-bus %d to token %d\n", ibus, itoken
+    endif
+    xout ibus
+endop
+
+instr _busindex
+    isynctoken = p4
+    ibustoken = p5
+    iassign = p6
+    ibus dict_get gi__bustoken2num, ibustoken, -1
+    if ibus == -1 && iassign == 1 then
+        ibus = busassign(ibustoken, 1)
+    endif
+    tabw_i ibus, isynctoken, gi__responses
+    outvalue "__sync__", isynctoken
+endin
 
 opcode busin, a, i
     itoken xin
     ibus = _bususe(itoken)
     xout ga__buses[ibus]
+endop
+
+opcode busin, k, io
+    itoken, idefault xin
+    ibus = _bususek(itoken)
+    prints "busin: %d, ibus: %d\n", itoken, ibus
+    ; init
+    ival tab_i ibus, gi__bustable
+    print ival
+    if ival == $$_BUSUNSET then
+        prints "bus %d unset, setting to default %f\n", ibus, idefault
+        tabw_i idefault, ibus, gi__bustable
+    endif
+    
+    kval tab ibus, gi__bustable
+    xout kval
 endop
 
 opcode busout, 0, ia
@@ -428,13 +522,35 @@ opcode busout, 0, ia
     ga__buses[ibus] = asig
 endop
 
+opcode busout, 0, ik
+    itoken, ksig xin
+    ibus = _bususek(itoken)
+    ; gk__buses[ibus] = ksig
+    tabw ksig, ibus, gi__bustable
+endop
+
+opcode busout, 0, ii
+    itoken, isig xin
+    ibus = _busget(itoken, 1)
+    ; gk__buses[ibus] = isig
+    tabw_i isig, ibus, gi__bustable
+endop
+
 opcode busmix, 0, ia
     itoken, asig xin
     ibus = _bususe(itoken)
     ga__buses[ibus] = ga__buses[ibus] + asig
 endop
 
-schedule "__businit", 0, 1
+instr _busoutk
+    itoken = p4
+    ivalue = p5
+    ibus = _busget(itoken, 1)
+    ; gk__buses[ibus] = ivalue
+    tabw_i ivalue, ibus, gi__bustable
+endin
+
+schedule "__businit", 0, ksmps/sr
 '''
 
 
@@ -458,7 +574,8 @@ CONSTS = {
     'reservedTablesStart': 300,
     'reservedInstrsStart': 500,
     'numReservedTables': 2000,
-    'maxNumInstrs': 10000
+    'maxNumInstrs': 10000,
+    'BUSUNSET': -999999999
 }
 
 _tableNames = ['responses', 'subgains', 'tokenToInstrnum']
@@ -474,18 +591,18 @@ def orcTemplate(busSupport=True) -> Template:
     if busSupport:
         parts.append(_busOrc)
     orc = "\n".join(parts)
-    subs: Dict[str, Any] = {name:f"{num} ; {name}"
-                            for name, num in BUILTIN_INSTRS.items()}
-    subs.update(BUILTIN_TABLES)
-    subs.update(CONSTS)
-    return Template(Template(orc).safe_substitute(**subs))
-
+    return Template(orc)
 
 
 def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
             backend:str, a4:float, globalcode:str="", includestr:str="",
-            numAudioBuses:int=32):
-    template = orcTemplate(busSupport=numAudioBuses>0)
+            numAudioBuses:int=32,
+            numControlBuses:int=64):
+    template = orcTemplate(busSupport=numAudioBuses>0 or numControlBuses>0)
+    subs: Dict[str, Any] = {name:f"{num} ; {name}"
+                            for name, num in BUILTIN_INSTRS.items()}
+    subs.update(BUILTIN_TABLES)
+    subs.update(CONSTS)
     return template.substitute(
             sr=sr,
             ksmps=ksmps,
@@ -495,9 +612,16 @@ def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
             a4=a4,
             globalcode=globalcode,
             includes=includestr,
-            numAudioBuses=numAudioBuses)
+            numAudioBuses=numAudioBuses,
+            numControlBuses=numControlBuses,
+            **subs
+    )
 
 
-def busSupportCode(numAudioBuses:int, clearBusesInstrnum:int) -> str:
+def busSupportCode(numAudioBuses:int,
+                   clearBusesInstrnum:int,
+                   numControlBuses:int) -> str:
     return Template(_busOrc).substitute(numAudioBuses=numAudioBuses,
-                                        clearbuses=f'{clearBusesInstrnum} ;  clearbuses')
+                                        clearbuses=f'{clearBusesInstrnum} ;  clearbuses',
+                                        numControlBuses=numControlBuses,
+                                        BUSUNSET=CONSTS['BUSUNSET'])

@@ -94,7 +94,6 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
         # Automate the cutoff freq. of the filter
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
 """
-import sys
 from .dependencies import checkDependencies
 checkDependencies(force=False, tryfix=True)
 
@@ -103,7 +102,9 @@ from .config import config
 from .session import Session, getSession, groupSynths
 from .instr import Instr
 from .offline import Renderer
+from . import synth
 from . import csoundlib
+from . import tools
 from .csoundlib import (dumpAudioDevices, dumpAudioBackends,
                         getAudioBackend, audioBackends)
 

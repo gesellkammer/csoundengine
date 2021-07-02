@@ -5,22 +5,26 @@ This module provides many utilities based on the csound binary
 from __future__ import annotations
 
 import math as _math
-import os 
-import sys
-import subprocess
-import re
+import os as _os
+import sys as _sys
+import subprocess as _subprocess
+import re as _re
 import shutil as _shutil
 import logging as _logging
 import textwrap as _textwrap
 import io as _io
 import tempfile as _tempfile
-import cachetools
+import cachetools as _cachetools
 import dataclasses
 from . import jacktools
+# from .config import config
 from .internalTools import normalizePlatform
-from typing import List, Union as U, Optional as Opt, Generator, \
-    Sequence as Seq, Dict, Tuple, Callable, Set, Any
+from typing import TYPE_CHECKING, Callable
 from functools import lru_cache as _lru_cache
+
+if TYPE_CHECKING:
+    from typing import List, Union as U, Optional as Opt, Generator, \
+        Sequence as Seq, Dict, Tuple, Callable, Set, Any, IO
 
 import numpy as np
 
@@ -30,11 +34,10 @@ from emlib import misc, textlib
 logger = _logging.getLogger("csoundengine")
 
 
-
-@cachetools.cached(cache=cachetools.TTLCache(1, 10))
+@_cachetools.cached(cache=_cachetools.TTLCache(1, 10))
 def _isPulseaudioRunning() -> bool:
     """ Return True if Pulseaudio is running """
-    retcode = subprocess.call(["pulseaudio", "--check"])
+    retcode = _subprocess.call(["pulseaudio", "--check"])
     return retcode == 0
 
 
@@ -73,7 +76,7 @@ class AudioBackend:
 
     def isAvailable(self) -> bool:
         """ Is this backend available? """
-        if sys.platform not in self.platforms:
+        if _sys.platform not in self.platforms:
             return False
         if self.alwaysAvailable:
             return True
@@ -85,7 +88,7 @@ class AudioBackend:
         """Get the system samplerate for this backend, if available"""
         if not self.hasSystemSr:
             return None
-        if self.name == 'jack' and sys.platform == "linux":
+        if self.name == 'jack' and _sys.platform == "linux":
             return _getJackSrViaClient()
         return _getCsoundSystemSr(self.name)
 
@@ -211,7 +214,7 @@ def getVersion(useApi=True) -> Tuple[int, int, int]:
     if not csound:
         raise IOError("Csound not found")
     cmd = '{csound} --version'.format(csound=csound).split()
-    proc = subprocess.Popen(cmd, stderr=subprocess.PIPE)
+    proc = _subprocess.Popen(cmd, stderr=_subprocess.PIPE)
     proc.wait()
     if proc.stderr is None:
         return (0, 0, 0)
@@ -221,7 +224,7 @@ def getVersion(useApi=True) -> Tuple[int, int, int]:
     for bline in lines:
         if bline.startswith(b"Csound version"):
             line = bline.decode('utf8')
-            matches = re.findall(r"(\d+\.\d+(\.\d+)?)", line)
+            matches = _re.findall(r"(\d+\.\d+(\.\d+)?)", line)
             if matches:
                 version = matches[0]
                 if isinstance(version, tuple):
@@ -237,26 +240,26 @@ def getVersion(useApi=True) -> Tuple[int, int, int]:
         raise RuntimeError("Did not found a csound version")
 
 
-def csoundSubproc(args: List[str], piped=True) -> subprocess.Popen:
+def csoundSubproc(args: List[str], piped=True) -> _subprocess.Popen:
     """
-    Calls csound with given args in a subprocess, returns such subprocess.
+    Calls csound with given args in a subprocess, returns such _subprocess.
 
     Args:
         args: the args passed to csound
         piped: if True, stdout and stderr are piped to the Popen object
 
     Returns:
-        the subprocess.Popen object
+        the _subprocess.Popen object
 
     Raises RuntimeError if csound is not found
     """
     csound = findCsound()
     if not csound:
         raise RuntimeError("Csound not found")
-    p = subprocess.PIPE if piped else None
+    p = _subprocess.PIPE if piped else None
     callargs = [csound]
     callargs.extend(args)
-    return subprocess.Popen(callargs, stderr=p, stdout=p)
+    return _subprocess.Popen(callargs, stderr=p, stdout=p)
     
 
 def getSystemSr(backend: str) -> Opt[float]:
@@ -310,7 +313,10 @@ def getDefaultBackend() -> AudioBackend:
 
     Discard any backend which is not available at the moment
     """
-    return availableAudioBackends()[0]
+    backends = audioBackends(available=True)
+    if not backends:
+        raise RuntimeError("No available backends")
+    return backends[0]
 
 
 _pluginsFolders = {
@@ -327,7 +333,7 @@ _pluginsFolders = {
 }
 
 
-def getUserPluginsFolder(float64=True) -> str:
+def userPluginsFolder(float64=True) -> str:
     """
     Returns the user plugins folder for this platform
 
@@ -350,8 +356,8 @@ def getUserPluginsFolder(float64=True) -> str:
     For 32-bit plugins the folder is the same, but ends in 32 (``.../plugins32``)
     """
     arch = 'float64' if float64 else 'float32'
-    folder = _pluginsFolders[arch][sys.platform]
-    return os.path.expandvars(folder)
+    folder = _pluginsFolders[arch][_sys.platform]
+    return _os.path.expandvars(folder)
 
 
 def runCsd(csdfile:str,
@@ -361,7 +367,7 @@ def runCsd(csdfile:str,
            nodisplay = False,
            comment:str = None,
            piped = False,
-           extra:List[str] = None) -> subprocess.Popen:
+           extra:List[str] = None) -> _subprocess.Popen:
     """
     Run the given .csd as a csound subprocess
 
@@ -382,7 +388,7 @@ def runCsd(csdfile:str,
             as comment metadata (when running offline)
 
     Returns:
-        the subprocess.Popen object. In order to wait until
+        the _subprocess.Popen object. In order to wait until
         rendering is finished in offline mode, call .wait on the
         returned process
     """
@@ -455,7 +461,7 @@ class CsoundProc:
         nchnls: the number of channels
         csdstr: the csd being run, as a str
     """
-    proc: subprocess.Popen
+    proc: _subprocess.Popen
     backend: str
     outdev: str
     sr: int
@@ -644,13 +650,13 @@ def _metadataAsComment(d: Dict[str, Any], maxSignificantDigits=10,
     return sep.join(parts)
 
 
-def saveMatrixAsWav(outfile: str, data: np.ndarray,
+def saveMatrixAsMtx(outfile: str, data: np.ndarray,
                     metadata:Dict[str, U[str, float]]=None,
                     encoding="float32",
                     title:str='',
                     sr:int=44100) -> None:
     """
-    Save `data` in wav format
+    Save `data` in wav format using the mtx extension
 
     This is not a real soundfile. It is used to transfer the data in
     binary form to be read by another program. To distinguish this from a
@@ -660,12 +666,12 @@ def saveMatrixAsWav(outfile: str, data: np.ndarray,
 
     **Header Format**::
 
-        headerlength, numrows, numcolumns, ...
+        headerlength, numRows, numColumns, ...
 
     The description of each metadata value is included as wav metadata
     at the comment key with the format::
 
-        "numRows: xx, numColumns: xx, columns: 'headerSize numRows numColumns ...'"
+        "headerSize: xx, numRows: xx, numColumns: xx, columns: 'headerSize numRows numColumns ...'"
 
     This metadata can be retrieved in csound via:
 
@@ -700,7 +706,7 @@ def saveMatrixAsWav(outfile: str, data: np.ndarray,
     """
     assert isinstance(outfile, str)
     assert encoding == 'float32' or encoding == 'float64'
-    if os.path.splitext(outfile)[1] != ".mtx":
+    if _os.path.splitext(outfile)[1] != ".mtx":
         logger.warning(f"The extension should be .mtx, but asked to save"
                        f"the matrix as {outfile}")
     if len(data.shape) > 1 and data.shape[1] > 1023:
@@ -799,7 +805,7 @@ class AudioDevice:
     outs: int = -1
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 10))
+@_cachetools.cached(cache=_cachetools.TTLCache(1, 10))
 def getAudioDevices(backend:str=None) -> Tuple[List[AudioDevice], List[AudioDevice]]:
     """
     Returns (indevices, outdevices), where each of these lists is an AudioDevice.
@@ -859,7 +865,7 @@ def getAudioDevices(backend:str=None) -> Tuple[List[AudioDevice], List[AudioDevi
         raise RuntimeError(f"Operation not available for backend {backend}")
     for line in lines:
         line = line.decode("ascii")
-        match = re.search(regex_all, line)
+        match = _re.search(regex_all, line)
         if not match:
             continue
         idxstr, devid, devnameraw = match.groups()
@@ -903,7 +909,7 @@ def getSamplerateForBackend(backend: U[str, AudioBackend] = None) -> int:
         return 44100
 
     if audiobackend.name == 'jack' and _shutil.which('jack_samplerate') is not None:
-        sr = int(subprocess.getoutput("jack_samplerate"))
+        sr = int(_subprocess.getoutput("jack_samplerate"))
         return sr
 
     proc = csoundSubproc(f"-odac -+rtaudio={backend} --get-system-sr".split())
@@ -924,7 +930,7 @@ def _csoundTestJackRunning():
     return b'could not connect to JACK server' not in proc.stderr.read()
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 15))
+@_cachetools.cached(cache=_cachetools.TTLCache(1, 15))
 def isBackendAvailable(backend: str) -> bool:
     """ Returns True if the given audio backend is available """
     if backend == 'jack':
@@ -965,10 +971,10 @@ def audioBackends(available=False, platform:str=None) -> List[AudioBackend]:
     if platform is not None:
         platform = normalizePlatform(platform)
     if available:
-        platform = sys.platform
+        platform = _sys.platform
     elif platform is None:
-        platform = sys.platform
-    if available and platform != sys.platform:
+        platform = _sys.platform
+    if available and platform != _sys.platform:
         available = False
     backends = _backendsByPlatform[platform]
     if available:
@@ -1089,6 +1095,9 @@ def csoundOptionForSampleFormat(fmt:str) -> str:
         --format=double
 
     """
+    if fmt not in _fmtoptions:
+        raise ValueError(f'format {fmt} not known. Possible values: '
+                         f'{_fmtoptions.keys()}')
     return _fmtoptions[fmt]
 
 
@@ -1117,7 +1126,7 @@ class Csd:
         ...   ifreq = p4
         ...   outch 1, oscili:a(0.1, ifreq)
         ... ''')
-        >>> sound1 = csd.addSndfile("sounds/sound1.wav")
+        >>> tabnum = csd.addSndfile("sounds/sound1.wav")
         >>> csd.playTable(tabnum)
         >>> csd.addEvent('sine', 0, 2, [1000])
         >>> csd.writeCsd('out.csd')
@@ -1331,7 +1340,7 @@ class Csd:
             raise KeyError(f"fmt unknown, should be one of {fmts}")
         if option:
             self.setOptions(option)
-            self._sampleFormat = option
+            self._sampleFormat = fmt
 
     def writeScore(self, stream) -> None:
         """
@@ -1386,11 +1395,12 @@ class Csd:
         args = [gain, speed, tabnum, chan, fade, skip]
         self.addEvent('_playgen1', start=start, dur=dur, args=args)
 
-    def writeCsd(self, stream) -> None:
+    def writeCsd(self, stream: U[str, IO]) -> None:
         """
         Args:
-            stream: the stream to write to. Either an open file, a io.StringIO
-                stream or a path
+            stream: the stream to write to. Either a path, an open file or
+                a io.StringIO
+
         """
         if isinstance(stream, str):
             outfile = stream
@@ -1403,7 +1413,8 @@ class Csd:
         if self.nodisplay:
             options.append("-m0")
 
-        if self._sampleFormat:
+        if self._sampleFormat and not any(opt.startswith("--format")
+                                          for opt in options):
             options.append(csoundOptionForSampleFormat(self._sampleFormat))
 
         for option in self.options:
@@ -1460,7 +1471,7 @@ class Csd:
             backend: str = None,
             suppressdisplay=False,
             piped=False,
-            extra: List[str] = None) -> subprocess.Popen:
+            extra: List[str] = None) -> _subprocess.Popen:
         """
         Run this csd. 
         
@@ -1476,11 +1487,11 @@ class Csd:
             extra: any extra args passed to the csound binary
 
         Returns:
-            the subprocess.Popen object
+            the _subprocess.Popen object
 
         """
         if self._sampleFormat is None and not output.startswith('dac'):
-            self.setSampleFormat(bestSampleFormatForExtension(os.path.splitext(output)[1]))
+            self.setSampleFormat(bestSampleFormatForExtension(_os.path.splitext(output)[1]))
 
         tmp = _tempfile.mktemp(suffix=".csd")
         with open(tmp, "w") as f:
@@ -1549,13 +1560,13 @@ def mincer(sndfile:str, outfile:str,
     if isinstance(timecurve, (int, float)):
         t0, t1 = 0, info.duration / timecurve
         timebpf = bpf.linear(0, 0, t1, info.duration)
-    elif isinstance(timecurve, bpf.core.BpfInterface):
+    elif isinstance(timecurve, bpf.co_re.BpfInterface):
         t0, t1 = timecurve.bounds()
         timebpf = timecurve
     else:
         raise TypeError("timecurve should be either a scalar or a bpf")
     
-    assert isinstance(pitchcurve, (int, float, bpf.core.BpfInterface))
+    assert isinstance(pitchcurve, (int, float, bpf.co_re.BpfInterface))
     ts = np.arange(t0, t1+dt, dt)
     fmt = "%.12f"
     _, time_gen23 = _tempfile.mkstemp(prefix='time-', suffix='.gen23')
@@ -1627,11 +1638,11 @@ def mincer(sndfile:str, outfile:str,
     _, csdfile = _tempfile.mkstemp(suffix=".csd")
     with open(csdfile, "w") as f:
         f.write(csd)
-    subprocess.call(["csound", "-f", csdfile])
+    _subprocess.call(["csound", "-f", csdfile])
     if not debug:
-        os.remove(time_gen23)
-        os.remove(pitch_gen23)
-        os.remove(csdfile)
+        _os.remove(time_gen23)
+        _os.remove(pitch_gen23)
+        _os.remove(csdfile)
     return {'outfile': outfile, 'csdstr': csd, 'csd': csdfile}
 
 
@@ -1655,7 +1666,7 @@ endin
 def recInstr(body:str, events:list, init="", outfile:str=None,
              sr=44100, ksmps=64, nchnls=2, a4=442, samplefmt='float',
              dur=None
-             ) -> Tuple[str, subprocess.Popen]:
+             ) -> Tuple[str, _subprocess.Popen]:
     """
     Record one instrument for a given duration
 
@@ -1673,7 +1684,7 @@ def recInstr(body:str, events:list, init="", outfile:str=None,
         samplefmt: defines the sample format used for outfile, one of (16, 24, 32, 'float')
 
     Returns:
-        a tuple (outfile to be generated, subprocess.Popen running csound)
+        a tuple (outfile to be generated, _subprocess.Popen running csound)
     """
     if not isinstance(events, list) or not all(isinstance(event, (tuple, list)) for event in events):
         raise ValueError("events is a seq., where each item is a seq. of pargs passed to"
@@ -1838,10 +1849,10 @@ def _getNchnlsJack(indevice:str, outdevice:str) -> Tuple[int, int]:
     outports = []
     inports = []
     for outdev in outdevs:
-        if re.search(outdevice, outdev.name):
+        if _re.search(outdevice, outdev.name):
             outports.append(outdev)
     for indev in indevs:
-        if re.search(indevice, indev.name):
+        if _re.search(indevice, indev.name):
             inports.append(indev)
     return len(inports), len(outports)
 
@@ -1892,9 +1903,9 @@ def _getNchnlsPortaudioSounddevice(indevice:str, outdevice:str
         outdevice = r"\bdefault\b"
     max_input_channels, max_output_channels = 0, 0
     for dev in devlist:
-        if max_input_channels == 0 and re.search(indevice, dev['name']):
+        if max_input_channels == 0 and _re.search(indevice, dev['name']):
             max_input_channels = dev['max_input_channels']
-        if max_output_channels == 0 and re.search(outdevice, dev['name']):
+        if max_output_channels == 0 and _re.search(outdevice, dev['name']):
             max_output_channels = dev['max_output_channels']
         if max_input_channels and max_output_channels:
             break
@@ -1934,13 +1945,13 @@ def _getNchnlsPortaudio(indevice:Opt[str], outdevice:Opt[str]
         outdevice = r"\bdefault\b"
 
     for indev in indevs:
-        if indevice == indev.id or re.search(indevice, indev.name):
+        if indevice == indev.id or _re.search(indevice, indev.name):
             max_input_channels = indev.ins
             break
     else:
         max_input_channels = -1
     for outdev in outdevs:
-        if outdevice == outdev.id or re.search(outdevice, outdev.name):
+        if outdevice == outdev.id or _re.search(outdevice, outdev.name):
             max_output_channels = outdev.outs
             break
     else:
@@ -2051,7 +2062,7 @@ def parseOrc(code: str, keepComments=True) -> List[ParsedBlock]:
         strippedline = line.strip()
         if not strippedline:
             continue
-        if match := re.search(r"\binstr\s+(\d+|[a-zA-Z_]\w+)", line):
+        if match := _re.search(r"\binstr\s+(\d+|[a-zA-Z_]\w+)", line):
             context.append('instr')
             block = _OrcBlock(name=match.group(1),
                               startLine=i,
@@ -2081,18 +2092,18 @@ def parseOrc(code: str, keepComments=True) -> List[ParsedBlock]:
                                               'inargs':block.inargs}))
         elif context and context[-1] in {'instr', 'opcode'}:
             block.lines.append(line)
-        elif match := re.search(r"^\s*(sr|ksmps|kr|A4|0dbfs|nchnls|nchnls_i)\s*=\s*(\d+)", line):
+        elif match := _re.search(r"^\s*(sr|ksmps|kr|A4|0dbfs|nchnls|nchnls_i)\s*=\s*(\d+)", line):
             blocks.append(ParsedBlock(kind='header',
                                       name=match.group(1),
                                       startLine=i,
                                       text=line,
                                       attrs={'value':match.group(2)}))
-        elif re.search(r"^\s*(;|\/\/)", line):
+        elif _re.search(r"^\s*(;|\/\/)", line):
             if keepComments:
                 blocks.append(ParsedBlock(kind='comment',
                                           startLine=i,
                                           text=line))
-        elif match := re.search(r"^\s*opcode\s+(\w+)\s*,\s*([0ika\[\]]*),\s*([0ikaoOjJpP\[\]]*)", line):
+        elif match := _re.search(r"^\s*opcode\s+(\w+)\s*,\s*([0ika\[\]]*),\s*([0ikaoOjJpP\[\]]*)", line):
             context.append('opcode')
             block = _OrcBlock(name=match.group(1),
                               startLine = i,
@@ -2155,11 +2166,11 @@ def instrParseBody(body: str) -> ParsedInstrBody:
     outchannels: set[int] = set()
 
     for line in body.splitlines():
-        pargs_in_line = re.findall(r"\bp\d+", line)
+        pargs_in_line = _re.findall(r"\bp\d+", line)
         if pargs_in_line:
             for p in pargs_in_line:
                 pargs_used.add(int(p[1:]))
-        if m := re.search(r"\bpassign\s+(\d+)", line):
+        if m := _re.search(r"\bpassign\s+(\d+)", line):
             pfield_lines.append(line)
             pstart = int(m.group(1))
             argsstr, rest = line.split("passign")
@@ -2167,22 +2178,22 @@ def instrParseBody(body: str) -> ParsedInstrBody:
             for i, name in enumerate(args, start=pstart):
                 pargs_used.add(i)
                 pfields[i] = name.strip()
-        elif re.search(r"^\s*pset\s+([+-]?([0-9]*[.])?[0-9]+)", line):
+        elif _re.search(r"^\s*pset\s+([+-]?([0-9]*[.])?[0-9]+)", line):
             defaults_str = line.strip()[4:]
             values = {i: float(v)
                       for i, v in enumerate(defaults_str.split(","), start=1)}
-        elif m := re.search(r"^\s*\b(\w+)\s*(=|init\s)\s*p(\d+)", line):
+        elif m := _re.search(r"^\s*\b(\w+)\s*(=|init\s)\s*p(\d+)", line):
             pname = m.group(1)
             parg = int(m.group(3))
             pfield_lines.append(line)
             pfields[parg] = pname.strip()
             pargs_used.add(parg)
         else:
-            if re.search(r"\bouts\s+", line):
+            if _re.search(r"\bouts\s+", line):
                 outchannels.update((1, 2))
-            elif re.search(r"\bout\b", line):
+            elif _re.search(r"\bout\b", line):
                 outchannels.add(1)
-            elif re.search(r"\boutch\b", line):
+            elif _re.search(r"\boutch\b", line):
                 args = line.strip()[5:].split(",")
                 channels = args[::2]
                 for chans in channels:
@@ -2222,3 +2233,223 @@ def bestSampleFormatForExtension(ext: str) -> str:
         return "pcm24"
     else:
         raise ValueError("Format {ext} not supported")
+
+
+def _parsePresetSflistprograms(line:str) -> Opt[Tuple[str, int, int]]:
+    # 012345678
+    # xxx:yyy zzzzzzzzzz
+    bank = int(line[:3])
+    num = int(line[4:7])
+    name = line[8:].strip()
+    return (name, bank, num)
+
+
+def _parsePreset(line: str) -> Opt[Tuple[str, int, int]]:
+    match = _re.search(r">> Bank: (\d+)\s+Preset:\s+(\d+)\s+Name:\s*(.+)", line)
+    if not match:
+        return
+    name = match.group(3).strip()
+    bank = int(match.group(1))
+    presetnum = int(match.group(2))
+    return (name, bank, presetnum)
+
+
+@_lru_cache(maxsize=0)
+def soundfontIndex(sfpath: str) -> SoundFontIndex:
+    """
+    Make a SoundFontIndex for the given soundfont
+    """
+    return SoundFontIndex(sfpath)
+
+
+class SoundFontIndex:
+    def __init__(self, soundfont: str):
+        assert _os.path.exists(soundfont)
+        self.soundfont = soundfont
+        self._nameToIndex: Opt[Dict[str, int]] = None
+        self._indexToName: Opt[Dict[int, str]] = None
+        self._nameToPreset: Opt[Dict[str, Tuple[int, int]]] = None
+        self._presetToName: Opt[Dict[Tuple[int, int], str]] = None
+
+    @property
+    def instrs(self) -> List[Tuple[int, str]]:
+        return soundfontGetInstruments(self.soundfont)
+
+    @property
+    def presets(self) -> List[Tuple[int, int, str]]:
+        return soundfontGetPrograms(self.soundfont)
+
+    def nameToIndex(self, name: str) -> Opt[int]:
+        if self._nameToIndex is None:
+            self._nameToIndex = {name: idx for idx, name in self.instrs}
+        return self._nameToIndex.get(name)
+
+    def indexToName(self, index: int) -> Opt[str]:
+        if self._indexToName is None:
+            self._indexToName = {idx: name for idx, name in self.instrs}
+        return self._indexToName.get(index)
+
+    def nameToPreset(self, name: str) -> Opt[Tuple[int, int]]:
+        if self._nameToPreset is None:
+            self._nameToPreset = {name: (bank, num) for num, bank, name in self.presets}
+        return self._nameToPreset.get(name)
+
+    def presetToName(self, bank:int, preset:int) -> Opt[str]:
+        if self._presetToName is None:
+            self._presetToName = {(bank, num): name for num, bank, name in self.presets}
+        return self._presetToName.get((bank, preset))
+
+    def presetToIndex(self, bank:int, preset: int) -> Opt[int]:
+        name = self.presetToName(bank, preset)
+        if not name:
+            return None
+        return self.nameToIndex(name)
+
+    def indexToPreset(self, index: int) -> Opt[Tuple[int, int]]:
+        name = self.indexToName(index)
+        if not name:
+            return None
+        return self.nameToPreset(name)
+
+
+@_lru_cache(maxsize=0)
+def soundfontGetInstruments(sfpath: str) -> List[Tuple[int, str]]:
+    """
+    Get instruments for a soundfont
+
+    The instrument index is used by csound opcodes like `sfinstr`. These
+    are different from soundfont programs, which are ordered in
+    banks/presets
+
+    Args:
+        sfpath: the path to the soundfont
+
+    Returns:
+        a list of tuples (index:int, instrname:str)
+    """
+    sfpath = _os.path.abspath(sfpath)
+    if not _os.path.exists(sfpath):
+        raise OSError(f"File not found: {sfpath}")
+    csdstr = fr"""
+    <CsoundSynthesizer>
+    <CsInstruments>
+    
+    gisf    sfload   "{sfpath}"
+    sfilist gisf 
+    
+    </CsInstruments>
+    <CsScore>
+    e 
+    </CsScore>
+    </CsoundSynthesizer>  
+    """
+    csdfile = _tempfile.mktemp(suffix=".csd")
+    open(csdfile, "w").write(csdstr)
+    proc = _subprocess.Popen(['csound', '-d', '-m0', '--nosound', csdfile],
+                             stdout=_subprocess.PIPE, stderr=_subprocess.PIPE)
+    out = proc.stderr.read().decode('ascii')
+    out = textlib.escapeAnsi(out)
+    instrs = []
+    for line in out.splitlines():
+        match = _re.search(r"([0-9\s]{3})\)\s+(\S.*)", line)
+        if match:
+            instrnum = int(match.group(1))
+            name = match.group(2).strip()
+            instrs.append((instrnum, name))
+    return instrs
+
+@_lru_cache(maxsize=0)
+def soundfontGetPrograms(sfpath: str) -> List[Tuple[int, int, str]]:
+    """
+    Get programs from a soundfont
+
+    Args:
+        sfpath: the path to the soundfont
+
+    Returns:
+        a list of tuples (bank, num, presetname)
+    """
+    sfpath = _os.path.abspath(sfpath)
+    if not _os.path.exists(sfpath):
+        raise OSError(f"File not found: {sfpath}")
+    csdstr = fr"""
+<CsoundSynthesizer>
+<CsInstruments>
+
+instr 1
+  Sprograms[] sflistprograms "{sfpath}"
+  ilen lenarray Sprograms
+  i0 = 0
+  while i0 < ilen do
+    prints ":::%s\n", Sprograms[i0] 
+ 	i0 += 1
+  od
+  exitnow
+endin
+
+</CsInstruments>
+<CsScore>
+i 1 0 0 
+</CsScore>
+</CsoundSynthesizer>  
+"""
+    csdfile = _tempfile.mktemp(suffix=".csd")
+    open(csdfile, "w").write(csdstr)
+    proc = _subprocess.Popen(['csound', '-d', '-m0', '--nosound', csdfile],
+                            stdout=_subprocess.PIPE, stderr=_subprocess.PIPE)
+    out = proc.stderr.read().decode('ascii')
+    out = textlib.escapeAnsi(out)
+    presets = []
+    for line in out.splitlines():
+        if not line.startswith(":::"):
+            continue
+        preset = _parsePresetSflistprograms(line[3:])
+        name, bank, presetnum = preset
+        presets.append((bank, presetnum, name))
+    return presets
+
+
+def soundfontInstrument(sfpath: str, preset:U[str, Tuple[int, int]]) -> Opt[int]:
+    """
+    Get the instrument number from a preset
+
+    The returned instrument number can be used with csound opcodes like `sfinstr`
+    or `sfinstr3`
+
+    The preset is either given as the preset name or as a tuple (bank, presetnum)
+
+    Args:
+        sfpath: the path to a .sf2 file
+        preset: the preset as name or tuple (bank, presetnum)
+
+    Returns:
+
+    """
+    sfindex = soundfontIndex(sfpath)
+    if isinstance(preset, str):
+        return sfindex.nameToIndex(preset)
+    elif isinstance(preset, tuple):
+        bank, num = preset
+        return sfindex.presetToIndex(bank, num)
+    else:
+        raise TypeError(f"Expected a str or tuple (int, int), got {preset} "
+                        f"({type(preset)})")
+
+
+def highlightCsoundOrc(code: str, theme:str=None) -> str:
+    """
+    Converts csound code to html with syntax highlighting
+    """
+    if theme is None:
+        from .config import config
+        theme = config['html_theme']
+    import pygments
+    import pygments.lexers.csound
+    if theme == 'light':
+        htmlfmt = pygments.formatters.HtmlFormatter(noclasses=True, wrapcode=True)
+    else:
+        htmlfmt = pygments.formatters.HtmlFormatter(noclasses=True, style='fruity',
+                                                    wrapcode=True)
+    csndlex = pygments.lexers.csound.CsoundOrchestraLexer()
+    html = pygments.highlight(code, lexer=csndlex, formatter=htmlfmt)
+    return html

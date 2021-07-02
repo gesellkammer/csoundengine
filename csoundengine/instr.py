@@ -1,8 +1,11 @@
 from __future__ import annotations
-from emlib import textlib
+from emlib import textlib, iterlib
+
+import csoundengine.csoundlib
 from .config import config, logger
 from .errors import CsoundError
 from . import csoundlib
+from . import jupytertools
 
 from typing import Dict, Optional as Opt, List, Union as U, Sequence as Seq, Tuple
 
@@ -14,11 +17,16 @@ class Instr:
     It must be registered to be used.
 
     Args:
-        name: the name of the instrument
-        body: the body of the instr (the text **between** 'instr' end 'endin')
-        args: if given, a dictionary defining pfields and their defaults.
-        init: code to be initialized at the instr0 level
-        tabledef: An instrument can have an associated table to be able to pass
+        name:
+            the name of the instrument
+        body:
+            the body of the instr (the text **between** 'instr' end 'endin')
+        args:
+            if given, a dictionary defining pfields and their defaults.
+        init:
+            code to be initialized at the instr0 level
+        tabledef:
+            An instrument can have an associated table to be able to pass
             dynamic parameters which are specific to this note (for example,
             an instrument could define a filter with a dynamic cutoff freq.)
             A tabledef is a dict of the form: {param_name: initial_value}.
@@ -28,8 +36,8 @@ class Instr:
             scheduled with
             this instrument. Can be used to allocate a table or a dict and pass
             the resulting index to the instrument as parg
-        freetable:
-            if True, the associated table is freed when the note is finished
+        freetable: if True, the associated table is freed in csound when the note
+            is finished
         doc: some documentation describing what this instr does
 
 
@@ -45,6 +53,7 @@ class Instr:
         numchans: currently not used
         freetable: if True, the Instr generates code to free the param table
         doc: some text documenting the use/purpose of this Instr
+        originalBody: the body before any code-generation.
 
 
     Example
@@ -175,9 +184,10 @@ class Instr:
     """
     __slots__ = (
         'body', 'name', 'args', 'init', '_tableDefaultValues', '_tableNameToIndex',
-        'tabledef', 'numchans', 'mustFreeTable', 'doc',
+        'tabledef', 'numchans', 'instrFreesParamTable', 'doc',
         'pargsIndexToName', 'pargsNameToIndex', 'pargsDefaultValues',
         '_numpargs', '_recproc', '_check', '_preschedCallback',
+        'originalBody'
     )
 
     def __init__(self,
@@ -189,13 +199,16 @@ class Instr:
                  numchans: int = 1,
                  preschedCallback=None,
                  freetable=True,
-                 doc: str = ''
+                 doc: str = '',
+                 userPargsStart=5
                  ) -> None:
 
         assert isinstance(name, str)
 
         if errmsg := _checkInstr(body):
             raise CsoundError(errmsg)
+
+        self.originalBody = body
 
         self._tableDefaultValues: Opt[List[float]] = None
         self._tableNameToIndex: Opt[Dict[str, int]] = None
@@ -210,6 +223,8 @@ class Instr:
             tabledef = inline_args
 
         if tabledef:
+            if any(name[0] not in 'ki' for name in tabledef.keys()):
+                raise ValueError("Named parameters must start with 'i' or 'k'")
             self._tableNameToIndex = {paramname:idx for idx, paramname in
                                       enumerate(tabledef.keys())}
             defaultvals = list(tabledef.values())
@@ -217,13 +232,13 @@ class Instr:
             if len(defaultvals)<minsize:
                 defaultvals += [0.]*(minsize-len(defaultvals))
             self._tableDefaultValues = defaultvals
-            tabcode = _tabledefGenerateCode(tabledef)
+            tabcode = _tabledefGenerateCode(tabledef, freetable=freetable)
             body = textlib.joinPreservingIndentation((tabcode, body))
         else:
             freetable = False
 
         if args:
-            pfields = _pfieldsMergeDeclaration(args, body, startidx=5)
+            pfields = _pfieldsMergeDeclaration(args, body, startidx=userPargsStart)
             pargsIndexToName = {i:name for i, (name, default) in pfields.items()}
             pargsDefaultValues = {i:default for i, (_, default) in pfields.items()}
             body = _updatePfieldsCode(body, pargsIndexToName)
@@ -246,7 +261,21 @@ class Instr:
         self.pargsIndexToName: dict[int, str] = pargsIndexToName
         self.pargsNameToIndex: dict[str, int] = {n:i for i, n in pargsIndexToName.items()}
         self.pargsDefaultValues: dict[int, float] = pargsDefaultValues
-        self.mustFreeTable = freetable
+        self.instrFreesParamTable = freetable
+
+    def __eq__(self, other: Instr) -> bool:
+        if not isinstance(other, Instr):
+            return NotImplemented
+        return (self.name == other.name and
+                self.body == other.body and
+                self.init == other.init and
+                self.tabledef == other.tabledef and
+                self.pargsIndexToName == other.pargsIndexToName and
+                self.pargsDefaultValues == other.pargsDefaultValues and
+                self.numchans == other.numchans and
+                self.doc == other.doc and
+                self.instrFreesParamTable == other.instrFreesParamTable
+                )
 
     def __repr__(self) -> str:
         parts = [self.name]
@@ -267,6 +296,31 @@ class Instr:
         else:
             return ", ".join(
                     f"p{i}: {pname}" for i, pname in sorted(pargs.items()) if i != 4)
+
+    def _repr_html_(self) -> str:
+        style = jupytertools.defaultStyle
+        parts = [f'Instr <strong style="color:{style["name.color"]}">{self.name}</strong><br>']
+        if self.pargsIndexToName and len(self.pargsIndexToName) > 1:
+            indexes = list(self.pargsIndexToName.keys())
+            if 4 in indexes:
+                indexes.remove(4)
+            groups = iterlib.splitInChunks(indexes, 5)
+            for group in groups:
+                htmls = []
+                for idx in group:
+                    if idx == 4:
+                        continue
+                    pname = self.pargsIndexToName[idx]
+                    html = f"<b>{pname}</b>:<small>p{idx}</small>=" \
+                           f"<code>{self.pargsDefaultValues.get(idx, 0)}</code>"
+                    htmls.append(html)
+                line = "&nbsp&nbsp&nbsp&nbsp" + ", ".join(htmls) + "<br>"
+                parts.append(line)
+        if self.tabledef:
+            parts.append(f'&nbsp&nbsp&nbsp&nbsptabargs = <code>{self.tabledef}</code>')
+        parts.append(csoundengine.csoundlib.highlightCsoundOrc(self.body))
+        return "\n".join(parts)
+
 
     def dump(self) -> str:
         """
@@ -626,26 +680,35 @@ def _parse_inline_args(body: U[str, list[str]]
     body2 = "\n".join(lines[linenum+1:])
     return delimiters, pfields, body2
 
-def _tabledefGenerateCode(tabledef: dict) -> str:
+def _tabledefGenerateCode(tabledef: dict, freetable=True) -> str:
     lines: List[str] = []
     idx = 0
     maxidx = len(tabledef)
-    lines.append(f"""
+    lines.append(fr'''
     ; --- start generated table code
-    i_params = p4
-    if ftexists(i_params) == 0 then
-        initerror sprintf("params table (%d) does not exist", i_params)
+    iparams_ = p4
+    if ftexists(iparams_) == 0 then
+        initerror sprintf("params table (%d) does not exist", iparams_)
     endif
-    i__paramslen = ftlen(i_params)
-    if i__paramslen < {maxidx} then
-        initerror sprintf("params table is too small (size: %d, needed: {maxidx})", i__paramslen)
-    endif
-    """)
+    iparamslen_ = ftlen(iparams_)
+    if iparamslen_ < {maxidx} then
+        initerror sprintf("params table too small (size: %d, needed: {maxidx})", iparamslen_)
+    endif''')
+
     for key, value in tabledef.items():
-        lines.append(f"k{key} tab {idx}, i_params")
+        if key[0] == 'k':
+            lines.append(f"{key} tab {idx}, iparams_")
+        elif key[0] == 'i':
+            lines.append(f"{key} tab_i {idx}, iparams_")
+        else:
+            raise ValueError(f"Named parameters should begin with k or i, got {key}")
         idx += 1
+    if freetable:
+        lines.append("ftfree iparams_, 1")
     lines.append("; --- end generated table code\n")
-    return textlib.joinPreservingIndentation(lines)
+    out = textlib.joinPreservingIndentation(lines)
+    out = textlib.stripLines(out)
+    return out
 
 def _pfieldsMergeDeclaration(args: Dict[str, float], body: str, startidx=4
                              ) -> dict[int, tuple[str, float]]:

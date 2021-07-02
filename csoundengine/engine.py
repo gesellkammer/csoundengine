@@ -226,6 +226,7 @@ class Engine:
         globalcode: code to evaluate as instr0
         includes: a list of files to include
         numAudioBuses: number of audio buses
+        numControlBuses: number of control buses
         quiet: if True, suppress output of csound (-m 0)
         udpserver: if True, start a udp server for communication (see udpport)
         udpport: the udpport to use for real-time messages. 0=autoassign port
@@ -259,6 +260,7 @@ class Engine:
                  numbuffers:int=None,
                  globalcode:str = "",
                  numAudioBuses:int=None,
+                 numControlBuses:int=None,
                  quiet:bool=None,
                  udpserver:bool=None,
                  udpport:int=0,
@@ -342,6 +344,7 @@ class Engine:
         self.extraOptions = commandlineOptions
         self.includes = includes
         self.numAudioBuses = some(numAudioBuses) or config['num_audio_buses']
+        self.numControlBuses = some(numControlBuses) or config['num_control_buses']
         self._realtime = realtime
 
         if buffersize is None:
@@ -418,6 +421,8 @@ class Engine:
 
         self._session: Opt[_session.Session] = None
         self._busTokenCountPtr: Opt[np.ndarray] = None
+        self._kbusTable: Opt[np.ndarray] = None
+        self._busIndexes: Dict[int, int] = {}
         self.started = False
 
         if autostart:
@@ -535,7 +540,7 @@ class Engine:
         if self.udpport:
             options.append(f"--port={self.udpport}")
 
-        options.append(f"--opcode-dir={csoundlib.getUserPluginsFolder()}")
+        options.append(f"--opcode-dir={csoundlib.userPluginsFolder()}")
 
         cs = ctcsound.Csound()
         if cs.version() < 6150:
@@ -580,13 +585,17 @@ class Engine:
         self._setupCallbacks()
         self._subgainsTable = self.csound.table(self._builtinTables['subgains'])
         self._responsesTable = self.csound.table(self._builtinTables['responses'])
-        if self.numAudioBuses>0:
+
+        if self.hasBusSupport():
             chanptr, error = self.csound.channelPtr("_busTokenCount",
                                                     ctcsound.CSOUND_CONTROL_CHANNEL|
                                                     ctcsound.CSOUND_INPUT_CHANNEL|
                                                     ctcsound.CSOUND_OUTPUT_CHANNEL)
             assert chanptr is not None, f"_busTokenCount channel not set: {error}\n{orc}"
             self._busTokenCountPtr = chanptr
+            kbustable = int(self.csound.evalCode("return gi__bustable"))
+            self._kbusTable = self.csound.table(kbustable)
+
         else:
             logger.info("Server started without bus support")
 
@@ -597,10 +606,16 @@ class Engine:
         """
         Stop this Engine
         """
+        logger.info(f"stopping Engine {self.name}")
         if not self.started or self._exited:
             return
+        logger.info("... stopping thread")
         self._perfThread.stop()
+        time.sleep(0.1)
+        logger.info("... stopping csound")
         self.csound.stop()
+        time.sleep(0.1)
+        logger.info("... cleaning up")
         self.csound.cleanup()
         self._exited = True
         self.csound = None
@@ -726,7 +741,7 @@ class Engine:
         assert self._perfThread
         self._perfThread.flushMessageQueue()
         token = self._getSyncToken()
-        pargs = [self._builtinInstrs['pingback'], 0, 0.01, token]
+        pargs = [self._builtinInstrs['pingback'], 0, 0, token]
         self._eventWait(token, pargs)
 
     def compile(self, code:str, block=False) -> None:
@@ -763,16 +778,19 @@ class Engine:
             logger.debug("Sengind code via udp: ")
             logger.debug(code)
             self._udpSend(code)
-
         else:
             assert self.csound is not None
             if block:
+                logger.debug("Compiling csound code (blocking):")
+                logger.debug(code)
                 err = self.csound.compileOrc(code)
                 if err:
                     logger.error("compileOrc error: ")
                     logger.error(internalTools.addLineNumbers(code))
                     raise CsoundError(f"Could not compile code")
             else:
+                logger.debug("Compiling csound code (async):")
+                logger.debug(code)
                 err = self.csound.compileOrcAsync(code)
                 if err:
                     logger.error("compileOrcAsync error: ")
@@ -844,7 +862,7 @@ class Engine:
                 raise ValueError(f"table {tabnum} not found")
             arr[idx] = value
         else:
-            pargs = [self._builtinInstrs['tabwrite'], delay, 1, tabnum, idx, value]
+            pargs = [self._builtinInstrs['tabwrite'], delay, 0, tabnum, idx, value]
             assert self._perfThread is not None
             self._perfThread.scoreEvent(0, "i", pargs)
 
@@ -939,7 +957,7 @@ class Engine:
     def _nstrnum(self, instrname:str, delay=0.) -> int:
         """ Query the instrument number corresponding to instrument name """
         token = self._getSyncToken()
-        msg = f'i {self._builtinInstrs["nstrnum"]} {delay} 0.1 {token} "{instrname}"'
+        msg = f'i {self._builtinInstrs["nstrnum"]} {delay} 0 {token} "{instrname}"'
         out = self._inputMessageWait(token, msg)
         assert out is not None
         return int(out)
@@ -999,7 +1017,21 @@ class Engine:
         """
         if isinstance(p1, str):
             p1 = self._instrNameToNumber(p1)
-        pfields = [self._builtinInstrs['turnoff'], delay, 0.1, p1]
+        pfields = [self._builtinInstrs['turnoff'], delay, 0, p1]
+        self._perfThread.scoreEvent(0, "i", pfields)
+
+    def unschedFuture(self, p1:U[float, str]) -> None:
+        """
+        Stop a future event
+
+        Args:
+            p1: the instrument number/name to stop
+
+        """
+        if isinstance(p1, str):
+            p1 = self._instrNameToNumber(p1)
+        dur = self.ksmps/self.sr * 2
+        pfields = [self._builtinInstrs['turnoff_future'], 0, dur, p1]
         self._perfThread.scoreEvent(0, "i", pfields)
 
     def unschedAll(self) -> None:
@@ -1127,7 +1159,7 @@ class Engine:
 
 
         """
-        if tabnum < 0:
+        if tabnum == -1:
             tabnum = self._assignTableNumber(p1=_instrnum)
         elif tabnum == 0 and not callback:
             block = True
@@ -1168,7 +1200,7 @@ class Engine:
         (loscil, for example). This method allows to set this information for such
         tables.
         """
-        pargs = [self._builtinInstrs['ftsetparams'], 0, -1, tabnum, sr, numchannels]
+        pargs = [self._builtinInstrs['ftsetparams'], 0, 0., tabnum, sr, numchannels]
         self._perfThread.scoreEvent(0, "i", pargs)
 
     def _registerSync(self, token:int) -> _queue.Queue:
@@ -1417,6 +1449,7 @@ class Engine:
                          callback=None, sr:int=0) -> int:
         """
         Create a table with data (or an empty table of the given size).
+
         Let csound generate a table index if needed
 
         Args:
@@ -1435,15 +1468,14 @@ class Engine:
         token = self._getSyncToken()
         maketableInstrnum = self._builtinInstrs['maketable']
         delay = 0
-        if tabnum is None:
-            tabnum = self._assignTableNumber()
+        assert tabnum >= 0
         if data is None:
             assert size > 1
             # create an empty table of the given size
             empty = 1
             sr = 0
             numchannels = 1
-            pargs = [maketableInstrnum, delay, 0.01, token, tabnum, size, empty,
+            pargs = [maketableInstrnum, delay, 0, token, tabnum, size, empty,
                      sr, numchannels]
         else:
             if not isinstance(data, np.ndarray):
@@ -1459,13 +1491,13 @@ class Engine:
                 numchannels = internalTools.arrayNumChannels(data)
                 if numchannels > 1:
                     data = data.flatten()
-                pargs = [maketableInstrnum, delay, 0.01, token, tabnum, numitems, empty,
+                pargs = [maketableInstrnum, delay, 0., token, tabnum, numitems, empty,
                          sr, numchannels]
                 pargs.extend(data)
             else:
                 # create an empty table, fill it via a pointer
                 empty = 1
-                pargs = [maketableInstrnum, delay, 0.01, token, tabnum, numitems, empty,
+                pargs = [maketableInstrnum, delay, 0., token, tabnum, numitems, empty,
                          sr, numchannels]
                 # the next line blocks until the table is created
                 if not callback:
@@ -1480,7 +1512,8 @@ class Engine:
         if callback:
             self._eventWithCallback(token, pargs, callback)
         else:
-            self._eventWait(token, pargs)
+            tabnum = self._eventWait(token, pargs)
+            assert tabnum is not None and tabnum > 0
         return tabnum
 
     def setChannel(self, channel:str, value:U[float, str, np.ndarray],
@@ -1535,11 +1568,11 @@ class Engine:
         elif method == 'score':
             if isinstance(value, (int, float)):
                 instrnum = self._builtinInstrs['chnset']
-                s = f'i {instrnum} {delay} 0.01 "{channel}" {value}'
+                s = f'i {instrnum} {delay} 0 "{channel}" {value}'
                 self._perfThread.inputMessage(s)
             else:
                 instrnum = self._builtinInstrs['chnsets']
-                s = f'i {instrnum} {delay} 0.01 "{channel}" "{value}"'
+                s = f'i {instrnum} {delay} 0 "{channel}" "{value}"'
                 self._perfThread.inputMessage(s)
         elif method == 'udp':
             if not self.udpport:
@@ -1735,7 +1768,7 @@ class Engine:
         """
         toks = [self._getSyncToken() for _ in range(4)]
 
-        pargs = [self._builtinInstrs['tableInfo'], 0, 0.01, tabnum]
+        pargs = [self._builtinInstrs['tableInfo'], 0, 0., tabnum]
         pargs.extend(toks)
         q = _queue.Queue()
 
@@ -1792,7 +1825,7 @@ class Engine:
             tabnum = self._assignTableNumber()
         token = self._getSyncToken()
         p1 = self._builtinInstrs['readSndfile']
-        msg = f'i {p1} 0 0.01 {token} "{path}" {tabnum} {chan}'
+        msg = f'i {p1} 0 0. {token} "{path}" {tabnum} {chan}'
         if callback:
             self._inputMessageWithCallback(token, msg, callback)
         else:
@@ -1947,21 +1980,25 @@ class Engine:
         # this limit is just the limit of the pwrite instr, not of the opcode
         args = [p1, numpairs]
         args.extend(pairs)
-        self.sched(self._builtinInstrs['pwrite'], delay=delay, dur=-1, args=args)
+        self.sched(self._builtinInstrs['pwrite'], delay=delay, dur=0, args=args)
 
     def automateTable(self, tabnum:int, idx:int, pairs: Seq[float],
-                      mode='linear', delay=0.) -> float:
+                      mode='linear', delay=0., overtake=False) -> float:
         """
         Automate a table slot
 
         Args:
             tabnum: the number of the table to modify
             idx: the slot index
-            pairs: the automation data is given as a flat seq. of pairs (time,
-              value). Times are relative to the start of the automation event
+            pairs: the automation data is given as a flat sequence of pairs (time,
+              value). Times are relative to the start of the automation event.
+              The very first value can be a NAN, in which case the current value
+              in the table is used.
             mode: one of 'linear', 'cos', 'expon(xx)', 'smooth'. See the opcode
               `interp1d` for more information
             delay: the time delay to start the automation.
+            overtake: if True, the first value of pairs is replaced with
+                the current value in the param table of the running instance
 
         Returns:
             the eventid of the instance performing the automation
@@ -1984,6 +2021,9 @@ class Engine:
         # automate the frequency (slot 1)
         >>> e.automateTable(tabnum, 1, [0, 1000, 3, 200, 5, 200])
 
+        >>> # Automate from the current value, will produce a fade-out
+        >>> e.automateTable(tabnum, 0, [0, -1, 2, 0], overtake=True, delay=5)
+
         See Also
         ~~~~~~~~
 
@@ -1992,12 +2032,13 @@ class Engine:
         """
         # tabpairs table will be freed by the instr itself
         tabpairs = self.makeTable(pairs, tabnum=0, block=True)
-        args = [tabnum, idx, tabpairs, self.strSet(mode), 2, 1]
+        args = [tabnum, idx, tabpairs, self.strSet(mode), 2, 1, int(overtake)]
         dur = pairs[-2]+self.ksmps/self.sr
         return self.sched(self._builtinInstrs['automateTableViaTable'], delay=delay,
                           dur=dur, args=args)
 
-    def automatep(self, p1: float, pidx: int, pairs:Seq[float], mode='linear', delay=0.
+    def automatep(self, p1: float, pidx: int, pairs:Seq[float], mode='linear',
+                  delay=0., overtake=False
                   ) -> float:
         """
         Automate a pfield of a running event
@@ -2012,6 +2053,8 @@ class Engine:
                 `interp1d` for more information
                 (https://csound-plugins.github.io/csound-plugins/opcodes/interp1d.html)
             delay: the time delay to start the automation.
+            overtake: if True, the first value of pairs is replaced with
+                the current value in the running instance
 
         Returns:
             the p1 associated with the automation synth
@@ -2036,7 +2079,7 @@ class Engine:
         """
         # table will be freed by the instr itself
         tabnum = self.makeTable(pairs, tabnum=0, block=True)
-        args = [p1, pidx, tabnum, self.strSet(mode)]
+        args = [p1, pidx, tabnum, self.strSet(mode), int(overtake)]
         dur = pairs[-2]+self.ksmps/self.sr
         assert isinstance(dur, float)
         return self.sched(self._builtinInstrs['automatePargViaTable'], delay=delay,
@@ -2067,7 +2110,7 @@ class Engine:
             return stringIndex
         stringIndex = self._getStrIndex()
         instrnum = self._builtinInstrs['strset']
-        msg = f'i {instrnum} 0 -1 "{s}" {stringIndex}'
+        msg = f'i {instrnum} 0 0 "{s}" {stringIndex}'
         self._perfThread.inputMessage(msg)
         self._strToIndex[s] = stringIndex
         self._indexToStr[stringIndex] = s
@@ -2121,7 +2164,7 @@ class Engine:
         """
         logger.debug(f"Freeing table {tableindex}")
         self._releaseTableNumber(tableindex)
-        pargs = [self._builtinInstrs['freetable'], delay, 0.01, tableindex]
+        pargs = [self._builtinInstrs['freetable'], delay, 0., tableindex]
         self._perfThread.scoreEvent(0, "i", pargs)
 
     def testAudio(self, dur=4.) -> float:
@@ -2216,9 +2259,72 @@ class Engine:
         assert self._subgainsTable is not None
         self._subgainsTable[idx] = gain
 
-    def assignBus(self) -> int:
+    def writeBus(self, bus:int, value:float, delay=0.) -> None:
         """
-        Assign one audio bus, returns the bus number.
+        Set the value of a control bus
+
+        Normally a control bus is set via another running instrument,
+        but it is possible to set it directly from python. The first
+        time a bus is set or queried there is short delay, all
+        subsequent operations on the bus are very fast.
+
+        Args:
+            bus: the bus token, as returned via assignBus
+            value: the new value
+            delay: if given, the modification is scheduled in the future
+        """
+        if not self.hasBusSupport():
+            raise RuntimeError("This engine does not have bus support")
+        if delay > 0:
+            dur = self.ksmps / self.sr
+            msg = f'i "_busoutk" {delay} {dur} {bus} {value}'
+            self._perfThread.inputMessage(msg)
+        else:
+            busidx = self._busIndex(bus, create=True)
+            print("busidx", busidx)
+            self._kbusTable[busidx] = value
+
+    def readBus(self, bus:int, default:float=0.) -> float:
+        """
+        Read the current value of a control bus
+
+        Normally a control bus is modulated by another running instrument,
+        but it is possible to set/read it directly from python. The first
+        time a bus is set or queried there is short delay, all
+        subsequent operations on the bus are very fast.
+
+        Args:
+            bus: the bus number, as returned by assignBus
+            default: the value returned if the bus does not exist
+
+        Returns:
+            the current value of the bus, or `default` if the bus does not exist
+        """
+        if not self.hasBusSupport():
+            raise RuntimeError("This engine does not have bus support")
+        busidx = self._busIndex(bus)
+        if busidx < 0:
+            return default
+        return self._kbusTable[busidx]
+
+    def _busIndex(self, bus:int, create=False) -> int:
+        """
+        Find the bus index corresponding to `bus` token. This is only needed for
+        the case where a bus is written/read from python
+        """
+        index = self._busIndexes.get(bus)
+        if index is not None:
+            return index
+        synctoken = self._getSyncToken()
+        msg = f'i "_busindex" 0 0 {synctoken} {bus} {int(create)}'
+        out = self._inputMessageWait(synctoken, msg)
+        index = int(out)
+        self._busIndexes[bus] = index
+        return index
+
+    def assignBus(self, addref=False) -> int:
+        """
+        Assign one audio/control bus, returns the bus number.
 
         This can be used together with the built-in opcodes `busout`, `busin`
         and `busmix`. From csound a bus can also be assigned by calling `busassign`
@@ -2227,6 +2333,9 @@ class Engine:
 
         Example
         =======
+
+        Pass audio from one instrument to another. Order of evaluation is important
+        because buses are cleared at the end of each performance cycle
 
         >>> e = Engine(...)
         >>> e.compile(r'''
@@ -2247,17 +2356,73 @@ class Engine:
         >>> busnum = e.assignBus()
         >>> s1 = e.sched(10, 0, 4, (busnum,))
         >>> s2 = e.sched(20, 0, 4, (busnum,))
+
+        Modulate one instr with another, at k-rate. At k-rate the order of evaluation
+        is not important because control buses are not cleared at the end of each cycle
+
+        >>> e.compile(r'''
+        ... instr 30
+        ...   ibus = p4
+        ...   ; lfo between -0.5 and 0 at 6 Hz
+        ...   kvibr = linlin(lfo:k(1, 6), -0.5, 0, -1, 1)
+        ...   busout(ibus, kvibr)
+        ... endin
+        ...
+        ... instr 40
+        ...   itranspbus = p4
+        ...   kpitch = p5
+        ...   ktransp = busin:k(itranspbus, 0)
+        ...   kpitch += ktransp
+        ...   asig vco2 0.1, mtof(kpitch)
+        ...   outch 1, asig
+        ... endin
+        ... ''')
+        >>> bus = e.assignBus()
+        >>> s1 = e.sched(40, 0, -1, (bus, 67))
+        >>> s2 = e.sched(30, 0, -1, (bus,))  # start moulation
+        >>> e.unsched(s2)        # remove modulation
+        >>> e.writeBus(bus, 0)   # reset value
+        >>> e.unschedAll()
         """
-        if self.numAudioBuses <= 0 or self._busTokenCountPtr is None:
+        if not self.hasBusSupport():
             raise RuntimeError("This Engine was created without bus support")
-        token = self._busTokenCountPtr[0]
-        self._busTokenCountPtr[0] = token+1
-        return int(token)
+        bustoken = int(self._busTokenCountPtr[0])
+        self._busTokenCountPtr[0] = bustoken+1
+        if addref:
+            msg = f'i "_bususe" 0 0 {bustoken}'
+            self._perfThread.inputMessage(msg)
+
+        # before returning the bustoken we schedule a query
+        # so that we can return immediately but update the actual
+        # bus index assigned by csound for any future query
+
+        synctoken = self._getSyncToken()
+        msg = f'i "_busindex" 0 0 {synctoken} {bustoken} 1'
+        def callback(synctoken, bustoken=bustoken):
+            self._busIndexes[bustoken] = int(self._responsesTable[synctoken])
+        self._inputMessageWithCallback(synctoken, msg, callback)
+        return bustoken
+
+    # def releaseBus(self, bus: int) -> None:
+    #     """
+    #     Release a reference to a previously assigned bus
+    #
+    #     This is only necessary if the bus was created with addref=True.
+    #     Otherwise the bus is just release after the last instr marks it
+    #     as unused.
+    #     """
+    #     pass
+
+    def hasBusSupport(self) -> bool:
+        return self.numAudioBuses > 0 or self.numControlBuses > 0 and self._busTokenCountPtr is not None
+
 
 @_atexit.register
 def _cleanup() -> None:
+    print("Exiting python, closing all active engines")
     engines = list(Engine.activeEngines.values())
     for engine in engines:
+        print(f"Stopping {engine.name}")
         engine.stop()
 
 

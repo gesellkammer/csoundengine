@@ -1,10 +1,11 @@
 from __future__ import annotations
 import time
 import numpy as np
-from .config import logger
+from .config import logger, config
 from . import internalTools
 from emlib import iterlib
 import weakref as _weakref
+from . import jupytertools
 
 from typing import TYPE_CHECKING, Union as U, Optional as Opt, KeysView, Dict, List, Set
 
@@ -45,8 +46,13 @@ class AbstrSynth:
         """ Stop this synth """
         raise NotImplementedError()
 
-    def isPlaying(self) -> bool:
+    def playing(self) -> bool:
         """ Is this synth playing? """
+        raise NotImplementedError()
+
+
+    def finished(self) -> bool:
+        """ Has this synth ceased to play? """
         raise NotImplementedError()
 
     def wait(self, pollinterval: float = 0.02, sleepfunc=time.sleep) -> None:
@@ -59,7 +65,7 @@ class AbstrSynth:
         """
         internalTools.setSigintHandler()
         try:
-            while self.isPlaying():
+            while self.playing():
                 sleepfunc(pollinterval)
         except:
             raise
@@ -67,10 +73,11 @@ class AbstrSynth:
 
     def set(self, *args, **kws) -> None:
         """
-        Set a value of a param table. Multiple syntaxes are possible::
+        Set a value of a param table.
+
+        Multiple syntaxes are possible::
 
             synth.set('key1', value1, ['key2', value2, ...])
-            synth.set(0, value1, 1, value2)
             synth.set(key1=value1, [key2=value2, ...])
 
         See Also:
@@ -108,12 +115,13 @@ class AbstrSynth:
         """
         raise NotImplementedError()
 
-    def tableParams(self) -> Opt[KeysView[str]]:
+    def tableParams(self) -> Opt[Set[str]]:
         """
-        Return a seq. of a all named parameters if this synth has a
-        parameters table
+        Return a seq. of all named parameters
+
+        Returns None if this synth does not have a parameters table
         """
-        return self.tableState().keys()
+        raise NotImplementedError()
 
     def tableState(self) -> Dict[str, float]:
         """
@@ -129,7 +137,7 @@ class AbstrSynth:
         raise NotImplementedError()
 
     def automateTable(self, param: str, pairs: U[List[float], np.ndarray],
-                      mode="linear", delay=0.) -> None:
+                      mode="linear", delay=0., overtake=False) -> None:
         """
         Automate a table parameter. Time stamps are relative to the start
         of the automation
@@ -141,6 +149,9 @@ class AbstrSynth:
                 `interp1d` for more information
                 (https://csound-plugins.github.io/csound-plugins/opcodes/interp1d.html)
             delay: time offset to start automation
+            overtake: if True, the first value of pairs is replaced with
+                the current value in the running instance
+
         """
         raise NotImplementedError()
 
@@ -151,7 +162,7 @@ class AbstrSynth:
         raise NotImplementedError()
 
     def automatep(self, param: U[int, str], pairs: U[List[float], np.ndarray],
-                  mode="linear", delay=0.) -> AbstrSynth:
+                  mode="linear", delay=0., overtake=False) -> AbstrSynth:
         """
         Automate the value of a pfield.
 
@@ -166,6 +177,8 @@ class AbstrSynth:
                 (https://csound-plugins.github.io/csound-plugins/opcodes/interp1d.html)
             delay (float): 0 to start as soon as possible, otherwise the delay
                 before the automateion starts
+            overtake: if True, the first value of pairs is replaced with
+                the current value in the running instance
 
         Returns:
             a Synth representing the automation routine
@@ -182,12 +195,19 @@ class AbstrSynth:
         """
         raise NotImplementedError()
 
+    @property
     def session(self) -> Session:
         """
-        Returns the Session which schedules this Synth
+        Returns the Session which scheduled this Synth
         """
         return self.engine.session()
 
+
+_synthStatusIcon = {
+    'playing': '▶',
+    'stopped': '■',
+    'future': '𝍪'
+}
 
 class Synth(AbstrSynth):
     """
@@ -260,8 +280,15 @@ class Synth(AbstrSynth):
         self.synthGroup = synthgroup
         self._playing: bool = True
 
-    def __repr__(self):
-        parts = [self.instr.name, f"id={self.synthid}"]
+    def _html(self) -> str:
+        argsfontsize = config['html_args_fontsize']
+        maxi = config['synth_repr_max_args']
+        style = jupytertools.defaultStyle
+        playstr = _synthStatusIcon[self.playStatus()]
+        parts = [
+            f'{playstr} <strong style="color:{style["name.color"]}">'
+            f'{self.instr.name}</strong>:{self.synthid:.4f}',
+            ]
         if self.table:
             parts.append(self.table._mappingRepr())
         if self.pargs:
@@ -269,43 +296,97 @@ class Synth(AbstrSynth):
             argsstrs = []
             pargs = self.pargs[0:]
             for i, parg in enumerate(pargs, start=0):
+                if i > maxi:
+                    argsstrs.append("...")
+                    break
+                name = i2n.get(i + 4)
+                if name:
+                    s = f"<b>{name}</b>:{i + 4}=<code>{parg:.6g}</code>"
+                else:
+                    # s = f"<b>p{i + 4}</b>=<code>{parg:.6g}</code>"
+                    s = f"<b>{i + 4}</b>=<code>{parg:.6g}</code>"
+                argsstrs.append(s)
+            argsstr = " ".join(argsstrs)
+            argsstr = fr'<span style="font-size:{argsfontsize};">{argsstr}</span>'
+            parts.append(argsstr)
+        return '<span style="font-size:12px;">∿(' + ', '.join(parts) + ')</span>'
 
+    def _repr_html_(self) -> str:
+        return f"<p>{self._html()}</p>"
+
+    def __repr__(self):
+        playstr = _synthStatusIcon[self.playStatus()]
+        parts = [f'{playstr} {self.instr.name}', f'id={self.synthid}']
+        if self.table:
+            parts.append(self.table._mappingRepr())
+        if self.pargs:
+            i2n = self.instr.pargsIndexToName
+            argsstrs = []
+            pargs = self.pargs[0:]
+            for i, parg in enumerate(pargs, start=0):
+                if i > 6:
+                    argsstrs.append("...")
+                    break
                 name = i2n.get(i+4)
                 if name:
-                    s = f"p{i+4}:{name}={parg}"
+                    s = f"p{i+4}:{name}={parg:.8g}"
                 else:
-                    s = f"p{i+4}={parg}"
+                    s = f"p{i+4}={parg:.8g}"
                 argsstrs.append(s)
             argsstr = ", ".join(argsstrs)
             parts.append(argsstr)
-        return "Synth(" + ", ".join(parts) + ")"
+        lines = ["Synth(" + ", ".join(parts) + ")"]
+        # add a line for k- pargs
+        return "\n".join(lines)
 
     @property
     def p1(self) -> float:
         """ The synth id (corresponds to the p1 value) """
         return self.synthid
 
-    def isPlaying(self) -> bool:
-        """ Is this Synth playing """
+    @property
+    def endTime(self) -> float:
+        if self.dur < 0:
+            return float("inf")
+        return self.startTime + self.dur
+
+    def playStatus(self) -> str:
+        """
+        Returns the playing status of this synth (playing, stopped or future)
+
+        Returns:
+            'playing' if currently playing, 'stopped' if this synth has already stopped
+            or 'future' if it has not started
+
+        """
         now = time.time()
-        if self.dur>0:
-            return self._playing and self.startTime<now<self.startTime+self.dur
-        return self._playing and self.startTime<now
+        if self.startTime > now:
+            return "future"
+        elif not self._playing:
+            return "stopped"
+        else:
+            return "playing"
+
+    def playing(self) -> bool:
+        """ Is this Synth playing """
+        return self.playStatus() == "playing"
+
+    def finished(self) -> bool:
+        return self.playStatus() == 'stopped'
 
     def tableState(self) -> Opt[Dict[str, float]]:
         if self.table is None:
             return None
         return self.table.asDict()
 
-    def tableParams(self) -> Opt[KeysView]:
+    def tableParams(self) -> Opt[Set[str]]:
         if self.table is None:
             return None
-        return self.table.mapping.keys()
+        return set(self.table.mapping.keys())
 
     def set(self, *args, delay=0., **kws) -> None:
         if not self._playing:
-            logger.error("synth not playing")
-            return
+            logger.info("synth not playing")
 
         if not self.table:
             logger.error("This synth has no associated table, skipping")
@@ -372,6 +453,11 @@ class Synth(AbstrSynth):
             >>> synth.setp(5, 0.1, 6, 1000)
             >>> synth.setp("kamp", 0.2, 6, 440)
         """
+        if self.playStatus() == 'future':
+            # Can we just modify the scheduled value?
+            return
+
+
         # most common use: just one pair
         if not kws and len(args) == 2:
             k = args[0]
@@ -398,7 +484,7 @@ class Synth(AbstrSynth):
         return self.table is not None
 
     def automateTable(self, param: str, pairs: U[List[float], np.ndarray],
-                      mode="linear", delay=0.) -> float:
+                      mode="linear", delay=0., overtake=False) -> float:
         if not self.table:
             raise RuntimeError(
                 f"{self.instr.name} (id={self.synthid}) has no parameter table")
@@ -408,10 +494,10 @@ class Synth(AbstrSynth):
         if len(pairs)>1900:
             raise ValueError(f"pairs is too long (max. pairs = 900, got {len(pairs)/2})")
         return self.engine.automateTable(self.table.tableIndex, paramidx, pairs,
-                                         mode=mode, delay=delay)
+                                         mode=mode, delay=delay, overtake=overtake)
 
     def automatep(self, param: U[int, str], pairs: U[List[float], np.ndarray],
-                  mode="linear", delay=0.) -> float:
+                  mode="linear", delay=0., overtake=False) -> float:
         if isinstance(param, str):
             pidx = self.instr.pargIndex(param)
             if not pidx:
@@ -420,16 +506,16 @@ class Synth(AbstrSynth):
         else:
             pidx = param
         synthid = self.engine.automatep(self.p1, pidx=pidx, pairs=pairs,
-                                        mode=mode, delay=delay)
+                                        mode=mode, delay=delay, overtake=overtake)
         return synthid
 
     def stop(self, delay=0., stopParent=False) -> None:
-        if not self.isPlaying():
+        if self.finished():
             return
         if self.synthGroup is not None and stopParent:
             self.synthGroup.stop(delay=delay)
         else:
-            self.session().unsched(self.synthid, delay=delay)
+            self.session.unsched(self.synthid, delay=delay)
 
 
 class SynthGroup(AbstrSynth):
@@ -457,16 +543,22 @@ class SynthGroup(AbstrSynth):
         for s in self.synths:
             s.stop(stopParent=False, delay=delay)
 
-    def isPlaying(self) -> bool:
-        return any(s.isPlaying() for s in self.synths)
+    def playing(self) -> bool:
+        return any(s.playing() for s in self.synths)
 
-    def automateTable(self, param: str, pairs, mode="linear", delay=0.) -> None:
+    def finished(self) -> bool:
+        return all(s.finished() for s in self.synths)
+
+    def automateTable(self, param: str, pairs, mode="linear", delay=0.,
+                      overtake=False) -> None:
         for synth in self.synths:
             if isinstance(synth, Synth):
                 if synth.table and param in synth.tableParams():
-                    synth.automateTable(param, pairs, mode=mode, delay=delay)
+                    synth.automateTable(param, pairs, mode=mode, delay=delay,
+                                        overtake=overtake)
             elif isinstance(synth, SynthGroup):
-                synth.automateTable(param=param, pairs=pairs, mode=mode, delay=delay)
+                synth.automateTable(param=param, pairs=pairs, mode=mode, delay=delay,
+                                    overtake=overtake)
 
     def namedPfields(self) -> Set[str]:
         out: Set[str] = set()
@@ -477,11 +569,12 @@ class SynthGroup(AbstrSynth):
         return out
 
     def automatep(self, param: U[int, str], pairs: U[List[float], np.ndarray],
-                  mode="linear", delay=0.) -> List[float]:
+                  mode="linear", delay=0., overtake=False) -> List[float]:
         eventids = []
         for synth in self.synths:
             if synth.table and param in synth.tableParams():
-                eventids.append(synth.automatep(param, pairs, mode=mode, delay=delay))
+                eventids.append(synth.automatep(param, pairs, mode=mode, delay=delay,
+                                                overtake=overtake))
         return eventids
 
     def hasParamTable(self) -> bool:
@@ -500,6 +593,16 @@ class SynthGroup(AbstrSynth):
             out.update(d)
         return out
 
+    def _repr_html_(self) -> str:
+        parts = ['<p>SynthGroup']
+        for s in self.synths:
+            html = s._html()
+            indent = "&nbsp" *4
+            p = f'<br>{indent}{html}'
+            parts.append(p)
+        parts.append("</p>")
+        return "".join(parts)
+
     def __repr__(self) -> str:
         lines = [f"SynthGroup(n={len(self.synths)})"]
         for synth in self.synths:
@@ -515,13 +618,30 @@ class SynthGroup(AbstrSynth):
     def __iter__(self):
         return iter(self.synths)
 
-    def set(self, *args, **kws) -> None:
+    def set(self, *args, delay=0, **kws) -> None:
         for synth in self.synths:
-            synth.set(*args, **kws)
+            synth.set(*args, delay=delay, **kws)
 
-    def get(self, idx: U[int, str], default=None) -> List[float]:
+    def get(self, idx: U[int, str], default=None) -> List[Opt[float]]:
+        """
+        Get the value of a tabarg
+
+        If a synth in this group is not playing or hasn't a tabarg
+        with the given name/idx, `default` is returned for that
+        slot. The returned list has the same size as the number of
+        synths in this group
+        """
         return [synth.get(idx, default=default) for synth in self.synths]
 
     def setp(self, *args, delay=0., **kws) -> None:
         for synth in self.synths:
-            synth.setp(*args, delay=delay, **kws)
+            if synth.startTime <= time.time() + delay <= synth.endTime:
+                synth.setp(*args, delay=delay, **kws)
+
+    def tableParams(self) -> Set[str]:
+        allparams = set()
+        for synth in self.synths:
+            params = synth.tableParams()
+            if params:
+                allparams.update(params)
+        return allparams

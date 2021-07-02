@@ -42,25 +42,6 @@ def getChannel(samples: np.ndarray, channel: int) -> np.ndarray:
     return samples if len(samples.shape) == 1 else samples[:, channel]
 
 
-def defaultSoundfontPath() -> Opt[str]:
-    """
-    Returns the path of the fluid sf2 file
-    """
-    key = 'fluidsf2_path'
-    path = _registry.get(key)
-    if path:
-        return path
-    if sys.platform == 'linux':
-        paths = ["/usr/share/sounds/sf2/FluidR3_GM.sf2"]
-        path = next((path for path in paths if os.path.exists(path)), None)
-        if path:
-            _registry[key] = path
-            return path
-    else:
-        raise RuntimeError("only works for linux right now")
-    return None
-
-
 def sigintHandler(sig, frame):
     print(frame)
     raise KeyboardInterrupt("SIGINT (CTRL-C) while waiting")
@@ -128,7 +109,11 @@ instr {instrnum}  {commentstr}
     {body}
 endin
     """
-    notifystr  = 'atstop "_notifyDealloc", 0, 0.1, p1' if addNotificationCode else ''
+    # notifystr  = 'atstop "_notifyDealloc", 0.01, 0.01, p1' if addNotificationCode else ''
+    if addNotificationCode:
+        notifystr = 'defer "outvalue", "__dealloc__", p1'
+    else:
+        notifystr = ''
     commentstr = "; " + comment if comment else ""
     s = s.format(instrnum=instrid, body=body, notifystr=notifystr,
                  commentstr=commentstr)

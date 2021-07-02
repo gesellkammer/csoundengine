@@ -5,9 +5,7 @@ from . import csoundlib
 modulename = 'csoundengine.engine'
 
 logger = logging.getLogger('csoundengine')
-_handler = logging.StreamHandler()
-_handler.setFormatter(logging.Formatter("*** csoundengine: %(message)s"))
-logger.addHandler(_handler)
+
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 #                  CONFIG                   #
@@ -88,5 +86,15 @@ _('associated_table_min_size', 16,
   doc="Min. size of the param table associated with a synth")
 _('num_audio_buses', 64,
   doc="Num. of audio buses in an Engine/Session")
+_('num_control_buses', 512,
+  doc="Num. of contro buses in an Engine/Session")
+_('html_theme', 'light',
+  choices={'dark', 'light'},
+  doc="Style to use when displaying syntax highlighting")
+_('html_args_fontsize', '12px',
+  doc="Font size used for args when outputing html (in jupyter)")
+_('synth_repr_max_args', 12,
+  doc="Max. number of pfields shown when in a synth's repr")
 
+assert 'num_control_buses' in config.default
 config.load()

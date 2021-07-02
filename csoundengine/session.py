@@ -293,7 +293,6 @@ class Session:
             outch 1, a0
         ''')
     """
-    _activeSessions: Dict[str, Session] = {}
 
     def __init__(self, name: str) -> None:
         """
@@ -302,11 +301,10 @@ class Session:
             name (str): the name of the Session, which corresponds to an existing
                 Engine with the same name
         """
-        assert name not in self._activeSessions
         assert name in Engine.activeEngines, f"Engine {name} does not exist!"
 
         self.name: str = name
-        self.instrRegistry: Dict[str, Instr] = {}
+        self.instrs: Dict[str, Instr] = {}
 
         self._bucketsize: int = 1000
         self._numbuckets: int = 10
@@ -326,15 +324,17 @@ class Session:
         if config['define_builtin_instrs']:
             self._defBuiltinInstrs()
 
-        self._activeSessions[name] = self
 
     def __repr__(self):
         active = len(self.activeSynths())
         return f"Session({self.name}, synths={active})"
 
-    def _deallocSynth(self, synthid: U[int, float], delay=0.) -> None:
+    def _deallocSynthResources(self, synthid: U[int, float], delay=0.) -> None:
         """
-        Deallocates (frees) a synth in the engine and its proxy in the session
+        Deallocates resources associated with synth
+
+        The actual csound event is not freed, since this function is actually
+        called by "atstop" when a synth is actually stopped
 
         Args:
             synthid: the id (p1) of the synth
@@ -345,20 +345,18 @@ class Session:
         if synth is None:
             return
         logger.debug(f"Synth({synth.instr.name}, id={synthid}) deallocated")
-        self.engine.unsched(synthid, delay)
         synth._playing = False
-        if synth.table:
-            if synth.instr.mustFreeTable:
+        if synth.table is not None:
+            if not synth.instr.instrFreesParamTable:
                 self.engine.freeTable(synth.table.tableIndex, delay=delay)
-            else:
-                self.engine._releaseTableNumber(synth.table.tableIndex)
+            self.engine._releaseTableNumber(synth.table.tableIndex)
         callback = self._whenfinished.pop(synthid, None)
         if callback:
             callback(synthid)
 
     def _deallocCallback(self, _, synthid):
         """ This is called by csound when a synth is deallocated """
-        self._deallocSynth(synthid)
+        self._deallocSynthResources(synthid)
 
     def _getEngine(self) -> Engine:
         """
@@ -423,7 +421,11 @@ class Session:
             logger.debug(f"Making table with init values: {values} ({overrides})")
             return self.engine.makeTable(data=values, block=wait)
 
-    def defInstr(self, name: str, body: str, **kws) -> Instr:
+    def defInstr(self, name: str, body: str,
+                 args: Dict[str, float] = None,
+                 init: str = None,
+                 tabledef: Dict[str, float] = None,
+                 **kws) -> Instr:
         """
         Create an :class:`~csoundengine.instr.Instr` and register it with this session
 
@@ -431,6 +433,9 @@ class Session:
             name (str): the name of the created instr
             body (str): the body of the instrument. It can have named
                 pfields (see example) or a table declaration
+            args: dynamic pargs with their default values
+            init: init (global) code needed by this instr
+            tabledef: param table definition
             kws: any keywords are passed on to the Instr constructor.
                 See the documentation of Instr for more information.
 
@@ -471,7 +476,11 @@ class Session:
 
         :meth:`~Session.sched`
         """
-        instr = Instr(name=name, body=body, **kws)
+        oldinstr = self.instrs.get(name)
+        instr = Instr(name=name, body=body, args=args, init=init, tabledef=tabledef,
+                      **kws)
+        if oldinstr and oldinstr == instr:
+            return oldinstr
         self.registerInstr(instr)
         return instr
 
@@ -490,7 +499,9 @@ class Session:
         :meth:`~Session.defInstr`
 
         """
-        oldinstr = self.instrRegistry.get(instr.name)
+        oldinstr = self.instrs.get(instr.name)
+        if instr == oldinstr:
+            return
         if instr.init and (oldinstr is None or instr.init != oldinstr.init):
             try:
                 self.engine.compile(instr.init)
@@ -498,7 +509,10 @@ class Session:
             except CsoundError:
                 raise CsoundError(f"Could not compile init code for instr {instr.name}")
         self._clearCacheForInstr(instr.name)
-        self.instrRegistry[instr.name] = instr
+        self.instrs[instr.name] = instr
+
+    def isInstrRegistered(self, name: str) -> bool:
+        return name in self.instrs
 
     def _clearCacheForInstr(self, instrname: str) -> None:
         if instrname in self._reifiedInstrDefs:
@@ -522,7 +536,7 @@ class Session:
         """
         assert isinstance(priority, int) and 1<=priority<=10
         qname = f"{name}:{priority}"
-        instrdef = self.instrRegistry.get(name)
+        instrdef = self.instrs.get(name)
         if instrdef is None:
             raise ValueError(f"instrument {name} not registered")
         instrnum = self._registerInstrAtPriority(name, priority)
@@ -544,7 +558,7 @@ class Session:
 
         :meth:`~Session.defInstr`
         """
-        return self.instrRegistry[name]
+        return self.instrs[name]
 
     def _getReifiedInstr(self, name: str, priority: int) -> Opt[_ReifiedInstr]:
         registry = self._reifiedInstrDefs.get(name)
@@ -552,10 +566,27 @@ class Session:
             return None
         return registry.get(priority)
 
-    def _prepareSched(self, instrname: str, priority: int = 1) -> _ReifiedInstr:
+    def prepareSched(self, instrname: str, priority: int = 1, block=False
+                     ) -> _ReifiedInstr:
+        """
+        Prepare an instrument template for being scheduled
+
+        The only use case to call this method explicitely is when the user
+        is certain to need the given instrument at the specified priority and
+        wants to avoid the small delay needed for the first time an instr
+        is called, since this first call implies compiling the code in csound
+
+        Args:
+            instrname: the name of the instrument to send to the csound engine
+            priority: the priority of the instr
+            block: if True, this method will block until csound is ready to
+                schedule the given instr at the given priority
+        """
         rinstr = self._getReifiedInstr(instrname, priority)
         if rinstr is None:
             rinstr = self._makeReifiedInstr(instrname, priority)
+            if block:
+                self.engine.sync()
         return rinstr
 
     def instrnum(self, instrname: str, priority: int = 1) -> int:
@@ -575,20 +606,24 @@ class Session:
                 later in the chain. This is relevant when an instrument performs
                 some task on data generated by a previous instrument.
 
+        Returns:
+            the actual (integer) instrument number inside csound
+
         See Also
         ~~~~~~~~
 
         :meth:`~Session.defInstr`
         """
         assert isinstance(priority, int) and 1<=priority<=10
-        assert instrname in self.instrRegistry
-        rinstr = self._prepareSched(instrname, priority)
+        assert instrname in self.instrs
+        rinstr = self.prepareSched(instrname, priority)
         return rinstr.instrnum
 
-    def assignBus(self, kind='audio') -> int:
+    def assignBus(self) -> int:
         """ Creates a bus in the engine
 
-        For more information on the bus-opcodes, see `Bus Opcodes <https://csoundengine.readthedocs.io/en/latest/Builtin-Opcodes.html#bus-opcodes>`_
+        For more information on the bus-opcodes, see
+        `Bus Opcodes <https://csoundengine.readthedocs.io/en/latest/Builtin-Opcodes.html#bus-opcodes>`_
 
         Example
         =======
@@ -612,8 +647,6 @@ class Session:
         >>> for synth in chain:
         ...     synth.stop()
         """
-        if kind != 'audio':
-            raise ValueError("Only audio buses are supported")
         return self.engine.assignBus()
 
     def sched(self,
@@ -668,7 +701,7 @@ class Session:
         :meth:`~csoundengine.synth.Synth.stop`
         """
         assert isinstance(priority, int) and 1<=priority<=10
-        assert instrname in self.instrRegistry
+        assert instrname in self.instrs
         instr = self.getInstr(instrname)
         table: Opt[ParamTable]
         if instr._tableDefaultValues is not None:
@@ -681,8 +714,8 @@ class Session:
             table = None
         # tableidx is always p4
         allargs = tools.instrResolveArgs(instr, tableidx, pargs, pkws)
-        instrnum = self.instrnum(instrname, priority)
-        synthid = self.engine.sched(instrnum, delay=delay, dur=dur, args=allargs)
+        rinstr = self.prepareSched(instrname, priority, block=True)
+        synthid = self.engine.sched(rinstr.instrnum, delay=delay, dur=dur, args=allargs)
         if whenfinished is not None:
             self._whenfinished[synthid] = whenfinished
         synth = Synth(engine=self.engine,
@@ -706,7 +739,7 @@ class Session:
         Returns:
             a list of active :class:`Synths<csoundengine.synth.Synth>`
         """
-        synths = [synth for synth in self._synths.values() if synth.isPlaying()]
+        synths = [synth for synth in self._synths.values() if synth.playing()]
         if sortby == "start":
             synths.sort(key=lambda synth:synth.startTime)
         return synths
@@ -719,20 +752,30 @@ class Session:
 
     def unsched(self, *synthids: float, delay=0.) -> None:
         """
-        Stop an already scheduled instrument
+        Stop a scheduled instance.
+
+        This will stop an already playing synth or a synth
+        which has been scheduled in the future
 
         Args:
             synthids: one or many synthids to stop
             delay: how long to wait before stopping them
         """
+        now = time.time()
         for synthid in synthids:
             synth = self._synths.get(synthid)
-            if synth and synth.isPlaying() or delay>0:
+
+            if not synth or synth.finished():
+                continue
+            if synth.startTime > now:
+                self.engine.unschedFuture(synth.p1)
+                self._deallocSynthResources(synthid, delay)
+            elif synth.playing():
                 # We just need to unschedule it from csound. If the synth is playing,
                 # it will be deallocated and the callback will be fired
                 self.engine.unsched(synthid, delay)
             else:
-                self._deallocSynth(synthid, delay)
+                self._deallocSynthResources(synthid, delay)
 
     def unschedLast(self, n=1, unschedParent=True) -> None:
         """
@@ -764,7 +807,7 @@ class Session:
         Unschedule all playing synths
         """
         synthids = [synth.synthid for synth in self._synths.values()]
-        futureSynths = [synth for synth in self._synths.values() if not synth.isPlaying()]
+        futureSynths = [synth for synth in self._synths.values() if not synth.playing()]
         for synthid in synthids:
             self.unsched(synthid, delay=0)
 
@@ -789,7 +832,6 @@ class Session:
         """
         self.engine.restart()
         for i, initcode in enumerate(self._initCodes):
-            print(f"code #{i}: initCode")
             self.engine.compile(initcode)
 
     def readSoundfile(self, path: str, chan=0, free=False) -> TableProxy:
@@ -820,7 +862,7 @@ class Session:
                            path=path,
                            sr=info.samplerate,
                            nchnls=info.channels,
-                           session=self,
+                           engine=self.engine,
                            numframes=info.nframes,
                            freeself=free)
 
@@ -879,7 +921,7 @@ class Session:
             nchnls = 1
 
         return TableProxy(tabnum=tabnum, sr=sr, nchnls=nchnls, numframes=numframes,
-                          session=self, freeself=freeself)
+                          engine=self.engine, freeself=freeself)
 
     def playSample(self, sample: U[int, TableProxy, str],
                    chan=1, gain=1.,
@@ -962,7 +1004,7 @@ class Session:
                             nchnls=self.engine.nchnls,
                             ksmps=ksmps or config['rec.ksmps'],
                             a4=self.engine.a4)
-        for instrname, instrdef in self.instrRegistry.items():
+        for instrname, instrdef in self.instrs.items():
             renderer.registerInstr(instrdef)
         return renderer
 
@@ -971,52 +1013,64 @@ class Session:
             self.registerInstr(csoundInstr)
 
 
-def getSession(name="default") -> Opt[Session]:
+def getSession(name="default", createIfNeeded=True) -> Opt[Session]:
     '''
-    Get/create a :class:`Session`. A :class:`Session` controls a series of instruments
-    and is associated to an :class:`~csoundengine.engine.Engine`. If the corresponding
-    :class:`~csoundengine.engine.Engine` has
-    not been created before `getSession` is called, it will be
-    created with default values regaring backend, samplerate,
-    number of channels, etc (to edit those defaults, see
+    Get/create a :class:`Session`.
+
+    A :class:`Session` controls a series of instruments and is associated to
+    an :class:`~csoundengine.engine.Engine`. If the corresponding
+    :class:`~csoundengine.engine.Engine` has not been created before `getSession`
+    is called and createIfNeeded is True, it will be created with default values
+    regarding backend, samplerate, number of channels, etc
+    (to edit those defaults, see
     `Configuration <https://csoundengine.readthedocs.io/en/latest/config.html>`_
 
     Example::
 
-        # create a session/engine with udp support enabled
-        >>> engine = Engine("foo", udpserver=True)
-        >>> s = getSession("foo")
+    .. code-block:: python
+
+        # Get the default Session, create it if needed
+        session = getSession()
+
+        # create a session/engine with coreaudio as backend in macos
+        engine = Engine("foo", backend='auhal')
+        s = getSession("foo")
+
         # Alternatively:
-        >>> s = Engine("foo", ...).session()
+        s = Engine("foo", ...).session()
 
         # an instrument is defined with the code inside instr/endin
         # (don't use p4, it is reserved)
-        >>> Instr("sine", """
-        ... kamp = p5
-        ... kfreq = p6
-        ... outch 1, oscili:a(kamp, kfreq)
-        ... """).register(s)
-        >>> synth = s.sched('sine', kamp=0.1, kfreq=442)
-        >>> synth.setp(kfreq=800)
-        >>> synth.stop()
+        Instr("sine", r"""
+          kamp = p5
+          kfreq = p6
+          outch 1, oscili:a(kamp, kfreq)
+        """).register(s)
+        synth = s.sched('sine', kamp=0.1, kfreq=442)
+        synth.setp(kfreq=800)
+        synth.stop()
         # A Session exists as long as the underlying engine exists
-        >>> s2 = getSession("foo")
-        >>> s2 is s
-        True
+        s2 = getSession("foo")
+        assert s2 is s
 
     Args:
         name: the name of the Engine to which this Session belongs.
+        createIfNeeded: if True, the underlying Engine will be created
+            if it does not already exist. To configure the Engine parameters
+            create first the Engine, then call :meth:`Engine.session`
+
+    Returns:
+        the requested Session or None if the underlying Engine does not
+        exist and createIfNeeded is False
     '''
     engine = getEngine(name)
-    session = Session._activeSessions.get(name)
-    if session:
-        assert engine is not None and engine.started
-        return session
     if engine is None:
+        if not createIfNeeded:
+            return None
         logger.info(f"Engine {name} does not exist, it will be created with "
                     f"default values")
-        return Engine(name).session()
-    return Session(name)
+        engine = Engine(name)
+    return engine.session()
 
 
 def groupSynths(synths: List[AbstrSynth]) -> SynthGroup:

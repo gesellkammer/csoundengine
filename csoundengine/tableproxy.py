@@ -5,7 +5,7 @@ from typing import Optional as Opt, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .synth import Synth
-    from .session import Session
+    from .engine import Engine
 
 
 class TableProxy:
@@ -41,7 +41,7 @@ class TableProxy:
     """
     def __init__(self,
                  tabnum: int,
-                 session: Session,
+                 engine: Engine,
                  numframes: int,
                  sr: int=0,
                  nchnls: int=1,
@@ -53,7 +53,7 @@ class TableProxy:
             sr (int) - the sample rate of the table
             nchnls (int) - the number of channels in the table
             numframes (int) - the number of frames (data = numframes * nchnls)
-            session (Session) - the corresponding Session
+            engine (Engine) - the corresponding Engine
             path (str) - the path to the soundfile, if known
             freeself (bool) - if True, csound will free the table when this object
                 goes out of scope
@@ -64,16 +64,17 @@ class TableProxy:
         self.tabnum = tabnum
         self.sr = sr
         self.nchnls = nchnls
-        self.session = session
+        self.engine = engine
         self.numframes = numframes
         self.path = path
         self.freeself = freeself
         self._array: Opt[np.ndarray] = None
 
     def __repr__(self):
-        return (f"TableProxy(tabnum={self.tabnum}, sr={self.sr}, nchnls={self.nchnls},"
-                f" numframes={self.numframes}, path={self.path}, "
-                f"freeself={self.freeself})")
+        return (f"TableProxy(engine={self.engine.name}, tabnum={self.tabnum}, sr={self.sr},"
+                f" nchnls={self.nchnls},"
+                f" numframes={self.numframes}, path={self.path},"
+                f" freeself={self.freeself})")
 
     def getData(self) -> np.ndarray:
         """
@@ -81,7 +82,7 @@ class TableProxy:
         to the csound memory (a view)
         """
         if self._array is None:
-            csound = self.session.engine.csound
+            csound = self.engine.csound
             assert csound is not None
             self._array = csound.table(self.tabnum)
         return self._array
@@ -101,7 +102,7 @@ class TableProxy:
     def __del__(self):
         if not self.freeself:
             return
-        engine = self.session.engine
+        engine = self.engine
         if engine and engine.started:
             engine.freeTable(self.tabnum)
 
@@ -138,7 +139,7 @@ class TableProxy:
         plotting.plotSpectrogram(self.getData(), self.sr, fftsize=fftsize, mindb=mindb,
                                  maxfreq=maxfreq, minfreq=minfreq, overlap=overlap)
 
-    def play(self, **kws) -> Synth:
+    def playWithSession(self, **kws) -> Synth:
         """
         A proxy to Session.playSample
 
@@ -176,4 +177,4 @@ class TableProxy:
              A Synth. Modulatable parameters: gain, speed, chan, pan
              (see Synth.pwrite)
         """
-        return self.session.playSample(self, **kws)
+        return self.engine.session().playSample(self, **kws)

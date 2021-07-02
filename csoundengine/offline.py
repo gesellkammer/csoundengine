@@ -186,7 +186,7 @@ class Renderer:
         a4 = a4 or config['A4']
         sr = sr or config['rec.sr']
         ksmps = ksmps or config['rec.ksmps']
-        self._csd = csoundlib.Csd(sr=sr, nchnls=nchnls, ksmps=ksmps, a4=a4)
+        self.csd = csoundlib.Csd(sr=sr, nchnls=nchnls, ksmps=ksmps, a4=a4)
         self._nameAndPriorityToInstrnum: Dict[Tuple[str, int], int] = {}
         self._instrnumToNameAndPriority: Dict[int, Tuple[str, int]] = {}
         self._numbuckets = maxpriorities
@@ -200,9 +200,13 @@ class Renderer:
         # a list of i events, starting with p1
         self.events: List[List[float]] = []
         self.unscheduledEvents: List[List[float]] = []
-        self._csd.addGlobalCode(_textwrap.dedent(self._offlineOrc))
+        self.csd.addGlobalCode(_textwrap.dedent(self._offlineOrc))
         self._busSystemInitialized = False
         self._busTokenCount = 0
+
+    @property
+    def nchnls(self):
+        return self.csd.nchnls
 
     def _commitInstrument(self, instrname: str, priority=1) -> int:
         """
@@ -239,8 +243,14 @@ class Renderer:
         instrnum = priority*self._bucketSize+count
         self._nameAndPriorityToInstrnum[(instrname, priority)] = instrnum
         self._instrnumToNameAndPriority[instrnum] = (instrname, priority)
-        self._csd.addInstr(instrnum, instrdef.body)
+        self.csd.addInstr(instrnum, instrdef.body)
         return instrnum
+
+    def isInstrDefined(self, instrname: str) -> bool:
+        """
+        Returns True if an Instr with the given name has been registered
+        """
+        return instrname in self.registeredInstrs()
 
     def registerInstr(self, instr: Instr) -> None:
         """
@@ -334,7 +344,7 @@ class Renderer:
         >>> renderer = Renderer(...)
         >>> renderer.addGlobalCode("giMelody[] fillarray 60, 62, 64, 65, 67, 69, 71")
         """
-        self._csd.addGlobalCode(code)
+        self.csd.addGlobalCode(code)
 
     def _getUniqueP1(self, instrnum: int) -> float:
         count = self._instanceCounters.get(instrnum, 0)
@@ -397,12 +407,12 @@ class Renderer:
         instrnum = self._commitInstrument(instrname, priority)
         if instr.hasExchangeTable():
             tableinit = instr.overrideTable(tabargs)
-            tabnum = self._csd.addTableFromSeq(tableinit)
+            tabnum = self.csd.addTableFromSeq(tableinit)
         else:
             tabnum = 0
         args = internalTools.instrResolveArgs(instr, tabnum, pargs, pkws)
         p1 = self._getUniqueP1(instrnum)
-        self._csd.addEvent(p1, start=delay, dur=dur, args=args)
+        self.csd.addEvent(p1, start=delay, dur=dur, args=args)
         eventId = self._generateEventId()
         event = ScoreEvent(p1, delay, dur, args, eventId)
         self._eventsIndex[eventId] = event
@@ -413,7 +423,7 @@ class Renderer:
             return
         code = engineorc.busSupportCode(numAudioBuses=self._numAudioBuses,
                                         clearBusesInstrnum=engineorc.CONSTS['postProcInstrnum'])
-        self._csd.addGlobalCode(code)
+        self.csd.addGlobalCode(code)
         self._busSystemInitialized = True
 
     def assignBus(self, kind='audio') -> int:
@@ -465,7 +475,7 @@ class Renderer:
             >>> renderer.setCsoundOptions("--omacro:MYMACRO=foo")
             >>> renderer.render("outfile.wav")
         """
-        self._csd.setOptions(*options)
+        self.csd.setOptions(*options)
 
     def render(self, outfile: str = None, samplefmt: str = None,
                wait=True, quiet=False, openWhenDone=False) -> str:
@@ -493,7 +503,7 @@ class Renderer:
         import tempfile
         if outfile is None:
             outfile = tempfile.mktemp(suffix=".wav")
-        if not self._csd.score:
+        if not self.csd.score:
             raise ValueError("score is empty")
         if quiet:
             run_suppressdisplay = True
@@ -505,10 +515,10 @@ class Renderer:
         if samplefmt is None:
             ext = os.path.splitext(outfile)[1]
             samplefmt = csoundlib.bestSampleFormatForExtension(ext)
-        self._csd.setSampleFormat(samplefmt)
-        proc = self._csd.run(output=outfile,
-                             suppressdisplay=run_suppressdisplay,
-                             piped=run_piped)
+        self.csd.setSampleFormat(samplefmt)
+        proc = self.csd.run(output=outfile,
+                            suppressdisplay=run_suppressdisplay,
+                            piped=run_piped)
         if openWhenDone:
             proc.wait()
             misc.open_with_standard_app(outfile, wait=True)
@@ -525,7 +535,7 @@ class Renderer:
         """
         import io
         stream = io.StringIO()
-        self._csd.writeCsd(stream)
+        self.csd.writeCsd(stream)
         return stream.getvalue()
 
     def writeCsd(self, outfile: str) -> None:
@@ -576,7 +586,7 @@ class Renderer:
             the string id. This can be passed to any instrument to retrieve
             the given string
         """
-        return self._csd.strset(s)
+        return self.csd.strset(s)
 
     def _instrFromEvent(self, event: ScoreEvent) -> Instr:
         instrNameAndPriority = self._instrnumToNameAndPriority.get(int(event.p1))
@@ -605,7 +615,7 @@ class Renderer:
         pairs = iterlib.flatdict(pairsd)
         pargs = [event.p1, len(pairs)//2]
         pargs.extend(pairs)
-        self._csd.addEvent("_pwrite", start=delay, dur=0.1, args=pargs)
+        self.csd.addEvent("_pwrite", start=delay, dur=0.1, args=pargs)
 
     def readSoundfile(self, path: str, tabnum:int=None, chan=0, start=0., skiptime=0.) -> int:
         """
@@ -621,8 +631,8 @@ class Renderer:
         Returns:
             the assigned table number
         """
-        return self._csd.addSndfile(sndfile=path, tabnum=tabnum,
-                                    start=start, skiptime=skiptime)
+        return self.csd.addSndfile(sndfile=path, tabnum=tabnum,
+                                   start=start, skiptime=skiptime)
 
     def playSample(self, tabnum:int, delay=0., chan=1, speed=1., gain=1., fade=0.,
                    starttime=0., dur=-1) -> None:
@@ -642,9 +652,9 @@ class Renderer:
                 the table but at `starttime`
             dur: duration of playback. -1=until end of sample
         """
-        self._csd.playTable(tabnum=tabnum, start=delay, dur=dur,
-                            gain=gain, speed=speed, chan=chan, fade=fade,
-                            skip=starttime)
+        self.csd.playTable(tabnum=tabnum, start=delay, dur=dur,
+                           gain=gain, speed=speed, chan=chan, fade=fade,
+                           skip=starttime)
 
     def automatep(self, event: ScoreEvent, param: str,
                   pairs: U[List[float], np.ndarray],
@@ -667,7 +677,7 @@ class Renderer:
         instr = self._instrFromEvent(event)
         pindex = instr.pargIndex(param)
         dur = pairs[-2]-pairs[0]
-        epsilon = self._csd.ksmps/self._csd.sr*3
+        epsilon = self.csd.ksmps / self.csd.sr * 3
         start = max(0., delay-epsilon)
         if event.dur>0:
             # we clip the duration of the automation to the lifetime of the automated event
@@ -675,6 +685,6 @@ class Renderer:
             dur = end-start
         modeint = self.strSet(mode)
         # we schedule the table to be created prior to the start of the automation
-        tabpairs = self._csd.addTableFromSeq(pairs, start=start)
+        tabpairs = self.csd.addTableFromSeq(pairs, start=start)
         args = [event.p1, pindex, tabpairs, modeint]
-        self._csd.addEvent("_automatePargViaTable", start=delay, dur=dur, args=args)
+        self.csd.addEvent("_automatePargViaTable", start=delay, dur=dur, args=args)
