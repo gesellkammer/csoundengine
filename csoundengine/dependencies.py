@@ -1,20 +1,36 @@
+from __future__ import annotations
 import os
 import sys
 import urllib.request, urllib.error
+import re
 
 from . import csoundlib
 from pathlib import Path
 import tempfile
 import shutil
 import subprocess
-from typing import Union as U, List, Dict
 import logging
 from datetime import datetime
 import json
 from configdict import ConfigDict
-
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Union as U, List, Dict, Tuple
 
 logger = logging.getLogger("csoundengine")
+
+
+def _asVersionTriplet(tagname: str) -> Tuple[int, int, int]:
+    match = re.search(r"v?(\d+)\.(\d+)(.(\d+))?", tagname)
+    if not match:
+        raise ValueError("Could not parse tagname")
+    major = int(match.group(1))
+    minor= int(match.group(2))
+    try:
+        patch = int(match.group(3))
+    except IndexError:
+        patch = 0
+    return (major, minor, patch)
 
 
 def getPluginsLatestRelease() -> Dict[str, str]:
@@ -23,7 +39,7 @@ def getPluginsLatestRelease() -> Dict[str, str]:
 
     The returned dict has the form ``{platform: url}``, where
     *platform* is the str in *sys.platform* for each of the
-    supported platforms
+    supported platforms. Other metadata includes: 'version'
 
     Returns:
         a dict mapping platform to download url
@@ -47,16 +63,24 @@ def getPluginsLatestRelease() -> Dict[str, str]:
     if not assets:
         raise RuntimeError("Could not get release assets")
     asseturls = [asset['browser_download_url'] for asset in assets]
-    pluginurls = {}
+    out = {}
     for asseturl in asseturls:
         asseturl_lower = asseturl.lower()
         if "linux" in asseturl_lower:
-            pluginurls['linux'] = asseturl
+            out['linux'] = asseturl
         elif "macos" in asseturl_lower:
-            pluginurls['darwin'] = asseturl
+            out['darwin'] = asseturl
         elif "win64" in asseturl_lower or "windows" in asseturl_lower:
-            pluginurls['win32'] = asseturl
-    return pluginurls
+            out['win32'] = asseturl
+    tagname = info.get('tab_name')
+    if tagname:
+        try:
+            versiontriplet = _asVersionTriplet(tagname)
+        except ValueError:
+            versiontriplet = (0, 0, 0)
+        out['version'] = versiontriplet
+
+    return out
 
 
 def csoundInstalled() -> bool:
@@ -79,6 +103,9 @@ def downloadLatestPluginForPlatform(destFolder: Path = None) -> Path:
         destFolder = _getDownloadsFolder()
     pluginurls = getPluginsLatestRelease()
     pluginurl = pluginurls.get(sys.platform)
+    version = pluginurls.get('version', None)
+    if version:
+        print(f"Downloading latest version ({version}) of csound-plugins...")
     if pluginurl is None:
         raise RuntimeError(f"No plugins released for platform {sys.platform}")
     return _download(pluginurl, destFolder)
@@ -123,7 +150,8 @@ def pluginsInstalled(force=False) -> bool:
                                         opcodedir=csoundlib.userPluginsFolder()))
     neededOpcodes = {"atstop", "pwrite", "pread", "initerror",
                      "dict_new", "dict_set", "dict_get",
-                     "pool_gen", "pool_pop", "pool_push", "pool_isfull"
+                     "pool_gen", "pool_pop", "pool_push", "pool_isfull",
+                     'interp1d', 'bisect', 'ftsetparams', 'zeroarray'
                      }
     return neededOpcodes.intersection(opcodes) == neededOpcodes
 
@@ -179,9 +207,9 @@ def _checkDependencies(tryfix=False, updateState=True):
         raise RuntimeError("csound not installed. See https://csound.com/download.html")
 
     version = csoundlib.getVersion()
-    if version  < (6, 15, 0):
+    if version  < (6, 16, 0):
         print(f"The installed version of csound ({version}) is too old. ")
-        print("csound should be >= 6.15")
+        print("csound should be >= 6.16")
         print("Download the latest version from https://csound.com/download.html")
         raise RuntimeError("csound version too old")
 
