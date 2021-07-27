@@ -932,7 +932,7 @@ class Session:
         data will be cached. This cache can be evicted via XXX
 
         Args:
-            sample: a path to a sample, a TableProxy
+            sample: table number, a path to a sample or a TableProxy
             dur: the duration of playback (-1 to play the whole sample)
             chan: the channel to play the sample to. In the case of multichannel
                   samples, this is the first channel

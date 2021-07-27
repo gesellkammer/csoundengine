@@ -31,7 +31,7 @@ def showSoundfontPrograms(sfpath: str, glob="") -> None:
             whose name matches the given glob pattern
     """
     from . import csoundlib
-    progs = csoundlib.soundfontGetPrograms(sfpath)
+    progs = csoundlib.soundfontGetPresets(sfpath)
     if glob:
         progs = [p for p in progs
                  if fnmatch.fnmatch(p[2], glob)]

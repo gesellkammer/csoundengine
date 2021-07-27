@@ -39,7 +39,7 @@ builtinInstrs = [
             a1, a2 loscil3 1, kspeed, isndtab, 1, iloop
             a1 *= aenv
             a2 *= aenv
-            kpan = kpan == -1 ? 0.5 : kpan
+            kpan = kpan < 0 ? 0.5 : kpan
             kL, kR _panweights kpan
             a1 *= kL
             a2 *= kR

@@ -206,12 +206,12 @@ def _checkDependencies(tryfix=False, updateState=True):
     if not csoundInstalled():
         raise RuntimeError("csound not installed. See https://csound.com/download.html")
 
-    version = csoundlib.getVersion()
-    if version  < (6, 16, 0):
-        print(f"The installed version of csound ({version}) is too old. ")
-        print("csound should be >= 6.16")
-        print("Download the latest version from https://csound.com/download.html")
-        raise RuntimeError("csound version too old")
+    #version = csoundlib.getVersion()
+    #if version  < (6, 16, 0):
+    #    print(f"The installed version of csound ({version}) is too old. ")
+    #    print("csound should be >= 6.16")
+    #    print("Download the latest version from https://csound.com/download.html")
+    #    raise RuntimeError("csound version too old")
 
     if not pluginsInstalled():
         if tryfix:

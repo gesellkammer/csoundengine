@@ -70,6 +70,7 @@ For more information, see
 from __future__ import annotations
 
 import dataclasses
+import tempfile
 from typing import TYPE_CHECKING, Optional as Opt, Union as U, Sequence as Seq, \
     KeysView, Callable, Dict, List, Tuple
 import ctypes as _ctypes
@@ -183,11 +184,11 @@ class Engine:
         >>> from csoundengine import *
         # Create an Engine with default options. The most appropriate backend for the
         # platform (from the available backends) will be chosen.
-        >>> engine = Engine()
+        >>> e = Engine()
         # The user can specify many options, if needed, or defaults can be set
         # via config.edit()
-        >>> engine = Engine(backend='portaudio', buffersize=256, ksmps=64, nchnls=2)
-        >>> engine.compile(r'''
+        >>> e = Engine(backend='portaudio', buffersize=256, ksmps=64, nchnls=2)
+        >>> e.compile(r'''
         ... instr test
         ...     iperiod = p4
         ...     kchan init 0
@@ -199,11 +200,11 @@ class Engine:
         ...     outch ifirstchan+kchan, asig
         ... endin
         ... ''')
-        >>> eventid = engine.sched('testoutput', args=[1.])
+        >>> eventid = e.sched('test', args=[1.])
         ...
         # wait, then evaluate next line to stop
-        >>> engine.unsched(eventid)
-        >>> engine.stop()
+        >>> e.unsched(eventid)
+        >>> e.stop()
 
 
     Any option with a default value of None has a corresponding slot in the
@@ -421,8 +422,12 @@ class Engine:
 
         self._session: Opt[_session.Session] = None
         self._busTokenCountPtr: Opt[np.ndarray] = None
+        self._soundfontPresetCountPtr: Opt[np.ndarray] = None
         self._kbusTable: Opt[np.ndarray] = None
         self._busIndexes: Dict[int, int] = {}
+        self._soundfontPresets: Dict[Tuple[str, int, int], int] = {}
+        self._soundfontPresetCount = 0
+
         self.started = False
 
         if autostart:
@@ -461,7 +466,6 @@ class Engine:
             n -= 1
             sleepfunc(period)
         return None
-
 
     def _releaseToken(self, token:int) -> None:
         """ Release token back to pool when done """
@@ -540,12 +544,12 @@ class Engine:
         if self.udpport:
             options.append(f"--port={self.udpport}")
 
-        options.append(f"--opcode-dir={csoundlib.userPluginsFolder()}")
+        # options.append(f"--opcode-dir={csoundlib.userPluginsFolder()}")
 
         cs = ctcsound.Csound()
-        if cs.version() < 6150:
+        if cs.version() < 6160:
             ver = cs.version() / 1000
-            raise RuntimeError(f"Csound's version should be >= 6.15, got {ver:.2f}")
+            raise RuntimeError(f"Csound's version should be >= 6.16, got {ver:.2f}")
         for opt in options:
             cs.setOption(opt)
         if self.includes:
@@ -568,9 +572,14 @@ class Engine:
         logger.debug(f"     Options: {options}")
         logger.debug(orc)
         logger.debug("--------------------------------------------------------------")
+        assert '\0' not in orc
         err = cs.compileOrc(orc)
         if err:
-            logger.error("Error compiling base orchestra")
+            tmporc = tempfile.mktemp(prefix="csoundengine-", suffix=".orc")
+            open(tmporc, "w").write(orc)
+            logger.error(f"Error compiling base orchestra. A copy of the orchestra"
+                         f" has been saved to {tmporc}")
+
             logger.error(internalTools.addLineNumbers(orc))
             raise CsoundError(f"Error compiling base ochestra, error: {err}")
         logger.info(f"Starting csound with options: {options}")
@@ -585,6 +594,13 @@ class Engine:
         self._setupCallbacks()
         self._subgainsTable = self.csound.table(self._builtinTables['subgains'])
         self._responsesTable = self.csound.table(self._builtinTables['responses'])
+
+        chanptr, err = self.csound.channelPtr("_soundfontPresetCount",
+                                              ctcsound.CSOUND_CONTROL_CHANNEL |
+                                              ctcsound.CSOUND_INPUT_CHANNEL |
+                                              ctcsound.CSOUND_OUTPUT_CHANNEL)
+        assert chanptr is not None, f"_soundfontPresetCount channel is not set: {err}"
+        self._soundfontPresetCountPtr = chanptr
 
         if self.hasBusSupport():
             chanptr, error = self.csound.channelPtr("_busTokenCount",
@@ -1710,8 +1726,8 @@ class Engine:
         assert self.csound is not None
         if len(data.shape) == 2:
             data = data.flatten()
-        else:
-            raise ValueError("data should be a 1D or 2D array")
+        elif len(data.shape) > 2:
+            raise ValueError(f"data should be a 1D or 2D array, got shape {data.shape}")
 
         assert isinstance(tabnum, int) and tabnum > 0, \
             f"tabnum should be an int > 0, got {tabnum}"
@@ -1832,6 +1848,90 @@ class Engine:
             assert block
             self._inputMessageWait(token, msg)
         return tabnum
+
+    def soundfontPlay(self, index: int, pitch:float, amp:float=0.7, delay=0.,
+                      dur=-1., vel:int=None, chan=1
+                      ) -> float:
+        """
+        Play a note of a previously loaded soundfont
+
+        The soundfont's program (bank, preset) must have been read before
+        via :meth:``Engine.
+
+        Args:
+            index (int): as returned via :meth:`~Engine.soundfontPrearePreset`
+            pitch (float): the pitch of the played note, as a midinote (can
+                be fractional)
+            amp (float): the amplitude. If vel (velocity) is left as None, this
+                is used to determine the velocity. Otherwise set the velocity
+                (this might  be used by the soundfont to play the correct sample)
+                and the amplitude is used to scale the output
+            vel (int): the velocity of the played note, used internally to determine
+                which sample/layer to play
+            chan (int): the first channel to send output to (channels start with 1)
+            delay (float): when to start playback
+            dur (float): the duration of playback. Use -1 to play until the end
+                (the note will be stopped when the soundfont playback detects the
+                end of the sample)
+
+        Returns:
+            the instance number of the playing instrument.
+
+        ** Dynamic pfields **
+
+        - p4: pitch
+        - p5: amp
+
+        Example
+        =======
+
+            TODO
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.soundfontPreparePreset`
+        :meth:`~Engine.playSample`
+
+        """
+
+        assert index in self._soundfontPresets.values()
+        if vel is None:
+            vel = amp/127
+        args = [pitch, amp, index, vel, chan]
+        return self.sched(self._builtinInstrs['soundfontPlay'], delay=delay, dur=dur,
+                          args=args)
+
+
+    def soundfontPreparePreset(self, sf2path:str, bank:int, presetnum:int) -> int:
+        """
+        Prepare a soundfont's preset to be used
+
+        Assigns an index to a soundfont bank:preset to be used with sfplay or via
+        :meth:`~Engine.soundfontPlay`
+
+        The soundfont is loaded if it was not loaded before
+
+        Args:
+            sf2path: the path to a sf2 file
+            bank: the bank (0-127)
+            presetnum: the preset num (0-127)
+
+        Returns:
+            an index assigned to this preset, which can be used with
+            sfplay/sfplay3 or with :meth:``~Engine.soundfontPlay``
+        """
+        tup = (sf2path, bank, presetnum)
+        idxnum = self._soundfontPresets.get(tup)
+        if idxnum is not None:
+            return idxnum
+        idx = self._soundfontPresetCountPtr[0]
+        self._soundfontPresetCountPtr[0] += 1
+        self._soundfontPresets[tup] = idx
+        instrnum = self._builtinInstrs['sfPresetAssignIndex']
+        s = f'i {instrnum} 0 0 "{sf2path}" {bank} {presetnum} {idx}'
+        self._perfThread.inputMessage(s)
+        return idx
 
     def _readSoundfileAsync(self, path:str, tabnum:int=None, chan=0) -> int:
         assert self.started

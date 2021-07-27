@@ -3,7 +3,7 @@
 
 from setuptools import setup
 
-version = (1, 1, 0)
+version = (1, 1, 1)
 
 from os import path
 this_directory = path.abspath(path.dirname(__file__))
@@ -35,10 +35,11 @@ setup(
         "configdict>=0.8",
         "bpf4",
         "numpyx>=0.5",
-        "pitchtools>=1.0",
+        "pitchtools>=1.1",
         "sounddevice",
         "appdirs",
-        "pygments"
+        "pygments",
+        "sf2utils"
     ],
     license="BSD",
     classifiers=[

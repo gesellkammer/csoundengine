@@ -95,6 +95,9 @@ _('html_args_fontsize', '12px',
   doc="Font size used for args when outputing html (in jupyter)")
 _('synth_repr_max_args', 12,
   doc="Max. number of pfields shown when in a synth's repr")
+_('stop_button_inside_jupyter', True,
+  doc='When running inside a jupyter notebook, display a stop button'
+      'for Synths and SynthGroups')
 
 assert 'num_control_buses' in config.default
 config.load()

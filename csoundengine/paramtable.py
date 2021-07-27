@@ -80,6 +80,8 @@ class ParamTable:
         if self._array is not None:
             return self._array
         self._array = a = self.engine.csound.table(self.tableIndex)
+        if a is None:
+            raise RuntimeError(f"Could not retrieve table {self.tableIndex}")
         return a
 
     def __setitem__(self, idx, value):
@@ -120,7 +122,10 @@ class ParamTable:
         return self.array[idx]
 
     def _mappingRepr(self) -> str:
-        values = self.array
+        try:
+            values = self.array
+        except RuntimeError:
+            values = None
         if not self.mapping:
             if values is None:
                 return ""

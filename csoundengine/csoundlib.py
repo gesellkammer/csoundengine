@@ -190,6 +190,7 @@ def _getVersionViaApi() -> Tuple[int, int, int]:
     patch = int(vs[-1])
     minor = int(vs[-3:-1])
     major = int(vs[:-3])
+    csound.cleanup()
     return (major, minor, patch)
 
 
@@ -2266,53 +2267,29 @@ class SoundFontIndex:
     def __init__(self, soundfont: str):
         assert _os.path.exists(soundfont)
         self.soundfont = soundfont
-        self._nameToIndex: Opt[Dict[str, int]] = None
-        self._indexToName: Opt[Dict[int, str]] = None
-        self._nameToPreset: Opt[Dict[str, Tuple[int, int]]] = None
-        self._presetToName: Opt[Dict[Tuple[int, int], str]] = None
-
-    @property
-    def instrs(self) -> List[Tuple[int, str]]:
-        return soundfontGetInstruments(self.soundfont)
-
-    @property
-    def presets(self) -> List[Tuple[int, int, str]]:
-        return soundfontGetPrograms(self.soundfont)
-
-    def nameToIndex(self, name: str) -> Opt[int]:
-        if self._nameToIndex is None:
-            self._nameToIndex = {name: idx for idx, name in self.instrs}
-        return self._nameToIndex.get(name)
-
-    def indexToName(self, index: int) -> Opt[str]:
-        if self._indexToName is None:
-            self._indexToName = {idx: name for idx, name in self.instrs}
-        return self._indexToName.get(index)
-
-    def nameToPreset(self, name: str) -> Opt[Tuple[int, int]]:
-        if self._nameToPreset is None:
-            self._nameToPreset = {name: (bank, num) for num, bank, name in self.presets}
-        return self._nameToPreset.get(name)
-
-    def presetToName(self, bank:int, preset:int) -> Opt[str]:
-        if self._presetToName is None:
-            self._presetToName = {(bank, num): name for num, bank, name in self.presets}
-        return self._presetToName.get((bank, preset))
-
-    def presetToIndex(self, bank:int, preset: int) -> Opt[int]:
-        name = self.presetToName(bank, preset)
-        if not name:
-            return None
-        return self.nameToIndex(name)
-
-    def indexToPreset(self, index: int) -> Opt[Tuple[int, int]]:
-        name = self.indexToName(index)
-        if not name:
-            return None
-        return self.nameToPreset(name)
+        instrs, presets = _soundfontGetInstrumentsAndPresets(soundfont)
+        self.instrs = instrs
+        self.presets = presets
+        self.nameToIndex = {name:idx for idx, name in self.instrs}
+        self.indexToName = {idx:name for idx, name in self.instrs}
+        self.nameToPreset = {name: (bank, num) for bank, num, name in self.presets}
+        self.presetToName = {(bank, num): name for bank, num, name in self.presets}
 
 
 @_lru_cache(maxsize=0)
+def _soundfontGetInstrumentsAndPresets(sfpath: str):
+    from sf2utils.sf2parse import Sf2File
+    f = open(sfpath, 'rb')
+    sf = Sf2File(f)
+    instruments = [(num, instr.name) for num, instr in enumerate(sf.instruments)
+                   if instr.name != 'EOI']
+    presets = [(p.bank, p.preset, p.name)
+               for p in sf.presets
+               if p.name != 'EOP']
+    presets.sort()
+    return instruments, presets
+
+
 def soundfontGetInstruments(sfpath: str) -> List[Tuple[int, str]]:
     """
     Get instruments for a soundfont
@@ -2327,113 +2304,40 @@ def soundfontGetInstruments(sfpath: str) -> List[Tuple[int, str]]:
     Returns:
         a list of tuples (index:int, instrname:str)
     """
-    sfpath = _os.path.abspath(sfpath)
-    if not _os.path.exists(sfpath):
-        raise OSError(f"File not found: {sfpath}")
-    csdstr = fr"""
-    <CsoundSynthesizer>
-    <CsInstruments>
-    
-    gisf    sfload   "{sfpath}"
-    sfilist gisf 
-    
-    </CsInstruments>
-    <CsScore>
-    e 
-    </CsScore>
-    </CsoundSynthesizer>  
-    """
-    csdfile = _tempfile.mktemp(suffix=".csd")
-    open(csdfile, "w").write(csdstr)
-    proc = _subprocess.Popen(['csound', '-d', '-m0', '--nosound', csdfile],
-                             stdout=_subprocess.PIPE, stderr=_subprocess.PIPE)
-    out = proc.stderr.read().decode('ascii')
-    out = textlib.escapeAnsi(out)
-    instrs = []
-    for line in out.splitlines():
-        match = _re.search(r"([0-9\s]{3})\)\s+(\S.*)", line)
-        if match:
-            instrnum = int(match.group(1))
-            name = match.group(2).strip()
-            instrs.append((instrnum, name))
+    instrs, _ = _soundfontGetInstrumentsAndPresets(sfpath)
     return instrs
 
-@_lru_cache(maxsize=0)
-def soundfontGetPrograms(sfpath: str) -> List[Tuple[int, int, str]]:
+
+def soundfontGetPresets(sfpath: str) -> List[Tuple[int, int, str]]:
     """
-    Get programs from a soundfont
+    Get presets from a soundfont
 
     Args:
         sfpath: the path to the soundfont
 
     Returns:
-        a list of tuples (bank, num, presetname)
+        a list of tuples (bank:int, presetnum:int, name:str)
     """
-    sfpath = _os.path.abspath(sfpath)
-    if not _os.path.exists(sfpath):
-        raise OSError(f"File not found: {sfpath}")
-    csdstr = fr"""
-<CsoundSynthesizer>
-<CsInstruments>
-
-instr 1
-  Sprograms[] sflistprograms "{sfpath}"
-  ilen lenarray Sprograms
-  i0 = 0
-  while i0 < ilen do
-    prints ":::%s\n", Sprograms[i0] 
- 	i0 += 1
-  od
-  exitnow
-endin
-
-</CsInstruments>
-<CsScore>
-i 1 0 0 
-</CsScore>
-</CsoundSynthesizer>  
-"""
-    csdfile = _tempfile.mktemp(suffix=".csd")
-    open(csdfile, "w").write(csdstr)
-    proc = _subprocess.Popen(['csound', '-d', '-m0', '--nosound', csdfile],
-                            stdout=_subprocess.PIPE, stderr=_subprocess.PIPE)
-    out = proc.stderr.read().decode('ascii')
-    out = textlib.escapeAnsi(out)
-    presets = []
-    for line in out.splitlines():
-        if not line.startswith(":::"):
-            continue
-        preset = _parsePresetSflistprograms(line[3:])
-        name, bank, presetnum = preset
-        presets.append((bank, presetnum, name))
+    _, presets = _soundfontGetInstrumentsAndPresets(sfpath)
     return presets
 
 
-def soundfontInstrument(sfpath: str, preset:U[str, Tuple[int, int]]) -> Opt[int]:
+def soundfontInstrument(sfpath: str, name:str) -> Opt[int]:
     """
     Get the instrument number from a preset
 
     The returned instrument number can be used with csound opcodes like `sfinstr`
     or `sfinstr3`
 
-    The preset is either given as the preset name or as a tuple (bank, presetnum)
-
     Args:
         sfpath: the path to a .sf2 file
-        preset: the preset as name or tuple (bank, presetnum)
+        name: the instrument name
 
     Returns:
-
+        the instrument index, if exists
     """
     sfindex = soundfontIndex(sfpath)
-    if isinstance(preset, str):
-        return sfindex.nameToIndex(preset)
-    elif isinstance(preset, tuple):
-        bank, num = preset
-        return sfindex.presetToIndex(bank, num)
-    else:
-        raise TypeError(f"Expected a str or tuple (int, int), got {preset} "
-                        f"({type(preset)})")
+    return sfindex.nameToIndex.get(name)
 
 
 def highlightCsoundOrc(code: str, theme:str=None) -> str:

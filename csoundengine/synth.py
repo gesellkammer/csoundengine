@@ -4,6 +4,7 @@ import numpy as np
 from .config import logger, config
 from . import internalTools
 from emlib import iterlib
+import emlib.misc
 import weakref as _weakref
 from . import jupytertools
 
@@ -15,7 +16,6 @@ if TYPE_CHECKING:
     from .instr import Instr
     from .paramtable import ParamTable
     from .session import Session
-
 
 __all__ = ['AbstrSynth', 'Synth', 'SynthGroup']
 
@@ -289,22 +289,25 @@ class Synth(AbstrSynth):
             f'{playstr} <strong style="color:{style["name.color"]}">'
             f'{self.instr.name}</strong>:{self.synthid:.4f}',
             ]
-        if self.table:
+        if self.table is not None:
             parts.append(self.table._mappingRepr())
         if self.pargs:
             i2n = self.instr.pargsIndexToName
             argsstrs = []
             pargs = self.pargs[0:]
-            for i, parg in enumerate(pargs, start=0):
+            if any(arg.startswith('k') for arg in self.instr.pargsNameToIndex):
+                maxi = max(i+4 for i, n in i2n.items()
+                           if n.startswith('k'))
+            for i, parg in enumerate(pargs, start=4):
                 if i > maxi:
                     argsstrs.append("...")
                     break
-                name = i2n.get(i + 4)
+                name = i2n.get(i)
                 if name:
-                    s = f"<b>{name}</b>:{i + 4}=<code>{parg:.6g}</code>"
+                    s = f"<b>{name}</b>:{i}=<code>{parg:.6g}</code>"
                 else:
                     # s = f"<b>p{i + 4}</b>=<code>{parg:.6g}</code>"
-                    s = f"<b>{i + 4}</b>=<code>{parg:.6g}</code>"
+                    s = f"<b>{i}</b>=<code>{parg:.6g}</code>"
                 argsstrs.append(s)
             argsstr = " ".join(argsstrs)
             argsstr = fr'<span style="font-size:{argsfontsize};">{argsstr}</span>'
@@ -312,28 +315,34 @@ class Synth(AbstrSynth):
         return '<span style="font-size:12px;">∿(' + ', '.join(parts) + ')</span>'
 
     def _repr_html_(self) -> str:
+        if config['stop_button_inside_jupyter'] and emlib.misc.inside_jupyter():
+            jupytertools.displayButton("Stop", self.stop)
         return f"<p>{self._html()}</p>"
 
     def __repr__(self):
         playstr = _synthStatusIcon[self.playStatus()]
-        parts = [f'{playstr} {self.instr.name}', f'id={self.synthid}']
-        if self.table:
+        parts = [f'{playstr} {self.instr.name}:{self.synthid}']
+        if self.table is not None:
             parts.append(self.table._mappingRepr())
         if self.pargs:
+            maxi = config['synth_repr_max_args']
             i2n = self.instr.pargsIndexToName
+            maxi = max((i for i, name in i2n.items() if name.startswith("k")),
+                           default=maxi)
             argsstrs = []
             pargs = self.pargs[0:]
             for i, parg in enumerate(pargs, start=0):
-                if i > 6:
+                if i > maxi:
                     argsstrs.append("...")
                     break
                 name = i2n.get(i+4)
                 if name:
-                    s = f"p{i+4}:{name}={parg:.8g}"
+                    s = f"{name}:{i+4}={parg:.6g}"
+                    #s = f"p{i+4}:{name}={parg:.8g}"
                 else:
-                    s = f"p{i+4}={parg:.8g}"
+                    s = f"p{i+4}={parg:.6g}"
                 argsstrs.append(s)
-            argsstr = ", ".join(argsstrs)
+            argsstr = " ".join(argsstrs)
             parts.append(argsstr)
         lines = ["Synth(" + ", ".join(parts) + ")"]
         # add a line for k- pargs
@@ -593,7 +602,60 @@ class SynthGroup(AbstrSynth):
             out.update(d)
         return out
 
+    def _uniqueInstr(self) -> bool:
+        instr0 = self.synths[0].instr
+        return all(synth.instr == instr0 for synth in self.synths if synth.playing())
+
+    def _htmlTable(self) -> Opt[str]:
+        synth0 = self.synths[0]
+        instr0 = synth0.instr
+        if any(synth.instr != instr0 for synth in self.synths):
+            return
+        colnames = ["p1", "start", "dur"]
+        rows = [[] for _ in self.synths]
+        for row, synth in zip(rows, self.synths):
+            row.append(f'{synth.synthid} <b>{_synthStatusIcon[synth.playStatus()]}</b>')
+            row.append("%.3f"%(synth.startTime-time.time()))
+            row.append("%.3f"%synth.dur)
+        if synth0.table is not None:
+            keys = list(synth0.table.mapping.keys())
+            colnames.extend(synth0.table.mapping.keys())
+            for row, synth in zip(rows, self.synths):
+                if synth.playStatus() != 'stopped':
+                    values = synth.table.array[:len(keys)]
+                    for value in values:
+                        row.append(f'<code>{value}</code>')
+                else:
+                    row.extend(["-"] * len(keys))
+
+        if synth0.pargs:
+            maxi = config['synth_repr_max_args']
+            i2n = instr0.pargsIndexToName
+            maxi = max((i for i, name in i2n.items() if name.startswith("k")),
+                       default=maxi)
+            for i, parg in enumerate(synth0.pargs):
+                if i > maxi:
+                    colnames.append("...")
+                name = i2n.get(i+4)
+                if name:
+                    colnames.append(f"{i+4}:{name}")
+                else:
+                    colnames.append(str(i+4))
+            for row, synth in zip(rows, self.synths):
+                row.extend("%.5g"%parg for parg in synth.pargs[:maxi])
+                if len(synth.pargs) > maxi:
+                    row.append("...")
+
+        return emlib.misc.html_table(rows, headers=colnames)
+
     def _repr_html_(self) -> str:
+        if config['stop_button_inside_jupyter'] and emlib.misc.inside_jupyter():
+            jupytertools.displayButton("Stop", self.stop)
+        if self._uniqueInstr():
+            instrcol = jupytertools.defaultStyle["name.color"]
+            header = f'SynthGroup - <b>{len(self.synths)}</b> synths, ' \
+                     f'instr: <strong style="color:{instrcol}">{self.synths[0].instr.name}</strong>'
+            return header + self._htmlTable()
         parts = ['<p>SynthGroup']
         for s in self.synths:
             html = s._html()

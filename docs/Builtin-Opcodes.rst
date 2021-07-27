@@ -149,3 +149,46 @@ Send audio to a bus, mixing it with other sends
     e.sched('master', dur=4, args=[bus])
     
     
+
+2. Other opcodes
+================
+
+sfPresetIndex
+-------------
+
+Assigns an index to a soundfont program
+
+This opcode loads the soundfont if not already loaded (like `sfload`) and assigns an index
+(like `sfpassign`) without the user needing to explicitely assign a number.
+
+**Syntax**
+
+.. code::
+
+    ipresetIndex sfPresetIndex "/path/to/soundfont.sf2", ibank, ipresetnumber
+
+**Example**
+
+.. code-block:: python
+
+    from csoundengine import *
+    e = Engine()
+    e.compile(r'''
+      instr piano
+        ivel, ipitch passign 4
+        iamp = ivel/127
+        inote = int(ipitch)
+        ; assign an index to the program (bank=0, preset=1)
+        ipresetidx sfPresetIndex "/path/to/piano.sf2", 0, 1
+        aL, aR sfplay3 ivel, inote, iamp/16384, mtof:i(ipitch), ipresetidx, 1
+        outch 1, aL, 2, aR
+      endin
+    ''')
+
+.. note::
+    There will be a delay when playing a note using this opcode if the soundfont
+    is read inside a note for the first time. To avoid this delay, load the 
+    soundfont beforehand, via `sfload`
+
+**See Also**: :meth:`~csoundengine.engine.Engine.soundfontPresetAssignIndex`, which
+does the same operation. 

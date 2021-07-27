@@ -18,9 +18,13 @@ A4     = ${a4}
 
 ${includes}
 
-gi__responses ftgen  ${responses}, 0, ${numtokens}, -2, 0
-gi__subgains  ftgen  ${subgains},  0, 100, -2, 1
+gi__subgains        ftgen  ${subgains},  0, 100, -2, 0
+gi__responses       ftgen  ${responses}, 0, ${numtokens}, -2, 0
 gi__tokenToInstrnum ftgen ${tokenToInstrnum}, 0, ${maxNumInstrs}, -2, 0
+gi__soundfontIndexes dict_new "str:float"
+gi__soundfontIndexCounter init 1000
+
+chn_k "_soundfontPresetCount", 3
 
 ${globalcode}
 
@@ -28,17 +32,42 @@ ${globalcode}
 ;          builtin-instruments
 ; ---------------------------------
 
-instr __init
-    ftset gi__subgains, 1
-endin
-
 opcode _panweights, kk, k
     kpos xin    
-    imax = 1.4142
-    kampL = bpf:k(kpos, 0, imax, 0.5, 1, 1, 0)
-    kampR = bpf:k(kpos, 0, 0,    0.5, 1, 1, imax)
+    kampL = bpf:k(kpos, 0, 1.4142, 0.5, 1, 1, 0)
+    kampR = bpf:k(kpos, 0, 0,      0.5, 1, 1, 1.4142)
     xout kampL, kampR
 endop 
+
+opcode _sfloadonce, i, S
+    Spath xin
+    Skey_ sprintf "sfloadonce:%s", Spath
+    itab chnget Skey_
+    if (itab == 0) then
+        itab sfload Spath
+        chnset itab, Skey_
+    endif
+    xout itab
+endop
+
+opcode sfPresetIndex, i, Sii
+    Spath, ibank, ipresetnum xin
+    isf _sfloadonce Spath
+    Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum
+    iidx dict_get gi__soundfontIndexes, Skey, -1
+    if iidx == -1 then
+        iidx chnget "_soundfontPresetCount"
+        chnset iidx+1, "_soundfontPresetCount"
+        dict_set gi__soundfontIndexes, Skey, iidx
+        i0 sfpreset ipresetnum, ibank, isf, iidx
+    endif
+    xout iidx
+endop
+
+instr __init
+    ftset gi__subgains, 1
+    chnset 100, "_soundfontPresetCount"   
+endin
 
 instr ${turnoff}
     iwhich = p4
@@ -333,6 +362,30 @@ instr ${tableInfo}
     outvalue "__sync__", itok1
 endin
 
+instr ${sfPresetAssignIndex}
+    ; assign an index to a soundfont preset
+    ipath, ibank, ipresetnum, iidx passign 4
+    Spath strget ipath
+    isf _sfloadonce Spath
+    i0 sfpreset ipresetnum, ibank, isf, iidx
+endin
+
+instr ${soundfontPlay}
+    kpitch = p4
+    kamp = p5
+    ipresetidx, ivel, ichan passign 6
+    inote = int(p4)
+    aL, aR sfplay3 ivel, inote, kamp/16384, mtof:k(kpitch), ipresetidx, 1
+    aenv linsegr 0, 0.01, 1, 0.1, 0
+    kfinished_  trigger detectsilence:k(aL, 0.0001, 0.05), 0.5, 0
+    if kfinished_ == 1  then
+      turnoff
+    endif
+    aL *= aenv
+    aR *= aenv
+    outch ichan, aL, ichan+1, aR
+endin
+
 schedule "__init", 0, 1
 
 """
@@ -362,7 +415,6 @@ chn_k "_busTokenCount", 3
 
 instr __businit
     chnset 0, "_busTokenCount"
-    ; gk__buses = $$_BUSUNSET
     ftset gi__bustable, $$_BUSUNSET
     turnoff
 endin
@@ -598,12 +650,13 @@ def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
             backend:str, a4:float, globalcode:str="", includestr:str="",
             numAudioBuses:int=32,
             numControlBuses:int=64):
-    template = orcTemplate(busSupport=numAudioBuses>0 or numControlBuses>0)
+    withBusSupport = numAudioBuses > 0 or numControlBuses > 0
+    template = orcTemplate(busSupport=withBusSupport)
     subs: Dict[str, Any] = {name:f"{num} ; {name}"
                             for name, num in BUILTIN_INSTRS.items()}
     subs.update(BUILTIN_TABLES)
     subs.update(CONSTS)
-    return template.substitute(
+    orc = template.substitute(
             sr=sr,
             ksmps=ksmps,
             nchnls=nchnls,
@@ -616,7 +669,7 @@ def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
             numControlBuses=numControlBuses,
             **subs
     )
-
+    return orc
 
 def busSupportCode(numAudioBuses:int,
                    clearBusesInstrnum:int,

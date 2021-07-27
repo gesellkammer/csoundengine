@@ -291,11 +291,11 @@ class Instr:
         if not pargs:
             return ""
         if self.pargsDefaultValues:
-            return ", ".join(f"p{i}:{pname}={self.pargsDefaultValues.get(i, 0)}"
+            return ", ".join(f"{pname}:{i}={self.pargsDefaultValues.get(i, 0)}"
                              for i, pname in sorted(pargs.items()) if i != 4)
         else:
             return ", ".join(
-                    f"p{i}: {pname}" for i, pname in sorted(pargs.items()) if i != 4)
+                    f"{pname}:{i}" for i, pname in sorted(pargs.items()) if i != 4)
 
     def _repr_html_(self) -> str:
         style = jupytertools.defaultStyle
