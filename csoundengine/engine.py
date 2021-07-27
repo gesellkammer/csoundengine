@@ -64,7 +64,7 @@ Defaults for Engine / Session can be customized via::
     config.edit()
 
 For more information, see
-`Configuration <https://csoundengine.readthedocs.io/en/latest/config.html>
+`Configuration <https://csoundengine.readthedocs.io/en/latest/config.html>`
 
 """
 from __future__ import annotations
