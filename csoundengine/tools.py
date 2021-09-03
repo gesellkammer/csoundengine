@@ -36,3 +36,4 @@ def showSoundfontPrograms(sfpath: str, glob="") -> None:
         progs = [p for p in progs
                  if fnmatch.fnmatch(p[2], glob)]
     emlib.misc.print_table(progs, headers=('bank', 'num', 'name'), showindex=False)
+

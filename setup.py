@@ -10,6 +10,7 @@ this_directory = path.abspath(path.dirname(__file__))
 with open(path.join(this_directory, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
+
 setup(
     name='csoundengine',
     python_requires=">=3.8",
@@ -36,10 +37,11 @@ setup(
         "bpf4",
         "numpyx>=0.5",
         "pitchtools>=1.1",
-        "sounddevice",
         "appdirs",
         "pygments",
-        "sf2utils"
+        "sf2utils",
+        "jupyter",
+        "ipywidgets"
     ],
     license="BSD",
     classifiers=[

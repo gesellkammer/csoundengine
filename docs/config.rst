@@ -7,6 +7,8 @@ of :class:`configdict.ConfigDict`, see https://configdict.readthedocs.io).
 This is a persistent dictionary: any modification will
 be automatically saved and loaded the next time this module is imported
 
+.. image:: assets/jupyter-config.png
+
 Example
 =======
 
@@ -46,7 +48,9 @@ Edit the config interactively
 
 
 This will open the config in a text editor and any changes there will be reflected back in
-the config
+the config. Which application is used depends on the os settings for handling yaml files.
+
+.. image:: assets/config-edit.png
 
 -----
     

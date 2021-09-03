@@ -96,9 +96,8 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
 """
 from .dependencies import checkDependencies
 checkDependencies(force=False, tryfix=True)
-
 from .engine import *
-from .config import config
+from .config import config, setLoggingLevel
 from .session import Session, getSession, groupSynths
 from .instr import Instr
 from .offline import Renderer
@@ -108,4 +107,9 @@ from . import tools
 from .csoundlib import (dumpAudioDevices, dumpAudioBackends,
                         getAudioBackend, audioBackends)
 
-
+import emlib.misc
+if emlib.misc.inside_ipython():
+    from . import magic
+    if config['ipython_load_magics_at_startup']:
+        from IPython.core.getipython import get_ipython
+        get_ipython().extension_manager.load_extension('csoundengine.magic')

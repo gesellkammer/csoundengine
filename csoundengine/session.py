@@ -144,11 +144,23 @@ An inline syntax exists also for tables:
         a0 = oscili:a(kamp, kfreq)
         outch 1, a0
     ''')
+
+5. User Interface
+~~~~~~~~~~~~~~~~~
+
+A :class:`~csoundengine.synth.Synth` can be modified interactively via
+an auto-generated user-interface. Depending on the running context
+this results in either a gui dialog (within a terminal) or an embedded
+user-interface in jupyter.
+
+.. figure:: assets/synthui.png
+
 """
 
 from __future__ import annotations
 import dataclasses
-from typing import TYPE_CHECKING, Dict, List, Union as U, Optional as Opt, Callable
+import emlib.misc
+import emlib.dialogs
 from .engine import Engine, getEngine, CsoundError
 from .instr import Instr
 from .synth import AbstrSynth, Synth, SynthGroup
@@ -157,12 +169,16 @@ from .paramtable import ParamTable
 from .config import config, logger
 from . import internalTools as tools
 from .sessioninstrs import builtinInstrs
+from . import state as _state
+from . import jupytertools
 import time
 import numpy as np
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .offline import Renderer
-
+    from typing import *
+    
 __all__ = [
     'Session',
     'getSession',
@@ -179,6 +195,11 @@ class _ReifiedInstr:
     depending on the priority. When an instr. is scheduled at a given priority for
     the first time a ReifiedInstr is created to mark that and the code is sent
     to the engine
+
+    Attributes:
+        qname: the qualified name, "{instrname}:{priority}"
+        instrnum: the actual instrument number inside csound
+        priority: the priority of this instr
     """
     qname: str
     instrnum: int
@@ -324,22 +345,27 @@ class Session:
         if config['define_builtin_instrs']:
             self._defBuiltinInstrs()
 
-
     def __repr__(self):
         active = len(self.activeSynths())
         return f"Session({self.name}, synths={active})"
 
-    def _deallocSynthResources(self, synthid: U[int, float], delay=0.) -> None:
+    def _repr_html_(self):
+        active = len(self.activeSynths())
+        if active and emlib.misc.inside_jupyter() and config['stop_button_inside_jupyter']:
+            jupytertools.displayButton("Stop Synths", self.unschedAll)
+        name = jupytertools.htmlName(self.name)
+        return f"Session({name}, synths={active})"
+
+    def _deallocSynthResources(self, synthid: Union[int, float], delay=0.) -> None:
         """
         Deallocates resources associated with synth
 
-        The actual csound event is not freed, since this function is actually
+        The actual csound event is not freed, since this function is
         called by "atstop" when a synth is actually stopped
 
         Args:
             synthid: the id (p1) of the synth
             delay: when to deallocate the csound event.
-
         """
         synth = self._synths.pop(synthid, None)
         if synth is None:
@@ -427,15 +453,18 @@ class Session:
                  tabledef: Dict[str, float] = None,
                  **kws) -> Instr:
         """
-        Create an :class:`~csoundengine.instr.Instr` and register it with this session
+        Create an :class:`~csoundengine.instr.Instr` and register it at this session
+
+        Any init code given is compiled and executed at this point
 
         Args:
             name (str): the name of the created instr
             body (str): the body of the instrument. It can have named
                 pfields (see example) or a table declaration
             args: dynamic pargs with their default values
-            init: init (global) code needed by this instr
-            tabledef: param table definition
+            init: init (global) code needed by this instr (read soundfiles,
+                load soundfonts, etc)
+            tabledef: param table definition (see example)
             kws: any keywords are passed on to the Instr constructor.
                 See the documentation of Instr for more information.
 
@@ -443,12 +472,21 @@ class Session:
             the created Instr. If needed, this instr can be registered
             at any other running Session via session.registerInstr(instr)
 
+        .. note::
+
+            The instr is not compiled at the moment of definition. Only
+            when an instr is actually scheduled to be run at a given
+            priority the code is actually compiled. There might be
+            a small delay the first time an instr is scheduled at a given
+            priority. To prevent this delay, a user can call
+            :meth:`Session.prepareSched` to explicitely compile the instr
+
         Example
         =======
 
             >>> session = Engine().session()
             # An Instr with named pfields
-            >>> session.defInstr('synth', '''
+            >>> session.defInstr('synth', r'''
             ... |ibus, kamp=0.5, kmidi=60|
             ... kfreq = mtof:k(lag:k(kmidi, 1))
             ... a0 vco2 kamp, kfreq
@@ -456,20 +494,24 @@ class Session:
             ... busout ibus, a0
             ... ''')
             # An instr with named table args
-            >>> session.defInstr('filter', '''
-            ... {bus=0, cutoff=1000, resonance=0.9}
+            >>> session.defInstr('filter', r'''
+            ... a0 = busin(kbus)
+            ... a0 = moogladder2(a0, kcutoff, kresonance)
+            ... outch 1, a0
+            ... ''', tabledef=dict(kbus=0, kcutoff=1000, kresonance=0.9))
+            # The same but with table args inline
+            >>> session.defInstr('filter2', r'''
+            ... {kbus=0, kcutoff=1000, kresonance=0.9}
             ... a0 = busin(kbus)
             ... a0 = moogladder2(a0, kcutoff, kresonance)
             ... outch 1, a0
             ... ''')
-
             >>> bus = session.engine.assignBus()
             >>> synth = session.sched('sine', 0, dur=10, ibus=bus, kmidi=67)
             >>> synth.setp(kmidi=60, delay=2)
-
             >>> filt = session.sched('filter', 0, dur=synth.dur, priority=synth.priority+1,
-            ...                      tabargs={'bus': bus, 'cutoff': 1000})
-            >>> filt.automateTable('cutoff', [3, 1000, 6, 200, 10, 4000])
+            ...                      tabargs={'kbus': bus, 'kcutoff': 1000})
+            >>> filt.automateTable('kcutoff', [3, 1000, 6, 200, 10, 4000])
 
         See Also
         ~~~~~~~~
@@ -511,9 +553,6 @@ class Session:
         self._clearCacheForInstr(instr.name)
         self.instrs[instr.name] = instr
 
-    def isInstrRegistered(self, name: str) -> bool:
-        return name in self.instrs
-
     def _clearCacheForInstr(self, instrname: str) -> None:
         if instrname in self._reifiedInstrDefs:
             self._reifiedInstrDefs[instrname].clear()
@@ -553,14 +592,21 @@ class Session:
         """
         Returns the :class:`~csoundengine.instr.Instr` defined under name
 
+        Raises KeyError if no Instr is defined with the given name
+
+        Args:
+            name: the name of the Instr (use "?" to select interactively)
+
         See Also
         ~~~~~~~~
 
         :meth:`~Session.defInstr`
         """
+        if name == "?":
+            name = emlib.dialogs.selectItem(list(self.instrs.keys()), ensureSelection=True)
         return self.instrs[name]
 
-    def _getReifiedInstr(self, name: str, priority: int) -> Opt[_ReifiedInstr]:
+    def _getReifiedInstr(self, name: str, priority: int) -> Optional[_ReifiedInstr]:
         registry = self._reifiedInstrDefs.get(name)
         if not registry:
             return None
@@ -573,8 +619,8 @@ class Session:
 
         The only use case to call this method explicitely is when the user
         is certain to need the given instrument at the specified priority and
-        wants to avoid the small delay needed for the first time an instr
-        is called, since this first call implies compiling the code in csound
+        wants to avoid the delay needed for the first time an instr
+        is called, since this first call implies compiling the code in csound.
 
         Args:
             instrname: the name of the instrument to send to the csound engine
@@ -654,16 +700,17 @@ class Session:
               delay=0.,
               dur=-1.,
               priority: int = 1,
-              pargs: U[List[float], Dict[str, float]] = [],
+              pargs: Union[List[float], Dict[str, float]] = [],
               tabargs: Dict[str, float] = None,
               whenfinished=None,
               **pkws
               ) -> Synth:
         """
-        Schedule the instrument identified by *instrname*
+        Schedule an instance of an instrument
 
         Args:
-            instrname: the name of the instrument, as defined via defInstr
+            instrname: the name of the instrument, as defined via defInstr. Use
+                "?" to select an instrument interactively
             priority: the priority (1 to 10)
             delay: time offset of the scheduled instrument
             dur: duration (-1 = for ever)
@@ -701,9 +748,13 @@ class Session:
         :meth:`~csoundengine.synth.Synth.stop`
         """
         assert isinstance(priority, int) and 1<=priority<=10
+        if instrname == "?":
+            instrname = emlib.dialogs.selectItem(list(self.instrs.keys()),
+                                                 title="Select Instr",
+                                                 ensureSelection=True)
         assert instrname in self.instrs
         instr = self.getInstr(instrname)
-        table: Opt[ParamTable]
+        table: Optional[ParamTable]
         if instr._tableDefaultValues is not None:
             # the instruments has an associated table
             tableidx = self._makeInstrTable(instr, overrides=tabargs, wait=True)
@@ -777,23 +828,6 @@ class Session:
             else:
                 self._deallocSynthResources(synthid, delay)
 
-    def unschedLast(self, n=1, unschedParent=True) -> None:
-        """
-        Unschedule last synth
-
-        Args:
-            n: number of synths to unschedule
-            unschedParent: if the synth belongs to a group, unschedule the
-                whole group
-
-        """
-        activeSynths = self.activeSynths(sortby="start")
-        for i in range(n):
-            if activeSynths:
-                last = activeSynths[-1]
-                assert last.synthid in self._synths
-                last.stop(stopParent=unschedParent)
-
     def unschedByName(self, instrname: str) -> None:
         """
         Unschedule all playing synths created from given instr
@@ -802,16 +836,20 @@ class Session:
         for synth in synths:
             self.unsched(synth.synthid)
 
-    def unschedAll(self, cancel_future=True, force=False) -> None:
+    def unschedAll(self, future=False) -> None:
         """
         Unschedule all playing synths
+
+        Args:
+            future: if True, cancel also synths which are already scheduled
+                but have not started playing yet
         """
         synthids = [synth.synthid for synth in self._synths.values()]
         futureSynths = [synth for synth in self._synths.values() if not synth.playing()]
         for synthid in synthids:
             self.unsched(synthid, delay=0)
 
-        if force or (cancel_future and futureSynths):
+        if future and futureSynths:
             self.engine.unschedAll()
             self._synths.clear()
 
@@ -828,18 +866,17 @@ class Session:
     def restart(self) -> None:
         """
         Restart the associated engine
-
         """
         self.engine.restart()
         for i, initcode in enumerate(self._initCodes):
             self.engine.compile(initcode)
 
-    def readSoundfile(self, path: str, chan=0, free=False) -> TableProxy:
+    def readSoundfile(self, path="?", chan=0, free=False) -> TableProxy:
         """
         Read a soundfile, store its metadata in a :class:`~csoundengine.tableproxy.TableProxy`
 
         Args:
-            path: the path to a soundfile
+            path: the path to a soundfile. "?" to open file via a gui dialog
             chan: the channel to read, or 0 to read all channels into a
                 (possibly) stereo or multichannel table
             free: free the table when the returned TableDef is itself deallocated
@@ -852,6 +889,8 @@ class Session:
             .sr: the sample rate of the soundfile
 
         """
+        if path == "?":
+            path = _state.openSoundfile()
         table = self._pathToTable.get(path)
         if table:
             return table
@@ -874,15 +913,14 @@ class Session:
         if tabproxy.path:
             self._pathToTable[tabproxy.path] = tabproxy
 
-    def makeTable(self, data: U[np.ndarray, List[float]] = None,
+    def makeTable(self, data: Union[np.ndarray, List[float]] = None,
                   size: int = 0, tabnum: int = 0,
                   block=True, callback=None, sr: int = 0,
                   freeself=True,
                   _instrnum: float = -1,
                   ) -> TableProxy:
         """
-        Create a table with given data or an empty table of the given
-        size
+        Create a table with given data or an empty table of the given size
 
         Args:
             data (np.ndarray | List[float]): the data of the table. Use None
@@ -923,13 +961,13 @@ class Session:
         return TableProxy(tabnum=tabnum, sr=sr, nchnls=nchnls, numframes=numframes,
                           engine=self.engine, freeself=freeself)
 
-    def playSample(self, sample: U[int, TableProxy, str],
+    def playSample(self, sample: Union[int, TableProxy, str],
                    chan=1, gain=1.,
                    dur=-1., speed=1., loop=False, delay=0., pan=-1.,
                    start=0., fade: float = None, gaingroup=0) -> Synth:
         """
         Play a sample. If a path is given, the soundfile will be read and the sample
-        data will be cached. This cache can be evicted via XXX
+        data will be cached.
 
         Args:
             sample: table number, a path to a sample or a TableProxy
@@ -958,9 +996,11 @@ class Session:
             tabnum = sample
         elif isinstance(sample, TableProxy):
             tabnum = sample.tabnum
-        else:
+        elif isinstance(sample, str):
             table = self.readSoundfile(sample, free=False)
             tabnum = table.tabnum
+        else:
+            raise TypeError(f"Expected int, TableProxy or str, got {sample}")
         # isndtab, iloop, istart, ifade
         if fade is None:
             fade = config['sample_fade_time']
@@ -1013,7 +1053,7 @@ class Session:
             self.registerInstr(csoundInstr)
 
 
-def getSession(name="default", createIfNeeded=True) -> Opt[Session]:
+def getSession(name="default", createIfNeeded=True) -> Optional[Session]:
     '''
     Get/create a :class:`Session`.
 

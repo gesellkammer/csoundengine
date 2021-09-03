@@ -57,7 +57,7 @@ builtinInstrs = [
         imaxtime = idur - ifade - ionecycle
         if iloop == 0 && know >= imaxtime then
             turnoff
-        endif
+        endif   
         """),
     Instr('.playbuf', body="""
         |itabnum=0, ioutchan=1, igain=1, iloop=0|
@@ -68,6 +68,7 @@ builtinInstrs = [
             iPitch = 1
             iCrossfade = 0.050
             aSig flooper2 igain, iPitch, 0, idur, iCrossfade, itabnum
+            outch ioutchan, aSig
         else
             iReadfreq = sr / inumsamps; frequency of reading the buffer
             aSig poscil3 igain, iReadfreq, itabnum
@@ -75,10 +76,10 @@ builtinInstrs = [
             irel = 3*iatt
             aEnv linsegr 0, iatt, 1, idur-iatt*2, 1, iatt, 0
             aSig *= aEnv
+            outch ioutchan, aSig
             if timeinsts() > idur then
                 turnoff
             endif
         endif
-        outch ioutchan, aSig
         """)
 ]

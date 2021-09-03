@@ -38,3 +38,12 @@ def displayButton(buttonText: str, callback):
 
     button.on_click(clicked)
     _ipythonDisplay(button, output)
+
+
+
+def htmlName(text: str) -> str:
+    style = defaultStyle
+    return f'<strong style="color:{style["name.color"]}">{text}</strong>'
+
+
+

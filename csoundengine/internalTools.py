@@ -1,17 +1,28 @@
 from __future__ import annotations
 import numpy as np
 import sys
-import os
-from typing import Optional as Opt, TYPE_CHECKING, Union as U, List, Dict, Any
 from . import jacktools
 import signal
 import math
 import textwrap
+from typing import TYPE_CHECKING
+import emlib.dialogs
+import subprocess
 
 if TYPE_CHECKING:
     from .instr import Instr
+    from typing import *
+    from csoundlib import AudioDevice
+    
 
 _registry: Dict[str, Any] = {}
+
+
+def isrunning(prog: str) -> bool:
+    "True if prog is running"
+    failed = subprocess.call(['pgrep', '-f', prog],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return not failed
 
 
 def m2f(midinote: float, a4:float) -> float:
@@ -84,7 +95,7 @@ def determineNumbuffers(backend:str, buffersize:int) -> int:
 
 def instrResolveArgs(instr: Instr,
                      p4: int,
-                     pargs: U[List[float], Dict[str, float]]=None,
+                     pargs: Union[List[float], Dict[str, float]]=None,
                      pkws: Dict[str, float]=None
                      ) -> List[float]:
     allargs: List[float] = [float(p4)]
@@ -101,20 +112,23 @@ def instrResolveArgs(instr: Instr,
         allargs.extend(instr.pargsTranslate(kws=pargs))
     return allargs
 
-def instrWrapBody(body:str, instrid:U[int, str], comment:str= '',
+
+def instrWrapBody(body:str, instrid:Union[int, str, Sequence[str]], comment:str= '',
                   addNotificationCode=False) -> str:
-    s = """
+    s = r"""
 instr {instrnum}  {commentstr}
     {notifystr}
     {body}
 endin
     """
-    # notifystr  = 'atstop "_notifyDealloc", 0.01, 0.01, p1' if addNotificationCode else ''
     if addNotificationCode:
         notifystr = 'defer "outvalue", "__dealloc__", p1'
+        # notifystr = 'atstop "_notifyDealloc", 0.01, 0.0, p1'
     else:
         notifystr = ''
     commentstr = "; " + comment if comment else ""
+    if isinstance(instrid, (list, tuple)):
+        instrid = ", ".join([str(i) for i in instrid])
     s = s.format(instrnum=instrid, body=body, notifystr=notifystr,
                  commentstr=commentstr)
     s = textwrap.dedent(s)
@@ -175,10 +189,44 @@ def normalizePlatform(s:str) -> str:
 
 
 def resolveOption(prioritizedOptions:List[str], availableOptions:List[str]
-                  ) -> Opt[str]:
+                  ) -> Optional[str]:
     for opt in prioritizedOptions:
         if opt in availableOptions:
             return opt
     return None
 
 
+def selectAudioDevice(devices: List[AudioDevice], title='Select device'
+                      ) -> Optional[AudioDevice]:
+    if len(devices) == 1:
+        return devices[0]
+    outnames = [dev.info() for dev in devices]
+    selected = emlib.dialogs.selectItem(items=outnames, title=title)
+    if not selected:
+        return None
+    idx = outnames.index(selected)
+    outdev = devices[idx]
+    return outdev
+
+
+def selectItem(items: List[str], title="Select") -> Optional[str]:
+    return emlib.dialogs.selectItem(items=items, title=title)
+
+
+def instrNameFromP1(p1: Union[float, str]) -> Union[int, str]:
+    return int(p1) if isinstance(p1, (int, float)) else p1.split(".")[0]
+
+
+def resolvePfieldIndex(pfield: Union[int, str], pfieldNameToIndex: Dict[str, int] = None
+                       ) -> int:
+    if isinstance(pfield, int):
+        return pfield
+    if pfield[0] == 'p':
+        return int(pfield[1:])
+    if not pfieldNameToIndex:
+        return 0
+    return pfieldNameToIndex.get(pfield, 0)
+
+
+def isAscii(s: str) -> bool:
+    return all(ord(c)<128 for c in s)

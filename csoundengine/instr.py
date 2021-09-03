@@ -302,6 +302,7 @@ class Instr:
         parts = [f'Instr <strong style="color:{style["name.color"]}">{self.name}</strong><br>']
         if self.pargsIndexToName and len(self.pargsIndexToName) > 1:
             indexes = list(self.pargsIndexToName.keys())
+            indexes.sort()
             if 4 in indexes:
                 indexes.remove(4)
             groups = iterlib.splitInChunks(indexes, 5)
@@ -318,7 +319,8 @@ class Instr:
                 parts.append(line)
         if self.tabledef:
             parts.append(f'&nbsp&nbsp&nbsp&nbsptabargs = <code>{self.tabledef}</code>')
-        parts.append(csoundengine.csoundlib.highlightCsoundOrc(self.body))
+        if config['jupyter_instr_repr_show_code']:
+            parts.append(csoundengine.csoundlib.highlightCsoundOrc(self.body))
         return "\n".join(parts)
 
 

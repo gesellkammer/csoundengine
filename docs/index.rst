@@ -7,9 +7,12 @@
 csoundengine - Documentation
 ============================
 
-This package implements a simple interface to run and control a csound process.
+This package implements an interface to run and control a csound process.
 
 The source code of this package lives in https://github.com/gesellkammer/csoundengine
+
+.. image:: assets/jupyter-session-1.png
+  :alt: Jupyter Session 1
 
 .. toctree::
    :maxdepth: 2

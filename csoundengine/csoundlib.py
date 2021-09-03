@@ -3,7 +3,6 @@ This module provides many utilities based on the csound binary
 
 """
 from __future__ import annotations
-
 import math as _math
 import os as _os
 import sys as _sys
@@ -17,18 +16,20 @@ import tempfile as _tempfile
 import cachetools as _cachetools
 import dataclasses
 from . import jacktools
+from . import linuxaudio
+from . import state as _state
 # from .config import config
 from .internalTools import normalizePlatform
-from typing import TYPE_CHECKING, Callable
 from functools import lru_cache as _lru_cache
-
-if TYPE_CHECKING:
-    from typing import List, Union as U, Optional as Opt, Generator, \
-        Sequence as Seq, Dict, Tuple, Callable, Set, Any, IO
-
+import emlib.misc
+import emlib.textlib
+import emlib.dialogs
 import numpy as np
 
-from emlib import misc, textlib
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
+    Curve = Callable[[float], float]
 
 
 logger = _logging.getLogger("csoundengine")
@@ -37,11 +38,14 @@ logger = _logging.getLogger("csoundengine")
 @_cachetools.cached(cache=_cachetools.TTLCache(1, 10))
 def _isPulseaudioRunning() -> bool:
     """ Return True if Pulseaudio is running """
-    retcode = _subprocess.call(["pulseaudio", "--check"])
-    return retcode == 0
-
-
-Curve = Callable[[float], float]
+    if not _shutil.which("pactl"):
+        return False
+    output = _subprocess.check_output(['pactl', 'info']).decode('utf-8')
+    if _re.search(r'\bConnection\ failure', output) is None:
+        return True
+    return False
+    #retcode = _subprocess.call(["pulseaudio", "--check"])
+    #return retcode == 0
 
 
 @dataclasses.dataclass(unsafe_hash=True)
@@ -55,24 +59,39 @@ class AudioBackend:
         hasSystemSr: does this backend have a system samplerate?
         needsRealtime: the backend needs to be run in realtime
         platforms: a list of platform for which this backend is available
-        dac: the name of the default output device
-        adc: the name of the default input device
         longname: an alternative name for the backend
-        _checkFunc: a function returning True if this backend is available
     """
     name: str
-    alwaysAvailable: bool
-    hasSystemSr: bool
-    needsRealtime: bool
-    platforms: Tuple[str, ...] = dataclasses.field(repr=False)
-    dac: str = "dac"
-    adc: str = "adc"
+    alwaysAvailable: bool = False
+    needsRealtime: bool = False
+    platforms: Tuple[str, ...] = ('linux', 'darwin', 'win32')
+    hasSystemSr: bool = False
     longname: str = ""
-    _checkFunc: Opt[Callable] = dataclasses.field(default=None, repr=False)
+    defaultBufferSize: int = 1024
+    defaultNumBuffers: int = 2
+    audioDeviceRegex: str = r"(\d+):\s((?:adc|dac)\d+)\s*\((.*)\)(?:\s+\[ch:(\d+)\])?"
 
     def __post_init__(self):
         if not self.longname:
             self.longname = self.name
+
+    def searchAudioDevice(self, pattern:str, kind:str) -> Optional[AudioDevice]:
+        # we get the devices via getAudioDevices to enable caching
+        indevs, outdevs = getAudioDevices(self.name)
+        devs = indevs if kind == 'input' else outdevs
+        if pattern.startswith('dac:') or pattern.startswith('adc:'):
+            pattern = pattern[4:]
+            namesearch = True
+        elif _re.match('(dac|adc)[0-9]+', pattern):
+            namesearch = False
+        else:
+            namesearch = True
+        if not namesearch:
+            return next((d for d in devs
+                         if d.id == pattern), None)
+        else:
+            return next((d for d in devs
+                         if _re.search(pattern, d.name)), None)
 
     def isAvailable(self) -> bool:
         """ Is this backend available? """
@@ -80,82 +99,193 @@ class AudioBackend:
             return False
         if self.alwaysAvailable:
             return True
-        if self._checkFunc:
-            return self._checkFunc()
-        return isBackendAvailable(self.name)
+        indevices, outdevices = getAudioDevices(backend=self.name)
+        return bool(indevices or outdevices)
 
-    def getSystemSr(self) -> Opt[float]:
+    def getSystemSr(self) -> Optional[int]:
         """Get the system samplerate for this backend, if available"""
         if not self.hasSystemSr:
-            return None
-        if self.name == 'jack' and _sys.platform == "linux":
-            return _getJackSrViaClient()
-        return _getCsoundSystemSr(self.name)
+            return 44100
+        proc = csoundSubproc(["-odac", f"-+rtaudio={self.name}", "--get-system-sr"], wait=True)
+        for line in proc.stdout.readlines():
+            if line.startswith(b"system sr:"):
+                sr = int(line.split(b":")[1].strip())
+                return sr if sr > 0 else None
+        logger.error(f"Failed to get sr with backend {self.name}")
+        return None
+
+    def bufferSizeAndNum(self) -> Tuple[int, int]:
+        return (self.defaultBufferSize, self.defaultNumBuffers)
+
+    def audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+        indevices, outdevices = [], []
+        proc = csoundSubproc(['-+rtaudio=%s' % self.name, '--devices'])
+        proc.wait()
+        lines = proc.stderr.readlines()
+        for line in lines:
+            line = line.decode("utf-8")
+            match = _re.search(self.audioDeviceRegex, line)
+            if not match:
+                continue
+            groups = match.groups()
+            if len(groups) == 3:
+                idxstr, devid, devname = groups
+                numchannels = None
+            else:
+                idxstr, devid, devname, numchannels = groups
+                numchannels = int(numchannels)
+            #if "[" in devname:
+            #    print(devname)
+            #    devname, _ = devname.split("[")[0].strip()
+            kind = 'input' if devid.startswith("adc") else 'output'
+            dev = AudioDevice(index=int(idxstr), id=devid, name=devname, kind=kind,
+                              numchannels=numchannels)
+            (indevices if kind == 'input' else outdevices).append(dev)
+        return indevices, outdevices
+
+    def defaultAudioDevices(self) -> Tuple[AudioDevice, AudioDevice]:
+        indevs, outdevs = getAudioDevices(self.name)  # self.audioDevices()
+        return indevs[0], outdevs[0]
 
 
-_backend_jack = AudioBackend('jack',
-                             alwaysAvailable=False,
-                             hasSystemSr=True,
-                             needsRealtime=False,
-                             platforms=('linux', 'darwin', 'win32'),
-                             dac="dac:system:playback_",
-                             adc="adc:system:capture_",
-                             _checkFunc=jacktools.isJackRunning)
+class _JackAudioBackend(AudioBackend):
+    def __init__(self):
+        super().__init__(name='jack',
+                         alwaysAvailable=False,
+                         platforms=('linux', 'darwin', 'win32'),
+                         hasSystemSr=True)
 
-_backend_pacb = AudioBackend('pa_cb',
-                             alwaysAvailable=True,
-                             hasSystemSr=False,
-                             needsRealtime=False,
-                             longname="portaudio-callback",
-                             platforms=('linux', 'darwin', 'win32'))
+    def getSystemSr(self) -> int:
+        return jacktools.getInfo().samplerate
 
-_backend_pabl = AudioBackend('pa_bl',
-                             alwaysAvailable=True,
-                             hasSystemSr=False,
-                             needsRealtime=False,
-                             longname="portaudio-blocking",
-                             platforms=('linux', 'darwin', 'win32'))
+    def bufferSizeAndNum(self) -> Tuple[int, int]:
+        info = jacktools.getInfo()
+        return info.blocksize, 2
 
-_backend_auhal = AudioBackend('auhal',
-                              alwaysAvailable=True,
-                              hasSystemSr=True,
-                              needsRealtime=False,
-                              longname="coreaudio",
-                              platforms=('darwin',))
+    def isAvailable(self) -> bool:
+        return jacktools.isJackRunning()
 
-_backend_pulse = AudioBackend('pulse',
-                              alwaysAvailable=False,
-                              hasSystemSr=False,
-                              needsRealtime=False,
-                              longname="pulseaudio",
-                              platforms=('linux',),
-                              _checkFunc=_isPulseaudioRunning)
+    def audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+        clients = jacktools.getClients()
+        indevs = [AudioDevice(id=f'adc:{c.regex}', name=c.name, kind='input',
+                              numchannels=len(c.ports))
+                  for c in clients if c.kind == 'output']
+        outdevs = [AudioDevice(id=f'dac:{c.regex}', name=c.name, kind='output',
+                               numchannels=len(c.ports))
+                   for c in clients if c.kind == 'input']
+        return indevs, outdevs
 
-_backend_alsa = AudioBackend('alsa',
-                             alwaysAvailable=True,
-                             hasSystemSr=False,
-                             needsRealtime=True,
-                             platforms=('linux',))
+    def defaultAudioDevices(self) -> Tuple[AudioDevice, AudioDevice]:
+        outclient, inclient = jacktools.getSystemClients()
+        # notice the inversion: a jack 'output' client is an input for csound
+        indev = AudioDevice(id=f"adc:{inclient.regex}", name=inclient.name,
+                            kind='input', numchannels=len(inclient.ports))
+        outdev = AudioDevice(id=f"dac:{outclient.regex}", name=outclient.name,
+                             kind='output', numchannels=len(outclient.ports))
+        return indev, outdev
 
-allAudioBackends: Dict[str, AudioBackend] = {
-    'jack' : _backend_jack,
-    'auhal': _backend_auhal,
-    'pa_cb': _backend_pacb,
-    'portaudio': _backend_pacb,
-    'pa_bl': _backend_pabl,
-    'pulse': _backend_pulse,
-    'alsa' : _backend_alsa
+
+class _PulseAudioBackend(AudioBackend):
+    def __init__(self):
+        super().__init__(name='pulse',
+                         alwaysAvailable=False,
+                         hasSystemSr=True,
+                         defaultBufferSize=1024,
+                         defaultNumBuffers=2)
+
+    def getSystemSr(self) -> int:
+        return linuxaudio.pulseaudioInfo().sr
+
+    def isAvailable(self) -> bool:
+        return linuxaudio.isPulseaudioRunning() or (linuxaudio.isPipewireRunning() and
+                                                    linuxaudio.pipewireInfo().isPulseServer)
+
+    def audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+        pulseinfo = linuxaudio.pulseaudioInfo()
+        indevs = [AudioDevice(id="adc", name="adc", kind='input', index=0,
+                              numchannels=pulseinfo.numchannels)]
+        outdevs = [AudioDevice(id="dac", name="dac", kind='output', index=0,
+                               numchannels=pulseinfo.numchannels)]
+        return indevs, outdevs
+
+
+class _PortaudioBackend(AudioBackend):
+    def __init__(self, kind='callback'):
+        shortname = "pa_cb" if kind == 'callback' else 'pa_bl'
+        longname = f"portaudio-{kind}"
+        if _sys.platform == 'linux' and linuxaudio.isPipewireRunning():
+            hasSystemSr = True
+        else:
+            hasSystemSr = False
+        super().__init__(name=shortname,
+                         alwaysAvailable=True,
+                         longname=longname,
+                         hasSystemSr=hasSystemSr)
+
+    def getSystemSr(self) -> Optional[int]:
+        if _sys.platform == 'linux' and linuxaudio.isPipewireRunning():
+            return linuxaudio.pipewireInfo().sr
+        return super().getSystemSr()
+
+    def defaultAudioDevices(self) -> Tuple[AudioDevice, AudioDevice]:
+        indevs, outdevs = getAudioDevices(self.name)
+        indev = next((d for d in indevs if _re.search(r"\bdefault\b", d.name)), None)
+        outdev = next((d for d in outdevs if _re.search(r"\bdefault\b", d.name)), None)
+        if indev is None and indevs:
+            indev = indevs[0]
+        if outdev is None and outdevs:
+            outdev = outdevs[0]
+        return indev, outdev
+
+
+class _AlsaBackend(AudioBackend):
+    def __init__(self):
+        super().__init__(name="alsa",
+                         alwaysAvailable=True,
+                         platforms=('linux',),
+                         audioDeviceRegex=r"([0-9]+):\s((?:adc|dac):.*)\((.*)\)")
+
+    def getSystemSr(self) -> Optional[int]:
+        if jacktools.isJackRunning():
+            return jacktools.getInfo().samplerate
+        if linuxaudio.isPipewireRunning():
+            return linuxaudio.pipewireInfo().sr
+        return 44100
+
+_backendJack = _JackAudioBackend()
+_backendPulseaudio = _PulseAudioBackend()
+_backendPortaudioBlocking = _PortaudioBackend('blocking')
+_backendPortaudioCallback = _PortaudioBackend('callback')
+_backendAlsa = _AlsaBackend()
+_backendCoreaudio = AudioBackend('auhal',
+                                 alwaysAvailable=True,
+                                 hasSystemSr=True,
+                                 needsRealtime=False,
+                                 longname="coreaudio",
+                                 platforms=('darwin',))
+
+
+_allAudioBackends: Dict[str, AudioBackend] = {
+    'jack' : _backendJack,
+    'auhal': _backendCoreaudio,
+    'coreaudio': _backendCoreaudio,
+    'pa_cb': _backendPortaudioCallback,
+    'portaudio': _backendPortaudioCallback,
+    'pa_bl': _backendPortaudioBlocking,
+    'pulse': _backendPulseaudio,
+    'pulseaudio': _backendPulseaudio,
+    'alsa' : _backendAlsa
 }
 
 
 _backendsByPlatform: Dict[str, List[AudioBackend]] = {
-    'linux': [_backend_jack, _backend_pacb, _backend_alsa, _backend_pabl, _backend_pulse],
-    'darwin': [_backend_jack, _backend_auhal, _backend_pacb],
-    'win32': [_backend_pacb, _backend_pabl]
+    'linux': [_backendJack, _backendPortaudioCallback, _backendAlsa,
+              _backendPortaudioBlocking, _backendPulseaudio],
+    'darwin': [_backendJack, _backendCoreaudio, _backendPortaudioCallback],
+    'win32': [_backendPortaudioCallback, _backendPortaudioBlocking]
 }
 
 
-_csoundbin = None
 _OPCODES = None
 
 
@@ -164,19 +294,15 @@ def nextpow2(n:int) -> int:
     return int(2 ** _math.ceil(_math.log(n, 2)))
     
 
-def findCsound() -> Opt[str]:
+@emlib.misc.runonce
+def findCsound() -> Optional[str]:
     """
     Find the csound binary or None if not found
     """
-    global _csoundbin
-    if _csoundbin:
-        return _csoundbin
     csound = _shutil.which("csound")
-    if csound:
-        _csoundbin = csound
-        return csound
-    logger.error("csound is not in the path!")
-    return None
+    if not csound:
+        logger.error("csound is not in the path!")
+    return csound
 
 
 def _getVersionViaApi() -> Tuple[int, int, int]:
@@ -241,7 +367,7 @@ def getVersion(useApi=True) -> Tuple[int, int, int]:
         raise RuntimeError("Did not found a csound version")
 
 
-def csoundSubproc(args: List[str], piped=True) -> _subprocess.Popen:
+def csoundSubproc(args: List[str], piped=True, wait=False) -> _subprocess.Popen:
     """
     Calls csound with given args in a subprocess, returns such _subprocess.
 
@@ -260,10 +386,13 @@ def csoundSubproc(args: List[str], piped=True) -> _subprocess.Popen:
     p = _subprocess.PIPE if piped else None
     callargs = [csound]
     callargs.extend(args)
-    return _subprocess.Popen(callargs, stderr=p, stdout=p)
+    proc = _subprocess.Popen(callargs, stderr=p, stdout=p)
+    if wait:
+        proc.wait()
+    return proc
     
 
-def getSystemSr(backend: str) -> Opt[float]:
+def getSystemSr(backend: str) -> Optional[float]:
     """
     Get the system samplerate for a given backend
 
@@ -362,8 +491,8 @@ def userPluginsFolder(float64=True) -> str:
 
 
 def runCsd(csdfile:str,
-           outdev ="",
-           indev ="",
+           outdev = "",
+           indev = "",
            backend = "",
            nodisplay = False,
            comment:str = None,
@@ -517,24 +646,24 @@ class ScoreEvent:
         args: any other args of the event (starting with p4)
     """
     kind: str
-    p1: U[str, int, float]
+    p1: Union[str, int, float]
     start: float
     dur: float
-    args: List[U[float, str]]
+    args: List[Union[float, str]]
 
 
 def parseScore(sco: str) -> Generator[ScoreEvent, None, None]:
     """
     Parse a score given as string, returns a seq. of :class:`ScoreEvent`
     """
-    p1: U[str, int]
+    p1: Union[str, int]
     for line in sco.splitlines():
         words = line.split()
         w0 = words[0]
         if w0 in {'i', 'f'}:
             kind = w0
             p1 = words[1]
-            if namenum := misc.asnumber(p1) is not None:
+            if namenum := emlib.misc.asnumber(p1) is not None:
                 p1 = namenum
             t0 = float(words[2])
             dur = float(words[3])
@@ -547,18 +676,18 @@ def parseScore(sco: str) -> Generator[ScoreEvent, None, None]:
             rest = words[3:]
         else:
             continue
-        args: List[U[float, str]] = []
+        args: List[Union[float, str]] = []
         for w in rest:
             if w.startswith('"'):
                 args.append(w)
             else:
-                arg = misc.asnumber(w)
+                arg = emlib.misc.asnumber(w)
                 assert isinstance(arg, (int, float))
                 args.append(arg)
         yield ScoreEvent(kind, p1, t0, dur, args)
 
 
-def opcodesList(cached=True, opcodedir=None) -> List[str]:
+def opcodesList(cached=True, opcodedir:str=None, useapi=True) -> List[str]:
     """
     Return a list of the opcodes present
 
@@ -566,6 +695,7 @@ def opcodesList(cached=True, opcodedir=None) -> List[str]:
         cached: if True, results are remembers between calls
         opcodedir: if given, plugin libraries will be loaded from
             this path (option --opcode-dir in csound)
+        useapi: if True, use the API to query the opcodes
 
     Returns:
         a list of all available opcodes
@@ -573,6 +703,22 @@ def opcodesList(cached=True, opcodedir=None) -> List[str]:
     global _OPCODES
     if _OPCODES is not None and cached:
         return _OPCODES
+    _OPCODES = _opcodesListAPI(opcodedir) if useapi else _opcodesList(opcodedir)
+    return _OPCODES
+
+
+def _opcodesListAPI(opcodedir=None) -> List[str]:
+    import ctcsound
+    cs = ctcsound.Csound()
+    if opcodedir:
+        cs.setOption(f'--opcode-dir="{opcodedir}"')
+    opcodes, n = cs.newOpcodeList()
+    opcodeNames = [opc.opname.decode('utf-8') for opc in opcodes]
+    cs.disposeOpcodeList(opcodes)
+    return list(set(opcodeNames))
+
+
+def _opcodesList(opcodedir=None) -> List[str]:
     options = ["-z"]
     if opcodedir:
         options.append(f'--opcode-dir={opcodedir}')
@@ -585,11 +731,11 @@ def opcodesList(cached=True, opcodedir=None) -> List[str]:
         opcodes = line.decode('utf8').split()
         if opcodes:
             allopcodes.extend(opcodes)
-    _OPCODES = allopcodes
     return allopcodes
 
    
-def saveAsGen23(data: Seq[float], outfile:str, fmt="%.12f", header="") -> None:
+def saveAsGen23(data: Sequence[float], outfile:str, fmt="%.12f", header=""
+                ) -> None:
     """
     Saves the data to a gen23 table
 
@@ -652,7 +798,7 @@ def _metadataAsComment(d: Dict[str, Any], maxSignificantDigits=10,
 
 
 def saveMatrixAsMtx(outfile: str, data: np.ndarray,
-                    metadata:Dict[str, U[str, float]]=None,
+                    metadata:Dict[str, Union[str, float]]=None,
                     encoding="float32",
                     title:str='',
                     sr:int=44100) -> None:
@@ -790,23 +936,34 @@ class AudioDevice:
     An AudioDevice holds information about a an audio device for a given backend
 
     Attributes:
-        index: the index of this audio device, as passed to adcXX or dacXX
         id: the device identification (dac3, adc2, etc)
         name: the name of the device
-        kind: 'output' / 'input'
-        ins: the number of inputs
-        outs: the number of outputs
+        index: the index of this audio device, as passed to adcXX or dacXX
+        kind: 'output' or 'input'
+        numchannels: the number of channels
     """
-    index: int
     id: str
     name: str
     kind: str
-    # api: str = ""
-    ins: int = -1
-    outs: int = -1
+    index: int = -1
+    numchannels: int = 0
+
+    def info(self) -> str:
+        s = f"{self.id}:{self.name}"
+        if self.kind == 'output':
+            s += f":{self.numchannels}outs"
+        else:
+            s += f":{self.numchannels}ins"
+        return s
 
 
-@_cachetools.cached(cache=_cachetools.TTLCache(1, 10))
+@_cachetools.cached(cache=_cachetools.TTLCache(10, 20))
+def getDefaultAudioDevices(backend:str=None) -> Tuple[AudioDevice, AudioDevice]:
+    backendDef = getAudioBackend(backend)
+    return backendDef.defaultAudioDevices()
+
+
+@_cachetools.cached(cache=_cachetools.TTLCache(10, 20))
 def getAudioDevices(backend:str=None) -> Tuple[List[AudioDevice], List[AudioDevice]]:
     """
     Returns (indevices, outdevices), where each of these lists is an AudioDevice.
@@ -829,7 +986,6 @@ def getAudioDevices(backend:str=None) -> Tuple[List[AudioDevice], List[AudioDevi
         The label can be passed to csound directly with either the -i or the -o flag
         (``-i{label}`` or ``-o{label}``)
     * name: A description of the device
-    * kind: 'input' for an input device, 'output' for an output device.
     * ins: number of input channels
     * outs: number of output channels
 
@@ -842,107 +998,29 @@ def getAudioDevices(backend:str=None) -> Tuple[List[AudioDevice], List[AudioDevi
         pa_bl    x      x    x     x                  PortAudio (blocking)
 
     """
-    if not backend:
-        backend = getDefaultBackend().name
-    if backend == "jack" and not jacktools.isJackRunning():
-        raise RuntimeError("jack is not running")
-    if backend == "pulse":
-        if not _isPulseaudioRunning():
-            raise RuntimeError("pulseaudio is not running")
-        return ([AudioDevice(0, id="adc", name="adc", kind="input", ins=2, outs=2)],
-                [AudioDevice(0, id="dac", name="dac", kind="output", ins=2, outs=2)])
-
-    indevices, outdevices = [], []
-    proc = csoundSubproc(['-+rtaudio=%s'%backend, '--devices'])
-    proc.wait()
-    lines = proc.stderr.readlines()
-    # regex_all = r"([0-9]+):\s(adc[0-9]+|dac[0-9]+)\s\((.+)\)"
-    # regex_all = r"([0-9]+):\s((?:adc|dac)\d+)\s*\((.*)\)"
-    if backend in {'pa_cb', 'pa_bl', 'portaudio'}:
-        regex_all = r"([0-9]+):\s((?:adc|dac)\d+)\s*\((.*)\)"
-    elif backend in {'alsa'}:
-        regex_all = r"([0-9]+):\s((?:adc|dac):.*)\((.*)\)"
-    else:
-        raise RuntimeError(f"Operation not available for backend {backend}")
-    for line in lines:
-        line = line.decode("ascii")
-        match = _re.search(regex_all, line)
-        if not match:
-            continue
-        idxstr, devid, devnameraw = match.groups()
-        isinput = devid.startswith("adc")
-        if backend in {'portaudio', 'pa_cb', 'pa_bl'}:
-            name, api, inch, outch = _parsePortaudioDeviceName(devnameraw)
-        else:
-            name = devnameraw
-            api = ''
-            inch = -1
-            outch = -1
-        dev = AudioDevice(int(idxstr), id=devid, name=name,
-                          kind="input" if isinput else "output",
-                          ins=inch, outs=outch)
-        if isinput:
-            indevices.append(dev)
-        else:
-            outdevices.append(dev)
-    return indevices, outdevices
+    backendDef = getAudioBackend(backend)
+    return backendDef.audioDevices()
 
 
-def getSamplerateForBackend(backend: U[str, AudioBackend] = None) -> int:
+def getSamplerateForBackend(backend: str = None) -> Optional[int]:
     """
-    Returns the samplerate reported by the given backend, or
-    0 if failed
+    Returns the samplerate reported by the given backend
+
+    Args:
+        backend: the backend to query. None to use the default backend
+
+    Returns:
+        the samplerate for the given backend or None if failed
     """
-    if isinstance(backend, str):
-        audiobackend = getAudioBackend(backend)
-        if audiobackend is None:
-            raise ValueError(f"Backend {backend} not known")
-    else:
-        audiobackend = backend
-    assert isinstance(audiobackend, AudioBackend)
-
-    FAILED = 0
-
-    if not audiobackend.isAvailable():
-        raise RuntimeError(f"Audiobackend {audiobackend} is not available")
-
-    if not audiobackend.hasSystemSr:
-        return 44100
-
-    if audiobackend.name == 'jack' and _shutil.which('jack_samplerate') is not None:
-        sr = int(_subprocess.getoutput("jack_samplerate"))
-        return sr
-
-    proc = csoundSubproc(f"-odac -+rtaudio={backend} --get-system-sr".split())
-    proc.wait()
-    srlines = [line for line in proc.stdout.readlines() 
-               if line.startswith(b"system sr:")]
-    if not srlines:
-        logger.error(f"get_sr: Failed to get sr with backend {audiobackend.name}")
-        return FAILED
-    sr = int(srlines[0].split(b":")[1].strip())
-    logger.debug(f"get_sr: sample rate query output: {srlines}")
-    return sr if sr > 0 else FAILED
+    backendDef = getAudioBackend(backend)
+    if not backendDef.isAvailable():
+        raise RuntimeError(f"Audiobackend {backendDef.name} is not available")
+    return backendDef.getSystemSr()
 
 
 def _csoundTestJackRunning():
-    proc = csoundSubproc(['-+rtaudio=jack', '-odac', '--get-system-sr'])
-    proc.wait()
+    proc = csoundSubproc(['-+rtaudio=jack', '-odac', '--get-system-sr'], wait=True)
     return b'could not connect to JACK server' not in proc.stderr.read()
-
-
-@_cachetools.cached(cache=_cachetools.TTLCache(1, 15))
-def isBackendAvailable(backend: str) -> bool:
-    """ Returns True if the given audio backend is available """
-    if backend == 'jack':
-        out = jacktools.isJackRunning()
-    elif backend == 'pulse':
-        out = _isPulseaudioRunning()
-    else:
-        indevices, outdevices = getAudioDevices(backend=backend)
-        out = bool(indevices or outdevices)
-    return out
-
 
 
 def audioBackends(available=False, platform:str=None) -> List[AudioBackend]:
@@ -989,9 +1067,11 @@ def dumpAudioBackends() -> None:
     """
     rows = []
     headers = "name longname sr".split()
-    for b in audioBackends(available=True):
+    backends = audioBackends(available=True)
+    backends.sort(key=lambda backend:backend.name)
+    for b in backends:
         if b.hasSystemSr:
-            sr = getSystemSr(b.name)
+            sr = b.getSystemSr()
         else:
             sr = "-"
         rows.append((b.name, b.longname, sr))
@@ -999,16 +1079,34 @@ def dumpAudioBackends() -> None:
     print_table(rows, headers=headers, showindex=False)
 
 
-def getAudioBackend(name:str=None) -> Opt[AudioBackend]:
-    """ Given the name of the backend, return the AudioBackend structure """
+def getAudioBackend(name:str=None) -> Optional[AudioBackend]:
+    """ Given the name of the backend, return the AudioBackend structure
+
+    Args:
+        name: the name of the backend
+
+    ========== =================== ======= ========= =======
+     Name       Description         Linux   Windows   MacOS
+    ========== =================== ======= ========= =======
+    pa_cb      portaudio-callback     x        x        x
+    pa_bl      portaudio-blocking     x        x        x
+    portaudio  alias to pa_cb         x        x        x
+    jack       jack                   x        ?        x
+    pulse      pulseaudio             x        -        -
+    pulseaudio alias to pulse         x        -        -
+    auhal      coreaudio              -        -        x
+    coreaudio  alias to auhal         -        -        x
+    ========== ==================  ======= ========= =======
+
+    """
     if name is None:
         return getDefaultBackend()
-    return allAudioBackends.get(name)
+    return _allAudioBackends.get(name)
 
 
 def getAudioBackendNames(available=False, platform:str=None) -> List[str]:
     """
-    Returns a list with the names of the audio backends
+    Returns a list with the names of the audio backends for a given platform
 
     Args:
         available: if True, return the names for only those backends which are
@@ -1018,7 +1116,7 @@ def getAudioBackendNames(available=False, platform:str=None) -> List[str]:
 
     Returns:
         a list with the names of all available backends for the
-        current platform
+        given platform
 
     Example
     =======
@@ -1036,11 +1134,11 @@ def getAudioBackendNames(available=False, platform:str=None) -> List[str]:
     return [b.name for b in backends]
 
 
-def _quoteIfNeeded(arg:U[float, int, str]) -> U[float, int, str]:
+def _quoteIfNeeded(arg:Union[float, int, str]) -> Union[float, int, str]:
     return arg if not isinstance(arg, str) else f'"{arg}"'
 
 
-def _eventStartTime(event:U[list, tuple]) -> float:
+def _eventStartTime(event:Union[list, tuple]) -> float:
     kind = event[0]
     if kind == "e":           # end
         return event[1]
@@ -1050,7 +1148,7 @@ def _eventStartTime(event:U[list, tuple]) -> float:
         assert len(event) >= 3
         return event[2]
 
-_normalizer = textlib.makeReplacer({".":"_", ":":"_", " ":"_"})
+_normalizer = emlib.textlib.makeReplacer({".":"_", ":":"_", " ":"_"})
 
 
 def normalizeInstrumentName(name:str) -> str:
@@ -1163,8 +1261,8 @@ class Csd:
                  nodisplay=False, carry=False):
         self._strLastIndex = 20
         self._str2index: Dict[str, int] = {}
-        self.score: List[U[list, tuple]] = []
-        self.instrs: Dict[U[str, int], str] = {}
+        self.score: List[Union[list, tuple]] = []
+        self.instrs: Dict[Union[str, int], str] = {}
         self.globalcodes: List[str] = []
         self.options: List[str] = []
         if options:
@@ -1173,7 +1271,7 @@ class Csd:
         self.ksmps = ksmps
         self.nchnls = nchnls
         self.a4 = a4
-        self._sampleFormat: Opt[str] = None
+        self._sampleFormat: Optional[str] = None
         self._definedTables: Set[int] = set()
         self._minTableIndex = 1
         self.nodisplay = nodisplay
@@ -1182,7 +1280,7 @@ class Csd:
             self.score.append(("C", 0))
 
     def addEvent(self,
-                 instr: U[int, float, str],
+                 instr: Union[int, float, str],
                  start: float,
                  dur: float,
                  args: List[float] = None) -> None:
@@ -1245,7 +1343,8 @@ class Csd:
         self.score.append(pargs)
         return tabnum
 
-    def addTableFromSeq(self, seq: U[Seq[float], np.ndarray], tabnum:int=0, start=0
+    def addTableFromSeq(self, seq: Union[Sequence[float], np.ndarray],
+                        tabnum:int=0, start=0
                         ) -> int:
         """
         Create a ftable, fill it with seq, return the ftable index
@@ -1357,7 +1456,7 @@ class Csd:
             stream.write(line)
             stream.write("\n")
             
-    def addInstr(self, instr: U[int, str], instrstr: str) -> None:
+    def addInstr(self, instr: Union[int, str], instrstr: str) -> None:
         """ Add an instrument definition to this csd """
         self.instrs[instr] = instrstr
 
@@ -1396,7 +1495,7 @@ class Csd:
         args = [gain, speed, tabnum, chan, fade, skip]
         self.addEvent('_playgen1', start=start, dur=dur, args=args)
 
-    def writeCsd(self, stream: U[str, IO]) -> None:
+    def writeCsd(self, stream: Union[str, IO]) -> None:
         """
         Args:
             stream: the stream to write to. Either a path, an open file or
@@ -1504,8 +1603,8 @@ class Csd:
 
 
 def mincer(sndfile:str, outfile:str,
-           timecurve:U[Curve, float],
-           pitchcurve:U[Curve, float],
+           timecurve:Union[Curve, float],
+           pitchcurve:Union[Curve, float],
            dt=0.002, lock=False, fftsize=2048, ksmps=128, debug=False
            ) -> dict:
     """
@@ -1561,13 +1660,13 @@ def mincer(sndfile:str, outfile:str,
     if isinstance(timecurve, (int, float)):
         t0, t1 = 0, info.duration / timecurve
         timebpf = bpf.linear(0, 0, t1, info.duration)
-    elif isinstance(timecurve, bpf.co_re.BpfInterface):
+    elif isinstance(timecurve, bpf.core.BpfInterface):
         t0, t1 = timecurve.bounds()
         timebpf = timecurve
     else:
         raise TypeError("timecurve should be either a scalar or a bpf")
     
-    assert isinstance(pitchcurve, (int, float, bpf.co_re.BpfInterface))
+    assert isinstance(pitchcurve, (int, float, bpf.core.BpfInterface))
     ts = np.arange(t0, t1+dt, dt)
     fmt = "%.12f"
     _, time_gen23 = _tempfile.mkstemp(prefix='time-', suffix='.gen23')
@@ -1759,7 +1858,7 @@ def ftsaveRead(path, mode="text"):
         raise ValueError(f"mode {mode} not supported")
 
 
-def getNchnls(backend: str=None, device:str=None, indevice:str=None,
+def getNchnls(backend: str=None, outpattern:str=None, inpattern:str=None,
               defaultin:int=2, defaultout:int=2
               ) -> Tuple[int, int]:
     """
@@ -1780,137 +1879,51 @@ def getNchnls(backend: str=None, device:str=None, indevice:str=None,
         a tuple (nchnls_i, nchnls) for that backend+device combination
 
     """
-    assert device != "adc" and indevice != "dac"
-    if backend is None:
-        backend = getDefaultBackend().name
-    if indevice is None:
-        indevice = device
-
-    if backend == 'jack':
-        if device and device.startswith("dac:"):
-            device = device[4:]
-        if indevice and indevice.startswith("adc:"):
-            indevice = indevice[4:]
-        return _getNchnlsJackViaJackclient(indevice=indevice, outdevice=device)
-    elif backend == 'portaudio' or backend == 'pa_cb' or backend == 'pa_bl':
-        return _getNchnlsPortaudio(indevice=indevice, outdevice=device)
-    elif backend == "pulse" or backend == "pulseaudio":
-        return 2, 2
+    backendDef = getAudioBackend(backend)
+    adc, dac = backendDef.defaultAudioDevices()
+    if outpattern is None:
+        outdev = dac
     else:
-        return defaultin, defaultout
-
-def defaultDevicesForBackend(backendname:str=None) -> Tuple[str, str]:
-    """
-    Get the default input and output devices for the backend
-
-    Args:
-        backendname (str): the name of the backend to use
-
-    Returns:
-        A tuple (adc, dac) as passed to -i and -o respectively
-
-    Example::
-
-        >>> defaultDevicesForBackend("jack")
-        ('adc:system:capture_.*', 'dac:system:playback_.*')
-
-    """
-    if backendname is None:
-        backend = getDefaultBackend()
+        outdev = backendDef.searchAudioDevice(outpattern, kind='output')
+        if not outdev:
+            raise ValueError(f"Output device {outpattern} not found")
+    nchnls = outdev.numchannels if outdev.numchannels is not None else defaultout
+    if inpattern is None:
+        indev = adc
     else:
-        _backend = getAudioBackend(backendname)
-        if _backend is None:
-            backends = getAudioBackendNames()
-            raise ValueError(
-                f"Backend {backendname} not known. Possible backends: {backends}")
-        backend = _backend
-    return (backend.adc, backend.dac)
+        indev = backendDef.searchAudioDevice(inpattern, kind='input')
+        if not indev:
+            raise ValueError(f"Input device {inpattern} not found")
+    nchnlsi = indev.numchannels if indev.numchannels is not None else defaultin
+    return nchnlsi, nchnls
 
 
-def _getNchnlsJack(indevice:str, outdevice:str) -> Tuple[int, int]:
-    """
-    
-    Args:
-        indevice (str): regex pattern for input client 
-        outdevice (str): regex pattern for output client
-
-    Returns:
-        a tuple (number of inputs, number of outputs)
-    """
-    if indevice is None:
-        indevice = outdevice
-
-    if indevice == "adc" or indevice is None:
-        indevice = "system:capture_.*"
-    if outdevice == "dac" or outdevice is None:
-        outdevice = "system:playback_.*"
-    if not jacktools.isJackRunning():
-        return 0, 0
-    indevs, outdevs = getAudioDevices('jack')
-    outports = []
-    inports = []
-    for outdev in outdevs:
-        if _re.search(outdevice, outdev.name):
-            outports.append(outdev)
-    for indev in indevs:
-        if _re.search(indevice, indev.name):
-            inports.append(indev)
-    return len(inports), len(outports)
-
-
-def _isJackRunningViaJackclient() -> bool:
-    import jack
-    try:
-        client = jack.Client("query", no_start_server=True)
-    except jack.JackOpenError:
-        return False
-    client.close()
-    return True
-
-
-def _getNchnlsJackViaJackclient(indevice:Opt[str], outdevice:Opt[str]
+def _getNchnlsJackViaJackclient(indevice:str, outdevice:str
                                 ) -> Tuple[int, int]:
     """
     Get the number of ports for the given clients using JACK-Client
-    This is faster than csound and should result in the same results
+    This is faster than csound and should give the same results
 
     Args:
-        indevice (str): A regex pattern matching the input client
+        indevice (str): A regex pattern matching the input client, or "adc" or
+            None to query the physical ports
         outdevice (str): A regex pattern matching the output client
-
+            Use "dac" or None to query the physical ports
     Returns:
         a tuple (number of inputs, number of outputs)
     """
     import jack
     c = jack.Client("query")
-    if indevice == "adc" or indevice is None:
-        indevice = "system:capture_.*"
-    if outdevice == "dac" or outdevice is None:
-        outdevice = "system:playback_.*"
-    # NB: our output ports are other clients input ports, so the
-    # query is reversed
-    outports = c.get_ports(outdevice, is_audio=True, is_input=True)
-    inports = c.get_ports(indevice, is_audio=True, is_output=True)
+    if indevice == "adc" or not indevice:
+        inports = [p for p in c.get_ports(is_audio=True, is_output=True, is_physical=True)]
+    else:
+        inports = c.get_ports(indevice, is_audio=True, is_output=True)
+    if outdevice == "dac" or not outdevice:
+        outports = [p for p in c.get_ports(is_audio=True, is_input=True, is_physical=True)]
+    else:
+        outports = c.get_ports(outdevice, is_audio=True, is_input=True)
+    c.close()
     return len(inports), len(outports)
-
-
-def _getNchnlsPortaudioSounddevice(indevice:str, outdevice:str
-                                   ) -> Tuple[int, int]:
-    import sounddevice
-    devlist = sounddevice.query_devices()
-    if indevice is None or indevice == "adc":
-        indevice = r"\bdefault\b"
-    if outdevice is None or outdevice == "dac":
-        outdevice = r"\bdefault\b"
-    max_input_channels, max_output_channels = 0, 0
-    for dev in devlist:
-        if max_input_channels == 0 and _re.search(indevice, dev['name']):
-            max_input_channels = dev['max_input_channels']
-        if max_output_channels == 0 and _re.search(outdevice, dev['name']):
-            max_output_channels = dev['max_output_channels']
-        if max_input_channels and max_output_channels:
-            break
-    return max_input_channels, max_output_channels
 
 
 def _parsePortaudioDeviceName(name:str) -> Tuple[str, str, int, int]:
@@ -1936,7 +1949,7 @@ def _parsePortaudioDeviceName(name:str) -> Tuple[str, str, int, int]:
     return devname.strip(), api, inch, outch
 
 
-def _getNchnlsPortaudio(indevice:Opt[str], outdevice:Opt[str]
+def _getNchnlsPortaudio(indevice:Optional[str], outdevice:Optional[str]
                         ) -> Tuple[int, int]:
     indevs, outdevs = getAudioDevices(backend="portaudio")
     assert indevice != "dac" and outdevice != "adc"
@@ -1947,13 +1960,13 @@ def _getNchnlsPortaudio(indevice:Opt[str], outdevice:Opt[str]
 
     for indev in indevs:
         if indevice == indev.id or _re.search(indevice, indev.name):
-            max_input_channels = indev.ins
+            max_input_channels = indev.numchannels
             break
     else:
         max_input_channels = -1
     for outdev in outdevs:
         if outdevice == outdev.id or _re.search(outdevice, outdev.name):
-            max_output_channels = outdev.outs
+            max_output_channels = outdev.numchannels
             break
     else:
         max_output_channels = -1
@@ -1980,7 +1993,7 @@ def dumpAudioDevices(backend:str=None):
         print("  ", dev)
 
 
-def instrNames(instrdef: str) -> List[U[int, str]]:
+def instrNames(instrdef: str) -> List[Union[int, str]]:
     """
     Returns the list of names/instrument numbers in the instrument definition.
 
@@ -2011,9 +2024,9 @@ def instrNames(instrdef: str) -> List[U[int, str]]:
         if not line.startswith("instr "):
             continue
         names = line[6:].split(",")
-        out: List[U[str, int]] = []
+        out: List[Union[str, int]] = []
         for n in names:
-            asnum = misc.asnumber(n)
+            asnum = emlib.misc.asnumber(n)
             if asnum is None:
                 out.append(n)
             else:
@@ -2027,13 +2040,23 @@ def instrNames(instrdef: str) -> List[U[int, str]]:
 class ParsedBlock:
     """
     A ParsedBlock represents a block (am instr, opcode, etc) in an orchestra
+
+    Attributes:
+        kind: the kind of block ('instr', 'opcode', 'header')
+        text: thet text of the block
+        startLine: where does this block start within the parsed orchestra
+        endLine: where does this block end
+        name: name of the block
+        attrs: some blocks need extra information. Opcodes define attrs 'outargs' and
+            'inargs' (corresponding to the xin and xout opcodes), header blocks have
+            a 'value' attr
     """
     kind: str
     text: str
     startLine: int
     endLine: int = -1
     name: str = ''
-    attrs: Opt[Dict[str, str]] = None
+    attrs: Optional[Dict[str, str]] = None
 
     def __post_init__(self):
         if self.endLine == -1:
@@ -2077,7 +2100,7 @@ def parseOrc(code: str, keepComments=True) -> List[ParsedBlock]:
             blocks.append(ParsedBlock(kind='instr',
                                       startLine=block.startLine,
                                       endLine=block.endLine,
-                                      text='\ņ'.join(block.lines),
+                                      text='\n'.join(block.lines),
                                       name=block.name))
         elif strippedline == 'endop':
             assert context[-1] == "opcode"
@@ -2137,15 +2160,20 @@ class ParsedInstrBody:
     pfieldsIndexToName: dict[int, str]
     pfieldsText: str
     body: str
-    pfieldsDefaults: Opt[dict[int, float]] = None
-    pfieldsUsed: Opt[set[int]] = None
-    outChannels: Opt[set[int]] = None
+    pfieldsDefaults: Optional[dict[int, float]] = None
+    pfieldsUsed: Optional[set[int]] = None
+    outChannels: Optional[set[int]] = None
+    pfieldsNameToIndex: dict[str, int] = None
+
+    def __post_init__(self):
+        self.pfieldsNameToIndex = {name:idx for idx, name in self.pfieldsIndexToName.items()}
 
     def numPfields(self) -> int:
         """ Returns the number of pfields in this instrument """
         if not self.pfieldsUsed:
             return 3
         return max(self.pfieldsUsed)
+
 
 
 @_lru_cache(maxsize=1000)
@@ -2198,7 +2226,7 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                 args = line.strip()[5:].split(",")
                 channels = args[::2]
                 for chans in channels:
-                    if chan := misc.asnumber(chans) is not None:
+                    if (chan := emlib.misc.asnumber(chans)) is not None:
                         outchannels.add(chan)
             rest_lines.append(line)
 
@@ -2236,7 +2264,7 @@ def bestSampleFormatForExtension(ext: str) -> str:
         raise ValueError("Format {ext} not supported")
 
 
-def _parsePresetSflistprograms(line:str) -> Opt[Tuple[str, int, int]]:
+def _parsePresetSflistprograms(line:str) -> Optional[Tuple[str, int, int]]:
     # 012345678
     # xxx:yyy zzzzzzzzzz
     bank = int(line[:3])
@@ -2245,7 +2273,7 @@ def _parsePresetSflistprograms(line:str) -> Opt[Tuple[str, int, int]]:
     return (name, bank, num)
 
 
-def _parsePreset(line: str) -> Opt[Tuple[str, int, int]]:
+def _parsePreset(line: str) -> Optional[Tuple[str, int, int]]:
     match = _re.search(r">> Bank: (\d+)\s+Preset:\s+(\d+)\s+Name:\s*(.+)", line)
     if not match:
         return
@@ -2277,12 +2305,21 @@ class SoundFontIndex:
 
 
 @_lru_cache(maxsize=0)
-def _soundfontGetInstrumentsAndPresets(sfpath: str):
+def _soundfontGetInstrumentsAndPresets(sfpath: str
+                                       ) -> Tuple[List[Tuple[int, str]],
+                                                  List[Tuple[int, int, str]]]:
+    """
+    Returns a tuple (instruments, presets), where instruments is a list
+    of tuples(instridx, instrname) and presets is a list of tuples
+    (bank, presetnum, name)
+    """
     from sf2utils.sf2parse import Sf2File
     f = open(sfpath, 'rb')
     sf = Sf2File(f)
+    instruments: List[Tuple[int, str]]
     instruments = [(num, instr.name) for num, instr in enumerate(sf.instruments)
                    if instr.name != 'EOI']
+    presets: List[Tuple[int, int, str]]
     presets = [(p.bank, p.preset, p.name)
                for p in sf.presets
                if p.name != 'EOP']
@@ -2304,6 +2341,8 @@ def soundfontGetInstruments(sfpath: str) -> List[Tuple[int, str]]:
     Returns:
         a list of tuples (index:int, instrname:str)
     """
+    if sfpath == "?":
+        sfpath = _state.openSoundfont(ensureSelection=True)
     instrs, _ = _soundfontGetInstrumentsAndPresets(sfpath)
     return instrs
 
@@ -2318,11 +2357,32 @@ def soundfontGetPresets(sfpath: str) -> List[Tuple[int, int, str]]:
     Returns:
         a list of tuples (bank:int, presetnum:int, name:str)
     """
+    if sfpath == "?":
+        sfpath = _state.openSoundfont(ensureSelection=True)
     _, presets = _soundfontGetInstrumentsAndPresets(sfpath)
     return presets
 
 
-def soundfontInstrument(sfpath: str, name:str) -> Opt[int]:
+def soundfontSelectPreset(sfpath: str
+                          ) -> Tuple[str, int, int]:
+    """
+    Select a preset from a soundfont interactively
+
+    Returns:
+        a tuple (preset name, bank, preset number)
+
+    .. figure:: ../assets/select-preset.png
+    """
+    presets = soundfontGetPresets(sfpath)
+    items = [f'{bank:03d}:{pnum:03d}:{name}' for bank, pnum, name in presets]
+    item = emlib.dialogs.selectItem(items, ensureSelection=True)
+    idx = items.index(item)
+    preset = presets[idx]
+    bank, pnum, name= preset
+    return (name, bank, pnum)
+
+
+def soundfontInstrument(sfpath: str, name:str) -> Optional[int]:
     """
     Get the instrument number from a preset
 
@@ -2336,6 +2396,8 @@ def soundfontInstrument(sfpath: str, name:str) -> Opt[int]:
     Returns:
         the instrument index, if exists
     """
+    if sfpath == "?":
+        sfpath = _state.openSoundfont(ensureSelection=True)
     sfindex = soundfontIndex(sfpath)
     return sfindex.nameToIndex.get(name)
 
@@ -2343,6 +2405,14 @@ def soundfontInstrument(sfpath: str, name:str) -> Opt[int]:
 def highlightCsoundOrc(code: str, theme:str=None) -> str:
     """
     Converts csound code to html with syntax highlighting
+
+    Args:
+        code: the code to highlight
+        theme: the theme used, one of 'light', 'dark'. None to use default
+            (see config['html_theme'])
+
+    Returns:
+        the corresponding html
     """
     if theme is None:
         from .config import config

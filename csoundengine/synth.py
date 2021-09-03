@@ -8,10 +8,10 @@ import emlib.misc
 import weakref as _weakref
 from . import jupytertools
 
-from typing import TYPE_CHECKING, Union as U, Optional as Opt, KeysView, Dict, List, Set
-
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from typing import *
     from .engine import Engine
     from .instr import Instr
     from .paramtable import ParamTable
@@ -49,7 +49,6 @@ class AbstrSynth:
     def playing(self) -> bool:
         """ Is this synth playing? """
         raise NotImplementedError()
-
 
     def finished(self) -> bool:
         """ Has this synth ceased to play? """
@@ -100,7 +99,7 @@ class AbstrSynth:
         """
         raise NotImplementedError()
 
-    def get(self, slot: U[int, str], default: float = None) -> Opt[float]:
+    def get(self, slot: Union[int, str], default: float = None) -> Optional[float]:
         """
         Get the value of a named parameter
 
@@ -115,7 +114,7 @@ class AbstrSynth:
         """
         raise NotImplementedError()
 
-    def tableParams(self) -> Opt[Set[str]]:
+    def tableParams(self) -> Optional[Set[str]]:
         """
         Return a seq. of all named parameters
 
@@ -136,7 +135,7 @@ class AbstrSynth:
         """ Does this synth have an associated parameter table?"""
         raise NotImplementedError()
 
-    def automateTable(self, param: str, pairs: U[List[float], np.ndarray],
+    def automateTable(self, param: str, pairs: Union[List[float], np.ndarray],
                       mode="linear", delay=0., overtake=False) -> None:
         """
         Automate a table parameter. Time stamps are relative to the start
@@ -155,14 +154,18 @@ class AbstrSynth:
         """
         raise NotImplementedError()
 
-    def namedPfields(self) -> Opt[Set[str]]:
+    def namedPfields(self) -> Optional[Set[str]]:
         """
         Returns a set of all named pfields
         """
         raise NotImplementedError()
 
-    def automatep(self, param: U[int, str], pairs: U[List[float], np.ndarray],
-                  mode="linear", delay=0., overtake=False) -> AbstrSynth:
+    def automatep(self,
+                  param: Union[int, str],
+                  pairs: Union[List[float], np.ndarray],
+                  mode="linear",
+                  delay=0.,
+                  overtake=False) -> AbstrSynth:
         """
         Automate the value of a pfield.
 
@@ -276,7 +279,7 @@ class Synth(AbstrSynth):
         self.startTime: float = starttime or time.time()
         self.dur: float = dur
         self.pargs: List[float] = pargs
-        self.table: Opt[ParamTable] = table
+        self.table: Optional[ParamTable] = table
         self.synthGroup = synthgroup
         self._playing: bool = True
 
@@ -312,11 +315,15 @@ class Synth(AbstrSynth):
             argsstr = " ".join(argsstrs)
             argsstr = fr'<span style="font-size:{argsfontsize};">{argsstr}</span>'
             parts.append(argsstr)
-        return '<span style="font-size:12px;">∿(' + ', '.join(parts) + ')</span>'
+        # return '<span style="font-size:12px;">∿(' + ', '.join(parts) + ')</span>'
+        return '<span style="font-size:12px;">Synth('+', '.join(parts)+')</span>'
 
     def _repr_html_(self) -> str:
-        if config['stop_button_inside_jupyter'] and emlib.misc.inside_jupyter():
-            jupytertools.displayButton("Stop", self.stop)
+        if emlib.misc.inside_jupyter():
+            if config['jupyter_synth_repr_stopbutton']:
+                jupytertools.displayButton("Stop", self.stop)
+            if config['jupyter_synth_repr_interact'] and self.pargs:
+                pass
         return f"<p>{self._html()}</p>"
 
     def __repr__(self):
@@ -383,12 +390,12 @@ class Synth(AbstrSynth):
     def finished(self) -> bool:
         return self.playStatus() == 'stopped'
 
-    def tableState(self) -> Opt[Dict[str, float]]:
+    def tableState(self) -> Optional[Dict[str, float]]:
         if self.table is None:
             return None
         return self.table.asDict()
 
-    def tableParams(self) -> Opt[Set[str]]:
+    def tableParams(self) -> Optional[Set[str]]:
         if self.table is None:
             return None
         return set(self.table.mapping.keys())
@@ -419,7 +426,8 @@ class Synth(AbstrSynth):
                 for key, value in kws.items():
                     self.table[key] = value
 
-    def get(self, slot: U[int, str], default: float = None) -> Opt[float]:
+    def get(self, slot: Union[int, str], default: float = None
+            ) -> Optional[float]:
         if not self._playing:
             logger.error("Synth not playing")
             return
@@ -430,7 +438,7 @@ class Synth(AbstrSynth):
 
         return self.table.get(slot, default)
 
-    def namedPfields(self) -> Opt[Set[str]]:
+    def namedPfields(self) -> Optional[Set[str]]:
         name2idx = self.instr.pargsNameToIndex
         return set(name2idx.keys()) if name2idx else None
 
@@ -466,7 +474,6 @@ class Synth(AbstrSynth):
             # Can we just modify the scheduled value?
             return
 
-
         # most common use: just one pair
         if not kws and len(args) == 2:
             k = args[0]
@@ -488,11 +495,65 @@ class Synth(AbstrSynth):
         pairs = iterlib.flatdict(pairsd)
         self.engine.setp(self.synthid, *pairs, delay=delay)
 
+    def ui(self, **specs: Dict[str, Tuple[float, float]]) -> None:
+        """
+        Modify dynamic (named) arguments through an interactive user-interface
+
+        If run inside a jupyter notebook, this method will create embedded widgets
+        to control the values of the dynamic pfields of an event
+
+        Args:
+            **specs: a dict mapping named arg to a tuple (minvalue, maxvalue)
+
+        Example
+        =======
+
+        .. code::
+
+            # Inside jupyter
+            from csoundengine import *
+            s = Engine().session()
+            s.defInstr('vco', r'''
+              |kmidinote, kampdb=-12, kcutoff=3000, kres=0.9|
+              kfreq = mtof:k(kmidinote)
+              asig = vco2:a(ampdb(kampdb), kfreq)
+              asig = moogladder2(asig, kcutoff, kres)
+              asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
+              outs asig, asig
+            ''')
+            synth = s.sched('vco', kmidinote=67)
+            # Specify the ranges for some sliders. All named parameters
+            # are assigned a widget
+            synth.ui(kampdb=(-48, 0), kres=(0, 1))
+
+        .. figure:: ../assets/synthui.png
+
+        """
+        if self.playStatus() == 'future':
+            return
+        from . import interact
+        pairs = list(self.instr.pargsIndexToName.items())
+        pairs.sort()
+        pargindexes, pargnames = zip(*pairs)
+        pvalues = [self.engine.getp(self.synthid, idx) for idx in pargindexes]
+        paramspecs = {}
+        for idx, pargname, value in zip(pargindexes, pargnames, pvalues):
+            if pargname in specs:
+                minval, maxval = specs[pargname]
+            else:
+                minval, maxval = interact._guessRange(value, pargname)
+            paramspecs[idx] = interact.ParamSpec(pargname,
+                                                      minvalue=minval,
+                                                      maxvalue=maxval,
+                                                      startvalue=value)
+        return interact.interactPargs(self.engine, self.synthid, specs=paramspecs)
+
+
     def hasParamTable(self) -> bool:
         """ Returns True if this synth has an associated parameter table """
         return self.table is not None
 
-    def automateTable(self, param: str, pairs: U[List[float], np.ndarray],
+    def automateTable(self, param: str, pairs: Union[List[float], np.ndarray],
                       mode="linear", delay=0., overtake=False) -> float:
         if not self.table:
             raise RuntimeError(
@@ -505,7 +566,7 @@ class Synth(AbstrSynth):
         return self.engine.automateTable(self.table.tableIndex, paramidx, pairs,
                                          mode=mode, delay=delay, overtake=overtake)
 
-    def automatep(self, param: U[int, str], pairs: U[List[float], np.ndarray],
+    def automatep(self, param: Union[int, str], pairs: Union[List[float], np.ndarray],
                   mode="linear", delay=0., overtake=False) -> float:
         if isinstance(param, str):
             pidx = self.instr.pargIndex(param)
@@ -525,6 +586,7 @@ class Synth(AbstrSynth):
             self.synthGroup.stop(delay=delay)
         else:
             self.session.unsched(self.synthid, delay=delay)
+
 
 
 class SynthGroup(AbstrSynth):
@@ -577,8 +639,12 @@ class SynthGroup(AbstrSynth):
                 out.update(namedPargs)
         return out
 
-    def automatep(self, param: U[int, str], pairs: U[List[float], np.ndarray],
-                  mode="linear", delay=0., overtake=False) -> List[float]:
+    def automatep(self,
+                  param: Union[int, str],
+                  pairs: Union[List[float], np.ndarray],
+                  mode="linear",
+                  delay=0.,
+                  overtake=False) -> List[float]:
         eventids = []
         for synth in self.synths:
             if synth.table and param in synth.tableParams():
@@ -589,7 +655,7 @@ class SynthGroup(AbstrSynth):
     def hasParamTable(self) -> bool:
         return any(s.hasParamTable() is not None for s in self.synths)
 
-    def tableState(self) -> Opt[Dict[str, float]]:
+    def tableState(self) -> Optional[Dict[str, float]]:
         dicts = []
         for s in self.synths:
             d = s.tableState()
@@ -606,7 +672,7 @@ class SynthGroup(AbstrSynth):
         instr0 = self.synths[0].instr
         return all(synth.instr == instr0 for synth in self.synths if synth.playing())
 
-    def _htmlTable(self) -> Opt[str]:
+    def _htmlTable(self) -> Optional[str]:
         synth0 = self.synths[0]
         instr0 = synth0.instr
         if any(synth.instr != instr0 for synth in self.synths):
@@ -649,7 +715,7 @@ class SynthGroup(AbstrSynth):
         return emlib.misc.html_table(rows, headers=colnames)
 
     def _repr_html_(self) -> str:
-        if config['stop_button_inside_jupyter'] and emlib.misc.inside_jupyter():
+        if config['jupyter_synth_repr_stopbutton'] and emlib.misc.inside_jupyter():
             jupytertools.displayButton("Stop", self.stop)
         if self._uniqueInstr():
             instrcol = jupytertools.defaultStyle["name.color"]
@@ -684,7 +750,7 @@ class SynthGroup(AbstrSynth):
         for synth in self.synths:
             synth.set(*args, delay=delay, **kws)
 
-    def get(self, idx: U[int, str], default=None) -> List[Opt[float]]:
+    def get(self, idx: Union[int, str], default=None) -> List[Optional[float]]:
         """
         Get the value of a tabarg
 

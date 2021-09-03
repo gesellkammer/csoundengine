@@ -19,6 +19,7 @@ Session
       ~Session.makeRenderer
       ~Session.makeTable
       ~Session.playSample
+      ~Session.prepareSched
       ~Session.readSoundfile
       ~Session.registerInstr
       ~Session.restart
@@ -27,7 +28,6 @@ Session
       ~Session.unsched
       ~Session.unschedAll
       ~Session.unschedByName
-      ~Session.unschedLast
 
    .. rubric:: Methods Documentation
 
@@ -40,6 +40,7 @@ Session
    .. automethod:: makeRenderer
    .. automethod:: makeTable
    .. automethod:: playSample
+   .. automethod:: prepareSched
    .. automethod:: readSoundfile
    .. automethod:: registerInstr
    .. automethod:: restart
@@ -48,4 +49,3 @@ Session
    .. automethod:: unsched
    .. automethod:: unschedAll
    .. automethod:: unschedByName
-   .. automethod:: unschedLast

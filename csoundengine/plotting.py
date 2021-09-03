@@ -1,6 +1,9 @@
 from emlib import numpytools
+import emlib.misc
+
 from scipy import signal
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 from configdict import ConfigDict
 from . import internalTools
@@ -31,7 +34,7 @@ def _frames_to_samples(frames:np.ndarray, hop_length=512, n_fft:int=None) -> np.
     return (np.asanyarray(frames) * hop_length + offset).astype(int)
 
 
-def _plot_matplotlib(samples: np.ndarray, samplerate: int) -> None:
+def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False) -> None:
     numch = internalTools.arrayNumChannels(samples)
     numsamples = samples.shape[0]
     dur = numsamples / samplerate
@@ -50,9 +53,22 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int) -> None:
         chan = internalTools.getChannel(samples, i)
         axes.plot(times, chan, linewidth=1)
         plt.xlim([0, dur])
+    if not matplotlibIsInline() and show:
+        plt.show()
 
 
-def plotSamples(samples: np.ndarray, samplerate: int, profile: str= 'auto') -> None:
+def matplotlibIsInline():
+    """
+    Return True if matplotlib is set to display plots inline
+
+    https://stackoverflow.com/questions/15341757/how-to-check-that-pylab-backend-of-matplotlib-runs-inline
+    """
+    return emlib.misc.inside_jupyter() and 'inline' in matplotlib.get_backend()
+
+
+def plotSamples(samples: np.ndarray, samplerate: int, profile: str= 'auto',
+                show=False
+                ) -> None:
     """
     Plot the samples
 
@@ -60,6 +76,8 @@ def plotSamples(samples: np.ndarray, samplerate: int, profile: str= 'auto') -> N
         samples: a numpy array holding one or many channels of audio data
         samplerate: the sampling rate of samples
         profile: one of 'low', 'medium', 'high', 'highest', 'auto'
+        show: if True, the plot is shown. Otherwise matplotlib.pyplot.show() needs
+            to be called explicitely (when not in inline mode inside jupyter)
 
     """
     if profile == 'auto':
@@ -80,9 +98,9 @@ def plotSamples(samples: np.ndarray, samplerate: int, profile: str= 'auto') -> N
         maxsr = 600
     elif profile == 'high':
         undersample = min(32, len(samples) // (1024*8))
-        return _plot_matplotlib(samples[::undersample], samplerate//undersample)
+        return _plot_matplotlib(samples[::undersample], samplerate//undersample, show=show)
     elif profile == 'highest':
-        return _plot_matplotlib(samples, samplerate)
+        return _plot_matplotlib(samples, samplerate, show=show)
     else:
         raise ValueError("profile should be one of 'low', 'medium' or 'high'")
     targetsr = samplerate
@@ -113,12 +131,14 @@ def plotSamples(samples: np.ndarray, samplerate: int, profile: str= 'auto') -> N
                                hop_length=hop_length)
         axes.fill_between(locs, samples_bottom, samples_top)
         axes.set_xlim([locs.min(), locs.max()])
+    if not matplotlibIsInline() and show:
+        plt.show()
 
 
 def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:str=None,
                     overlap=4, axes:plt.Axes=None, cmap=None, interpolation='bilinear',
                     minfreq=40, maxfreq=None,
-                    mindb=-90):
+                    mindb=-90, show=False):
     """
     Plot a spectrogram
 
@@ -136,6 +156,8 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
             (see config['spectrogram.maxfreq')
         interpolation: one of 'bilinear'
         mindb: the amplitude threshold
+        show: if True, show the plot. Otherwise matplotlib.pyplot.show() needs
+            to be called
 
     Returns:
         the axes object
@@ -160,4 +182,6 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
     if maxfreq is None:
         maxfreq = config['spectrogram.maxfreq']
     axes.set_ylim(minfreq, maxfreq)
+    if not matplotlibIsInline() and show:
+        plt.show()
     return axes

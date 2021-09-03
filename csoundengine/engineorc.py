@@ -8,7 +8,7 @@ import re
 # are constant (with the form ${subst} and substitutions which respond
 # to the configuration of a specific engine / offline renderer ({subst})
 
-_orc = r"""
+_orc = r'''
 sr     = ${sr}
 ksmps  = ${ksmps}
 nchnls = ${nchnls}
@@ -39,34 +39,52 @@ opcode _panweights, kk, k
     xout kampL, kampR
 endop 
 
-opcode _sfloadonce, i, S
+opcode sfloadonce, i, S
     Spath xin
-    Skey_ sprintf "sfloadonce:%s", Spath
-    itab chnget Skey_
-    if (itab == 0) then
-        itab sfload Spath
-        chnset itab, Skey_
+    Skey_ sprintf "SFLOAD:%s", Spath
+    iidx dict_get gi__soundfontIndexes, Skey_, -1
+    if (iidx == -1) then
+        iidx sfload Spath
+        prints "Loading soundfont: %s (assigned index: %d)\n", Spath, iidx
+        dict_set gi__soundfontIndexes, Skey_, iidx
     endif
-    xout itab
+    xout iidx
 endop
 
 opcode sfPresetIndex, i, Sii
+    
     Spath, ibank, ipresetnum xin
-    isf _sfloadonce Spath
+    isf sfloadonce Spath
     Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum
+    
     iidx dict_get gi__soundfontIndexes, Skey, -1
+    prints "pre  sfPresetIndex: soundfont: %s, prog: %d:%d, idx: %d\n", Spath, ibank, ipresetnum, iidx
+        
     if iidx == -1 then
         iidx chnget "_soundfontPresetCount"
         chnset iidx+1, "_soundfontPresetCount"
-        dict_set gi__soundfontIndexes, Skey, iidx
+        prints "post sfPresetIndex: soundfont: %s, prog: %d:%d, idx: %d\n", Spath, ibank, ipresetnum, iidx
         i0 sfpreset ipresetnum, ibank, isf, iidx
+        if iidx != i0 then
+            prints "???: iidx = %d, i0 = %d\n", iidx, i0
+        endif
+        dict_set gi__soundfontIndexes, Skey, i0
     endif
     xout iidx
 endop
 
 instr __init
     ftset gi__subgains, 1
-    chnset 100, "_soundfontPresetCount"   
+    chnset 1, "_soundfontPresetCount"   
+endin
+
+instr _notifyDealloc
+    outvalue, "__dealloc__", p4
+endin
+
+instr ${pingback}
+    itoken = p4
+    outvalue "__sync__", itoken
 endin
 
 instr ${turnoff}
@@ -76,11 +94,10 @@ endin
 
 instr ${turnoff_future}
     iwhich = p4
-    ; prints "turnoff_future: %f\n", iwhich
     turnoff3 iwhich
 endin
 
-instr ${nstrnum}
+instr ${nstrnumsync}
     itoken = p4
     Sname = p5
     inum nstrnum Sname
@@ -89,7 +106,14 @@ instr ${nstrnum}
         outvalue "__sync__", itoken
     endif
 endin
-     
+
+instr ${nstrnum}
+    itoken = p4
+    Sname = p5
+    inum nstrnum Sname
+    tabw_i inum, itoken, gi__responses
+endin
+
 instr ${tabwrite}
     itab = p4
     iidx = p5
@@ -101,11 +125,6 @@ instr ${chnset}
     Schn = p4
     ival = p5
     chnset ival, Schn
-endin
-
-instr ${pingback}
-    itoken = p4
-    outvalue "__sync__", itoken
 endin
 
 ; can make a table with data or just empty of a given size
@@ -125,17 +144,18 @@ instr ${maketable}
     isr = p8
     inumchannels = p9
     if (iempty == 1) then
-        ifn ftgen itabnum, 0, ilen, -2, 0
+        itabnum ftgen itabnum, 0, ilen, -2, 0
     else
         iValues[] passign 10, 10+ilen
-        ifn ftgen itabnum, 0, ilen, -2, iValues
+        itabnum ftgen itabnum, 0, ilen, -2, iValues
     endif
     if isr > 0 then
-        ftsetparams ifn, isr, inumchannels
+        ; ftsetparams itabnum, isr, inumchannels
+        prints "ftsetparams!\n"
     endif 
     ; notify host that token is ready
     if itoken > 0 then
-        tabw_i ifn, itoken, gi__responses
+        tabw_i itabnum, itoken, gi__responses
         outvalue "__sync__", itoken
     endif
 endin
@@ -150,7 +170,7 @@ instr ${automatePargViaTable}
     ftfree itabpairs, 1
     
     if iovertake == 1 then
-        icurrval = pread:i(ip1, ipindex)
+        icurrval pread ip1, ipindex, -1
         tabw_i icurrval, 1, itabpairs
     endif
 
@@ -173,10 +193,10 @@ instr ${automateTableViaTable}
     Smode = strget(imode)
     
     if ftexists:i(iargtab) == 0 then
-        initerror sprintf("Instr table %d doesn't exist", iargtab)
+        initerror sprintf("Instr table %d does not exist", iargtab)
     endif
     if ftexists:i(idatatab) == 0 then
-        initerror sprintf("Automation table %d doesn't exist", iargtab)
+        initerror sprintf("Automation table %d does not exist", iargtab)
     endif
 
     if ftlen(iargtab) <= iargidx then
@@ -326,6 +346,34 @@ instr ${pwrite}
     endif
 endin
 
+instr ${pread}
+    itoken = p4
+    ip1 = p5
+    ipindex = p6
+    inotify = p7
+    ival pread ip1, ipindex
+    tabw_i ival, itoken, gi__responses
+    prints "pread: itoken=%d, ip1=%f, ipindex=%f, ival=%f\n", itoken, ip1, ipindex, ival 
+    if inotify == 1 then
+        outvalue "__sync__", itoken
+    endif
+endin
+
+instr ${preadmany}
+    ; reads multiple pfields, puts them in a table
+    itoken, ip1, iouttab, ioffset, inumpfields passign 4
+    ipfields[] passign 9, inumpfields
+    ivalues[] pread ip1, ipfields
+    i0 = 0
+    while i0 < inumpfields do
+        tabw_i ivalues[i0], ioffset+i0, iouttab
+        i0 += 1
+    od
+    if itoken > 0 then
+        outvalue "__sync__", itoken
+    endif
+endin
+
 instr ${testaudio}
     pset 0, 0, 0, 0
     imode passign 4
@@ -340,8 +388,12 @@ instr ${testaudio}
     kswitch metro 1
     kchan = (kchan + kswitch) % nchnls
     outch kchan+1, a0
+    krms = rms(a0)
+    if metro(10) == 1 then
+        printsk("rms a0 = %.1f          \r", krms)
+    endif
     if kswitch == 1 then
-        println "Channel: %d", kchan
+        println "\nChannel: %d", kchan
     endif
 endin
 
@@ -354,7 +406,6 @@ instr ${tableInfo}
     ichnls ftchnls itabnum
     inumframes nsamp itabnum
     ilen ftlen itabnum
-    
     tabw_i isr, itok1, gi__responses
     tabw_i ichnls, itok2, gi__responses
     tabw_i inumframes, itok3, gi__responses
@@ -366,7 +417,7 @@ instr ${sfPresetAssignIndex}
     ; assign an index to a soundfont preset
     ipath, ibank, ipresetnum, iidx passign 4
     Spath strget ipath
-    isf _sfloadonce Spath
+    isf sfloadonce Spath
     i0 sfpreset ipresetnum, ibank, isf, iidx
 endin
 
@@ -387,8 +438,7 @@ instr ${soundfontPlay}
 endin
 
 schedule "__init", 0, 1
-
-"""
+'''
 
 _busOrc = r'''
 
@@ -417,10 +467,6 @@ instr __businit
     chnset 0, "_busTokenCount"
     ftset gi__bustable, $$_BUSUNSET
     turnoff
-endin
-
-instr ${clearbuses}
-    zeroarray ga__buses
 endin
 
 opcode busassign, i, io
@@ -602,6 +648,10 @@ instr _busoutk
     tabw_i ivalue, ibus, gi__bustable
 endin
 
+instr ${clearbuses}
+    zeroarray ga__buses
+endin
+
 schedule "__businit", 0, ksmps/sr
 '''
 
@@ -648,8 +698,8 @@ def orcTemplate(busSupport=True) -> Template:
 
 def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
             backend:str, a4:float, globalcode:str="", includestr:str="",
-            numAudioBuses:int=32,
-            numControlBuses:int=64):
+            numAudioBuses:int=0,
+            numControlBuses:int=0):
     withBusSupport = numAudioBuses > 0 or numControlBuses > 0
     template = orcTemplate(busSupport=withBusSupport)
     subs: Dict[str, Any] = {name:f"{num} ; {name}"

@@ -3,8 +3,8 @@ import os
 import sys
 import urllib.request, urllib.error
 import re
-
 from . import csoundlib
+from .state import state
 from pathlib import Path
 import tempfile
 import shutil
@@ -12,10 +12,10 @@ import subprocess
 import logging
 from datetime import datetime
 import json
-from configdict import ConfigDict
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Union as U, List, Dict, Tuple
+    from typing import *
+
 
 logger = logging.getLogger("csoundengine")
 
@@ -111,7 +111,7 @@ def downloadLatestPluginForPlatform(destFolder: Path = None) -> Path:
     return _download(pluginurl, destFolder)
 
 
-def _download(url: str, destFolder: U[str, Path]) -> Path:
+def _download(url: str, destFolder: Union[str, Path]) -> Path:
     assert os.path.exists(destFolder) and os.path.isdir(destFolder)
     fileName = os.path.split(url)[1]
     dest = Path(destFolder) / fileName
@@ -148,11 +148,13 @@ def pluginsInstalled(force=False) -> bool:
     """Returns True if the needed plugins are already installed"""
     opcodes = set(csoundlib.opcodesList(cached=not force,
                                         opcodedir=csoundlib.userPluginsFolder()))
-    neededOpcodes = {"atstop", "pwrite", "pread", "initerror",
-                     "dict_new", "dict_set", "dict_get",
-                     "pool_gen", "pool_pop", "pool_push", "pool_isfull",
-                     'interp1d', 'bisect', 'ftsetparams', 'zeroarray'
-                     }
+    neededOpcodes = {
+        "atstop", "pwrite", "pread", "initerror",
+        "dict_new", "dict_set", "dict_get",
+        "pool_gen", "pool_pop", "pool_push", "pool_isfull",
+        'interp1d', 'bisect', 'ftsetparams', 'zeroarray',
+        'panstereo'
+    }
     return neededOpcodes.intersection(opcodes) == neededOpcodes
 
 
@@ -186,22 +188,6 @@ def installPlugins(force=False) -> None:
         raise RuntimeError("There was an error in the installation...")
 
 
-def _isofmt(t:datetime) -> str:
-    """Returns the time in iso format"""
-    return t.isoformat(':', 'minutes')
-
-
-_state = ConfigDict('csoundengine.state',
-    default={
-        'last_run': _isofmt(datetime(1900, 1, 1))
-    }
-)
-
-
-def _getState() -> ConfigDict:
-    return _state
-
-
 def _checkDependencies(tryfix=False, updateState=True):
     if not csoundInstalled():
         raise RuntimeError("csound not installed. See https://csound.com/download.html")
@@ -215,7 +201,8 @@ def _checkDependencies(tryfix=False, updateState=True):
 
     if not pluginsInstalled():
         if tryfix:
-            print("csound plugins are not installed. I will try to install them now")
+            print("csound plugins are not installed or are too old."
+                  " I will try to install them now")
             installPlugins()
         else:
             print("csound plugins are not installed. Install them from "
@@ -223,8 +210,7 @@ def _checkDependencies(tryfix=False, updateState=True):
             raise RuntimeError("csound plugins not installed")
     logger.info("Dependencies OK")
     if updateState:
-        state = _getState()
-        state['last_run'] = _isofmt(datetime.now())
+        state['last_run'] = datetime.now().isoformat()
 
 
 def checkDependencies(force=True, tryfix=True):
@@ -245,8 +231,7 @@ def checkDependencies(force=True, tryfix=True):
         _checkDependencies(tryfix=tryfix)
         return
 
-    state = _getState()
-    timeSinceLastrun = datetime.now() - datetime.fromisoformat(state['last_run'])
-    if timeSinceLastrun.days > 30:
+    timeSincelast_run = datetime.now() - datetime.fromisoformat(state['last_run'])
+    if timeSincelast_run.days > 30:
         _checkDependencies(tryfix=tryfix)
         return

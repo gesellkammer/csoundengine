@@ -153,6 +153,26 @@ Send audio to a bus, mixing it with other sends
 2. Other opcodes
 ================
 
+sfloadonce
+----------
+
+Load a soundfont if needed
+
+Like `sfload <http://www.csounds.com/manual/html/sfload.html>`_, but
+can be used repeatedly. If a soundfont with the given path was already
+loaded, it will return the handle number of the loaded instance.
+
+
+**Syntax**
+
+.. code::
+
+    ihandle sfloadonce "/path/to/soundfont.sf2"
+
+
+------------------
+
+
 sfPresetIndex
 -------------
 
@@ -188,7 +208,8 @@ This opcode loads the soundfont if not already loaded (like `sfload`) and assign
 .. note::
     There will be a delay when playing a note using this opcode if the soundfont
     is read inside a note for the first time. To avoid this delay, load the 
-    soundfont beforehand, via `sfload`
+    soundfont beforehand, via `sfloadonce`. `sfPresetIndex` will detect this
+    and use the loaded instance (this will not happen with `sfload`).    
 
 **See Also**: :meth:`~csoundengine.engine.Engine.soundfontPresetAssignIndex`, which
 does the same operation. 
