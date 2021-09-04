@@ -150,6 +150,7 @@ class AudioBackend:
                 idxstr, devid, devname = groups
                 numchannels = None
             else:
+                idxstr, devid, devname, numchannels = groups
                 numchannels = int(numchannels) if numchannels is not None else 2
             kind = 'input' if devid.startswith("adc") else 'output'
             dev = AudioDevice(index=int(idxstr), id=devid, name=devname, kind=kind,
