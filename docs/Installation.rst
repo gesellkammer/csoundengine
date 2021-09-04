@@ -18,5 +18,5 @@ Dependencies
 
    The csound version packaged with most linux distributions is often
    too old. The best way to install csound is to install it from
-   source. See `<https://github.com/csound/csound/blob/develop/BUILD.md`_
+   source. See `Csound's BUILD documentation <https://github.com/csound/csound/blob/develop/BUILD.md>`_
    for instructions

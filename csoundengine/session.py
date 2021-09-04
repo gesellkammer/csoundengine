@@ -155,9 +155,14 @@ user-interface in jupyter.
 
 .. figure:: assets/synthui.png
 
+UI generated when using the terminal:
+
+.. figure:: assets/ui2.png
+
 """
 
 from __future__ import annotations
+import sys
 import dataclasses
 import emlib.misc
 import emlib.dialogs
@@ -178,7 +183,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .offline import Renderer
     from typing import *
-    
+elif 'sphinx' in sys.modules:
+    from typing import *
+
 __all__ = [
     'Session',
     'getSession',
@@ -476,9 +483,9 @@ class Session:
 
             The instr is not compiled at the moment of definition. Only
             when an instr is actually scheduled to be run at a given
-            priority the code is actually compiled. There might be
-            a small delay the first time an instr is scheduled at a given
-            priority. To prevent this delay, a user can call
+            priority the code is compiled. There might be a small delay
+            the first time an instr is scheduled at a given
+            priority. To prevent this a user can call
             :meth:`Session.prepareSched` to explicitely compile the instr
 
         Example
@@ -595,7 +602,7 @@ class Session:
         Raises KeyError if no Instr is defined with the given name
 
         Args:
-            name: the name of the Instr (use "?" to select interactively)
+            name: the name of the Instr - **use "?" to select interactively**
 
         See Also
         ~~~~~~~~
@@ -709,8 +716,8 @@ class Session:
         Schedule an instance of an instrument
 
         Args:
-            instrname: the name of the instrument, as defined via defInstr. Use
-                "?" to select an instrument interactively
+            instrname: the name of the instrument, as defined via defInstr.
+                **Use "?" to select an instrument interactively**
             priority: the priority (1 to 10)
             delay: time offset of the scheduled instrument
             dur: duration (-1 = for ever)
@@ -876,7 +883,7 @@ class Session:
         Read a soundfile, store its metadata in a :class:`~csoundengine.tableproxy.TableProxy`
 
         Args:
-            path: the path to a soundfile. "?" to open file via a gui dialog
+            path: the path to a soundfile. **"?" to open file via a gui dialog**
             chan: the channel to read, or 0 to read all channels into a
                 (possibly) stereo or multichannel table
             free: free the table when the returned TableDef is itself deallocated

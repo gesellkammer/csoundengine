@@ -84,6 +84,7 @@ from __future__ import annotations
 
 import dataclasses
 import tempfile
+import sys as _sys
 
 import ctypes as _ctypes
 import atexit as _atexit
@@ -112,12 +113,12 @@ from .errors import CsoundError
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Optional as Opt, Union as U, Sequence as Seq, \
-        KeysView, Callable, Dict, List, Tuple
+    from typing import *
     from . import session as _session
     import socket
-
     callback_t = Callable[[str, float], None]
+if 'sphinx' in _sys.modules:
+    from typing import *
 
 try:
     import ctcsound
@@ -150,7 +151,7 @@ def _generateUniqueEngineName(prefix="engine") -> str:
         i += 1
 
 
-def _asEngine(e: U[str, Engine]) -> Engine:
+def _asEngine(e: Union[str, Engine]) -> Engine:
     if isinstance(e, Engine):
         return e
     out = getEngine(e)
@@ -278,9 +279,9 @@ class Engine:
         name: the name of the engine
         sr: sample rate
         ksmps: samples per k-cycle
-        backend: passed to -+rtaudio
-        outdev: the audio output device, passed to -o
-        indev: the audio input device, passed to -i
+        backend: passed to -+rtaudio (**"?" to select interactively**)
+        outdev: the audio output device, passed to -o (**"?" to select interactively**)
+        indev: the audio input device, passed to -i (**"?" to select interactively**)
         a4: freq of a4
         nchnls: number of output channels (passed to nchnls)
         nchnls_i: number of input channels
@@ -508,7 +509,7 @@ class Engine:
         self._instanceCounters: Dict[int, int] = {}
 
         # Maps instrname/number: code
-        self._instrRegistry: Dict[U[str, int], str] = {}
+        self._instrRegistry: Dict[Union[str, int], str] = {}
 
         # a dict of callbacks, reacting to outvalue opcodes
         self._outvalueCallbacks: Dict[bytes, callback_t] = {}
@@ -567,7 +568,18 @@ class Engine:
         self.start()
 
     @property
-    def softwareBufferSize(self) -> int:
+    def blockSize(self) -> int:
+        """
+        The size of the processing block in samples.
+
+        csound defines two variables to control its communication with the audio
+        backend, a hardware buffer (-B option) and a software buffer (-b option).
+        With each audio backend these values are interpreted somewhat differently.
+        In general it can be said that ksmps must divide the software buffer (-b)
+        and the software buffer itself must divide the hardware buffer (-B).
+        Common values for these are: ksmps=64, software buffer=256, hardware
+        buffer=512
+        """
         return self.bufferSize * self.numBuffers
 
     def __repr__(self):
@@ -635,7 +647,7 @@ class Engine:
         self._assignedTables[tabnum] = p1
         return tabnum
 
-    def _assignEventId(self, instrnum: U[int, str]) -> float:
+    def _assignEventId(self, instrnum: Union[int, str]) -> float:
         """
         Assign an eventid (fractional instr number) for this instr
 
@@ -884,7 +896,7 @@ class Engine:
 
         ::
 
-            bufferLatency = softwareBufferSize / sr
+            bufferLatency = buffersize * numbuffers / sr
 
         This latency depends on the buffersize and number of buffers
         """
@@ -902,7 +914,7 @@ class Engine:
 
     def sync(self) -> None:
         """
-        Block until csound is ready for compilation/events
+        Block until csound has processed its immediate events
 
         Example
         =======
@@ -948,6 +960,7 @@ class Engine:
             >>> e.compile("giMelody[] fillarray 60, 62, 64, 65, 67, 69, 71")
             >>> code = open("myopcodes.udo").read()
             >>> e.compile(code)
+
         """
         self._history.append(code)
         codeblocks = csoundlib.parseOrc(code)
@@ -1041,6 +1054,11 @@ class Engine:
             value (float): the new value
             delay (float): delay time in seconds. Use 0 to write synchronously
 
+        .. seealso::
+
+            :meth:`~Engine.getTableData`
+            :meth:`~Engine.fillTable`
+
         """
         assert self.started
         if delay == 0:
@@ -1053,7 +1071,7 @@ class Engine:
             assert self._perfThread is not None
             self._perfThread.scoreEvent(0, "i", pargs)
 
-    def getTableData(self, idx:int, flat=False) -> Opt[np.ndarray]:
+    def getTableData(self, idx:int, flat=True) -> Opt[np.ndarray]:
         """
         Returns a numpy array pointing to the data of the table.
 
@@ -1077,17 +1095,18 @@ class Engine:
         assert self.csound is not None
         arr = self._tableCache.get(idx)
         if arr is None:
-            tabinfo = self.tableInfo(idx)
             arr: np.ndarray = self.csound.table(idx)
-            if tabinfo.numChannels > 1 and not flat:
-                if tabinfo.size == tabinfo.numFrames*tabinfo.numChannels+1:
-                    arr = arr[:-1]
-                arr.shape = (tabinfo.numFrames, tabinfo.numChannels)
+            if not flat:
+                tabinfo = self.tableInfo(idx)
+                if tabinfo.numChannels > 1:
+                    if tabinfo.size == tabinfo.numFrames*tabinfo.numChannels+1:
+                        arr = arr[:-1]
+                    arr.shape = (tabinfo.numFrames, tabinfo.numChannels)
             self._tableCache[idx] = arr
         return arr
 
-    def sched(self, instr:U[int, float, str], delay=0., dur=-1.,
-              args:U[np.ndarray, Seq[U[float, str]]] = None) -> float:
+    def sched(self, instr:Union[int, float, str], delay=0., dur=-1.,
+              args:Union[np.ndarray, Sequence[Union[float, str]]] = None) -> float:
         """
         Schedule an instrument
 
@@ -1281,7 +1300,7 @@ class Engine:
             self._instrNumCache[instrname] = out
         return out
 
-    def unsched(self, p1:U[float, str], delay:float = 0) -> None:
+    def unsched(self, p1:Union[float, str], delay:float = 0) -> None:
         """
         Stop a playing event
 
@@ -1315,7 +1334,7 @@ class Engine:
         pfields = [self._builtinInstrs['turnoff'], delay, 0, p1]
         self._perfThread.scoreEvent(0, "i", pfields)
 
-    def unschedFuture(self, p1:U[float, str]) -> None:
+    def unschedFuture(self, p1:Union[float, str]) -> None:
         """
         Stop a future event
 
@@ -1408,6 +1427,13 @@ class Engine:
         >>> eventid = e.sched(10, args=[67, tabnum, 0])
         # fade out
         >>> e.automateTable(tabnum=tabnum, idx=0, pairs=[1, 0.5, 5, 0.])
+
+        .. seealso::
+
+            :meth:`~Engine.makeTable`
+            :meth:`~Engine.fillTable`
+            :meth:`~Engine.automateTable`
+
         """
         tabnum = self._assignTableNumber(p1=instrnum)
         pargs = [tabnum, 0, size, -2, 0]
@@ -1417,7 +1443,7 @@ class Engine:
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         return tabnum
 
-    def makeTable(self, data:U[Seq[float], np.ndarray]=None,
+    def makeTable(self, data:Union[Sequence[float], np.ndarray]=None,
                   size:int = 0, tabnum:int=0, sr:int=0,
                   block=True, callback=None,
                   _instrnum=-1.
@@ -1508,6 +1534,11 @@ class Engine:
         of the times this is ok, but there are some opcodes which need this information
         (loscil, for example). This method allows to set this information for such
         tables.
+
+        Args:
+            tabnum: the table number
+            sr: the sample rate
+            numchannels: number of channels of data
         """
         logger.info(f"Setting table metadata. {tabnum=}, {sr=}, {numchannels=}")
         pargs = [self._builtinInstrs['ftsetparams'], 0, 0., tabnum, sr, numchannels]
@@ -1540,7 +1571,7 @@ class Engine:
         pargs = [self._builtinInstrs['pingback'], delay, 0.01, token]
         self._eventWithCallback(token, pargs, lambda token: callback())
 
-    def _eventWait(self, token:int, pargs:Seq[float], timeout=1) -> Opt[float]:
+    def _eventWait(self, token:int, pargs:Sequence[float], timeout=1) -> Opt[float]:
         q = self._registerSync(token)
         self._perfThread.scoreEvent(0, "i", pargs)
         try:
@@ -1655,8 +1686,8 @@ class Engine:
             if not plotting.matplotlibIsInline():
                 plotting.plt.show()
 
-    def schedSync(self, instr:U[int, float, str], delay:float = 0, dur:float = -1,
-                  args:U[np.ndarray, Seq[U[float, str]]] = None,
+    def schedSync(self, instr:Union[int, float, str], delay:float = 0, dur:float = -1,
+                  args:Union[np.ndarray, Sequence[Union[float, str]]] = None,
                   timeout=-1):
         """
         Schedule an instr, wait for a sync message
@@ -1794,7 +1825,7 @@ class Engine:
         self._perfThread.inputMessage(inputMessage)
         return None
 
-    def _makeTableNotify(self, data:U[Seq[float], np.ndarray]=None, size=0, tabnum=0,
+    def _makeTableNotify(self, data:Union[Sequence[float], np.ndarray]=None, size=0, tabnum=0,
                          callback=None, sr:int=0) -> int:
         """
         Create a table with data (or an empty table of the given size).
@@ -1868,7 +1899,7 @@ class Engine:
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=1)
         return tabnum
 
-    def setChannel(self, channel:str, value:U[float, str, np.ndarray],
+    def setChannel(self, channel:str, value:Union[float, str, np.ndarray],
                    method:str=None, delay=0.) -> None:
         """
         Set the value of a software channel
@@ -1878,7 +1909,7 @@ class Engine:
             value: the new value, should math the type of the channel (a float for
                 a control channel, a string for a string channel or a numpy array
                 for an audio channel)
-            method: one of 'api', 'score', 'udp'. None will choose the most appropriate
+            method: one of ``'api'``, ``'score'``, ``'udp'``. None will choose the most appropriate
                 method for the current engine/args
             delay: a delay to set the channel
 
@@ -1935,7 +1966,7 @@ class Engine:
             raise ValueError(f"method {method} not supported "
                              f"(choices: 'api', 'score', 'udp'")
 
-    def initChannel(self, channel:str, value:U[float, str, np.ndarray]=0, kind:str=None,
+    def initChannel(self, channel:str, value:Union[float, str, np.ndarray]=0, kind:str=None,
                     mode="r") -> None:
         """
         Create a channel and set its initial value
@@ -2120,6 +2151,9 @@ class Engine:
         ~~~~~~~~
 
         :meth:`~Engine.readSoundfile`
+        :meth:`~Engine.plotTable`
+        :meth:`~Engine.getTableData`
+
         """
         info = self._tableInfo.get(tabnum)
         if info:
@@ -2147,7 +2181,7 @@ class Engine:
         Read a soundfile into a table (via GEN1), returns the table number
 
         Args:
-            path: the path to the soundfile ("?" to open file interactively)
+            path: the path to the soundfile -- **"?" to open file interactively**
             tabnum: if given, a table index. If None, an index is
                 autoassigned
             chan: the channel to read. 0=read all channels
@@ -2171,6 +2205,7 @@ class Engine:
         :meth:`~Engine.playSample`
         :meth:`~Engine.makeTable`
         :meth:`~Engine.fillTable`
+        :meth:`~Engine.getTableData`
         """
         if block and callback:
             raise ValueError("blocking mode not supported when a callback is given")
@@ -2275,13 +2310,19 @@ class Engine:
         .. figure:: ../assets/select-preset.png
 
         Args:
-            sf2path: the path to a sf2 file
+            sf2path: the path to a sf2 file -- **Use "?" to select a file interactively**
             preset: a tuple (bank, presetnum), where both bank and presetnum
                 are ints in the range (0-127). None to select a preset interactively
 
         Returns:
             an index assigned to this preset, which can be used with
             sfplay/sfplay3 or with :meth:``~Engine.soundfontPlay``
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.soundfontPlay`
+        :meth:`~Engine.playSample`
         """
         if sf2path == "?":
             sf2path = _state.openSoundfont(ensureSelection=True)
@@ -2310,7 +2351,7 @@ class Engine:
         self._perfThread.inputMessage(s)
         return tabnum
 
-    def getUniqueInstrInstance(self, instr: U[int, str]) -> float:
+    def getUniqueInstrInstance(self, instr: Union[int, str]) -> float:
         """
         Returns a unique instance number (a float p1) for `instr`
 
@@ -2351,10 +2392,12 @@ class Engine:
         Returns:
             the instance number of the playing instrument.
 
-        ** Dynamic pfields **
+        .. important::
 
-        - p4: gain
-        - p5: speed
+            **Dynamic Fields**
+
+            - **p4**: `gain`
+            - **p5**: `speed`
 
         Example
         =======
@@ -2374,8 +2417,10 @@ class Engine:
         See Also
         ~~~~~~~~
 
+        :meth:`~Engine.playSoundFromDics`
         :meth:`~Engine.makeTable`
         :meth:`~Engine.readSoundfile`
+        :meth:`~Engine.soundfontPlay`
 
         """
         args = [gain, speed, tabnum, chan, fade, starttime, gaingroup, lagtime]
@@ -2442,6 +2487,7 @@ class Engine:
         See Also
         ~~~~~~~~
 
+        :meth:`~Engine.getp`
         :meth:`~Engine.automatep`
         """
         numpairs = len(pairs) // 2
@@ -2466,6 +2512,10 @@ class Engine:
         =======
 
         TODO
+
+        .. seealso::
+
+            :meth:`~Engine.setp`
         """
         token = self._getSyncToken()
         notify = 1
@@ -2473,7 +2523,7 @@ class Engine:
         value = self._eventWait(token, pargs)
         return value
 
-    def automateTable(self, tabnum:int, idx:int, pairs: Seq[float],
+    def automateTable(self, tabnum:int, idx:int, pairs: Sequence[float],
                       mode='linear', delay=0., overtake=False) -> float:
         """
         Automate a table slot
@@ -2518,8 +2568,8 @@ class Engine:
         See Also
         ~~~~~~~~
 
+        :meth:`~Engine.setp`
         :meth:`~Engine.automatep`
-
         """
         # tabpairs table will be freed by the instr itself
         tabpairs = self.makeTable(pairs, tabnum=0, block=True)
@@ -2528,7 +2578,7 @@ class Engine:
         return self.sched(self._builtinInstrs['automateTableViaTable'], delay=delay,
                           dur=dur, args=args)
 
-    def automatep(self, p1: float, pidx: int, pairs:Seq[float], mode='linear',
+    def automatep(self, p1: float, pidx: int, pairs:Sequence[float], mode='linear',
                   delay=0., overtake=False
                   ) -> float:
         """
@@ -2567,6 +2617,7 @@ class Engine:
         ~~~~~~~~
 
         :meth:`~Engine.setp`
+        :meth:`~Engine.automateTable`
         """
         # table will be freed by the instr itself
         tabnum = self.makeTable(pairs, tabnum=0, block=True)
@@ -2652,6 +2703,11 @@ class Engine:
     def freeTable(self, tableindex:int, delay=0.) -> None:
         """
         Free the table with the given index
+
+        .. seealso::
+
+            :meth:`~Engine.makeTable`
+
         """
         logger.debug(f"Freeing table {tableindex}")
         self._releaseTableNumber(tableindex)
@@ -2685,6 +2741,12 @@ class Engine:
 
         Args:
             code (str): the code to send
+
+        .. seealso::
+
+            :meth:`~Engine.udpSendScoreline`
+            :meth:`~Engine.udpSetChannel`
+
         """
         msg = code.encode("ascii")
         if len(msg) < 60000:
@@ -2711,16 +2773,27 @@ class Engine:
         ... endin
         ... ''')
         >>> e.udpSendScoreline("i 10 0 4 440")
+
+        .. seealso::
+
+            :meth:`~Engine.udpSetChannel`
+            :meth:`~Engine.udpSendOrc`
+
         """
         self._udpSend(f"& {scoreline}\n")
 
-    def udpSetChannel(self, channel:str, value:U[float, str]) -> None:
+    def udpSetChannel(self, channel:str, value:Union[float, str]) -> None:
         """
         Set a channel via UDP. The value will determine the kind of channel
 
         Args:
             channel (str): the channel name
             value (float|str): the new value
+
+        .. seealso::
+
+            :meth:`~Engine.udpSendScoreline`
+            :meth:`~Engine.udpSendOrc`
         """
         if isinstance(value, (int, float)):
             self._udpSend(f"@{channel} {value}")
@@ -2763,6 +2836,12 @@ class Engine:
             bus: the bus token, as returned via assignBus
             value: the new value
             delay: if given, the modification is scheduled in the future
+
+        .. seealso::
+
+            :meth:`~Engine.readBus`
+            :meth:`~Engine.assignBus`
+
         """
         if not self.hasBusSupport():
             raise RuntimeError("This engine does not have bus support")
@@ -2790,6 +2869,11 @@ class Engine:
 
         Returns:
             the current value of the bus, or `default` if the bus does not exist
+
+        .. seealso::
+
+            :meth:`~Engine.assignBus`
+            :meth:`~Engine.writeBus`
         """
         if not self.hasBusSupport():
             raise RuntimeError("This engine does not have bus support")
@@ -2874,6 +2958,12 @@ class Engine:
         >>> e.unsched(s2)        # remove modulation
         >>> e.writeBus(bus, 0)   # reset value
         >>> e.unschedAll()
+
+        .. seealso::
+
+            :meth:`~Engine.writeBus`
+            :meth:`~Engine.readBus`
+
         """
         if not self.hasBusSupport():
             raise RuntimeError("This Engine was created without bus support")
@@ -2895,6 +2985,15 @@ class Engine:
         return bustoken
 
     def hasBusSupport(self) -> bool:
+        """
+        Returns True if this Engine was starte with bus support
+
+        .. seealso::
+
+            :meth:`Engine.assignBus`
+            :meth:`Engine.writeBus`
+            :meth:`Engine.readBus`
+        """
         return (self.numAudioBuses > 0 or self.numControlBuses > 0)
 
     def eventUI(self, eventid: float, **pargs: Dict[str, Tuple[float, float]]) -> None:

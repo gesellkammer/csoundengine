@@ -28,12 +28,13 @@ class AbstrSynth:
         engine (Engine): the Engine which scheduled this synth
         autostop (bool): stop the underlying csound synth when this object
             is deleted
+        priority (int): the priority at which this synth was scheduled
     """
 
     def __init__(self, engine: Engine, autostop: bool = False, priority: int = 1):
-        self.engine = engine
-        self.autostop = autostop
-        self.priority = priority
+        self.engine: Engine = engine
+        self.autostop: bool = autostop
+        self.priority: int = priority
 
     def __del__(self):
         try:
@@ -79,7 +80,7 @@ class AbstrSynth:
             synth.set('key1', value1, ['key2', value2, ...])
             synth.set(key1=value1, [key2=value2, ...])
 
-        See Also:
+        .. seealso::
 
             * :meth:`~AbstractSynth.setp`
 
@@ -111,14 +112,27 @@ class AbstrSynth:
         Returns:
             the current value of the given slot, or default if a slot with
             the given key does not exist
+
+        .. seealso::
+
+            * :meth:`~Synth.getp`
+
         """
         raise NotImplementedError()
 
     def tableParams(self) -> Optional[Set[str]]:
         """
-        Return a seq. of all named parameters
+        Return a set of all named parameters
 
         Returns None if this synth does not have a parameters table
+
+        .. seealso::
+
+            * :meth:`~AbstractSynth.automateTable`
+            * :meth:`~AbstractSynth.hasParamTable`
+            * :meth:`~AbstractSynth.tableState`
+            * :meth:`~AbstractSynth.namedPfields`
+
         """
         raise NotImplementedError()
 
@@ -132,7 +146,7 @@ class AbstrSynth:
         raise NotImplementedError()
 
     def hasParamTable(self) -> bool:
-        """ Does this synth have an associated parameter table?"""
+        """ Does this synth/group have an associated parameter table?"""
         raise NotImplementedError()
 
     def automateTable(self, param: str, pairs: Union[List[float], np.ndarray],
@@ -150,6 +164,11 @@ class AbstrSynth:
             delay: time offset to start automation
             overtake: if True, the first value of pairs is replaced with
                 the current value in the running instance
+
+        .. seealso::
+
+            * :meth:`~AbstractSynth.set`
+            * :meth:`~AbstractSynth.get`
 
         """
         raise NotImplementedError()
@@ -245,6 +264,7 @@ class Synth(AbstrSynth):
     .. code::
 
         from csoundengine import *
+        from pitchtools import ntom
         session = Engine().session()
         session.defInstr('vco', r'''
             |kamp=0.1, kmidi=60, ktransp=0|
@@ -252,9 +272,10 @@ class Synth(AbstrSynth):
             asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
             outch 1, asig
         ''')
-        midis = [60, 62, 64]
-        synths = [session.sched('vco', kamp=0.2, kmidi=midi) for midi in midis]
+        notes = ['4C', '4D', '4E']
+        synths = [session.sched('vco', kamp=0.2, kmidi=ntom(n)) for n in notes]
         # synths is a list of Synth
+        # automate ktransp in synth 1 to produce 10 second gliss of 1 semitone downwards
         synths[1].automatep('ktransp', [0, 0, 10, -1])
     """
 
@@ -469,6 +490,12 @@ class Synth(AbstrSynth):
             >>> synth.setp(kfreq=880)
             >>> synth.setp(5, 0.1, 6, 1000)
             >>> synth.setp("kamp", 0.2, 6, 440)
+
+        .. seealso::
+
+            - :meth:`Synth.getp`
+            - :meth:`Synth.automatep`
+
         """
         if self.playStatus() == 'future':
             # Can we just modify the scheduled value?
@@ -479,6 +506,7 @@ class Synth(AbstrSynth):
             k = args[0]
             idx = k if isinstance(k, int) else self.instr.pargIndex(k)
             self.engine.setp(self.synthid, idx, args[1], delay=delay)
+            return
         pairsd = {}
         instr = self.instr
         if args:
@@ -494,6 +522,28 @@ class Synth(AbstrSynth):
                 pairsd[idx] = v
         pairs = iterlib.flatdict(pairsd)
         self.engine.setp(self.synthid, *pairs, delay=delay)
+
+    def getp(self, pfield: Union[int, str]) -> Optional[float]:
+        """
+        Get the current value of a pfield
+
+        Args:
+            pfield: the name/index of the pfield
+
+        Returns:
+            the current value of the given pfield
+
+        .. seealso::
+
+            - :meth:`~Synth.setp`
+            - :meth:`~Synth.automatep`
+            - :meth:`~Synth.ui`
+        """
+        if self.playStatus() == 'future':
+            # Can we just modify the scheduled value?
+            return
+        idx = pfield if isinstance(pfield, int) else self.instr.pargIndex(pfield)
+        return self.engine.getp(self.synthid, idx)
 
     def ui(self, **specs: Dict[str, Tuple[float, float]]) -> None:
         """
@@ -528,6 +578,10 @@ class Synth(AbstrSynth):
 
         .. figure:: ../assets/synthui.png
 
+        .. seealso::
+
+            - :meth:`Engine.eventui`
+
         """
         if self.playStatus() == 'future':
             return
@@ -543,9 +597,9 @@ class Synth(AbstrSynth):
             else:
                 minval, maxval = interact._guessRange(value, pargname)
             paramspecs[idx] = interact.ParamSpec(pargname,
-                                                      minvalue=minval,
-                                                      maxvalue=maxval,
-                                                      startvalue=value)
+                                                 minvalue=minval,
+                                                 maxvalue=maxval,
+                                                 startvalue=value)
         return interact.interactPargs(self.engine, self.synthid, specs=paramspecs)
 
 
@@ -555,6 +609,26 @@ class Synth(AbstrSynth):
 
     def automateTable(self, param: str, pairs: Union[List[float], np.ndarray],
                       mode="linear", delay=0., overtake=False) -> float:
+        """
+        Automate a table parameter. Time stamps are relative to the start
+        of the automation
+
+        Args:
+            param: the named parameter as defined in the Instr
+            pairs: a flat list of pairs of the form [time0, val0, time1, val1, ...]
+            mode: one of 'linear', 'cos', 'expon(xx)', 'smooth'. See the csound opcode
+                `interp1d` for more information
+                (https://csound-plugins.github.io/csound-plugins/opcodes/interp1d.html)
+            delay: time offset to start automation
+            overtake: if True, the first value of pairs is replaced with
+                the current value in the running instance
+
+        .. seealso::
+
+            * :meth:`~Synth.set`
+            * :meth:`~Synth.get`
+
+        """
         if not self.table:
             raise RuntimeError(
                 f"{self.instr.name} (id={self.synthid}) has no parameter table")

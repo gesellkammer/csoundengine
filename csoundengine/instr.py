@@ -17,26 +17,20 @@ class Instr:
     It must be registered to be used.
 
     Args:
-        name:
-            the name of the instrument
-        body:
-            the body of the instr (the text **between** 'instr' end 'endin')
-        args:
-            if given, a dictionary defining pfields and their defaults.
-        init:
-            code to be initialized at the instr0 level
-        tabledef:
-            An instrument can have an associated table to be able to pass
+        name: the name of the instrument
+        body: the body of the instr (the text **between** 'instr' end 'endin')
+        args: if given, a dictionary defining pfields and their defaults.
+        init: code to be initialized at the instr0 level
+        tabledef: An instrument can have an associated table to be able to pass
             dynamic parameters which are specific to this note (for example,
             an instrument could define a filter with a dynamic cutoff freq.)
             A tabledef is a dict of the form: {param_name: initial_value}.
             The order of appearence will correspond to the index in the table
-        preschedCallback:
-            a function f(synthid, args) -> args, called before a note is
-            scheduled with
+        preschedCallback: a function ``f(synthid, args) -> args``, called before
+            a note is scheduled with
             this instrument. Can be used to allocate a table or a dict and pass
             the resulting index to the instrument as parg
-        freetable: if True, the associated table is freed in csound when the note
+        freetable: if ``True``, the associated table is freed in csound when the note
             is finished
         doc: some documentation describing what this instr does
 

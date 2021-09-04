@@ -48,6 +48,9 @@ def _isPulseaudioRunning() -> bool:
     #return retcode == 0
 
 
+_audioDeviceRegex = r"(\d+):\s((?:adc|dac)\d+)\s*\((.*)\)(?:\s+\[ch:(\d+)\])?"
+
+
 @dataclasses.dataclass(unsafe_hash=True)
 class AudioBackend:
     """
@@ -60,6 +63,9 @@ class AudioBackend:
         needsRealtime: the backend needs to be run in realtime
         platforms: a list of platform for which this backend is available
         longname: an alternative name for the backend
+        defaultBufferSize: the default buffer size for this backend (-b)
+        defaultNumBuffers: the number of buffers to fill a block (determines -B)
+        audioDeviceRegex: a regex to grep the audio devices from csound's output
     """
     name: str
     alwaysAvailable: bool = False
@@ -69,13 +75,18 @@ class AudioBackend:
     longname: str = ""
     defaultBufferSize: int = 1024
     defaultNumBuffers: int = 2
-    audioDeviceRegex: str = r"(\d+):\s((?:adc|dac)\d+)\s*\((.*)\)(?:\s+\[ch:(\d+)\])?"
+    audioDeviceRegex: str = ''
 
     def __post_init__(self):
         if not self.longname:
             self.longname = self.name
+        if not self.audioDeviceRegex:
+            self.audioDeviceRegex = _audioDeviceRegex
 
     def searchAudioDevice(self, pattern:str, kind:str) -> Optional[AudioDevice]:
+        """
+        Search a certain audio device from the devices presented by this backend
+        """
         # we get the devices via getAudioDevices to enable caching
         indevs, outdevs = getAudioDevices(self.name)
         devs = indevs if kind == 'input' else outdevs
@@ -115,9 +126,15 @@ class AudioBackend:
         return None
 
     def bufferSizeAndNum(self) -> Tuple[int, int]:
+        """
+        The buffer size and number of buffers needed for this backend
+        """
         return (self.defaultBufferSize, self.defaultNumBuffers)
 
     def audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+        """
+        Returns a tuple (input devices, output devices)
+        """
         indevices, outdevices = [], []
         proc = csoundSubproc(['-+rtaudio=%s' % self.name, '--devices'])
         proc.wait()
@@ -144,6 +161,9 @@ class AudioBackend:
         return indevices, outdevices
 
     def defaultAudioDevices(self) -> Tuple[AudioDevice, AudioDevice]:
+        """
+        Returns a tuple (default input device, default output device) for this backend
+        """
         indevs, outdevs = getAudioDevices(self.name)  # self.audioDevices()
         return indevs[0], outdevs[0]
 
@@ -949,6 +969,9 @@ class AudioDevice:
     numchannels: int = 0
 
     def info(self) -> str:
+        """
+        Returns a summary of this device in one line
+        """
         s = f"{self.id}:{self.name}"
         if self.kind == 'output':
             s += f":{self.numchannels}outs"
@@ -959,6 +982,11 @@ class AudioDevice:
 
 @_cachetools.cached(cache=_cachetools.TTLCache(10, 20))
 def getDefaultAudioDevices(backend:str=None) -> Tuple[AudioDevice, AudioDevice]:
+    """
+    Returns the default audio devices for a given backend
+
+    .. note:: Results are cached for a period of time
+    """
     backendDef = getAudioBackend(backend)
     return backendDef.defaultAudioDevices()
 
@@ -989,14 +1017,14 @@ def getAudioDevices(backend:str=None) -> Tuple[List[AudioDevice], List[AudioDevi
     * ins: number of input channels
     * outs: number of output channels
 
-    Backends::
-
-                OSX  Linux  Win   Multiple-Devices    Description
-        jack     x      x    -     -                  Jack
-        auhal    x      -    -     x                  CoreAudio
-        pa_cb    x      x    x     x                  PortAudio (Callback)
-        pa_bl    x      x    x     x                  PortAudio (blocking)
-
+    ======== ==== =====  ==== ==================  =======================
+    Backend  OSX  Linux  Win   Multiple-Devices    Description
+    ======== ==== =====  ==== ==================  =======================
+    jack      x      x    -     -                  Jack
+    auhal     x      -    -     x                  CoreAudio
+    pa_cb     x      x    x     x                  PortAudio (Callback)
+    pa_bl     x      x    x     x                  PortAudio (blocking)
+    ======== ==== =====  ==== ==================  =======================
     """
     backendDef = getAudioBackend(backend)
     return backendDef.audioDevices()
@@ -1497,10 +1525,11 @@ class Csd:
 
     def writeCsd(self, stream: Union[str, IO]) -> None:
         """
+        Write this as a csd
+
         Args:
             stream: the stream to write to. Either a path, an open file or
                 a io.StringIO
-
         """
         if isinstance(stream, str):
             outfile = stream
@@ -1524,7 +1553,7 @@ class Csd:
 
         srstr = f"sr     = {self.sr}" if self.sr is not None else ""
         
-        txt = f"""
+        txt = rf"""
             <CsInstruments>
 
             {srstr}
@@ -1866,9 +1895,9 @@ def getNchnls(backend: str=None, outpattern:str=None, inpattern:str=None,
 
     Args:
         backend: the backend, one of 'jack', 'portaudio', etc. None to use default
-        device: the output device. Use None for default device. Otherwise either the
+        outpattern: the output device. Use None for default device. Otherwise either the
             device id ("dac0") or a regex pattern matching the long name of the device
-        indevice: the input device. Use None for default device. Otherwise either the
+        inpattern: the input device. Use None for default device. Otherwise either the
             device id ("dac0") or a regex pattern matching the long name of the device
         defaultin: default value returned if it is not possible to determine
             the number of channels for given backend+device
@@ -2292,6 +2321,9 @@ def soundfontIndex(sfpath: str) -> SoundFontIndex:
 
 
 class SoundFontIndex:
+    """
+    Creates an index of presets for a given soundfont
+    """
     def __init__(self, soundfont: str):
         assert _os.path.exists(soundfont)
         self.soundfont = soundfont
