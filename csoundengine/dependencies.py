@@ -57,7 +57,13 @@ def getPluginsLatestRelease() -> Dict[str, str]:
         tmpfile, _ = urllib.request.urlretrieve(url)
     except urllib.error.URLError as e:
         logger.error(str(e))
-        raise RuntimeError(f"Could not download plugins info from {url}")
+        downloadurl = "https://github.com/csound-plugins/csound-plugins/releases/latest"
+        os.system(f'open "{downloadurl}"')
+        pluginsdir = csoundlib.userPluginsFolder()
+        raise RuntimeError(f"Could not download plugins info from {url}. Install the plugins"
+                           f" manually by downloading the .zip file for your platform from"
+                           f" {downloadurl} and put them in {pluginsdir} (create the "
+                           f"folder if needed)")
     info = json.load(open(tmpfile))
     assets = info.get('assets')
     if not assets:
