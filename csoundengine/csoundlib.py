@@ -145,15 +145,12 @@ class AudioBackend:
             if not match:
                 continue
             groups = match.groups()
+            print("---------- groups: ", groups)
             if len(groups) == 3:
                 idxstr, devid, devname = groups
                 numchannels = None
             else:
-                idxstr, devid, devname, numchannels = groups
-                numchannels = int(numchannels)
-            #if "[" in devname:
-            #    print(devname)
-            #    devname, _ = devname.split("[")[0].strip()
+                numchannels = int(numchannels) if numchannels is not None else 2
             kind = 'input' if devid.startswith("adc") else 'output'
             dev = AudioDevice(index=int(idxstr), id=devid, name=devname, kind=kind,
                               numchannels=numchannels)
@@ -282,7 +279,8 @@ _backendCoreaudio = AudioBackend('auhal',
                                  hasSystemSr=True,
                                  needsRealtime=False,
                                  longname="coreaudio",
-                                 platforms=('darwin',))
+                                 platforms=('darwin',),
+                                 audioDeviceRegex=)
 
 
 _allAudioBackends: Dict[str, AudioBackend] = {
