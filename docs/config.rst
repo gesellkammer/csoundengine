@@ -62,7 +62,7 @@ sr:
     | Choices: ``0, 22050, 44100, 48000, 88200, 96000``
     | *samplerate - 0=default sr for the backend*
 
-rec.sr:
+rec_sr:
     | Default: **44100**  -- `int`
     | Choices: ``44100, 48000, 88200, 96000, 192000``
     | *default samplerate when rendering*
@@ -82,12 +82,12 @@ ksmps:
     | Choices: ``16, 32, 64, 128, 256``
     | *corresponds to csound's ksmps*
 
-rec.ksmps:
+rec_ksmps:
     | Default: **64**  -- `int`
     | Choices: ``16, 32, 64, 128, 256``
     | *samples per cycle when rendering*
 
-rec.sample_format:
+rec_sample_format:
     | Default: **float**  -- `(str, int)`
     | Choices: ``16, 24, 32, float``
     | *Sample format used when rendering*
@@ -100,19 +100,17 @@ numbuffers:
     | Default: **0**  -- `int`
     | *determines the -B value as a multiple of the buffersize. 0=auto*
 
-linux.backend:
+linux_backend:
     | Default: **jack, pulse, pa_cb**  -- `str`
-    | A comma-separated list of backends, in descending priority
+    | *a comma separated list of backends (possible backends: jack, pulse, pa_cb, alsa)*
 
-macos.backend:
-    | Default: **auhal, pa_cb**  -- `str`
-    | A comma-separated list of backends, in descending priority
-    | Possible backends: auhal (coreaudio), pa_cb (portaudio callbacks)
-
-windows.backend:
+macos_backend:
     | Default: **pa_cb**  -- `str`
-    | A comma-separated list of backends, in descending priority
-    | Possible backends: pa_cb (portaudio callbacks), pa_bl (portaudio blocking)
+    | *a comma separated list of backends (possible backends: pa_cb, auhal)*
+
+windows_backend:
+    | Default: **pa_cb**  -- `str`
+    | *a comma separated list of backends (possible backends: pa_cb, pa_bl)*
 
 A4:
     | Default: **442**  -- `int`
@@ -132,11 +130,11 @@ set_sigint_handler:
     | *Set a sigint handler to prevent csound crash with CTRL-C*
 
 generalmidi_soundfont:
-    | Default: **None**  -- `str`
+    | Default: ****  -- `str`
 
 suppress_output:
     | Default: **True**  -- `bool`
-    | *Supress csound´s debugging information*
+    | *Suppress csound´s debugging information*
 
 unknown_parameter_fail_silently:
     | Default: **True**  -- `bool`
@@ -165,3 +163,44 @@ associated_table_min_size:
 num_audio_buses:
     | Default: **64**  -- `int`
     | *Num. of audio buses in an Engine/Session*
+
+num_control_buses:
+    | Default: **512**  -- `int`
+    | *Num. of control buses in an Engine/Session*
+
+html_theme:
+    | Default: **light**  -- `str`
+    | Choices: ``dark, light``
+    | *Style to use when displaying syntax highlighting*
+
+html_args_fontsize:
+    | Default: **12px**  -- `str`
+    | *Font size used for args when outputing html (in jupyter)*
+
+synth_repr_max_args:
+    | Default: **12**  -- `int`
+    | *Max. number of pfields shown when in a synth's repr*
+
+jupyter_synth_repr_stopbutton:
+    | Default: **True**  -- `bool`
+    | *When running inside a jupyter notebook, display a stop buttonfor Synths and SynthGroups*
+
+jupyter_synth_repr_interact:
+    | Default: **True**  -- `bool`
+    | *When inside jupyter, add interactive widgets if a synth hasnamed parameters*
+
+jupyter_instr_repr_show_code:
+    | Default: **True**  -- `bool`
+    | *Show code when displaying an Instr inside jupyter*
+
+ipython_load_magics_at_startup:
+    | Default: **True**  -- `bool`
+    | *Load csoundengine.magic at startup when inside ipython. If False, magics can still be loaded via `%load_ext csoundengine.magic`*
+
+magics_print_info:
+    | Default: **True**  -- `bool`
+    | *Print some informative information when the csounengine.magic extension is loaded*
+
+jupyter_slider_width:
+    | Default: **80%**  -- `str`
+    | *CSS Width used by an interactive slider in jupyter*
