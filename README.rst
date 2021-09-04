@@ -3,11 +3,16 @@ csoundengine
 
 This package implements a simple interface to run and control a csound process
 
+.. figure:: docs/assets/synthui.png
+
 
 Documentation
 -------------
 
 https://csoundengine.readthedocs.io/en/latest/index.html
+
+
+-----
 
 
 Introduction 
@@ -26,7 +31,7 @@ instance. All audio processing is run in a separate performance thread.
     engine = Engine()
     
     # Define an instrument
-    engine.defInstr('''
+    engine.compile(r'''
       instr synth
         ; pfields of the instrument
         kmidinote = p4
@@ -37,7 +42,7 @@ instance. All audio processing is run in a separate performance thread.
         kfreq = mtof:k(kmidinote)
         ; A filtered sawtooth
         asig  = vco2:a(kamp*0.7, kfreq)
-        asig += vco2.a(kamp*0.7, kfreq + kdetune)
+        asig += vco2:a(kamp*0.7, kfreq + kdetune)
         asig = moogladder2(asig, kcutoff, 0.9)
         ; Attack / Release
         aenv = linsegr:a(0, 0.01, 1, 0.2, 0)
@@ -56,8 +61,11 @@ instance. All audio processing is run in a separate performance thread.
     # Modify cutoff
     engine.setp(event, 6, 1000, delay=4)
 
-    # Stop the synth
-    engine.unsched(event)
+    # Create a ui for this event:
+    engine.eventui(event, p4=(0, 127), p5=(0, 1), kcutoff=(100, 5000))
+
+
+.. figure:: docs/assets/eventui2.png
 
 
 Session - high level interface
@@ -140,6 +148,8 @@ higher level interface, allowing to:
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start) 
 
 
+-----
+
 Installation
 ------------
 
@@ -149,14 +159,15 @@ Dependencies
 ~~~~~~~~~~~~
 
 * python >= 3.8
-* csound >= 6.15 (https://github.com/csound/csound/releases)
+* csound >= 6.16 (https://github.com/csound/csound/releases)
 
 .. code-block:: bash
 
     pip install csoundengine
 
-csoundengine also needs many csound plugins (https://github.com/csound-plugins/csound-plugins/releases),
+**csoundengine** also needs many csound plugins (https://github.com/csound-plugins/csound-plugins/releases),
 but these are installed automatically if needed.
+
 
 Documentation
 -------------
