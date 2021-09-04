@@ -120,7 +120,8 @@ class AudioBackend:
         proc = csoundSubproc(["-odac", f"-+rtaudio={self.name}", "--get-system-sr"], wait=True)
         for line in proc.stdout.readlines():
             if line.startswith(b"system sr:"):
-                sr = int(line.split(b":")[1].strip())
+                uline = line.decode('utf-8')
+                sr = int(float(uline.split(":")[1].strip()))
                 return sr if sr > 0 else None
         logger.error(f"Failed to get sr with backend {self.name}")
         return None
