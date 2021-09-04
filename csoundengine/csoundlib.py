@@ -476,9 +476,9 @@ _pluginsFolders = {
         'win32': '%LOCALAPPDATA%/csound/6.0/plugins64'
     },
     'float32': {
-        'linux': '$HOME/.local/lib/csound/6.0/plugins32',
-        'darwin': '$HOME/Library/csound/6.0/plugins32',
-        'win32': '%LOCALAPPDATA%/csound/6.0/plugins32'
+        'linux': '$HOME/.local/lib/csound/6.0/plugins',
+        'darwin': '$HOME/Library/csound/6.0/plugins',
+        'win32': '%LOCALAPPDATA%/csound/6.0/plugins'
     }
 }
 
@@ -503,7 +503,7 @@ def userPluginsFolder(float64=True) -> str:
      windows  ``C:/Users/<User>/AppData/Local/csound/6.0/plugins64``
     ======== ======================================================
 
-    For 32-bit plugins the folder is the same, but ends in 32 (``.../plugins32``)
+    For 32-bit plugins the folder is the same, without the '64' ending (``.../plugins``)
     """
     arch = 'float64' if float64 else 'float32'
     folder = _pluginsFolders[arch][_sys.platform]

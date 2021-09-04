@@ -72,7 +72,7 @@ def getPluginsLatestRelease() -> Dict[str, str]:
             out['darwin'] = asseturl
         elif "win64" in asseturl_lower or "windows" in asseturl_lower:
             out['win32'] = asseturl
-    tagname = info.get('tab_name')
+    tagname = info.get('tag_name')
     if tagname:
         try:
             versiontriplet = _asVersionTriplet(tagname)
