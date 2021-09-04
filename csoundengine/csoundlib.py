@@ -279,8 +279,7 @@ _backendCoreaudio = AudioBackend('auhal',
                                  hasSystemSr=True,
                                  needsRealtime=False,
                                  longname="coreaudio",
-                                 platforms=('darwin',),
-                                 audioDeviceRegex=)
+                                 platforms=('darwin',))
 
 
 _allAudioBackends: Dict[str, AudioBackend] = {
