@@ -31,7 +31,7 @@ setup(
         "JACK-client",
         "ctcsound",
         "sndfileio",
-        "emlib>=1.0",
+        "emlib>=1.1",
         "cachetools",
         "configdict>=0.8",
         "bpf4",
