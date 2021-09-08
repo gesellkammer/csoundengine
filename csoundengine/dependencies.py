@@ -189,7 +189,7 @@ def _installPluginsFromZipFile(zipped: Path):
 
 
 def _installPluginsFromDist():
-    rootfolder = Path(os.path.split(__file__)[0])
+    rootfolder = Path(os.path.split(__file__)[0]).parent
     assert rootfolder.exists()
     subfolder, globpattern = {
         'darwin': ('macos', '*,dylib'),
