@@ -207,7 +207,6 @@ def _installPluginsFromDist():
                      f"glob patter: {globpattern}")
         raise RuntimeError("Plugins not found")
     pluginsDest = csoundlib.userPluginsFolder()
-    print(pluginspath, globpattern, plugins, pluginsDest)
     os.makedirs(pluginsDest, exist_ok=True)
     _copyFiles([plugin.as_posix() for plugin in plugins], pluginsDest, verbose=True)
     if not pluginsInstalled(cached=False):
@@ -231,6 +230,7 @@ def installPlugins() -> None:
         logger.error(f"Could not install plugins from github: {e}")
     logger.info("Installing plugins from distribution")
     _installPluginsFromDist()
+    logger.info("<<< Plugins installed successfully! >>>")
 
 
 def _checkDependencies(tryfix=False, updateState=True) -> Optional[str]:
