@@ -203,7 +203,7 @@ def _installPluginsFromDist():
         raise RuntimeError(f"Could not find own csound packages. Folder: {pluginspath}")
     plugins = list(pluginspath.glob(globpattern))
     pluginsDest = csoundlib.userPluginsFolder()
-    print(plugins, pluginsDest)
+    print(pluginspath, globpattern, plugins, pluginsDest)
     os.makedirs(pluginsDest, exist_ok=True)
     _copyFiles([plugin.as_posix() for plugin in plugins], pluginsDest, verbose=True)
 
