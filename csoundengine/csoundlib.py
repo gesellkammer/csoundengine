@@ -146,7 +146,6 @@ class AudioBackend:
             if not match:
                 continue
             groups = match.groups()
-            print("---------- groups: ", groups)
             if len(groups) == 3:
                 idxstr, devid, devname = groups
                 numchannels = None

@@ -597,7 +597,6 @@ class Engine:
         return f"Engine({', '.join(parts)})"
 
     def __del__(self):
-        print("__del__")
         self.stop()
 
     def _getSyncToken(self) -> int:
