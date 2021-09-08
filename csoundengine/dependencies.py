@@ -191,23 +191,17 @@ def _installPluginsFromZipFile(zipped: Path):
 def _installPluginsFromDist():
     rootfolder = Path(os.path.split(__file__)[0])
     assert rootfolder.exists()
-    if sys.platform == 'darwin':
-        pluginspath = rootfolder / 'plugins/macos'
-        if not pluginspath.exists():
-            raise RuntimeError(f"Could not find own csound packages. Folder: {pluginspath}")
-        plugins = pluginspath.glob("*.dylib")
-    elif sys.platform == 'windows':
-        pluginspath = rootfolder/'plugins/windows'
-        if not pluginspath.exists():
-            raise RuntimeError(f"Could not find own csound packages. Folder: {pluginspath}")
-        plugins = pluginspath.glob("*.dll")
-    elif sys.platform == 'linux':
-        pluginspath = rootfolder/'plugins/linux'
-        if not pluginspath.exists():
-            raise RuntimeError(f"Could not find own csound packages. Folder: {pluginspath}")
-        plugins = pluginspath.glob("*.dll")
-    else:
+    subfolder, globpattern = {
+        'darwin': ('macos', '*,dylib'),
+        'windows': ('windows', '*.dll'),
+        'linux': ('linux', '*.so')
+    }.get(sys.platform, (None, None))
+    if subfolder is None:
         raise RuntimeError(f"Platform {sys.platform} not supported")
+    pluginspath = rootfolder/'data/plugins'/subfolder
+    if not pluginspath.exists():
+        raise RuntimeError(f"Could not find own csound packages. Folder: {pluginspath}")
+    plugins = pluginspath.glob(globpattern)
     pluginsDest = csoundlib.userPluginsFolder()
     os.makedirs(pluginsDest, exist_ok=True)
     _copyFiles([plugin.as_posix() for plugin in plugins], pluginsDest, verbose=True)
@@ -216,6 +210,8 @@ def _installPluginsFromDist():
 def installPlugins() -> None:
     """
     Install all needed plugins
+
+    Will raise RuntimeError if failed
     """
     if pluginsInstalled():
         logger.info("Plugins are already installed, installed plugins will be "
@@ -223,8 +219,10 @@ def installPlugins() -> None:
     try:
         zipped = downloadLatestPluginForPlatform()
         _installPluginsFromZipFile(zipped)
-    except RuntimeError:
-        _installPluginsFromDist()
+        return
+    except RuntimeError as e:
+        logger.error(f"Could not install plugins from github: {e}")
+    _installPluginsFromDist()
 
 
 def _checkDependencies(tryfix=False, updateState=True) -> Optional[str]:
