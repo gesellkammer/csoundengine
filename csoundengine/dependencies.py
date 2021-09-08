@@ -203,6 +203,7 @@ def _installPluginsFromDist():
         raise RuntimeError(f"Could not find own csound packages. Folder: {pluginspath}")
     plugins = pluginspath.glob(globpattern)
     pluginsDest = csoundlib.userPluginsFolder()
+    print(plugins, pluginsDest)
     os.makedirs(pluginsDest, exist_ok=True)
     _copyFiles([plugin.as_posix() for plugin in plugins], pluginsDest, verbose=True)
 
@@ -222,6 +223,7 @@ def installPlugins() -> None:
         return
     except RuntimeError as e:
         logger.error(f"Could not install plugins from github: {e}")
+    logger.info("Installing plugins from distribution")
     _installPluginsFromDist()
 
 
