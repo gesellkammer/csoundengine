@@ -493,15 +493,15 @@ class Engine:
                            internalTools.determineNumbuffers(self.backend or "portaudio",
                                                              buffersize=self.bufferSize))
         if udpserver is None: udpserver = config['start_udp_server']
-        self._uddocket: Opt[socket.socket] = None
-        self._sendAddr: Opt[Tuple[str, int]] = None
+        self._uddocket: Optional[socket.socket] = None
+        self._sendAddr: Optional[Tuple[str, int]] = None
         self.udpPort = 0
         if udpserver:
             self.udpPort = udpport or net.findport()
             self._udpSocket = net.udpsocket()
             self._sendAddr = ("127.0.0.1", self.udpPort)
         self._perfThread: ctcsound.CsoundPerformanceThread
-        self.csound: Opt[ctcsound.Csound] = None            # the csound object
+        self.csound: Optional[ctcsound.Csound] = None            # the csound object
         self._fracnumdigits = 4        # number of fractional digits used for unique instances
         self._exited = False           # are we still running?
 
@@ -527,12 +527,12 @@ class Engine:
         # host, the host sends a token, the instr sets table[token] = value
         # and calls 'outvale "__sync__", token' to signal that an answer is
         # ready
-        # self._responsesTable: Opt[np.ndarray] = None
+        # self._responsesTable: Optional[np.ndarray] = None
         self._responsesTable: np.ndarray
 
         # a table with sub-mix gains which can be used to group
         # synths, samples, etc.
-        self._subgainsTable: Opt[np.ndarray] = None
+        self._subgainsTable: Optional[np.ndarray] = None
 
         # tokens start at 1, leave token 0 to signal that no sync is needed
         # tokens are used as indices to _responsesTable, which is an alias of
@@ -555,10 +555,10 @@ class Engine:
 
         self._instrNumCache: Dict[str, int] = {}
 
-        self._session: Opt[_session.Session] = None
-        self._busTokenCountPtr: Opt[np.ndarray] = None
-        self._soundfontPresetCountPtr: Opt[np.ndarray] = None
-        self._kbusTable: Opt[np.ndarray] = None
+        self._session: Optional[_session.Session] = None
+        self._busTokenCountPtr: Optional[np.ndarray] = None
+        self._soundfontPresetCountPtr: Optional[np.ndarray] = None
+        self._kbusTable: Optional[np.ndarray] = None
         self._busIndexes: Dict[int, int] = {}
         self._soundfontPresets: Dict[Tuple[str, int, int], int] = {}
         self._soundfontPresetCount = 0
@@ -610,7 +610,7 @@ class Engine:
         return token
 
     def _waitOnToken(self, token:int, sleepfunc=time.sleep, period=0.001, timeout=1.
-                     ) -> Opt[float]:
+                     ) -> Optional[float]:
         n = timeout // period
         table = self._responsesTable
         assert table is not None
@@ -1071,7 +1071,7 @@ class Engine:
             assert self._perfThread is not None
             self._perfThread.scoreEvent(0, "i", pargs)
 
-    def getTableData(self, idx:int, flat=True) -> Opt[np.ndarray]:
+    def getTableData(self, idx:int, flat=True) -> Optional[np.ndarray]:
         """
         Returns a numpy array pointing to the data of the table.
 
@@ -1571,7 +1571,7 @@ class Engine:
         pargs = [self._builtinInstrs['pingback'], delay, 0.01, token]
         self._eventWithCallback(token, pargs, lambda token: callback())
 
-    def _eventWait(self, token:int, pargs:Sequence[float], timeout=1) -> Opt[float]:
+    def _eventWait(self, token:int, pargs:Sequence[float], timeout=1) -> Optional[float]:
         q = self._registerSync(token)
         self._perfThread.scoreEvent(0, "i", pargs)
         try:
@@ -1774,7 +1774,7 @@ class Engine:
         return None
 
     def _inputMessageWait(self, token:int, inputMessage:str,
-                          timeout=1) -> Opt[float]:
+                          timeout=1) -> Optional[float]:
         """
         This function passes the str inputMessage to csound and waits for
         the instr to notify us with a "__sync__" outvalue
@@ -2660,7 +2660,7 @@ class Engine:
             self.sync()
         return stringIndex
 
-    def strGet(self, index:int) -> Opt[str]:
+    def strGet(self, index:int) -> Optional[str]:
         """
         Get the string previously set via strSet.
 
@@ -3065,7 +3065,7 @@ def activeEngines() -> KeysView[str]:
     return Engine.activeEngines.keys()
 
 
-def getEngine(name:str) -> Opt[Engine]:
+def getEngine(name:str) -> Optional[Engine]:
     """
     Get an already created engine.
     """

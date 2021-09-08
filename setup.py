@@ -23,7 +23,6 @@ setup(
     packages=[
         'csoundengine',
     ],
-    include_package_data=True,
     install_requires=[
         "numpy",
         "scipy",
@@ -48,4 +47,7 @@ setup(
         'Intended Audience :: Developers',
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)'
     ],
+    package_data={'': ['data/*']},
+    include_package_data=True,
+    zip_safe=False
 )

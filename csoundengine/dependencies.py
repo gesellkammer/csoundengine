@@ -21,13 +21,14 @@ logger = logging.getLogger("csoundengine")
 
 
 def _asVersionTriplet(tagname: str) -> Tuple[int, int, int]:
-    match = re.search(r"v?(\d+)\.(\d+)(.(\d+))?", tagname)
+    assert isinstance(tagname, str)
+    match = re.search(r"(\d+)\.(\d+)(.(\d+))?", tagname)
     if not match:
-        raise ValueError("Could not parse tagname")
+        raise ValueError(f"Could not parse tagname {tagname}")
     major = int(match.group(1))
     minor= int(match.group(2))
     try:
-        patch = int(match.group(3))
+        patch = int(match.group(4))
     except IndexError:
         patch = 0
     return (major, minor, patch)
@@ -57,13 +58,7 @@ def getPluginsLatestRelease() -> Dict[str, str]:
         tmpfile, _ = urllib.request.urlretrieve(url)
     except urllib.error.URLError as e:
         logger.error(str(e))
-        downloadurl = "https://github.com/csound-plugins/csound-plugins/releases/latest"
-        os.system(f'open "{downloadurl}"')
-        pluginsdir = csoundlib.userPluginsFolder()
-        raise RuntimeError(f"Could not download plugins info from {url}. Install the plugins"
-                           f" manually by downloading the .zip file for your platform from"
-                           f" {downloadurl} and put them in {pluginsdir} (create the "
-                           f"folder if needed)")
+        raise RuntimeError("Could not download plugins info")
     info = json.load(open(tmpfile))
     assets = info.get('assets')
     if not assets:
@@ -83,6 +78,7 @@ def getPluginsLatestRelease() -> Dict[str, str]:
         try:
             versiontriplet = _asVersionTriplet(tagname)
         except ValueError:
+            logger.error(f"Could not parse tagname: {tagname}")
             versiontriplet = (0, 0, 0)
         out['version'] = versiontriplet
 
@@ -104,6 +100,8 @@ def downloadLatestPluginForPlatform(destFolder: Path = None) -> Path:
 
     Returns:
         the full path to the saved .zip file
+
+    NB: throws RuntimeError if could not retrieve latest release
     """
     if destFolder is None:
         destFolder = _getDownloadsFolder()
@@ -139,15 +137,12 @@ def _zipExtract(zippedfile: Path) -> Path:
     return Path(destFolder)
 
 
-def _copyFiles(files: List[str], dest: str, sudo=False) -> None:
+def _copyFiles(files: List[str], dest: str, verbose=False) -> None:
     assert os.path.isdir(dest)
-    if sudo:
-        args = ["sudo", "cp"] + files
-        args.append(dest)
-        subprocess.call(args)
-    else:
-        for f in files:
-            shutil.copy(f, dest)
+    for f in files:
+        if verbose:
+            print(f"Copying file {f} to {dest}")
+        shutil.copy(f, dest)
 
 
 def pluginsInstalled(force=False) -> bool:
@@ -170,13 +165,12 @@ def _getDownloadsFolder() -> Path:
     return downloads
 
 
-def installPlugins(force=False) -> None:
-    """ Install all needed plugins
+def _installPluginsFromZipFile(zipped: Path):
     """
-    if pluginsInstalled() and not force:
-        logger.info("Plugins are already installed")
-        return
-    zipped = downloadLatestPluginForPlatform()
+    install plugins from a zipped file downloaded from github release
+
+    NB: throws RuntimeError if there was an error during installation
+    """
     assert zipped.exists() and zipped.suffix == ".zip"
     unzippedFolder = _zipExtract(zipped)
     pluginsFolder = csoundlib.userPluginsFolder(float64=True)
@@ -189,37 +183,75 @@ def installPlugins(force=False) -> None:
         plugins = [plugin.as_posix() for plugin in unzippedFolder.glob("*.dll")]
     else:
         raise OSError(f"Platform {sys.platform} not supported")
-    _copyFiles(plugins, pluginsFolder, sudo=False)
+    _copyFiles(plugins, pluginsFolder, verbose=True)
     if not pluginsInstalled(force=True):
         raise RuntimeError("There was an error in the installation...")
 
 
-def _checkDependencies(tryfix=False, updateState=True):
-    if not csoundInstalled():
-        raise RuntimeError("csound not installed. See https://csound.com/download.html")
+def _installPluginsFromDist():
+    rootfolder = Path(os.path.split(__file__)[0])
+    assert rootfolder.exists()
+    if sys.platform == 'darwin':
+        pluginspath = rootfolder / 'plugins/macos'
+        if not pluginspath.exists():
+            raise RuntimeError(f"Could not find own csound packages. Folder: {pluginspath}")
+        plugins = pluginspath.glob("*.dylib")
+    elif sys.platform == 'windows':
+        pluginspath = rootfolder/'plugins/windows'
+        if not pluginspath.exists():
+            raise RuntimeError(f"Could not find own csound packages. Folder: {pluginspath}")
+        plugins = pluginspath.glob("*.dll")
+    elif sys.platform == 'linux':
+        pluginspath = rootfolder/'plugins/linux'
+        if not pluginspath.exists():
+            raise RuntimeError(f"Could not find own csound packages. Folder: {pluginspath}")
+        plugins = pluginspath.glob("*.dll")
+    else:
+        raise RuntimeError(f"Platform {sys.platform} not supported")
+    pluginsDest = csoundlib.userPluginsFolder()
+    os.makedirs(pluginsDest, exist_ok=True)
+    _copyFiles([plugin.as_posix() for plugin in plugins], pluginsDest, verbose=True)
 
-    #version = csoundlib.getVersion()
-    #if version  < (6, 16, 0):
-    #    print(f"The installed version of csound ({version}) is too old. ")
-    #    print("csound should be >= 6.16")
-    #    print("Download the latest version from https://csound.com/download.html")
-    #    raise RuntimeError("csound version too old")
+
+def installPlugins() -> None:
+    """
+    Install all needed plugins
+    """
+    if pluginsInstalled():
+        logger.info("Plugins are already installed, installed plugins will be "
+                    "(eventually) overwritten")
+    try:
+        zipped = downloadLatestPluginForPlatform()
+        _installPluginsFromZipFile(zipped)
+    except RuntimeError:
+        _installPluginsFromDist()
+
+
+def _checkDependencies(tryfix=False, updateState=True) -> Optional[str]:
+    """
+    Either returns None or an error message
+    """
+    if not csoundInstalled():
+        return "csound not installed. See https://csound.com/download.html"
+
+    version = csoundlib.getVersion()
+    if version  < (6, 16, 0):
+        return f"csound version ({version}) too old. csound should be >= 6.16 but "
 
     if not pluginsInstalled():
         if tryfix:
             print("csound plugins are not installed or are too old."
                   " I will try to install them now")
-            installPlugins()
+            return installPlugins()
         else:
-            print("csound plugins are not installed. Install them from "
-                  "https://github.com/csound-plugins/csound-plugins/releases")
-            raise RuntimeError("csound plugins not installed")
+            return ("csound plugins are not installed. Install them from "
+                    "https://github.com/csound-plugins/csound-plugins/releases")
     logger.info("Dependencies OK")
     if updateState:
         state['last_run'] = datetime.now().isoformat()
 
 
-def checkDependencies(force=True, tryfix=True):
+def checkDependencies(force=True, tryfix=False) -> bool:
     """
     Check that all external dependencies are fullfilled.
 
@@ -227,17 +259,19 @@ def checkDependencies(force=True, tryfix=True):
         force: if True, do not use cached results
         tryfix: if True, try to fix missing dependencies, where possible
 
-    Raises RuntimeError if any dependency is missing
+    Returns:
+        True if all dependencies are fullfilled
+
     """
     # Skip checks if only building docs
     if 'sphinx' in sys.modules:
-        return
-
-    if force:
-        _checkDependencies(tryfix=tryfix)
-        return
+        return True
 
     timeSincelast_run = datetime.now() - datetime.fromisoformat(state['last_run'])
-    if timeSincelast_run.days > 30:
-        _checkDependencies(tryfix=tryfix)
-        return
+    if force or timeSincelast_run.days > 30:
+        logger.info("Checking dependencies")
+        errormsg = _checkDependencies(tryfix=tryfix)
+        if errormsg:
+            logger.error(errormsg)
+            return False
+    return True

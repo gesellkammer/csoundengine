@@ -94,8 +94,16 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
         # Automate the cutoff freq. of the filter
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
 """
+from .config import config, setLoggingLevel
+if config['suppress_output']:
+    import os
+    os.environ['CSNOMESSAGES'] = '1'
+
 from .dependencies import checkDependencies
-checkDependencies(force=False, tryfix=True)
+ok = checkDependencies(force=False, tryfix=True)
+if not ok:
+    raise RuntimeError("Depencencies not fullfilled")
+
 from .engine import *
 from .config import config, setLoggingLevel
 from .session import Session, getSession, groupSynths

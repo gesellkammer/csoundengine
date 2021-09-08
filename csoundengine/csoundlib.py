@@ -305,7 +305,10 @@ _backendsByPlatform: Dict[str, List[AudioBackend]] = {
 }
 
 
-_OPCODES = None
+_cache = {
+    'opcodes': None,
+    'versionTriplet': None
+}
 
 
 def nextpow2(n:int) -> int:
@@ -328,15 +331,10 @@ def _getVersionViaApi() -> Tuple[int, int, int]:
     """
     Returns the csound version as tuple (major, minor, patch)
     """
-    import ctcsound
-    csound = ctcsound.Csound()
-    v = csound.version()
-    vs = str(v)
-    patch = int(vs[-1])
-    minor = int(vs[-3:-1])
-    major = int(vs[:-3])
-    csound.cleanup()
-    return (major, minor, patch)
+    if (version := _cache['versionTriplet']):
+        return version
+    info = _csoundGetInfoViaAPI()
+    return info['versionTriplet']
 
 
 def getVersion(useApi=True) -> Tuple[int, int, int]:
@@ -393,6 +391,7 @@ def csoundSubproc(args: List[str], piped=True, wait=False) -> _subprocess.Popen:
     Args:
         args: the args passed to csound
         piped: if True, stdout and stderr are piped to the Popen object
+        wait: if True, wait until csound exits
 
     Returns:
         the _subprocess.Popen object
@@ -706,7 +705,7 @@ def parseScore(sco: str) -> Generator[ScoreEvent, None, None]:
         yield ScoreEvent(kind, p1, t0, dur, args)
 
 
-def opcodesList(cached=True, opcodedir:str=None, useapi=True) -> List[str]:
+def opcodesList(cached=True, opcodedir:str=None) -> List[str]:
     """
     Return a list of the opcodes present
 
@@ -714,27 +713,35 @@ def opcodesList(cached=True, opcodedir:str=None, useapi=True) -> List[str]:
         cached: if True, results are remembers between calls
         opcodedir: if given, plugin libraries will be loaded from
             this path (option --opcode-dir in csound)
-        useapi: if True, use the API to query the opcodes
 
     Returns:
         a list of all available opcodes
     """
-    global _OPCODES
-    if _OPCODES is not None and cached:
-        return _OPCODES
-    _OPCODES = _opcodesListAPI(opcodedir) if useapi else _opcodesList(opcodedir)
-    return _OPCODES
+    if cached and _cache['opcodes'] is not None:
+        return _cache['opcodes']
+    return _csoundGetInfoViaAPI()['opcodes']
 
 
-def _opcodesListAPI(opcodedir=None) -> List[str]:
+def _csoundGetInfoViaAPI(opcodedir:str=None) -> dict:
     import ctcsound
     cs = ctcsound.Csound()
+    cs.setOption("-d")  # supress displays
     if opcodedir:
         cs.setOption(f'--opcode-dir="{opcodedir}"')
     opcodes, n = cs.newOpcodeList()
     opcodeNames = [opc.opname.decode('utf-8') for opc in opcodes]
     cs.disposeOpcodeList(opcodes)
-    return list(set(opcodeNames))
+    version = cs.version()
+    vs = str(version)
+    patch = int(vs[-1])
+    minor = int(vs[-3:-1])
+    major = int(vs[:-3])
+    opcodes = list(set(opcodeNames))
+    versionTriplet = (major, minor, patch)
+    _cache['opcodes'] = opcodes
+    _cache['versionTriplet'] = versionTriplet
+    return {'opcodes': opcodes,
+            'versionTriplet': versionTriplet}
 
 
 def _opcodesList(opcodedir=None) -> List[str]:
