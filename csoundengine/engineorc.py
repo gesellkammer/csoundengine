@@ -353,7 +353,6 @@ instr ${pread}
     inotify = p7
     ival pread ip1, ipindex
     tabw_i ival, itoken, gi__responses
-    prints "pread: itoken=%d, ip1=%f, ipindex=%f, ival=%f\n", itoken, ip1, ipindex, ival 
     if inotify == 1 then
         outvalue "__sync__", itoken
     endif
@@ -379,21 +378,19 @@ instr ${testaudio}
     imode passign 4
     kchan init -1
     if imode == 0 then
-        prints "Testaudio: pink noise mode\n"
+        prints "\nTestaudio: pink noise mode\n"
         a0 pinker
     elseif imode == 1 then
-        prints "Testaudio: sine tone mode\n"
+        prints "\nTestaudio: sine tone mode\n"
         a0 oscili 0.1, 1000
+    else
+        initerror sprintf("testaudio: imode %d unknown", imode)
     endif
     kswitch metro 1
     kchan = (kchan + kswitch) % nchnls
     outch kchan+1, a0
-    krms = rms(a0)
-    if metro(10) == 1 then
-        printsk("rms a0 = %.1f          \r", krms)
-    endif
     if kswitch == 1 then
-        println "\nChannel: %d", kchan
+        println "Channel: %d", kchan
     endif
 endin
 
