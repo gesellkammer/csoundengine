@@ -145,9 +145,9 @@ def _copyFiles(files: List[str], dest: str, verbose=False) -> None:
         shutil.copy(f, dest)
 
 
-def pluginsInstalled(force=False) -> bool:
+def pluginsInstalled(cached=True) -> bool:
     """Returns True if the needed plugins are already installed"""
-    opcodes = set(csoundlib.opcodesList(cached=not force,
+    opcodes = set(csoundlib.opcodesList(cached=cached,
                                         opcodedir=csoundlib.userPluginsFolder()))
     neededOpcodes = {
         "atstop", "pwrite", "pread", "initerror",
@@ -184,7 +184,7 @@ def _installPluginsFromZipFile(zipped: Path):
     else:
         raise OSError(f"Platform {sys.platform} not supported")
     _copyFiles(plugins, pluginsFolder, verbose=True)
-    if not pluginsInstalled(force=True):
+    if not pluginsInstalled(cached=False):
         raise RuntimeError("There was an error in the installation...")
 
 
@@ -192,7 +192,7 @@ def _installPluginsFromDist():
     rootfolder = Path(os.path.split(__file__)[0]).parent
     assert rootfolder.exists()
     subfolder, globpattern = {
-        'darwin': ('macos', '*,dylib'),
+        'darwin': ('macos', '*.dylib'),
         'windows': ('windows', '*.dll'),
         'linux': ('linux', '*.so')
     }.get(sys.platform, (None, None))
@@ -200,12 +200,18 @@ def _installPluginsFromDist():
         raise RuntimeError(f"Platform {sys.platform} not supported")
     pluginspath = rootfolder/'data/plugins'/subfolder
     if not pluginspath.exists():
-        raise RuntimeError(f"Could not find own csound packages. Folder: {pluginspath}")
+        raise RuntimeError(f"Could not find own csound plugins. Folder: {pluginspath}")
     plugins = list(pluginspath.glob(globpattern))
+    if not plugins:
+        logger.error(f"Plugins not found. Plugins folder: {pluginspath}, "
+                     f"glob patter: {globpattern}")
+        raise RuntimeError("Plugins not found")
     pluginsDest = csoundlib.userPluginsFolder()
     print(pluginspath, globpattern, plugins, pluginsDest)
     os.makedirs(pluginsDest, exist_ok=True)
     _copyFiles([plugin.as_posix() for plugin in plugins], pluginsDest, verbose=True)
+    if not pluginsInstalled(cached=False):
+        raise RuntimeError("There was an error in the installation")
 
 
 def installPlugins() -> None:
