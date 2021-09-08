@@ -4,8 +4,7 @@ csoundengine
 This package implements a simple interface to run and control a csound process
 
 
-.. image:: docs/assets/synthui.png
-    :target: https://github.com/gesellkammer/csoundengine/blob/master/docs/assets/synthui.png
+.. figure:: https://raw.githubusercontent.com/gesellkammer/csoundengine/master/docs/assets/synthui.png
 
 
 Documentation
