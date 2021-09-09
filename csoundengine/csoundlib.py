@@ -249,10 +249,16 @@ class _PortaudioBackend(AudioBackend):
         indevs, outdevs = getAudioDevices(self.name)
         indev = next((d for d in indevs if _re.search(r"\bdefault\b", d.name)), None)
         outdev = next((d for d in outdevs if _re.search(r"\bdefault\b", d.name)), None)
-        if indev is None and indevs:
-            indev = indevs[0]
-        if outdev is None and outdevs:
-            outdev = outdevs[0]
+        if indev is None:
+            if not indevs:
+                logger.warning(f"No input devices for backend {self.name}")
+            else:
+                indev = indevs[0]
+        if outdev:
+            if not outdevs:
+                logger.warning(f"No output devices for backend {self.name}")
+            else:
+                outdev = outdevs[0]
         return indev, outdev
 
 

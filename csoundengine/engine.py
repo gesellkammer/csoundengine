@@ -370,6 +370,8 @@ class Engine:
         indevs, outdevs = backendDef.audioDevices()
         indevName, outdevName = "adc", "dac"
         if outdev is None:
+            if not defaultout:
+                raise RuntimeError("No output devices")
             outdev, outdevName = defaultout.id, defaultout.name
             if not nchnls:
                 nchnls = defaultout.numchannels
@@ -785,6 +787,8 @@ class Engine:
         """
         Stop this Engine
         """
+        if not hasattr(self, "name"):
+            return
         logger.info(f"stopping Engine {self.name}")
         if not self.started or self._exited:
             logger.debug(f"Engine {self.name} was not running, so can't stop it")
