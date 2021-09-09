@@ -107,11 +107,11 @@ def downloadLatestPluginForPlatform(destFolder: Path = None) -> Path:
         destFolder = _getDownloadsFolder()
     pluginurls = getPluginsLatestRelease()
     pluginurl = pluginurls.get(sys.platform)
+    if pluginurl is None:
+        raise RuntimeError(f"No plugins released for platform {sys.platform}")
     version = pluginurls.get('version', None)
     if version:
         print(f"Downloading latest version ({version}) of csound-plugins...")
-    if pluginurl is None:
-        raise RuntimeError(f"No plugins released for platform {sys.platform}")
     return _download(pluginurl, destFolder)
 
 
@@ -242,13 +242,13 @@ def _checkDependencies(tryfix=False, updateState=True) -> Optional[str]:
 
     version = csoundlib.getVersion()
     if version  < (6, 16, 0):
-        return f"csound version ({version}) too old. csound should be >= 6.16 but "
+        return f"Csound version ({version}) is too old, should be >= 6.16"
 
     if not pluginsInstalled():
         if tryfix:
             print("csound plugins are not installed or are too old."
                   " I will try to install them now")
-            return installPlugins()
+            installPlugins()
         else:
             return ("csound plugins are not installed. Install them from "
                     "https://github.com/csound-plugins/csound-plugins/releases")
