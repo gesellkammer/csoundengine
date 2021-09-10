@@ -5,6 +5,7 @@ This module provides many utilities based on the csound binary
 from __future__ import annotations
 import math as _math
 import os as _os
+import sys
 import sys as _sys
 import subprocess as _subprocess
 import re as _re
@@ -266,7 +267,10 @@ class _PortaudioBackend(AudioBackend):
         indevices, outdevices = [], []
         proc = csoundSubproc(['-+rtaudio=pa_cb', '-odac', '--devices'], wait=True)
         print("stdout", proc.stdout.read())
-        lines = proc.stderr.readlines()
+        if sys.platform == 'win32':
+            lines = proc.stdout.readlines()
+        else:
+            lines = proc.stderr.readlines()
         print("lines", lines)
         for line in lines:
             line = line.decode("utf-8")
