@@ -261,6 +261,39 @@ class _PortaudioBackend(AudioBackend):
                 outdev = outdevs[0]
         return indev, outdev
 
+    def audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+        indevices, outdevices = [], []
+        proc = csoundSubproc(['-+rtaudio=%s'%self.name, '--devices'])
+        proc.wait()
+        lines = proc.stderr.readlines()
+        for line in lines:
+            line = line.decode("utf-8")
+            if match := _re.search(self.audioDeviceRegex, line):
+                groups = match.groups()
+                if len(groups) == 3:
+                    idxstr, devid, devname = groups
+                    numchannels = None
+                else:
+                    idxstr, devid, devname, numchannels = groups
+                    numchannels = int(numchannels) if numchannels is not None else 2
+                kind = 'input' if devid.startswith("adc") else 'output'
+                dev = AudioDevice(index=int(idxstr), id=devid, name=devname, kind=kind,
+                                  numchannels=numchannels)
+                (indevices if kind == 'input' else outdevices).append(dev)
+            elif match := _re.search(r"(\d+):\s*(dac\d+)\s\((.+)", line):
+                idxstr = match.group(1)
+                devid = match.group(2)
+                devname = match.group(3)
+                kind = 'input' if devid.startswith("adc") else 'output'
+                dev = AudioDevice(index=int(idxstr), id=devid, name=devname, kind=kind,
+                                  numchannels=None)
+                (indevices if kind == 'input' else outdevices).append(dev)
+
+
+        return indevices, outdevices
+
+
+
 
 class _AlsaBackend(AudioBackend):
     def __init__(self):
@@ -977,7 +1010,7 @@ class AudioDevice:
     name: str
     kind: str
     index: int = -1
-    numchannels: int = 0
+    numchannels: Optional[int] = 0
 
     def info(self) -> str:
         """
