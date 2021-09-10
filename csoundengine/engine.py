@@ -357,6 +357,7 @@ class Engine:
         resolvedBackend = internalTools.resolveOption(cascadingBackends,
                                                       availableBackends)
         backendDef = csoundlib.getAudioBackend(resolvedBackend)
+        print("Using backend: ", backendDef.name)
         if not resolvedBackend:
             logger.error(f'Could not find any available backends for {backend}')
             logger.error(f'    Available backends: {", ".join(availableBackends)}')
@@ -366,12 +367,17 @@ class Engine:
                          f'And edit the "{internalTools.platform}.backend" key.')
             raise CsoundError(f'Backend "{resolvedBackend}" not available')
 
-        defaultin, defaultout = backendDef.defaultAudioDevices()
         indevs, outdevs = backendDef.audioDevices()
+        print("Devices: ")
+        for d in indevs:
+            print(d)
+        for d in outdevs:
+            print(d)
+        defaultin, defaultout = backendDef.defaultAudioDevices()
         indevName, outdevName = "adc", "dac"
         if outdev is None:
             if not defaultout:
-                raise RuntimeError("No output devices")
+                raise RuntimeError(f"No output devices for backend {backendDef.name}")
             outdev, outdevName = defaultout.id, defaultout.name
             if not nchnls:
                 nchnls = defaultout.numchannels
