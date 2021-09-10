@@ -269,6 +269,7 @@ class _PortaudioBackend(AudioBackend):
         lines = proc.stderr.readlines()
         for line in lines:
             line = line.decode("utf-8")
+            print(f'<<{line}>>')
             if match := _re.search(self.audioDeviceRegex, line):
                 groups = match.groups()
                 if len(groups) == 3:
