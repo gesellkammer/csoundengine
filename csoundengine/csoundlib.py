@@ -288,7 +288,8 @@ class _PortaudioBackend(AudioBackend):
                 dev = AudioDevice(index=int(idxstr), id=devid, name=devname, kind=kind,
                                   numchannels=None)
                 (indevices if kind == 'input' else outdevices).append(dev)
-
+            else:
+                print("Not matched: ", line)
 
         return indevices, outdevices
 
