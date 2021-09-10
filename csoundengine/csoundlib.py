@@ -255,7 +255,7 @@ class _PortaudioBackend(AudioBackend):
                 logger.warning(f"No input devices for backend {self.name}")
             else:
                 indev = indevs[0]
-        if outdev:
+        if outdev is None:
             if not outdevs:
                 logger.warning(f"No output devices for backend {self.name}")
             else:
