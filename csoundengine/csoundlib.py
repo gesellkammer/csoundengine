@@ -263,17 +263,14 @@ class _PortaudioBackend(AudioBackend):
         return indev, outdev
 
     def audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
-        print("Portaudio audioDevices")
         indevices, outdevices = [], []
         proc = csoundSubproc(['-+rtaudio=pa_cb', '-odac', '--devices'], wait=True)
         if sys.platform == 'win32':
             lines = proc.stdout.readlines()
         else:
             lines = proc.stderr.readlines()
-        print("lines", lines)
         for line in lines:
             line = line.decode("utf-8")
-            print(f'<<{line}>>')
             if match := _re.search(self.audioDeviceRegex, line):
                 groups = match.groups()
                 if len(groups) == 3:
@@ -294,9 +291,6 @@ class _PortaudioBackend(AudioBackend):
                 dev = AudioDevice(index=int(idxstr), id=devid, name=devname, kind=kind,
                                   numchannels=None)
                 (indevices if kind == 'input' else outdevices).append(dev)
-            else:
-                print("Not matched: ", line)
-
         return indevices, outdevices
 
 
