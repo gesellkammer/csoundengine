@@ -266,7 +266,6 @@ class _PortaudioBackend(AudioBackend):
         print("Portaudio audioDevices")
         indevices, outdevices = [], []
         proc = csoundSubproc(['-+rtaudio=pa_cb', '-odac', '--devices'], wait=True)
-        print("stdout", proc.stdout.read())
         if sys.platform == 'win32':
             lines = proc.stdout.readlines()
         else:
