@@ -1,3 +1,5 @@
+.. _magics-label:
+
 Magics
 ======
 

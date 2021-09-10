@@ -78,7 +78,8 @@ Interactive Use
 
 .. figure:: assets/eventui.png
 
-**csoundengine** also defines a set of ipython/jupyter `magics <XX>`_
+**csoundengine** also defines a set of ipython/jupyter :doc:`magics <magics>`
+
 """
 from __future__ import annotations
 
