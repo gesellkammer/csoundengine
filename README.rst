@@ -90,7 +90,7 @@ higher level interface, allowing to:
     session = Engine().session()
 
     # create a master audio channel
-    masterbus = session.newBus()
+    masterbus = session.assignBus()
 
     # define instruments
     session.defInstr("synth", r'''
