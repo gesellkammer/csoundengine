@@ -4,9 +4,6 @@ csoundengine
 This package implements a simple interface to run and control a csound process
 
 
-.. figure:: https://raw.githubusercontent.com/gesellkammer/csoundengine/master/docs/assets/synthui.png
-
-
 Documentation
 -------------
 
@@ -80,6 +77,10 @@ higher level interface, allowing to:
 * An ``Instr`` can have named parameters which can be used to control the event.
 
 * A ``Session`` provides a series of built-in ``Instr``'s to perform some common tasks, like playing samples from memory or from disk, perform audio analysis, etc.
+
+
+.. figure:: https://raw.githubusercontent.com/gesellkammer/csoundengine/master/docs/assets/synthui.png
+
 
 .. code-block:: python
     
