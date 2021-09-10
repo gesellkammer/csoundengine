@@ -262,8 +262,9 @@ class _PortaudioBackend(AudioBackend):
         return indev, outdev
 
     def audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+        print("Portaudio audioDevices")
         indevices, outdevices = [], []
-        proc = csoundSubproc(['-+rtaudio=%s'%self.name, '--devices'])
+        proc = csoundSubproc(['-+rtaudio=pa_cb', '--devices'])
         proc.wait()
         lines = proc.stderr.readlines()
         for line in lines:
