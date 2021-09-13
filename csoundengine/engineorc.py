@@ -45,7 +45,7 @@ opcode sfloadonce, i, S
     iidx dict_get gi__soundfontIndexes, Skey_, -1
     if (iidx == -1) then
         iidx sfload Spath
-        prints "Loading soundfont: %s (assigned index: %d)\n", Spath, iidx
+        ; prints "Loading soundfont: %s (assigned index: %d)\n", Spath, iidx
         dict_set gi__soundfontIndexes, Skey_, iidx
     endif
     xout iidx
@@ -58,12 +58,12 @@ opcode sfPresetIndex, i, Sii
     Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum
     
     iidx dict_get gi__soundfontIndexes, Skey, -1
-    prints "pre  sfPresetIndex: soundfont: %s, prog: %d:%d, idx: %d\n", Spath, ibank, ipresetnum, iidx
+    ; prints "pre  sfPresetIndex: soundfont: %s, prog: %d:%d, idx: %d\n", Spath, ibank, ipresetnum, iidx
         
     if iidx == -1 then
         iidx chnget "_soundfontPresetCount"
         chnset iidx+1, "_soundfontPresetCount"
-        prints "post sfPresetIndex: soundfont: %s, prog: %d:%d, idx: %d\n", Spath, ibank, ipresetnum, iidx
+        ; prints "post sfPresetIndex: soundfont: %s, prog: %d:%d, idx: %d\n", Spath, ibank, ipresetnum, iidx
         i0 sfpreset ipresetnum, ibank, isf, iidx
         if iidx != i0 then
             prints "???: iidx = %d, i0 = %d\n", iidx, i0

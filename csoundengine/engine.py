@@ -611,8 +611,10 @@ class Engine:
         self._responsesTable[token] = _UNSET
         return token
 
-    def _waitOnToken(self, token:int, sleepfunc=time.sleep, period=0.001, timeout=1.
+    def _waitOnToken(self, token:int, sleepfunc=time.sleep, period=0.001, timeout:float=None
                      ) -> Optional[float]:
+        if timeout is None:
+            timeout = config['timeout']
         n = timeout // period
         table = self._responsesTable
         assert table is not None
@@ -1575,7 +1577,10 @@ class Engine:
         pargs = [self._builtinInstrs['pingback'], delay, 0.01, token]
         self._eventWithCallback(token, pargs, lambda token: callback())
 
-    def _eventWait(self, token:int, pargs:Sequence[float], timeout=1) -> Optional[float]:
+    def _eventWait(self, token:int, pargs:Sequence[float], timeout:float=None
+                   ) -> Optional[float]:
+        if timeout is None:
+            timeout = config['timeout']
         q = self._registerSync(token)
         self._perfThread.scoreEvent(0, "i", pargs)
         try:
@@ -1778,7 +1783,7 @@ class Engine:
         return None
 
     def _inputMessageWait(self, token:int, inputMessage:str,
-                          timeout=1) -> Optional[float]:
+                          timeout:float=None) -> Optional[float]:
         """
         This function passes the str inputMessage to csound and waits for
         the instr to notify us with a "__sync__" outvalue
@@ -1803,6 +1808,8 @@ class Engine:
         Return:
             a float response, or None if the instrument did not set a response value
         """
+        if timeout is None:
+            timeout = config['timeout']
         q = self._registerSync(token)
         self._perfThread.inputMessage(inputMessage)
         try:

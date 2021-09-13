@@ -119,6 +119,8 @@ _('magics_print_info', True,
   doc='Print some informative information when the csounengine.magic extension is loaded')
 _('jupyter_slider_width', '80%',
   doc='CSS Width used by an interactive slider in jupyter')
+_('timeout', 2.,
+  doc='Timeout for any action waiting a response from csound')
 
 assert 'num_control_buses' in config.default
 config.load()
