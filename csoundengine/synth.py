@@ -730,11 +730,7 @@ class SynthGroup(AbstrSynth):
         return any(s.hasParamTable() is not None for s in self.synths)
 
     def tableState(self) -> Optional[Dict[str, float]]:
-        dicts = []
-        for s in self.synths:
-            d = s.tableState()
-            if d:
-                dicts.append(d)
+        dicts = [d for s in self.synths if (d:=s.tableState())]
         if not dicts:
             return None
         out = dicts[0]
@@ -752,8 +748,10 @@ class SynthGroup(AbstrSynth):
         if any(synth.instr != instr0 for synth in self.synths):
             return
         colnames = ["p1", "start", "dur"]
-        rows = [[] for _ in self.synths]
-        for row, synth in zip(rows, self.synths):
+        maxrows = config['synthgroup_repr_max_rows']
+        synths = self.synths if not maxrows else self.synths[:maxrows]
+        rows = [[] for _ in synths]
+        for row, synth in zip(rows, synths):
             row.append(f'{synth.synthid} <b>{_synthStatusIcon[synth.playStatus()]}</b>')
             row.append("%.3f"%(synth.startTime-time.time()))
             row.append("%.3f"%synth.dur)
@@ -781,10 +779,12 @@ class SynthGroup(AbstrSynth):
                     colnames.append(f"{i+4}:{name}")
                 else:
                     colnames.append(str(i+4))
-            for row, synth in zip(rows, self.synths):
+            for row, synth in zip(rows, synths):
                 row.extend("%.5g"%parg for parg in synth.pargs[:maxi])
                 if len(synth.pargs) > maxi:
                     row.append("...")
+        if maxrows and len(self.synths) > maxrows:
+            rows.append("...")
 
         return emlib.misc.html_table(rows, headers=colnames)
 
@@ -797,11 +797,15 @@ class SynthGroup(AbstrSynth):
                      f'instr: <strong style="color:{instrcol}">{self.synths[0].instr.name}</strong>'
             return header + self._htmlTable()
         parts = ['<p>SynthGroup']
-        for s in self.synths:
+        maxrows = config['synthgroup_repr_max_rows']
+        synths = self.synths if not maxrows else self.synths[:maxrows]
+        for s in synths:
             html = s._html()
             indent = "&nbsp" *4
             p = f'<br>{indent}{html}'
             parts.append(p)
+        if maxrows:
+            parts.append("<br>…")
         parts.append("</p>")
         return "".join(parts)
 

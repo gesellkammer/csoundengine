@@ -122,8 +122,9 @@ instr {instrnum}  {commentstr}
 endin
     """
     if addNotificationCode:
-        notifystr = 'defer "outvalue", "__dealloc__", p1'
-        # notifystr = 'atstop "_notifyDealloc", 0.01, 0.0, p1'
+        # notifystr = 'defer "outvalue", "__dealloc__", p1'
+        # TODO: defer can cause memory corruption in some cases
+        notifystr = 'atstop "_notifyDealloc", 0.01, 0.0, p1'
     else:
         notifystr = ''
     commentstr = "; " + comment if comment else ""

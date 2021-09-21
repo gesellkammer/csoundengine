@@ -104,6 +104,8 @@ _('html_args_fontsize', '12px',
   doc="Font size used for args when outputing html (in jupyter)")
 _('synth_repr_max_args', 12,
   doc="Max. number of pfields shown when in a synth's repr")
+_('synthgroup_repr_max_rows', 16,
+  doc='Max. number of rows for a SynthGroup repr')
 _('jupyter_synth_repr_stopbutton', True,
   doc='When running inside a jupyter notebook, display a stop button'
       'for Synths and SynthGroups')
