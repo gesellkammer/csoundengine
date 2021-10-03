@@ -99,7 +99,7 @@ def instrResolveArgs(instr: Instr,
                      pkws: Dict[str, float]=None
                      ) -> List[float]:
     allargs: List[float] = [float(p4)]
-    if not pargs and not instr.pargsDefaultValues and not pkws:
+    if not pargs and not instr.pargsIndexToDefaultValue and not pkws:
         return allargs
     if isinstance(pargs, list):
         allargs.extend(instr.pargsTranslate(pargs, pkws))

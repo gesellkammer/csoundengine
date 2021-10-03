@@ -1533,8 +1533,10 @@ class Csd:
         """ Add an instrument definition to this csd """
         self.instrs[instr] = instrstr
 
-    def addGlobalCode(self, code: str) -> None:
+    def addGlobalCode(self, code: str, acceptDuplicates=True) -> None:
         """ Add code to the instr 0 """
+        if not acceptDuplicates and code in self.globalcodes:
+            return
         self.globalcodes.append(code)
 
     def setOptions(self, *options: str) -> None:

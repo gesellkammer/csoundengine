@@ -283,7 +283,7 @@ class Synth(AbstrSynth):
                  engine: Engine,
                  synthid: float,
                  instr: Instr,
-                 starttime: float = None,
+                 starttime: float,
                  dur: float = -1,
                  pargs=None,
                  synthgroup: SynthGroup = None,
@@ -297,7 +297,7 @@ class Synth(AbstrSynth):
         AbstrSynth.__init__(self, engine=engine, autostop=autostop, priority=priority)
         self.synthid: float = synthid
         self.instr: Instr = instr
-        self.startTime: float = starttime or time.time()
+        self.startTime: float = starttime
         self.dur: float = dur
         self.pargs: List[float] = pargs
         self.table: Optional[ParamTable] = table
@@ -341,10 +341,11 @@ class Synth(AbstrSynth):
 
     def _repr_html_(self) -> str:
         if emlib.misc.inside_jupyter():
-            if config['jupyter_synth_repr_stopbutton']:
-                jupytertools.displayButton("Stop", self.stop)
-            if config['jupyter_synth_repr_interact'] and self.pargs:
-                pass
+            if self.playing():
+                if config['jupyter_synth_repr_stopbutton']:
+                    jupytertools.displayButton("Stop", self.stop)
+                if config['jupyter_synth_repr_interact'] and self.pargs:
+                    pass
         return f"<p>{self._html()}</p>"
 
     def __repr__(self):
@@ -396,7 +397,7 @@ class Synth(AbstrSynth):
             or 'future' if it has not started
 
         """
-        now = time.time()
+        now = self.engine.elapsedTime()
         if self.startTime > now:
             return "future"
         elif not self._playing:
@@ -583,13 +584,15 @@ class Synth(AbstrSynth):
             - :meth:`Engine.eventui`
 
         """
-        if self.playStatus() == 'future':
-            return
         from . import interact
         pairs = list(self.instr.pargsIndexToName.items())
         pairs.sort()
         pargindexes, pargnames = zip(*pairs)
-        pvalues = [self.engine.getp(self.synthid, idx) for idx in pargindexes]
+        if self.playStatus() == 'future':
+            pvalues = [self.instr.pargsIndexToDefaultValue[idx]
+                       for idx in pargindexes]
+        else:
+            pvalues = [self.engine.getp(self.synthid, idx) for idx in pargindexes]
         paramspecs = {}
         for idx, pargname, value in zip(pargindexes, pargnames, pvalues):
             if pargname in specs:
@@ -661,6 +664,57 @@ class Synth(AbstrSynth):
         else:
             self.session.unsched(self.synthid, delay=delay)
 
+
+def _synthsCreateHtmlTable(synths: List[Synth]) -> str:
+    synth0 = synths[0]
+    instr0 = synth0.instr
+    if any(synth.instr != instr0 for synth in synths):
+        # multiple instrs per group, not allowed here
+        raise ValueError("Only synths of the same instr allowed here")
+    colnames = ["p1", "start", "dur"]
+    maxrows = config['synthgroup_repr_max_rows']
+    if maxrows and len(synths) > maxrows:
+        limitSynths = True
+        synths = synths[:maxrows]
+    else:
+        limitSynths = False
+    rows = [[] for _ in synths]
+    now = synth0.engine.elapsedTime()
+    for row, synth in zip(rows, synths):
+        row.append(f'{synth.synthid} <b>{_synthStatusIcon[synth.playStatus()]}</b>')
+        row.append("%.3f"%(synth.startTime-now))
+        row.append("%.3f"%synth.dur)
+    if synth0.table is not None:
+        keys = list(synth0.table.mapping.keys())
+        colnames.extend(synth0.table.mapping.keys())
+        for row, synth in zip(rows, synths):
+            if synth.playStatus() != 'stopped':
+                values = synth.table.array[:len(keys)]
+                for value in values:
+                    row.append(f'<code>{value}</code>')
+            else:
+                row.extend(["-"] * len(keys))
+
+    if synth0.pargs:
+        maxi = config['synth_repr_max_args']
+        i2n = instr0.pargsIndexToName
+        maxi = max((i for i, name in i2n.items() if name.startswith("k")),
+                   default=maxi)
+        for i, parg in enumerate(synth0.pargs):
+            if i > maxi:
+                colnames.append("...")
+            name = i2n.get(i+4)
+            if name:
+                colnames.append(f"{i+4}:{name}")
+            else:
+                colnames.append(str(i+4))
+        for row, synth in zip(rows, synths):
+            row.extend("%.5g"%parg for parg in synth.pargs[:maxi])
+            if len(synth.pargs) > maxi:
+                row.append("...")
+    if limitSynths:
+        rows.append(["..."])
+    return emlib.misc.html_table(rows, headers=colnames)
 
 
 class SynthGroup(AbstrSynth):
@@ -743,71 +797,22 @@ class SynthGroup(AbstrSynth):
         return all(synth.instr == instr0 for synth in self.synths if synth.playing())
 
     def _htmlTable(self) -> Optional[str]:
-        synth0 = self.synths[0]
-        instr0 = synth0.instr
-        if any(synth.instr != instr0 for synth in self.synths):
-            return
-        colnames = ["p1", "start", "dur"]
-        maxrows = config['synthgroup_repr_max_rows']
-        synths = self.synths if not maxrows else self.synths[:maxrows]
-        rows = [[] for _ in synths]
-        for row, synth in zip(rows, synths):
-            row.append(f'{synth.synthid} <b>{_synthStatusIcon[synth.playStatus()]}</b>')
-            row.append("%.3f"%(synth.startTime-time.time()))
-            row.append("%.3f"%synth.dur)
-        if synth0.table is not None:
-            keys = list(synth0.table.mapping.keys())
-            colnames.extend(synth0.table.mapping.keys())
-            for row, synth in zip(rows, self.synths):
-                if synth.playStatus() != 'stopped':
-                    values = synth.table.array[:len(keys)]
-                    for value in values:
-                        row.append(f'<code>{value}</code>')
-                else:
-                    row.extend(["-"] * len(keys))
-
-        if synth0.pargs:
-            maxi = config['synth_repr_max_args']
-            i2n = instr0.pargsIndexToName
-            maxi = max((i for i, name in i2n.items() if name.startswith("k")),
-                       default=maxi)
-            for i, parg in enumerate(synth0.pargs):
-                if i > maxi:
-                    colnames.append("...")
-                name = i2n.get(i+4)
-                if name:
-                    colnames.append(f"{i+4}:{name}")
-                else:
-                    colnames.append(str(i+4))
-            for row, synth in zip(rows, synths):
-                row.extend("%.5g"%parg for parg in synth.pargs[:maxi])
-                if len(synth.pargs) > maxi:
-                    row.append("...")
-        if maxrows and len(self.synths) > maxrows:
-            rows.append("...")
-
-        return emlib.misc.html_table(rows, headers=colnames)
+        subgroups = iterlib.classify(self.synths, lambda synth: synth.instr.name)
+        lines = []
+        instrcol = jupytertools.defaultStyle["name.color"]
+        for instrname, synths in subgroups.items():
+            lines.append(f'<p>instr: <strong style="color:{instrcol}">'
+                         f'{instrname}'
+                         f'</strong></p>')
+            htmltable = _synthsCreateHtmlTable(synths)
+            lines.append(htmltable)
+        return '\n'.join(lines)
 
     def _repr_html_(self) -> str:
         if config['jupyter_synth_repr_stopbutton'] and emlib.misc.inside_jupyter():
             jupytertools.displayButton("Stop", self.stop)
-        if self._uniqueInstr():
-            instrcol = jupytertools.defaultStyle["name.color"]
-            header = f'SynthGroup - <b>{len(self.synths)}</b> synths, ' \
-                     f'instr: <strong style="color:{instrcol}">{self.synths[0].instr.name}</strong>'
-            return header + self._htmlTable()
-        parts = ['<p>SynthGroup']
-        maxrows = config['synthgroup_repr_max_rows']
-        synths = self.synths if not maxrows else self.synths[:maxrows]
-        for s in synths:
-            html = s._html()
-            indent = "&nbsp" *4
-            p = f'<br>{indent}{html}'
-            parts.append(p)
-        if maxrows:
-            parts.append("<br>…")
-        parts.append("</p>")
-        return "".join(parts)
+        header = f'SynthGroup - <b>{len(self.synths)}</b> synths'
+        return header + self._htmlTable()
 
     def __repr__(self) -> str:
         lines = [f"SynthGroup(n={len(self.synths)})"]

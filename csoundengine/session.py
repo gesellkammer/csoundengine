@@ -176,7 +176,6 @@ from . import internalTools as tools
 from .sessioninstrs import builtinInstrs
 from . import state as _state
 from . import jupytertools
-import time
 import numpy as np
 
 from typing import TYPE_CHECKING
@@ -358,7 +357,7 @@ class Session:
 
     def _repr_html_(self):
         active = len(self.activeSynths())
-        if active and emlib.misc.inside_jupyter() and config['stop_button_inside_jupyter']:
+        if active and emlib.misc.inside_jupyter():
             jupytertools.displayButton("Stop Synths", self.unschedAll)
         name = jupytertools.htmlName(self.name)
         return f"Session({name}, synths={active})"
@@ -377,14 +376,12 @@ class Session:
         synth = self._synths.pop(synthid, None)
         if synth is None:
             return
-        logger.debug(f"Synth({synth.instr.name}, id={synthid}) deallocated")
         synth._playing = False
         if synth.table is not None:
             if not synth.instr.instrFreesParamTable:
                 self.engine.freeTable(synth.table.tableIndex, delay=delay)
             self.engine._releaseTableNumber(synth.table.tableIndex)
-        callback = self._whenfinished.pop(synthid, None)
-        if callback:
+        if callback := self._whenfinished.pop(synthid, None):
             callback(synthid)
 
     def _deallocCallback(self, _, synthid):
@@ -533,6 +530,12 @@ class Session:
         self.registerInstr(instr)
         return instr
 
+    def registeredInstrs(self) -> Dict[str, Instr]:
+        """
+        Returns a dict (instrname: Instr) with all registered Instrs
+        """
+        return self.instrs
+
     def registerInstr(self, instr: Instr) -> None:
         """
         Register the given Instr in this session.
@@ -589,17 +592,18 @@ class Session:
         instrtxt = tools.instrWrapBody(instrdef.body, instrnum, addNotificationCode=True)
         try:
             self.engine.compile(instrtxt)
-        except CsoundError:
+        except CsoundError as e:
+            logger.error(str(e))
             raise CsoundError(f"Could not compile body for instr {name}")
         rinstr = _ReifiedInstr(qname, instrnum, priority)
         self._registerReifiedInstr(name, priority, rinstr)
         return rinstr
 
-    def getInstr(self, name: str) -> Instr:
+    def getInstr(self, name: str) -> Optional[Instr]:
         """
         Returns the :class:`~csoundengine.instr.Instr` defined under name
 
-        Raises KeyError if no Instr is defined with the given name
+        Returns None if no Instr is defined with the given name
 
         Args:
             name: the name of the Instr - **use "?" to select interactively**
@@ -610,8 +614,8 @@ class Session:
         :meth:`~Session.defInstr`
         """
         if name == "?":
-            name = emlib.dialogs.selectItem(list(self.instrs.keys()), ensureSelection=True)
-        return self.instrs[name]
+            name = emlib.dialogs.selectItem(list(self.instrs.keys()))
+        return self.instrs.get(name)
 
     def _getReifiedInstr(self, name: str, priority: int) -> Optional[_ReifiedInstr]:
         registry = self._reifiedInstrDefs.get(name)
@@ -710,6 +714,7 @@ class Session:
               pargs: Union[List[float], Dict[str, float]] = [],
               tabargs: Dict[str, float] = None,
               whenfinished=None,
+              relative=True,
               **pkws
               ) -> Synth:
         """
@@ -729,6 +734,7 @@ class Session:
                 arguments here will override the defaults in the instrument definition
             whenfinished: a function of the form f(synthid) -> None
                 if given, it will be called when this instance stops
+            relative: if True, delay is relative to the start time of the Engine.
 
         Returns:
             a :class:`~csoundengine.synth,Synth`, which is a handle to the instance
@@ -755,12 +761,16 @@ class Session:
         :meth:`~csoundengine.synth.Synth.stop`
         """
         assert isinstance(priority, int) and 1<=priority<=10
+        if relative:
+            t0 = self.engine.elapsedTime()
+            delay = t0+delay+self.engine.extraLatency
         if instrname == "?":
             instrname = emlib.dialogs.selectItem(list(self.instrs.keys()),
                                                  title="Select Instr",
                                                  ensureSelection=True)
-        assert instrname in self.instrs
         instr = self.getInstr(instrname)
+        if not instr:
+            raise ValueError(f"Instrument {instrname} not defined")
         table: Optional[ParamTable]
         if instr._tableDefaultValues is not None:
             # the instruments has an associated table
@@ -773,13 +783,14 @@ class Session:
         # tableidx is always p4
         allargs = tools.instrResolveArgs(instr, tableidx, pargs, pkws)
         rinstr = self.prepareSched(instrname, priority, block=True)
-        synthid = self.engine.sched(rinstr.instrnum, delay=delay, dur=dur, args=allargs)
+        synthid = self.engine.sched(rinstr.instrnum, delay=delay, dur=dur, args=allargs,
+                                    relative=False)
         if whenfinished is not None:
             self._whenfinished[synthid] = whenfinished
         synth = Synth(engine=self.engine,
                       synthid=synthid,
                       instr=instr,
-                      starttime=time.time()+delay,
+                      starttime=delay,
                       dur=dur,
                       table=table,
                       pargs=allargs,
@@ -819,7 +830,7 @@ class Session:
             synthids: one or many synthids to stop
             delay: how long to wait before stopping them
         """
-        now = time.time()
+        now = self.engine.elapsedTime()
         for synthid in synthids:
             synth = self._synths.get(synthid)
 

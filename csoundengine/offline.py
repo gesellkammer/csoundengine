@@ -31,7 +31,9 @@ Example
 from __future__ import annotations
 import os
 import dataclasses
-from typing import TYPE_CHECKING, List, Dict, Tuple, KeysView, Union as U, Optional as Opt
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import List, Dict, Tuple, KeysView, Union as U, Optional as Opt
 import textwrap as _textwrap
 
 from .config import config
@@ -93,6 +95,78 @@ class ScoreEvent:
         self.renderer.setp(self, delay=delay, *args, **kws)
 
 
+_offlineOrc = r'''
+gi__soundfontIndexes dict_new "str:float"
+gi__soundfontIndexCounter init 1000
+
+chn_k "_soundfontPresetCount", 3
+
+instr _automatePargViaTable
+  ip1 = p4
+  ipindex = p5
+  itabpairs = p6  ; a table containing flat pairs t0, y0, t1, y1, ...
+  imode = p7;  interpolation method
+  Sinterpmethod = strget(imode)
+  if ftexists:i(itabpairs) == 0 then
+    initerror sprintf("Table with pairs %d does not exists", itabpairs)
+  endif 
+  ftfree itabpairs, 1
+
+  kt timeinsts
+  kidx bisect kt, itabpairs, 2, 0
+  ky interp1d kidx, itabpairs, Sinterpmethod, 2, 1
+  println "kt: %f, kidx: %f, ky: %f", kt, kidx, ky
+  pwrite ip1, ipindex, ky
+endin 
+
+instr _pwrite
+  ip1 = p4
+  inumpairs = p5
+  if inumpairs == 1 then
+    pwrite ip1, p(6), p(7)
+  elseif inumpairs == 2 then
+    pwrite ip1, p(6), p(7), p(8), p(9)
+  elseif inumpairs == 3 then
+    pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11)
+  elseif inumpairs == 4 then
+    pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13)
+  elseif inumpairs == 5 then
+    pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13), p(14), p(15)
+  else
+    initerror sprintf("Max. pairs is 5, got %d", inumpairs)
+  endif
+  turnoff
+endin
+
+opcode sfloadonce, i, S
+  Spath xin
+  Skey_ strcat "SFLOAD:", Spath
+  iidx dict_get gi__soundfontIndexes, Skey_, -1
+  if (iidx == -1) then
+      iidx sfload Spath
+      dict_set gi__soundfontIndexes, Skey_, iidx
+  endif
+  xout iidx
+endop
+
+opcode sfPresetIndex, i, Sii
+  Spath, ibank, ipresetnum xin
+  isf sfloadonce Spath
+  Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum  
+  iidx dict_get gi__soundfontIndexes, Skey, -1  
+  if iidx == -1 then
+      iidx chnget "_soundfontPresetCount"
+      chnset iidx+1, "_soundfontPresetCount"
+      i0 sfpreset ipresetnum, ibank, isf, iidx
+      if iidx != i0 then
+        prints "???: iidx = %d, i0 = %d\n", iidx, i0
+      endif
+      dict_set gi__soundfontIndexes, Skey, i0
+  endif
+  xout iidx
+endop
+'''
+
 class Renderer:
     """
     A Renderer is used when rendering offline.
@@ -136,44 +210,7 @@ class Renderer:
 
 
     """
-    _offlineOrc = '''
-        instr _automatePargViaTable
-          ip1 = p4
-          ipindex = p5
-          itabpairs = p6  ; a table containing flat pairs t0, y0, t1, y1, ...
-          imode = p7;  interpolation method
-          Sinterpmethod = strget(imode)
-          if ftexists:i(itabpairs) == 0 then
-            initerror sprintf("Table with pairs %d does not exists", itabpairs)
-          endif 
-          ftfree itabpairs, 1
 
-          kt timeinsts
-          kidx bisect kt, itabpairs, 2, 0
-          ky interp1d kidx, itabpairs, Sinterpmethod, 2, 1
-          println "kt: %f, kidx: %f, ky: %f", kt, kidx, ky
-          pwrite ip1, ipindex, ky
-        endin 
-
-        instr _pwrite
-          ip1 = p4
-          inumpairs = p5
-          if inumpairs == 1 then
-            pwrite ip1, p(6), p(7)
-          elseif inumpairs == 2 then
-            pwrite ip1, p(6), p(7), p(8), p(9)
-          elseif inumpairs == 3 then
-            pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11)
-          elseif inumpairs == 4 then
-            pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13)
-          elseif inumpairs == 5 then
-            pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13), p(14), p(15)
-          else
-            initerror sprintf("Max. pairs is 5, got %d", inumpairs)
-          endif
-          turnoff
-        endin
-    '''
 
     def __init__(self, sr: int = None, nchnls: int = 2, ksmps: int = None,
                  a4: float = None, maxpriorities=10, bucketsize=100,
@@ -200,7 +237,7 @@ class Renderer:
         # a list of i events, starting with p1
         self.events: List[List[float]] = []
         self.unscheduledEvents: List[List[float]] = []
-        self.csd.addGlobalCode(_textwrap.dedent(self._offlineOrc))
+        self.csd.addGlobalCode(_textwrap.dedent(_offlineOrc))
         self._busSystemInitialized = False
         self._busTokenCount = 0
 
@@ -327,11 +364,14 @@ class Renderer:
         self.registerInstr(instr)
         return instr
 
-    def registeredInstrs(self) -> KeysView:
+    def registeredInstrs(self) -> Dict[str, Instr]:
         """
-        Returns a seq. with the names of all registered Instrs
+        Returns a dict (instrname: Instr) with all registered Instrs
         """
-        return self._instrdefs.keys()
+        return self._instrdefs
+
+    def getInstr(self, name) -> Opt[Instr]:
+        return self._instrdefs.get(name)
 
     def addGlobalCode(self, code: str) -> None:
         """
@@ -344,7 +384,7 @@ class Renderer:
         >>> renderer = Renderer(...)
         >>> renderer.addGlobalCode("giMelody[] fillarray 60, 62, 64, 65, 67, 69, 71")
         """
-        self.csd.addGlobalCode(code)
+        self.csd.addGlobalCode(code, acceptDuplicates=False)
 
     def _getUniqueP1(self, instrnum: int) -> float:
         count = self._instanceCounters.get(instrnum, 0)
@@ -521,7 +561,7 @@ class Renderer:
                             piped=run_piped)
         if openWhenDone:
             proc.wait()
-            misc.open_with_standard_app(outfile, wait=True)
+            misc.open_with_app(outfile, wait=True)
         elif wait:
             proc.wait()
         return outfile

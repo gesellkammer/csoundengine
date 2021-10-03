@@ -200,6 +200,17 @@ def _getSoundfileInfo(path) -> TableInfo:
                      path=path)
 
 
+class _RefTimeContext:
+    def __init__(self, engine: Engine):
+        self.engine = engine
+
+    def __enter__(self):
+        self.engine.lockElapsedTime()
+
+    def __exit__(self, *args, **kws):
+        self.engine.lockElapsedTime(False)
+
+
 class Engine:
     """
     An :class:`Engine` implements a simple interface to run and control a csound
@@ -332,7 +343,8 @@ class Engine:
                  udpserver:bool=None,
                  udpport:int=0,
                  commandlineOptions:List[str]=None,
-                 includes:List[str]=None):
+                 includes:List[str]=None,
+                 latency:float=None):
         if name is None:
             name = _generateUniqueEngineName()
         elif name in Engine.activeEngines:
@@ -481,6 +493,7 @@ class Engine:
         self.started = False
         self.extraOptions = commandlineOptions
         self.includes = includes
+        self.extraLatency = latency if latency is not None else config['sched_latency']
         self.numAudioBuses = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
         self.numControlBuses = numControlBuses if numControlBuses is not None else config['num_control_buses']
         self._realtime = realtime
@@ -566,6 +579,8 @@ class Engine:
         self._soundfontPresets: Dict[Tuple[str, int, int], int] = {}
         self._soundfontPresetCount = 0
         self._history: List[str] = []
+        self._startTime = 0.
+        self._lockedElapsedTime = 0.
 
         self.started = False
         self.start()
@@ -753,6 +768,7 @@ class Engine:
         cs.start()
         pt = ctcsound.CsoundPerformanceThread(cs.csound())
         pt.play()
+        self._startTime = time.time()
         self._orc = orc
         self.csound = cs
         self._perfThread = pt
@@ -1111,8 +1127,114 @@ class Engine:
             self._tableCache[idx] = arr
         return arr
 
+    def elapsedTime(self) -> float:
+        """
+        Returns the elapsed time since start of the engine
+
+        This time is used as a reference when scheduling events. Since scheduling
+        itself takes a small but not negligible amount of time, when scheduling
+        a great number of events, these will fall out of sync. For this reason
+        the elapsed time can be used as a reference to schedule events in
+        absolute time
+
+        Example
+        ~~~~~~~
+
+            >>> from csoundengine import Engine
+            >>> import numpy as np
+            >>> e = Engine()
+            >>> e.compile(r'''
+            ... instr 10
+            ...   ifreq = p4
+            ...   outch 1, oscili:a(0.1, ifreq) * linseg:a(0, 0.01, 1, 0.1, 0)
+            ... endin
+            ... ''')
+            >>> now = e.elapsedTime()
+            # Schedule 5 events per second for 60 seconds. Without a time
+            # reference the events would fall out of sync
+            >>> for t in np.arange(0, 60, 0.2):
+            ...     e.sched(10, t+now, 0.15, args=[1000], relative=False)
+            ...     e.sched(10, t+now, 0.15, args=[800], relative=False)
+
+        The same result can be achieved by locking the elapsed-time clock::
+
+            >>> with e.lockedElapsedTime():
+            ...     for t in np.arange(0, 10, 0.2):
+            ...         e.sched(10, t, 0.15, args=[1000])
+            ...         e.sched(10, t, 0.15, args=[800])
+
+        """
+        return self._lockedElapsedTime or self.csound.currentTimeSamples() / self.sr
+        # return (time.time() - self._startTime)
+
+    def lockElapsedTime(self, lock=True):
+        """
+        Lock the elapsed time clock
+
+        Example
+        ~~~~~~~
+
+            >>> from csoundengine import Engine
+            >>> import numpy as np
+            >>> e = Engine()
+            >>> e.compile(r'''
+            ... instr 10
+            ...   ifreq = p4
+            ...   outch 1, oscili:a(0.1, ifreq) * linseg:a(0, 0.01, 1, 0.1, 0)
+            ... endin
+            ... ''')
+            >>> e.lockElapsedTime()
+            >>> for t in np.arange(0, 10, 0.2):
+            ...     e.sched(10, t, 0.15, args=[1000])
+            ...     e.sched(10, t, 0.15, args=[800])
+            >>> e.lockedElapsedTime(False)
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`Engine.lockedElapsedTime`
+        :meth:`Engine.elapsedTime`
+
+        """
+        if lock:
+            assert not self._lockedElapsedTime, "The elapsed time clock is already locked"
+            self._lockedElapsedTime = self.csound.currentTimeSamples()/self.sr
+        else:
+            if not self._lockedElapsedTime:
+                logger.info("Asked to unlock the elapsed time clock, but it was not locked")
+            self._lockedElapsedTime = 0
+
+    def lockedElapsedTime(self) -> _RefTimeContext:
+        """
+        Context manager, locks and unlocks the reference time
+
+        By locking the reference time it is possible to ensure that
+        events which are supposed to be in sync are scheduled correctly
+        into the future.
+
+        Example
+        ~~~~~~~
+
+            >>> from csoundengine import Engine
+            >>> import numpy as np
+            >>> e = Engine()
+            >>> e.compile(r'''
+            ... instr 10
+            ...   ifreq = p4
+            ...   outch 1, oscili:a(0.1, ifreq) * linseg:a(0, 0.01, 1, 0.1, 0)
+            ... endin
+            ... ''')
+            >>> with e.lockedElapsedTime():
+            ...     for t in np.arange(0, 10, 0.2):
+            ...         e.sched(10, t, 0.15, args=[1000])
+            ...         e.sched(10, t, 0.15, args=[800])
+
+        """
+        return _RefTimeContext(self)
+
     def sched(self, instr:Union[int, float, str], delay=0., dur=-1.,
-              args:Union[np.ndarray, Sequence[Union[float, str]]] = None) -> float:
+              args:Union[np.ndarray, Sequence[Union[float, str]]] = None,
+              relative=True) -> float:
         """
         Schedule an instrument
 
@@ -1120,12 +1242,17 @@ class Engine:
             instr : the instrument number/name. If it is a fractional number,
                 that value will be used as the instance number. Named instruments
                 with a fractional number can also be scheduled
-            delay: time to wait before instrument is started
+            delay: time to wait before instrument is started. If relative is False,
+                this represents the time since start of the engine (see examples)
             dur: duration of the event
             args: any other args expected by the instrument, starting with p4
                 (as a list of floats/strings, or a numpy array). Any
                 string arguments will be converted to a string index via strSet. These
                 can be retrieved in csound via strget
+            relative: if True, delay is relative to the scheduling time,
+                otherwise it is relative to the start time of the engine.
+                To get an absolute time since start of the engine, call
+                `engine.elapsedTime()`
 
         Returns: 
             a fractional p1 of the instr started, which identifies this event
@@ -1156,12 +1283,23 @@ class Engine:
         ...     time.sleep(0.01)
         >>> e.unsched(eventid)
 
+    To ensure simultaneity between events::
+
+        >>> now = e.elapsedTime()
+        >>> for t in np.arange(2, 4, 0.2):
+        ...     e.sched(10, t+now, 0.2, relative=False)
+
         See Also
         ~~~~~~~~
 
         :meth:`~csoundengine.engine.Engine.unschedAll`
         """
         assert self.started
+        if relative:
+            t0 = self.elapsedTime()
+            delay = t0 + delay + self.extraLatency
+            relative = False
+
         if isinstance(instr, float):
             instrfrac = instr
         elif isinstance(instr, int):
@@ -1184,18 +1322,18 @@ class Engine:
             raise TypeError()
         if not args:
             pargs = [instrfrac, delay, dur]
-            self._perfThread.scoreEvent(0, "i", pargs)
+            self._perfThread.scoreEvent(0 if relative else 1, "i", pargs)
         elif isinstance(args, np.ndarray):
             pargsnp = np.empty((len(args)+3,), dtype=float)
             pargsnp[0] = instrfrac
             pargsnp[1] = delay
             pargsnp[2] = dur
             pargsnp[3:] = args
-            self._perfThread.scoreEvent(0, "i", pargsnp)
+            self._perfThread.scoreEvent(0 if relative else 1, "i", pargsnp)
         else:
             pargs = [instrfrac, delay, dur]
             pargs.extend(a if not isinstance(a, str) else self.strSet(a) for a in args)
-            self._perfThread.scoreEvent(0, "i", pargs)
+            self._perfThread.scoreEvent(0 if relative else 1, "i", pargs)
         return instrfrac
 
     def _queryNamedInstrs(self, names:List[str], timeout=0.1, callback=None) -> None:

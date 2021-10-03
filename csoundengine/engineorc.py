@@ -41,11 +41,10 @@ endop
 
 opcode sfloadonce, i, S
     Spath xin
-    Skey_ sprintf "SFLOAD:%s", Spath
+    Skey_ strcat "SFLOAD:", Spath
     iidx dict_get gi__soundfontIndexes, Skey_, -1
     if (iidx == -1) then
         iidx sfload Spath
-        ; prints "Loading soundfont: %s (assigned index: %d)\n", Spath, iidx
         dict_set gi__soundfontIndexes, Skey_, iidx
     endif
     xout iidx
@@ -58,12 +57,10 @@ opcode sfPresetIndex, i, Sii
     Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum
     
     iidx dict_get gi__soundfontIndexes, Skey, -1
-    ; prints "pre  sfPresetIndex: soundfont: %s, prog: %d:%d, idx: %d\n", Spath, ibank, ipresetnum, iidx
         
     if iidx == -1 then
         iidx chnget "_soundfontPresetCount"
         chnset iidx+1, "_soundfontPresetCount"
-        ; prints "post sfPresetIndex: soundfont: %s, prog: %d:%d, idx: %d\n", Spath, ibank, ipresetnum, iidx
         i0 sfpreset ipresetnum, ibank, isf, iidx
         if iidx != i0 then
             prints "???: iidx = %d, i0 = %d\n", iidx, i0
@@ -150,8 +147,7 @@ instr ${maketable}
         itabnum ftgen itabnum, 0, ilen, -2, iValues
     endif
     if isr > 0 then
-        ; ftsetparams itabnum, isr, inumchannels
-        prints "ftsetparams!\n"
+        ftsetparams itabnum, isr, inumchannels
     endif 
     ; notify host that token is ready
     if itoken > 0 then
@@ -211,11 +207,13 @@ instr ${automateTableViaTable}
     kt timeinsts
     kidx bisect kt, idatatab, idatastep, 0
     ky interp1d kidx, idatatab, Smode, idatastep, idataoffset
-    if ftexists:k(iargtab) == 0 then
-        throwerror "warning", sprintf("dest table (%d) was freed, stopping", iargtab)
+    if ftexists:k(iargtab) == 1 then
+        tablew ky, iargidx, iargtab
+    else
+        throwerror "warning", sprintf("dest table (%d) was freed, stopping automation", \ 
+                                      iargtab)
         turnoff
     endif
-    tablew ky, iargidx, iargtab
 endin
 
 instr ${uniqinstance}
@@ -278,7 +276,6 @@ instr ${readSndfile}
     itab = p6
     ichan = p7
     itab2 ftgen itab, 0, 0, -1, Spath, 0, 0, ichan
-    ; prints ">>> Spath: %s, itab: %d, itab2: %d \n", Spath, itab, itab2
     tabw_i itab2, itoken, gi__responses
     outvalue "__sync__", itoken
 endin
@@ -426,12 +423,13 @@ instr ${soundfontPlay}
     aL, aR sfplay3 ivel, inote, kamp/16384, mtof:k(kpitch), ipresetidx, 1
     aenv linsegr 0, 0.01, 1, 0.1, 0
     kfinished_  trigger detectsilence:k(aL, 0.0001, 0.05), 0.5, 0
-    if kfinished_ == 1  then
+    if kfinished_ == 0  then
+      aL *= aenv
+      aR *= aenv
+      outch ichan, aL, ichan+1, aR
+    else  
       turnoff
     endif
-    aL *= aenv
-    aR *= aenv
-    outch ichan, aL, ichan+1, aR
 endin
 
 schedule "__init", 0, 1

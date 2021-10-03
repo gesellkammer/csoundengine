@@ -179,7 +179,7 @@ class Instr:
     __slots__ = (
         'body', 'name', 'args', 'init', '_tableDefaultValues', '_tableNameToIndex',
         'tabledef', 'numchans', 'instrFreesParamTable', 'doc',
-        'pargsIndexToName', 'pargsNameToIndex', 'pargsDefaultValues',
+        'pargsIndexToName', 'pargsNameToIndex', 'pargsIndexToDefaultValue',
         '_numpargs', '_recproc', '_check', '_preschedCallback',
         'originalBody'
     )
@@ -207,7 +207,7 @@ class Instr:
         self._tableDefaultValues: Opt[List[float]] = None
         self._tableNameToIndex: Opt[Dict[str, int]] = None
 
-        delimiters, inline_args, body = _parse_inline_args(body)
+        delimiters, inline_args, body = parseInlineArgs(body)
 
         if delimiters == '||':
             assert not args
@@ -254,7 +254,7 @@ class Instr:
         self._preschedCallback = preschedCallback
         self.pargsIndexToName: dict[int, str] = pargsIndexToName
         self.pargsNameToIndex: dict[str, int] = {n:i for i, n in pargsIndexToName.items()}
-        self.pargsDefaultValues: dict[int, float] = pargsDefaultValues
+        self.pargsIndexToDefaultValue: dict[int, float] = pargsDefaultValues
         self.instrFreesParamTable = freetable
 
     def __eq__(self, other: Instr) -> bool:
@@ -265,7 +265,7 @@ class Instr:
                 self.init == other.init and
                 self.tabledef == other.tabledef and
                 self.pargsIndexToName == other.pargsIndexToName and
-                self.pargsDefaultValues == other.pargsDefaultValues and
+                self.pargsIndexToDefaultValue == other.pargsIndexToDefaultValue and
                 self.numchans == other.numchans and
                 self.doc == other.doc and
                 self.instrFreesParamTable == other.instrFreesParamTable
@@ -284,8 +284,8 @@ class Instr:
         pargs = self.pargsIndexToName
         if not pargs:
             return ""
-        if self.pargsDefaultValues:
-            return ", ".join(f"{pname}:{i}={self.pargsDefaultValues.get(i, 0)}"
+        if self.pargsIndexToDefaultValue:
+            return ", ".join(f"{pname}:{i}={self.pargsIndexToDefaultValue.get(i, 0)}"
                              for i, pname in sorted(pargs.items()) if i != 4)
         else:
             return ", ".join(
@@ -307,7 +307,7 @@ class Instr:
                         continue
                     pname = self.pargsIndexToName[idx]
                     html = f"<b>{pname}</b>:<small>p{idx}</small>=" \
-                           f"<code>{self.pargsDefaultValues.get(idx, 0)}</code>"
+                           f"<code>{self.pargsIndexToDefaultValue.get(idx, 0)}</code>"
                     htmls.append(html)
                 line = "&nbsp&nbsp&nbsp&nbsp" + ", ".join(htmls) + "<br>"
                 parts.append(line)
@@ -413,8 +413,8 @@ class Instr:
         maxkwindex = max(n2i.values())
         maxpargs = max(maxkwindex, len(args)-1)
         pargs = [0.]*(maxpargs-firstp)
-        if self.pargsDefaultValues:
-            for i, v in self.pargsDefaultValues.items():
+        if self.pargsIndexToDefaultValue:
+            for i, v in self.pargsIndexToDefaultValue.items():
                 pargs[i-firstp-1] = v
         if args:
             pargs[:len(pargs)] = args
@@ -612,8 +612,8 @@ def _checkInstr(instr: str) -> str:
     return errmsg
 
 
-def _parse_inline_args(body: U[str, list[str]]
-                       ) -> tuple[str, Opt[dict[str, float]], str]:
+def parseInlineArgs(body: U[str, list[str]]
+                    ) -> tuple[str, Opt[dict[str, float]], str]:
     """
     Parse an instr body with a possible args declaration (see below).
 
@@ -648,7 +648,7 @@ def _parse_inline_args(body: U[str, list[str]]
         ... a0 oscili kamp, kfreq
         ... outch ichan, a0
         ... '''
-        >>> delimiters, args, body2 = _parse_inline_args(body)
+        >>> delimiters, args, body2 = parseInlineArgs(body)
         >>> delimiters
         '||'
         >>> args
