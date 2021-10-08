@@ -731,6 +731,7 @@ class Engine:
         if cs.version() < 6160:
             ver = cs.version() / 1000
             raise RuntimeError(f"Csound's version should be >= 6.16, got {ver:.2f}")
+        print("options", options)
         for opt in options:
             cs.setOption(opt)
         if self.includes:
@@ -774,6 +775,7 @@ class Engine:
         self._perfThread = pt
         if config['set_sigint_handler']:
             internalTools.setSigintHandler()
+        time.sleep(0.1)
         self._setupCallbacks()
         self._subgainsTable = self.csound.table(self._builtinTables['subgains'])
         self._responsesTable = self.csound.table(self._builtinTables['responses'])
@@ -1819,8 +1821,11 @@ class Engine:
         :meth:`~csoundengine.engine.Engine.makeTable`
         """
         from csoundengine import plotting
+        assert isinstance(tabnum, int) and tabnum > 0
         data = self.getTableData(tabnum)
         tabinfo = self.tableInfo(tabnum)
+        if tabinfo.numChannels > 1:
+            numframes = len(data)
         if not sr and tabinfo.sr > 0:
             sr = tabinfo.sr
 

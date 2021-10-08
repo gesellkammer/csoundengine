@@ -11,13 +11,17 @@ builtinInstrs = [
         """),
     Instr('.playSample',
           body=r"""
-        |isndtab=0, iloop=0, istart=0, ifade=0, igaingroup=0, kchan=1, kspeed=1, kgain=1, kpan=-1|
+        |isndtab=0, iloop=0, istart=0, ifade=0, igaingroup=0, icompensatesr=1, kchan=1, kspeed=1, kgain=1, kpan=-1|
         ifade = ifade < 0 ? 0.05 : ifade
         igaingroup = limit(igaingroup, 0, 100)
         inumouts = ftchnls(isndtab)
         inumsamples = nsamp(isndtab)
         isr = ftsr(isndtab)
+        if isr <= 0 then
+            initerror sprintf("Could not determine sr of table %d", isndtab)
+        endif
         idur = inumsamples / isr
+        ispeed = icompensatesr==1 ? isr/sr : 1
         ixfade = 0.005
         know init istart
         ksubgain = table:k(igaingroup, gi__subgains)
@@ -36,7 +40,7 @@ builtinInstrs = [
             aL, aR pan2 a1, kpan
             outch kchan, aL, kchan+1, aR
         elseif inumouts == 2 then
-            a1, a2 loscil3 1, kspeed, isndtab, 1, iloop
+            a1, a2 loscil3 1, ispeed*kspeed, isndtab, 1, iloop
             a1 *= aenv
             a2 *= aenv
             kpan = kpan < 0 ? 0.5 : kpan

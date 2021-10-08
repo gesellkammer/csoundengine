@@ -275,7 +275,7 @@ def checkDependencies(force=True, tryfix=False) -> bool:
 
     timeSincelast_run = datetime.now() - datetime.fromisoformat(state['last_run'])
     if force or timeSincelast_run.days > 30:
-        logger.info("Checking dependencies")
+        logger.warning("Checking dependencies")
         errormsg = _checkDependencies(tryfix=tryfix)
         if errormsg:
             logger.error(errormsg)

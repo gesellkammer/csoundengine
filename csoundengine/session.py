@@ -982,10 +982,13 @@ class Session:
     def playSample(self, sample: Union[int, TableProxy, str],
                    chan=1, gain=1.,
                    dur=-1., speed=1., loop=False, delay=0., pan=-1.,
-                   start=0., fade: float = None, gaingroup=0) -> Synth:
+                   start=0., fade: float = None, gaingroup=0,
+                   compensateSamplerate=True) -> Synth:
         """
-        Play a sample. If a path is given, the soundfile will be read and the sample
-        data will be cached.
+        Play a sample.
+
+        If sample data in a table or from a soundfile with samplerate
+        compensation to ensure the original pitch.
 
         Args:
             sample: table number, a path to a sample or a TableProxy
@@ -1005,9 +1008,12 @@ class Session:
             gaingroup: the idx of a gain group. The gain of all samples routed to the
                 same group are scaled by the same value and can be altered as a group
                 via Engine.setSubGain(idx, gain)
+            compensateSamplerate: if True, adjust playback rate in order to preserve
+                the sample's original pitch if there is a sr mismatch between the
+                sample and the engine.
 
         Returns:
-            A Synth with the following modulatable parameters: gain, speed, chan, pan
+            A Synth with the following mutable parameters: gain, speed, chan, pan
 
         """
         if isinstance(sample, int):
@@ -1027,6 +1033,7 @@ class Session:
                           dur=dur,
                           pargs=dict(isndtab=tabnum, iloop=int(loop), istart=start,
                                      ifade=fade, igaingroup=gaingroup,
+                                     icompensatesr=int(compensateSamplerate),
                                      kchan=chan, kspeed=speed, kpan=pan, kgain=gain))
 
     def makeRenderer(self, sr: int = None, ksmps: int = None) -> Renderer:
