@@ -29,7 +29,7 @@ setup(
         "matplotlib",
         "JACK-client",
         "ctcsound",
-        "sndfileio>=1.8",
+        "sndfileio>=1.8.1",
         "emlib>=1.1",
         "cachetools",
         "configdict>=0.8",
