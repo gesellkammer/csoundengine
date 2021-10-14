@@ -188,15 +188,18 @@ instr ${automateTableViaTable}
     ftfree idatatab, 1
     Smode = strget(imode)
     
-    if ftexists:i(iargtab) == 0 then
+    if iargtab == 0 || ftexists:i(iargtab) == 0 then
         initerror sprintf("Instr table %d does not exist", iargtab)
+        goto exit
     endif
-    if ftexists:i(idatatab) == 0 then
+    if idatatab == 0 || ftexists:i(idatatab) == 0 then
         initerror sprintf("Automation table %d does not exist", iargtab)
+        goto exit
     endif
 
     if ftlen(iargtab) <= iargidx then
         initerror sprintf("Table too small (%d <= %d)", ftlen(iargtab), iargidx)
+        goto exit
     endif
     
     if iovertake == 1 then
@@ -214,6 +217,7 @@ instr ${automateTableViaTable}
                                       iargtab)
         turnoff
     endif
+exit:
 endin
 
 instr ${uniqinstance}
@@ -282,7 +286,7 @@ endin
 
 instr ${playgen1}
     ;             4     5      6       7     8     9          10        11
-    ;             gain, speed, tabnum, chan, fade, starttime, gaingroup lagtime
+    ;             gain, speed, source, chan, fade, starttime, gaingroup lagtime
     pset 0, 0, 0, 1,    1,     1,      1,    0.05, 0,         0,        0.01
     kgain = p4
     kspeed = p5
@@ -393,17 +397,19 @@ endin
 
 instr ${tableInfo}
     itabnum, itok1, itok2, itok3, itok4 passign 4
-    if ftexists(itabnum) == 0 then
-        initerror sprintf("Table %d does not exist", itabnum)
+    if itabnum == 0 || ftexists:i(itabnum) == 0 then
+        tabw_i -1, itok1, gi__responses
+        prints "tableInfo: warning: Table %d does not exist\n", itabnum
+    else
+        isr ftsr itabnum
+        ichnls ftchnls itabnum
+        inumframes nsamp itabnum
+        ilen ftlen itabnum
+        tabw_i isr, itok1, gi__responses
+        tabw_i ichnls, itok2, gi__responses
+        tabw_i inumframes, itok3, gi__responses
+        tabw_i ilen, itok4, gi__responses
     endif
-    isr ftsr itabnum
-    ichnls ftchnls itabnum
-    inumframes nsamp itabnum
-    ilen ftlen itabnum
-    tabw_i isr, itok1, gi__responses
-    tabw_i ichnls, itok2, gi__responses
-    tabw_i inumframes, itok3, gi__responses
-    tabw_i ilen, itok4, gi__responses
     outvalue "__sync__", itok1
 endin
 

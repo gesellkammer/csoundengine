@@ -1,6 +1,6 @@
 import logging
 from configdict import ConfigDict
-from . import csoundlib
+from functools import cache
 
 modulename = 'csoundengine.engine'
 
@@ -24,15 +24,29 @@ config = ConfigDict(modulename)
 _ = config.addKey
 
 
-def _validateBackend(cfg: dict, key:str, s: str) -> bool:
+_audioBackendsByPlatform = {
+    'linux': ('jack', 'alsa', 'pa_cb', 'pa_bl', 'pulse'),
+    'macos': ('auhal', 'pa_cb', 'pa_bl', 'jack'),
+    'windows': ('pa_cb', 'pa_bl')
+}
+
+
+@cache
+def _validateBackend2(key:str, s: str) -> bool:
     platform = key.split("_")[0]
-    possibleBackends = csoundlib.getAudioBackendNames(available=False, platform=platform)
+    possibleBackends = _audioBackendsByPlatform.get(platform)
+    if not possibleBackends:
+        logger.error(f"Platform {platform} not supported, no audio backends")
     for backend in (b.strip() for b in s.split(',')):
         if backend not in possibleBackends:
             logger.error(f"Backend '{backend}' unknown. "
                          f"Possible backends: {possibleBackends}")
             return False
     return True
+
+
+def _validateBackend(cfg: dict, key:str, s: str) -> bool:
+    return _validateBackend2(key, s)
 
 
 _('sr', 0,
@@ -56,6 +70,8 @@ _('rec_ksmps', 64,
 _('rec_sample_format', 'float',
   choices=(16, 24, 32, 'float'),
   doc="Sample format used when rendering")
+_('rec_suppress_output', False,
+  doc='Supress debugging output when rendering offline')
 _('buffersize', 0,
   doc="-b value. 0=determine buffersize depending on ksmps & backend")
 _('numbuffers', 0,
@@ -74,6 +90,9 @@ _('A4', 442,
   doc="Frequency for A4")
 _('check_pargs', False,
   doc='Check number of pargs passed to instr')
+_('offline_score_table_size_limit', 1900,
+  doc='size limit when writing tables as f score statements via gen2. If a table '
+      'is bigger than this size, it is saved as a datafile as gen23 or wav')
 _('fail_if_unmatched_pargs', False,
   doc='Fail if the # of passed pargs doesnt match the # of pargs'),
 _('set_sigint_handler', True,
@@ -126,6 +145,9 @@ _('timeout', 2.,
 _('sched_latency', 0.,
   doc='Time delay added to any event scheduled to ensure that simultameous events are'
       'not offset by scheduling overhead')
+_('datafile_format', 'gen23',
+  choices={'gen23', 'wav'},
+  doc='Format used when saving a table as a datafile')
 
 assert 'num_control_buses' in config.default
 config.load()

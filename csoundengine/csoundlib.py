@@ -13,13 +13,14 @@ import shutil as _shutil
 import logging as _logging
 import textwrap as _textwrap
 import io as _io
+from pathlib import Path
 import tempfile as _tempfile
 import cachetools as _cachetools
-import dataclasses
+from dataclasses import dataclass
 from . import jacktools
 from . import linuxaudio
 from . import state as _state
-# from .config import config
+from .config import config
 from .internalTools import normalizePlatform
 from functools import lru_cache as _lru_cache
 import emlib.misc
@@ -52,7 +53,7 @@ def _isPulseaudioRunning() -> bool:
 _audioDeviceRegex = r"(\d+):\s((?:adc|dac)\d+)\s*\((.*)\)(?:\s+\[ch:(\d+)\])?"
 
 
-@dataclasses.dataclass(unsafe_hash=True)
+@dataclass(unsafe_hash=True)
 class AudioBackend:
     """
     Holds information about a csound audio backend
@@ -552,6 +553,7 @@ def runCsd(csdfile:str,
            indev = "",
            backend = "",
            nodisplay = False,
+           nomessages = False,
            comment:str = None,
            piped = False,
            extra:List[str] = None) -> _subprocess.Popen:
@@ -568,10 +570,11 @@ def runCsd(csdfile:str,
             the default for the platform is used (this is only meaningful
             if running in realtime)
         nodisplay: if True, eliminates debugging info from output
+        nomessages: if True, suppress debugging messages
         piped: if True, the output of the csound process is piped and can be accessed
             through the Popen object (.stdout, .stderr)
-        extra: a list of extra arguments to be passed to csound
-        comment: if given, will be added to the generated soundfile
+        extra: a list of extraOptions arguments to be passed to csound
+        comment: if given, will be added to the generated output
             as comment metadata (when running offline)
 
     Returns:
@@ -580,20 +583,22 @@ def runCsd(csdfile:str,
         returned process
     """
     args = []
-    realtime = False
-    if outdev:
+    offline = True
+    if outdev is not None and outdev:
         args.extend(["-o", outdev])
         if outdev.startswith("dac"):
-            realtime = True
-    if realtime and not backend:
+            offline = False
+    if not offline and not backend:
         backend = getDefaultBackend().name
     if backend:
         args.append(f"-+rtaudio={backend}")
     if indev:
         args.append(f"-i {indev}")
     if nodisplay:
-        args.extend(['-d', '-m', '0'])
-    if comment and not realtime:
+        args.append('-d')
+    if nomessages:
+        args.append('-m0')
+    if comment and offline:
         args.append(f'-+id_comment="{comment}"')
     if extra:
         args.extend(extra)
@@ -635,7 +640,7 @@ def joinCsd(orc: str, sco="", options:List[str] = None) -> str:
     return csd
 
 
-@dataclasses.dataclass
+@dataclass
 class CsoundProc:
     """
     A CsoundProc wraps a running csound subprocess
@@ -690,7 +695,7 @@ endin
     return CsoundProc(proc=proc, backend=backend, outdev=device, sr=sr,
                       nchnls=nchnls, csdstr=csd)
     
-@dataclasses.dataclass
+@dataclass
 class ScoreEvent:
     """
     A ScoreEvent represent an event line in the score
@@ -709,9 +714,57 @@ class ScoreEvent:
     args: List[Union[float, str]]
 
 
+@dataclass
+class TableDataFile:
+    tabnum: int
+    data: Union[List[float], np.ndarray, str]
+    """the data itself or a path to a file"""
+    fmt: str = 'gen23'  # One of 'wav', 'gen23'
+    start: float = 0
+    size: int = 0
+
+    def __post_init__(self):
+        assert self.fmt in {'gen23', 'wav', 'aif', 'aiff', 'flac'}, \
+            f"Format not supported: {self.fmt}"
+        if self.fmt == 'gen23' and isinstance(self.data, np.ndarray):
+            assert len(self.data.shape) == 1 or self.data.shape[1] == 1
+
+    def write(self, outfile:str) -> None:
+        if isinstance(self.data, str):
+            # just copy the file
+            assert _os.path.exists(self.data)
+            _shutil.copy(self.data, outfile)
+            return
+
+        base, ext = _os.path.splitext(outfile)
+        if self.fmt == 'gen23':
+            if ext != '.gen23':
+                raise ValueError(f"Wrong extension: it should be .gen23, got {outfile}")
+            saveAsGen23(self.data, outfile=outfile)
+        elif self.fmt in ('wav', 'aif', 'aiff', 'flac'):
+            import sndfileio
+            sndfileio.sndwrite(outfile, self.data, sr=44100,
+                               metadata={'comment': 'Datafile'})
+
+    def scoreLine(self, outfile: str) -> str:
+        if self.fmt == 'gen23':
+            return f'f {self.tabnum} {self.start} {self.size} -23 "{outfile}"'
+        elif self.fmt == 'wav':
+            # time  size  1  filcod  skiptime  format  channel
+            return f'f {self.tabnum} {self.start} {self.size} -1 "{outfile}" 0 0 0'
+        raise ValueError(f"Unknown format {self.fmt}")
+
+    def orchestraLine(self, outfile: str) -> str:
+        if self.fmt == 'gen23':
+            return f'ftgen {self.tabnum}, {self.start}, {self.size}, -23, "{outfile}"'
+        elif self.fmt in ('wav', 'aif', 'aiff', 'flac'):
+            return f'ftgen {self.tabnum}, {self.start}, {self.size}, -1, "{outfile}", 0, 0, 0'
+        raise ValueError(f"Unknown format {self.fmt}")
+
+
 def parseScore(sco: str) -> Generator[ScoreEvent, None, None]:
     """
-    Parse a score given as string, returns a seq. of :class:`ScoreEvent`
+    Parse a score given as string, returns a data. of :class:`ScoreEvent`
     """
     p1: Union[str, int]
     for line in sco.splitlines():
@@ -870,7 +923,7 @@ def saveMatrixAsMtx(outfile: str, data: np.ndarray,
     """
     Save `data` in wav format using the mtx extension
 
-    This is not a real soundfile. It is used to transfer the data in
+    This is not a real output. It is used to transfer the data in
     binary form to be read by another program. To distinguish this from a
     normal wav file an extension `.mtx` is recommended. Data is saved
     always flat, and a header with the shape of `data` is included
@@ -913,7 +966,7 @@ def saveMatrixAsMtx(outfile: str, data: np.ndarray,
         metadata: Any float values here are included in the header, and the description
             of this data is included as metadata in the wav file
         encoding: the data can be encoded in float32 or float64
-        title: if given will be included in the soundfile metadata
+        title: if given will be included in the output metadata
         sr: sample rate. I
     """
     assert isinstance(outfile, str)
@@ -995,7 +1048,7 @@ def saveMatrixAsGen23(outfile: str, mtx: np.ndarray, extradata:List[float]=None,
             f.write("\n")
 
 
-@dataclasses.dataclass
+@dataclass
 class AudioDevice:
     """
     An AudioDevice holds information about a an audio device for a given backend
@@ -1272,6 +1325,42 @@ def csoundOptionForSampleFormat(fmt:str) -> str:
                          f'{_fmtoptions.keys()}')
     return _fmtoptions[fmt]
 
+_builtinInstrs = {
+    '_playgen1': r'''
+      kgain  = p4
+      kspeed = p5
+      ; 6      7      8      9
+      itabnum, ichan, ifade, ioffset passign 6
+      ifade = max(ifade, 0.005)
+      ksampsplayed = 0
+      inumsamples = nsamp(itabnum)
+      itabsr = ftsr(itabnum)
+      istartframe = ioffset * itabsr
+      ksampsplayed += ksmps * kspeed
+      aouts[] loscilx kgain, kspeed, itabnum, 4, 1, istartframe
+      aenv linsegr 0, ifade, 1, ifade, 0
+      aouts = aouts * aenv
+      inumouts = lenarray(aouts)
+      kchan = 0
+      while kchan < inumouts do
+        outch kchan+ichan, aouts[kchan]
+        kchan += 1
+      od
+      if ksampsplayed >= inumsamples then
+        turnoff
+      endif
+    ''',
+    '_ftnew': r'''
+      itabnum = p4
+      isize = p5
+      isr = p6
+      inumchannels = p7
+      ift ftgen itabnum, 0, -isize, -2, 0
+      if isr > 0 || inumchannels > 0 then
+        ftsetparams itabnum, isr, inumchannels
+      endif
+    '''
+}
 
 class Csd:
     """
@@ -1283,7 +1372,7 @@ class Csd:
         ksmps: the samples per cycle to use
         nchnls: the number of output channels
         a4: the reference frequency
-        optiosn (list[str]): any number of extra options passed to csound
+        optiosn (list[str]): any number of extraOptions options passed to csound
         nodisplay: if True, avoid outputting debug information
         carry: should carry be enabled in the score?
 
@@ -1298,37 +1387,11 @@ class Csd:
         ...   ifreq = p4
         ...   outch 1, oscili:a(0.1, ifreq)
         ... ''')
-        >>> tabnum = csd.addSndfile("sounds/sound1.wav")
-        >>> csd.playTable(tabnum)
+        >>> source = csd.addSndfile("sounds/sound1.wav")
+        >>> csd.playTable(source)
         >>> csd.addEvent('sine', 0, 2, [1000])
-        >>> csd.writeCsd('out.csd')
+        >>> csd._writeCsd('out.csd')
     """
-
-    _builtinInstrs = {
-        '_playgen1': r'''
-        pset 0, 0, 0, 0,    1,     1,      1,    0.05, 0,         0
-        kgain = p4
-        kspeed = p5
-        ksampsplayed = 0
-        itabnum, ichan, ifade, ioffset passign 6
-        inumsamples = nsamp(itabnum)
-        itabsr = ftsr(itabnum)
-        istartframe = ioffset * itabsr
-        ksampsplayed += ksmps * kspeed
-        aouts[] loscilx kgain, kspeed, itabnum, 4, 1, istartframe
-        aenv = linsegr:a(0, ifade, 1, ifade, 0)
-        aouts = aouts * aenv
-        inumouts = lenarray(aouts)
-        kchan = 0
-        while kchan < inumouts do
-            outch kchan+ichan, aouts[kchan]
-            kchan += 1
-        od
-        if ksampsplayed >= inumsamples then
-            turnoff
-        endif
-        '''
-    }
 
     def __init__(self, sr=44100, ksmps=64, nchnls=2, a4=442., options:List[str]=None,
                  nodisplay=False, carry=False):
@@ -1349,6 +1412,8 @@ class Csd:
         self._minTableIndex = 1
         self.nodisplay = nodisplay
         self.enableCarry = carry
+        self.datafiles: Dict[int, TableDataFile] = {}
+        self._maxTableNumber = 0
         if not carry:
             self.score.append(("C", 0))
 
@@ -1370,6 +1435,7 @@ class Csd:
         dur = round(dur, 8)
         event = ["i", _quoteIfNeeded(instr), start, dur]
         if args:
+            assert all(isinstance(arg, (int,float, str)) for arg in args), str(args)
             event.extend(_quoteIfNeeded(arg) for arg in args)
         self.score.append(event)
 
@@ -1386,15 +1452,13 @@ class Csd:
         return idx
 
     def _assignTableIndex(self, tabnum=0) -> int:
-        if tabnum > 0:
+        if tabnum == 0:
+            tabnum = self._maxTableNumber + 1
+        else:
             if tabnum in self._definedTables:
                 raise ValueError(f"ftable {tabnum} already defined")
-        else:
-            for tabnum in range(self._minTableIndex, 9999):
-                if tabnum not in self._definedTables:
-                    break
-            else:
-                raise IndexError("All possible ftable slots used!")
+        if tabnum > self._maxTableNumber:
+            self._maxTableNumber = tabnum
         self._definedTables.add(tabnum)
         return tabnum
 
@@ -1411,75 +1475,124 @@ class Csd:
         Returns:
             The index of the new ftable
         """
-        tabnum = self._assignTableIndex(pargs[0])
-        pargs = ["f", tabnum] + pargs[1:]
-        self.score.append(pargs)
+        tabnum = pargs[0]
+        if tabnum == 0:
+            tabnum = self._assignTableIndex()
+        else:
+            assert tabnum in self._definedTables
+        pargs = [_quoteIfNeeded(p) for p in pargs[1:]]
+        scoreline = ["f", tabnum] + pargs
+        self.score.append(scoreline)
         return tabnum
 
-    def addTableFromSeq(self, seq: Union[Sequence[float], np.ndarray],
-                        tabnum:int=0, start=0
-                        ) -> int:
+    def addTableFromData(self, data: Union[Sequence[float], np.ndarray],
+                         tabnum:int=0, start=0, filefmt:str=None, sr=0,
+                         ) -> int:
         """
-        Create a ftable, fill it with seq, return the ftable index
+        Add a table definition with the data
 
         Args:
-            seq: a sequence of floats to fill the table. The size of the
+            data: a sequence of floats to fill the table. The size of the
                 table is determined by the size of the seq.
             tabnum: 0 to auto-assign an index
-            start: the same as f 1 2 3
+            start: allocation time of the table
+            filefmt: format to use when saving the table as a datafile. If None,
+                the default is used. Possible values: 'gen23', 'wav'
+            sr: if given and data is a numpy array, it is saved as a soundfile
+                and loaded via gen1
 
         Returns:
             the table number
 
         .. note::
 
-            The length of the data should not excede 2000 items. If the seq is longer,
-            it is advised to save the seq. as either a gen23 or a wav file and load
-            the table from an external file.
-
+            The data is either included in the table definition or saved as an
+            external file. All external files are saved relative to the generated
+            .csd file when writing
         """
-        if len(seq) > 2000:
-            raise ValueError("tables longer than 2000 items are currently not supported")
-        if start > 0:
-            start = round(start, 8)
-        pargs = [tabnum, start, -len(seq), -2]
-        pargs.extend(seq)
-        return self._addTable(pargs)
+        sizeThreshold = config['offline_score_table_size_limit']
 
-    def addEmptyTable(self, size:int, tabnum: int=0) -> int:
+        if isinstance(data, np.ndarray) and sr:
+            sndfile = _tempfile.mktemp(suffix=".wav")
+            import sndfileio
+            sndfileio.sndwrite(sndfile, samples=data, sr=sr, encoding='float32')
+            tabnum = self.addSndfile(sndfile, tabnum=tabnum, asProjectFile=True,
+                                     start=start)
+        else:
+            if not filefmt:
+                filefmt = config['datafile_format']
+            if len(data) > sizeThreshold:
+                # If the data is big, we save the data. We will write
+                # it to a file when rendering
+                tabnum = self._assignTableIndex(tabnum)
+                datafile = TableDataFile(tabnum, data, start=start, fmt=filefmt)
+                self._addDataFile(datafile)
+            else:
+                pargs = [tabnum, start, -len(data), -2]
+                pargs.extend(data)
+                tabnum = self._addTable(pargs)
+        assert tabnum > 0
+        return tabnum
+
+    def _addDataFile(self, datafile: TableDataFile) -> None:
+        self.datafiles[datafile.tabnum] = datafile
+        assert datafile.tabnum in self._definedTables
+
+    def addEmptyTable(self, size:int, tabnum: int=0, sr: int = 0,
+                      numchannels=1
+                      ) -> int:
         """
 
         Args:
             tabnum: use 0 to autoassign an index
             size: the size of the empty table
-
+            sr: if given, set the sr of the empty table to the given sr
+            numchannels: the number of channels in the table
         Returns:
             The index of the created table
         """
-        pargs = (tabnum, 0, -size, -2, 0)
-        return self._addTable(pargs)
+        if sr == 0:
+            pargs = (tabnum, 0, -size, -2, 0)
+            return self._addTable(pargs)
+        else:
+            tabnum = self._assignTableIndex(tabnum)
+            if self.instrs.get('_ftnew') is None:
+                self.addInstr('_ftnew', _builtinInstrs['_ftnew'])
+            args = [tabnum, size, sr, numchannels]
+            self.addEvent('_ftnew', start=0, dur=0, args=args)
 
-    def addSndfile(self, sndfile:str, tabnum=0, start=0., skiptime=0, chan=0) -> int:
+    def addSndfile(self, sndfile:str, tabnum=0, start=0., skiptime=0, chan=0,
+                   asProjectFile=False) -> int:
         """ Add a table which will load this sndfile
 
         Args:
-            sndfile: the soundfile to load
+            sndfile: the output to load
             tabnum: fix the table number or use 0 to generate a unique table number
-            start: when to load this soundfile (normally this should be left 0)
+            start: when to load this output (normally this should be left 0)
             skiptime: begin reading at `skiptime` seconds into the file.
             chan: channel number to read. 0 denotes read all channels.
+            asProjectFile: if True, the sndfile is included as a project file and
+                copied to a path relative to the .csd when writing
 
         Returns:
             the table number
-            """
+        """
+
         tabnum = self._assignTableIndex(tabnum)
-        pargs = [tabnum, start, 0, -1, sndfile, skiptime, 0, chan]
-        self._addTable(pargs)
+        if not asProjectFile:
+            pargs = [tabnum, start, 0, -1, sndfile, skiptime, 0, chan]
+            self._addTable(pargs)
+        else:
+            sndfmt = _os.path.splitext(sndfile)[1][1:].lower()
+            assert sndfmt in {'wav', 'aif', 'aiff', 'flac'}
+            projfile = TableDataFile(tabnum, data=sndfile, start=start, fmt=sndfmt)
+            self.datafiles[tabnum] = projfile
+        assert tabnum > 0
         return tabnum
 
     def destroyTable(self, tabnum:int, time:float) -> None:
         """
-        Schedule ftable with index `tabnum` to be destroyed
+        Schedule ftable with index `source` to be destroyed
         at time `time`
 
         Args:
@@ -1496,7 +1609,7 @@ class Csd:
         self.score.append(("e", dur))
 
     def setComment(self, comment:str) -> None:
-        """ Add a comment to the renderer soundfile """
+        """ Add a comment to the renderer output """
         self.setOptions(f'-+id_comment="{comment}"')
 
     def setSampleFormat(self, fmt: str) -> None:
@@ -1515,23 +1628,40 @@ class Csd:
             self.setOptions(option)
             self._sampleFormat = fmt
 
-    def writeScore(self, stream) -> None:
+    def _writeScore(self, stream, datadir='.', dataprefix='') -> None:
         """
         Write the score to `stream`
 
         Args:
             stream (file-like): the open stream to write to
-
+            datadir: the folder to save data files
         """
         self.score.sort(key=_eventStartTime)
         for event in self.score:
             line = " ".join(str(arg) for arg in event)
             stream.write(line)
             stream.write("\n")
-            
-    def addInstr(self, instr: Union[int, str], instrstr: str) -> None:
-        """ Add an instrument definition to this csd """
-        self.instrs[instr] = instrstr
+        for tabnum, datafile in self.datafiles.items():
+            assert tabnum > 0
+            outfilebase = f'table-{tabnum:04d}.{datafile.fmt}'
+            if dataprefix:
+                outfilebase = f'{dataprefix}-{outfilebase}'
+            datadirpath = Path(datadir)
+            outfile = datadirpath / outfilebase
+            datafile.write(outfile.as_posix())
+            relpath = outfile.relative_to(datadirpath.parent)
+            stream.write(datafile.scoreLine(relpath.as_posix()))
+            stream.write('\n')
+
+    def addInstr(self, instr: Union[int, str], body: str) -> None:
+        """
+        Add an instrument definition to this csd
+
+        Args:
+            instr: the instrument number of name
+            body: the body of the instrument (the part between 'instr' / 'endin')
+        """
+        self.instrs[instr] = body
 
     def addGlobalCode(self, code: str, acceptDuplicates=True) -> None:
         """ Add code to the instr 0 """
@@ -1549,7 +1679,7 @@ class Csd:
     def dump(self) -> str:
         """ Returns a string with the .csd """
         stream = _io.StringIO()
-        self.writeCsd(stream)
+        self._writeCsd(stream)
         return stream.getvalue()
 
     def playTable(self, tabnum:int, start:float, dur:float=-1,
@@ -1561,30 +1691,42 @@ class Csd:
         =======
 
         >>> csd = Csd()
-        >>> tabnum = csd.addSndfile("stereo.wav")
-        >>> csd.playTable(tabnum, tabnum, start=1, fade=0.1, speed=0.5)
-        >>> csd.writeCsd("out.csd")
+        >>> source = csd.addSndfile("stereo.wav")
+        >>> csd.playTable(source, source, start=1, fade=0.1, speed=0.5)
+        >>> csd.write("out.csd")
         """
         if self.instrs.get('_playgen1') is None:
-            self.addInstr('_playgen1', self._builtinInstrs['_playgen1'])
+            self.addInstr('_playgen1', _builtinInstrs['_playgen1'])
+        assert tabnum > 0
         args = [gain, speed, tabnum, chan, fade, skip]
         self.addEvent('_playgen1', start=start, dur=dur, args=args)
 
-    def writeCsd(self, stream: Union[str, IO]) -> None:
+    def write(self, csdfile: str) -> None:
+        base = _os.path.splitext(csdfile)[0]
+        stream = open(csdfile, "w")
+        if self.datafiles:
+            datadir = base + ".assets"
+            _os.makedirs(datadir, exist_ok=True)
+        else:
+            datadir = ''
+        self._writeCsd(stream, datadir=datadir)
+
+    def _writeCsd(self, stream: Union[str, IO], datadir='') -> None:
         """
         Write this as a csd
 
         Args:
             stream: the stream to write to. Either a path, an open file or
                 a io.StringIO
+            datadir: the folder where all datafiles are written. Datafiles are
+                used whenever the user defines tables with data too large to
+                include 'inline' (as gen2) or when adding soundfiles.
         """
         if isinstance(stream, str):
             outfile = stream
             stream = open(outfile, "w")
         write = stream.write
-        write("<CsoundSynthesizer>\n")
-
-        write("\n<CsOptions>\n")
+        write("<CsoundSynthesizer>\n<CsOptions>\n")
         options = self.options.copy()
         if self.nodisplay:
             options.append("-m0")
@@ -1636,46 +1778,59 @@ class Csd:
         write("\n</CsInstruments>\n")
         write("\n<CsScore>\n\n")
         
-        self.writeScore(stream)
+        self._writeScore(stream, datadir=datadir)
         
         write("\n</CsScore>\n")
         write("</CsoundSynthesizer")
 
     def run(self,
-            output:str,
-            inputdev:str=None,
+            output: str,
+            csdfile: str = None,
+            inputdev: str = None,
             backend: str = None,
-            suppressdisplay=False,
-            piped=False,
-            extra: List[str] = None) -> _subprocess.Popen:
+            suppressdisplay = True,
+            nomessages = False,
+            piped = False,
+            extraOptions: List[str] = None) -> _subprocess.Popen:
         """
         Run this csd. 
         
         Args:
-            output: the file to use as output. This will be passed
-                as the -o argument to csound.
+            output: the output of the csd. This will be passed
+                as the -o argument to csound. If an empty string or None is given,
+                no sound is produced (adds the '--nosound' flag).
             inputdev: the input device to use when running in realtime
+            csdfile: if given, the csd file will be saved to this path and run
+                from it. Otherwise a temp file is created and run.
             backend: the backend to use
-            suppressdisplay: if True, debugging information is supressed
+            suppressdisplay: if True, display (table plots, etc.) is supressed
+            nomessages: if True, debugging scheduling information is suppressed
             piped: if True, stdout and stderr are piped through
                 the Popen object, accessible through .stdout and .stderr
                 streams
-            extra: any extra args passed to the csound binary
+            extraOptions: any extra args passed to the csound binary
 
         Returns:
             the _subprocess.Popen object
 
         """
-        if self._sampleFormat is None and not output.startswith('dac'):
+        if not output:
+            if extraOptions:
+                extraOptions.append('--nosound')
+            else:
+                extraOptions = ['--nosound']
+        elif self._sampleFormat is None and not output.startswith('dac'):
             self.setSampleFormat(bestSampleFormatForExtension(_os.path.splitext(output)[1]))
 
-        tmp = _tempfile.mktemp(suffix=".csd")
-        with open(tmp, "w") as f:
-            self.writeCsd(f)
-        logger.debug(f"Csd.run :: tempfile = {tmp}")
-        return runCsd(tmp, outdev=output, indev=inputdev,
+        if not csdfile:
+            csdfile = _tempfile.mktemp(suffix=".csd")
+            logger.debug(f"Runnings Csd from tempfile {csdfile}")
+
+        self.write(csdfile)
+        return runCsd(csdfile, outdev=output, indev=inputdev,
                       backend=backend, nodisplay=suppressdisplay,
-                      piped=piped, extra=extra)
+                      nomessages=nomessages,
+                      piped=piped, extra=extraOptions)
 
 
 def mincer(sndfile:str, outfile:str,
@@ -1684,10 +1839,10 @@ def mincer(sndfile:str, outfile:str,
            dt=0.002, lock=False, fftsize=2048, ksmps=128, debug=False
            ) -> dict:
     """
-    Stretch/Pitchshift a soundfile using csound's mincer opcode
+    Stretch/Pitchshift a output using csound's mincer opcode
 
     Args:
-        sndfile: the path to a soundfile
+        sndfile: the path to a output
         timecurve: a func mapping time to playback time or a scalar indicating
             a timeratio (2 means twice as fast, 1 to leave unmodified)
         pitchcurve: a func time to pitchscale, or a scalar indicating a freqratio
@@ -1716,7 +1871,7 @@ def mincer(sndfile:str, outfile:str,
     Examples
     ========
 
-        # Example 1: stretch a soundfile 2x
+        # Example 1: stretch a output 2x
 
         >>> from csoundengine import csoundlib
         >>> import bpf4
@@ -1850,7 +2005,7 @@ def recInstr(body:str, events:list, init="", outfile:str=None,
         dur: the duration of the recording
         body: the body of the instrument
         init: the initialization code (ftgens, global vars, etc)
-        outfile: the generated soundfile, or None to generate a temporary file
+        outfile: the generated output, or None to generate a temporary file
         events: a list of events, where each event is a list of pargs passed
             to the instrument, beginning with p2: delay, dur, [p4, p5, ...]
         sr: the samplerate
@@ -1863,7 +2018,7 @@ def recInstr(body:str, events:list, init="", outfile:str=None,
         a tuple (outfile to be generated, _subprocess.Popen running csound)
     """
     if not isinstance(events, list) or not all(isinstance(event, (tuple, list)) for event in events):
-        raise ValueError("events is a seq., where each item is a seq. of pargs passed to"
+        raise ValueError("events is a data., where each item is a data. of pargs passed to"
                          "the instrument, beginning with p2: [delay, dur, ...]"
                          f"Got {events} instead")
 
@@ -2112,7 +2267,7 @@ def instrNames(instrdef: str) -> List[Union[int, str]]:
     return []  #  ValueError("No instrument definition found")
 
 
-@dataclasses.dataclass
+@dataclass
 class ParsedBlock:
     """
     A ParsedBlock represents a block (am instr, opcode, etc) in an orchestra
@@ -2123,7 +2278,7 @@ class ParsedBlock:
         startLine: where does this block start within the parsed orchestra
         endLine: where does this block end
         name: name of the block
-        attrs: some blocks need extra information. Opcodes define attrs 'outargs' and
+        attrs: some blocks need extraOptions information. Opcodes define attrs 'outargs' and
             'inargs' (corresponding to the xin and xout opcodes), header blocks have
             a 'value' attr
     """
@@ -2139,7 +2294,7 @@ class ParsedBlock:
             self.endLine = self.startLine
 
 
-@dataclasses.dataclass
+@dataclass
 class _OrcBlock:
     name: str
     startLine: int
@@ -2218,7 +2373,7 @@ def parseOrc(code: str, keepComments=True) -> List[ParsedBlock]:
     return blocks
 
 
-@dataclasses.dataclass
+@dataclass
 class ParsedInstrBody:
     """
     This class holds the result of parsing the body of an instrument

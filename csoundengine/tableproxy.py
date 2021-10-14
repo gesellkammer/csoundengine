@@ -54,7 +54,7 @@ class TableProxy:
             nchnls (int) - the number of channels in the table
             numframes (int) - the number of frames (data = numframes * nchnls)
             engine (Engine) - the corresponding Engine
-            path (str) - the path to the soundfile, if known
+            path (str) - the path to the output, if known
             freeself (bool) - if True, csound will free the table when this object
                 goes out of scope
 
@@ -71,7 +71,7 @@ class TableProxy:
         self._array: Opt[np.ndarray] = None
 
     def __repr__(self):
-        return (f"TableProxy(engine={self.engine.name}, tabnum={self.tabnum}, sr={self.sr},"
+        return (f"TableProxy(engine={self.engine.name}, source={self.tabnum}, sr={self.sr},"
                 f" nchnls={self.nchnls},"
                 f" numframes={self.numframes}, path={self.path},"
                 f" freeself={self.freeself})")

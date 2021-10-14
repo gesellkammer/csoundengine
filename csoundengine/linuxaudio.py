@@ -1,7 +1,7 @@
 from __future__ import annotations
 import cachetools
 from . import internalTools
-import dataclasses
+from dataclasses import dataclass
 import subprocess
 import shutil
 import re
@@ -15,10 +15,9 @@ def isPipewireRunning() -> bool:
 @cachetools.cached(cache=cachetools.TTLCache(1, 20))
 def isPulseaudioRunning() -> bool:
     """
-    Returns True if a pulseaudio is running
+    Returns True if the pulseaudio server is running
 
-    NB: pulseaudio still can be running on pipewire even if
-    his returns False
+    .. note:: pulseaudio can be running on pipewire even if this returns False
     """
     if not shutil.which("pulseaudio"):
         return False
@@ -26,13 +25,14 @@ def isPulseaudioRunning() -> bool:
     return status == 0
 
 
-@dataclasses.dataclass
+@dataclass
 class PipewireInfo:
     sr: int
     quantum: int
     isPulseServer: bool
 
-@dataclasses.dataclass
+
+@dataclass
 class PulseaudioInfo:
     sr: int
     numchannels: int

@@ -47,7 +47,7 @@ def openSoundfile(filter="Soundfiles (*.wav, *.flac, *.aif, *.aiff)",
                   ensureSelection=False):
     out = openFile("soundfile_last_dir", filter=filter, title=title)
     if not out and ensureSelection:
-        raise ValueError("No soundfile selected")
+        raise ValueError("No output selected")
     return out
 
 

@@ -194,7 +194,8 @@ class Instr:
                  preschedCallback=None,
                  freetable=True,
                  doc: str = '',
-                 userPargsStart=5
+                 userPargsStart=5,
+                 exitlabel = '__exit'
                  ) -> None:
 
         assert isinstance(name, str)
@@ -240,6 +241,11 @@ class Instr:
             parsed = csoundlib.instrParseBody(body)
             pargsIndexToName = parsed.pfieldsIndexToName
             pargsDefaultValues = parsed.pfieldsDefaults or {}
+
+        if exitlabel:
+            if exitlabel[-1] != ":":
+                exitlabel += ":"
+            body = textlib.joinPreservingIndentation((body, exitlabel))
 
         self.tabledef = tabledef
         self.name = name
@@ -299,12 +305,10 @@ class Instr:
             indexes.sort()
             if 4 in indexes:
                 indexes.remove(4)
-            groups = iterlib.splitInChunks(indexes, 5)
+            groups = iterlib.split_in_chunks(indexes, 5)
             for group in groups:
                 htmls = []
                 for idx in group:
-                    if idx == 4:
-                        continue
                     pname = self.pargsIndexToName[idx]
                     html = f"<b>{pname}</b>:<small>p{idx}</small>=" \
                            f"<code>{self.pargsIndexToDefaultValue.get(idx, 0)}</code>"
@@ -486,14 +490,14 @@ class Instr:
 
         Args:
             dur: the duration of the recording
-            outfile: if given, the path to the generated soundfile.
+            outfile: if given, the path to the generated output.
                 If not given, a temporary file will be generated.
-            args: the seq. of pargs passed to the instrument (if any),
+            args: the data. of pargs passed to the instrument (if any),
                 beginning with p4
             sr: the sample rate -> config['rec.sr']
             ksmps: the number of samples per cycle -> config['rec.ksmps']
             samplefmt: one of 16, 24, 32, or 'float' -> config['rec.sample_format']
-            nchnls: the number of channels of the generated soundfile.
+            nchnls: the number of channels of the generated output.
             block: if True, the function blocks until done, otherwise rendering
                 is asynchronous
             a4: the frequency of A4 (see config['A4']
@@ -516,21 +520,21 @@ class Instr:
         Record the given events with this instrument.
 
         Args:
-            events: a seq. of events, where each event is the list of pargs
+            events: a data. of events, where each event is the list of pargs
                 passed to the instrument, as [delay, dur, p4, p5, ...]
                 (p1 is omitted)
-            outfile: if given, the path to the generated soundfile. If not
+            outfile: if given, the path to the generated output. If not
                 given, a temporary file will be generated.
             sr: the sample rate -> config['rec.sr']
             ksmps: the number of samples per cycle -> config['rec.ksmps']
             samplefmt: one of 16, 24, 32, or 'float' -> config['rec.sample_format']
-            nchnls: the number of channels of the generated soundfile.
+            nchnls: the number of channels of the generated output.
             a4: the frequency of A4 (see config['A4']
             block: if True, the function blocks until done, otherwise rendering
                 is asynchronous
 
         Returns:
-            the generated soundfile (if outfile is not given, a temp file
+            the generated output (if outfile is not given, a temp file
             is created)
 
         See Also:
@@ -683,8 +687,9 @@ def _tabledefGenerateCode(tabledef: dict, freetable=True) -> str:
     lines.append(fr'''
     ; --- start generated table code
     iparams_ = p4
-    if ftexists(iparams_) == 0 then
-        initerror sprintf("params table (%d) does not exist", iparams_)
+    if iparams_ == 0 || ftexists:i(iparams_) == 0 then
+        initerror sprintf("Params table (%d) does not exist (p1: %f)", iparams_, p1)
+        goto __exit
     endif
     iparamslen_ = ftlen(iparams_)
     if iparamslen_ < {maxidx} then

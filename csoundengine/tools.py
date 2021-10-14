@@ -2,9 +2,27 @@ import fnmatch
 from typing import Optional as Opt
 import sys
 import os
-
+import tempfile
 import emlib.misc
 from .config import logger
+
+
+def makeUniqueFilename(ext:str, prefix='', folder:str='.') -> str:
+    """
+    Create a unique filename
+
+    Args:
+        ext: the extension of the filename
+        prefix: a prefix to the unique part of the filename
+        folder: where should this file be created? NB: the file itself is not
+            created, but will be unique in the given folder.
+
+    Returns:
+        the generated filename
+    """
+    if not ext.startswith('.'):
+        ext = '.' + ext
+    return tempfile.mktemp(suffix=ext, dir=folder, prefix=prefix)
 
 
 @emlib.misc.runonce

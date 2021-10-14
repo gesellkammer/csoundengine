@@ -98,7 +98,6 @@ import time
 
 import emlib.textlib
 import numpy as np
-import sndfileio
 
 from emlib import iterlib, net
 from emlib.containers import IntPool
@@ -110,7 +109,7 @@ from . import internalTools
 from . import engineorc
 from . import state as _state
 from .engineorc import CONSTS
-from .errors import CsoundError
+from .errors import *
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -192,6 +191,7 @@ class TableInfo:
             self.numFrames = self.size // self.numChannels
 
 def _getSoundfileInfo(path) -> TableInfo:
+    import sndfileio
     sndinfo = sndfileio.sndinfo(path)
     return TableInfo(sr=sndinfo.samplerate,
                      numChannels=sndinfo.channels,
@@ -308,7 +308,7 @@ class Engine:
         quiet: if True, suppress output of csound (-m 0)
         udpserver: if True, start a udp server for communication (see udpport)
         udpport: the udpport to use for real-time messages. 0=autoassign port
-        commandlineOptions: extra command line options passed verbatim to the
+        commandlineOptions: extraOptions command line options passed verbatim to the
             csound process when started
 
     Attributes:
@@ -1167,7 +1167,6 @@ class Engine:
 
         """
         return self._lockedElapsedTime or self.csound.currentTimeSamples() / self.sr
-        # return (time.time() - self._startTime)
 
     def lockElapsedTime(self, lock=True):
         """
@@ -1557,7 +1556,7 @@ class Engine:
 
         >>> from csoundengine import *
         >>> e = Engine()
-        >>> tabnum = e.makeEmptyTable(128)
+        >>> source = e.makeEmptyTable(128)
         >>> e.compile(r'''
         ... instr 10
         ...   imidi = p4
@@ -1568,11 +1567,11 @@ class Engine:
         ...   outch 1, asig
         ... endin
         ... ''')
-        >>> tabarray = e.getTableData(tabnum)
+        >>> tabarray = e.getTableData(source)
         >>> tabarray[0] = 0.5
-        >>> eventid = e.sched(10, args=[67, tabnum, 0])
+        >>> eventid = e.sched(10, args=[67, source, 0])
         # fade out
-        >>> e.automateTable(tabnum=tabnum, idx=0, pairs=[1, 0.5, 5, 0.])
+        >>> e.automateTable(source=source, idx=0, pairs=[1, 0.5, 5, 0.])
 
         .. seealso::
 
@@ -1600,7 +1599,7 @@ class Engine:
         Args:
             data: the data used to fill the table, or None if creating an empty table
             size: the size of the table (will only be used if no data is supplied)
-            tabnum: the table number. If -1, a number is assigned by the engine.
+            source: the table number. If -1, a number is assigned by the engine.
                 If 0, a number is assigned by csound (only possible in block or
                 callback mode)
             block: wait until the table is actually created
@@ -1621,8 +1620,8 @@ class Engine:
         >>> sample, sr = sndfileio.sndread("stereo.wav")
         >>> # modify the sample in python
         >>> sample *= 0.5
-        >>> tabnum = e.makeTable(sample, sr=sr, block=True)
-        >>> e.playSample(tabnum)
+        >>> source = e.makeTable(sample, sr=sr, block=True)
+        >>> e.playSample(source)
 
         See Also
         ~~~~~~~~
@@ -1670,11 +1669,19 @@ class Engine:
             self._makeTableNotify(data=data, tabnum=tabnum, sr=sr)
         return int(tabnum)
 
-    def setTableMetadata(self, tabnum:int, sr:int, numchannels:int = 1) -> None:
+    def tableExists(self, tabnum: int) -> bool:
+        try:
+            tabinfo = self.tableInfo(tabnum)
+        except TableNotFoundError:
+            return False
+        return True
+
+    def setTableMetadata(self, tabnum:int, sr:int, numchannels:int = 1,
+                         check=True) -> None:
         """
         Set metadata for a table holding sound samples.
 
-        When csound reads a soundfile into a table, it stores some additional data,
+        When csound reads a output into a table, it stores some additional data,
         like samplerate and number of channels. A table created by other means and
         then filled with samples normally does not have this information. In most
         of the times this is ok, but there are some opcodes which need this information
@@ -1685,9 +1692,20 @@ class Engine:
             tabnum: the table number
             sr: the sample rate
             numchannels: number of channels of data
+            check: if True, it will check if the table exists in the case where
+                the table wass not created via the engine
         """
         logger.info(f"Setting table metadata. {tabnum=}, {sr=}, {numchannels=}")
         pargs = [self._builtinInstrs['ftsetparams'], 0, 0., tabnum, sr, numchannels]
+        tabinfo = self._tableInfo.get(tabnum)
+        if tabinfo:
+            tabinfo.sr = sr
+            tabinfo.numChannels = numchannels
+        else:
+            if check and not self.tableExists(tabnum):
+                raise ValueError(f"Table {tabnum} does not exist")
+            else:
+                logger.debug(f"setTableMetadata: table {tabnum} was not created by this Engine")
         self._perfThread.scoreEvent(0, "i", pargs)
 
     def _registerSync(self, token:int) -> _queue.Queue:
@@ -1740,7 +1758,7 @@ class Engine:
         gen01 (or using .readSoundfile), or it was manually set via setTableMetadata
 
         Args:
-            tabnum: the table to plot
+            source: the table to plot
             fftsize (int): the size of the fft
             mindb (int): the min. dB to plot
             maxfreq (int): the max. frequency to plot
@@ -1754,8 +1772,8 @@ class Engine:
 
             >>> from csoundengine import *
             >>> e = Engine()
-            >>> tabnum = e.readSoundfile("mono.wav", block=True)
-            >>> e.plotTableSpectrogram(tabnum)
+            >>> source = e.readSoundfile("mono.wav", block=True)
+            >>> e.plotTableSpectrogram(source)
 
         .. image:: ../assets/tableproxy-plotspectrogram.png
 
@@ -1773,7 +1791,7 @@ class Engine:
         """
         Plot the content of the table via matplotlib.pyplot
 
-        If the sr is known the table is plotted as a soundfile, with time as the x-coord.
+        If the sr is known the table is plotted as a output, with time as the x-coord.
         Otherwise the table's raw data is plotted, with the index as x the x-coord.
         The samplerate will be known if the table was created via
         :meth:`Engine.readSoundfile` or read via GEN1. The sr can also be passed explicitely
@@ -1781,16 +1799,16 @@ class Engine:
 
         Args:
             tabnum: the table to plot
-            sr: the samplerate of the data. Needed to plot as a soundfile if the table was
+            sr: the samplerate of the data. Needed to plot as a output if the table was
                 not loaded via GEN1 (or via :meth:`Engine.readSoundfile`).
 
         .. code::
 
             from csoundengine import *
             e = Engine()
-            tabnum = e.readSoundfile("mono.wav", block=True)
-            # no sr needed here since the soundfile was rea via readSoundfile
-            e.plotTable(tabnum)
+            source = e.readSoundfile("mono.wav", block=True)
+            # no sr needed here since the output was rea via readSoundfile
+            e.plotTable(source)
 
         .. figure:: ../assets/tableproxy-plot.png
 
@@ -1808,9 +1826,9 @@ class Engine:
             e = Engine()
             xs = np.linspace(0, 6.28, 1000)
             ys = np.sin(xs)
-            tabnum = e.makeEmptyTable(len(ys))
-            e.fillTable(tabnum, data=ys)
-            e.plotTable(tabnum)
+            source = e.makeEmptyTable(len(ys))
+            e.fillTable(source, data=ys)
+            e.plotTable(source)
 
         .. image:: ../assets/tableplot-sine.png
 
@@ -1824,8 +1842,7 @@ class Engine:
         assert isinstance(tabnum, int) and tabnum > 0
         data = self.getTableData(tabnum)
         tabinfo = self.tableInfo(tabnum)
-        if tabinfo.numChannels > 1:
-            numframes = len(data)
+
         if not sr and tabinfo.sr > 0:
             sr = tabinfo.sr
 
@@ -1979,8 +1996,8 @@ class Engine:
         self._perfThread.inputMessage(inputMessage)
         return None
 
-    def _makeTableNotify(self, data:Union[Sequence[float], np.ndarray]=None, size=0, tabnum=0,
-                         callback=None, sr:int=0) -> int:
+    def _makeTableNotify(self, data:Union[Sequence[float], np.ndarray]=None, size=0,
+                         tabnum=0, callback=None, sr:int=0, numchannels=1) -> int:
         """
         Create a table with data (or an empty table of the given size).
 
@@ -1988,13 +2005,16 @@ class Engine:
 
         Args:
             data: the data to put in the table
+            size: if no data is given, size must be set
             tabnum: the table number to create, 0 to let csound generate
                 a table number
-            callback: a callback func(tabnum) -> None
+            callback: a callback func(source) -> None
                 If no callback is given this method will block until csound notifies
                 that the table has been created and returns the table number
             sr: only needed if filling sample data. If given, it is used to fill
                 metadata in csound, as if this table had been read via gen01
+            numchannels: only needed if no data is given (only size). Size always
+                determines the size of the table, not the number of frames
 
         Returns:
             returns the table number
@@ -2008,7 +2028,6 @@ class Engine:
             # create an empty table of the given size
             empty = 1
             sr = 0
-            numchannels = 1
             pargs = [maketableInstrnum, delay, 0, token, tabnum, size, empty,
                      sr, numchannels]
         else:
@@ -2050,7 +2069,7 @@ class Engine:
         else:
             tabnum = self._eventWait(token, pargs)
             assert tabnum is not None and tabnum > 0
-        self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=1)
+        self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         return tabnum
 
     def setChannel(self, channel:str, value:Union[float, str, np.ndarray],
@@ -2222,7 +2241,7 @@ class Engine:
 
         Args:
             data: the data to put into the table
-            tabnum: the table number
+            source: the table number
             method: the method used, one of 'pointer' or 'api'.
             block: this is only used for the api method
 
@@ -2234,9 +2253,9 @@ class Engine:
             >>> e = Engine()
             >>> xs = np.linspace(0, 6.28, 1000)
             >>> ys = np.sin(xs)
-            >>> tabnum = e.makeEmptyTable(len(ys))
-            >>> e.fillTable(tabnum, data=ys)
-            >>> e.plotTable(tabnum)
+            >>> source = e.makeEmptyTable(len(ys))
+            >>> e.fillTable(source, data=ys)
+            >>> e.plotTable(source)
 
         .. figure:: ../assets/tableplot-sine.png
 
@@ -2254,7 +2273,7 @@ class Engine:
             raise ValueError(f"data should be a 1D or 2D array, got shape {data.shape}")
 
         assert isinstance(tabnum, int) and tabnum > 0, \
-            f"tabnum should be an int > 0, got {tabnum}"
+            f"source should be an int > 0, got {tabnum}"
 
         if method == 'pointer':
             # this is always blocking
@@ -2274,12 +2293,14 @@ class Engine:
         else:
             raise KeyError("Method not supported. Must be pointer or score")
 
-    def tableInfo(self, tabnum: int) -> TableInfo:
+    def tableInfo(self, tabnum: int, cache=True) -> TableInfo:
         """
         Retrieve information about the given table
 
         Args:
-            tabnum: the table number
+            source: the table number
+            cache: if True, query the cache to see if info for this table
+                has already been requested
 
         Returns:
             a TableInfo with fields `tableNumber`, `sr` (``ftsr``),
@@ -2297,8 +2318,8 @@ class Engine:
 
             >>> from csoundengine import *
             >>> e = Engine()
-            >>> tabnum = e.readSoundfile("stereo.wav", block=True)
-            >>> e.tableInfo(tabnum)
+            >>> source = e.readSoundfile("stereo.wav", block=True)
+            >>> e.tableInfo(source)
             TableInfo(tableNumber=200, sr=44100.0, numChannels=2, numFrames=88200, size=176401)
 
         See Also
@@ -2310,7 +2331,7 @@ class Engine:
 
         """
         info = self._tableInfo.get(tabnum)
-        if info:
+        if info and cache:
             return info
         toks = [self._getSyncToken() for _ in range(4)]
         pargs = [self._builtinInstrs['tableInfo'], 0, 0., tabnum]
@@ -2326,30 +2347,33 @@ class Engine:
         vals = q.get(block=True)
         for tok in toks:
             self._releaseToken(tok)
+        sr = vals[0]
+        if sr <= 0:
+            raise TableNotFoundError(f"Table {tabnum} does not exist!")
         return TableInfo(sr=vals[0], numChannels=int(vals[1]),
                          numFrames=int(vals[2]), size=int(vals[3]))
 
     def readSoundfile(self, path:str="?", tabnum:int = None, chan=0,
                       callback=None, block=False) -> int:
         """
-        Read a soundfile into a table (via GEN1), returns the table number
+        Read a output into a table (via GEN1), returns the table number
 
         Args:
-            path: the path to the soundfile -- **"?" to open file interactively**
+            path: the path to the output -- **"?" to open file interactively**
             tabnum: if given, a table index. If None, an index is
                 autoassigned
             chan: the channel to read. 0=read all channels
-            block: if True, wait until soundfile is read, then return
+            block: if True, wait until output is read, then return
             callback: if given, this function () -> None, will be called when
-                soundfile has been read.
+                output has been read.
 
         Returns:
             the index of the created table
 
         >>> from csoundengine import *
         >>> e = Engine()
-        >>> tabnum = e.readSoundfile("stereo.wav", block=True)
-        >>> eventid = e.playSample(tabnum)
+        >>> source = e.readSoundfile("stereo.wav", block=True)
+        >>> eventid = e.playSample(source)
         # Reduce the gain to 0.8 and playback speed to 0.5 after 2 seconds
         >>> e.setp(eventid, 4, 0.8, 5, 0.5, delay=2)
 
@@ -2532,7 +2556,7 @@ class Engine:
         Speed and gain can be modified via setp while playing
 
         Args:
-            tabnum (int): the table where the sample data was loaded
+            source (int): the table where the sample data was loaded
             delay (float): when to start playback
             chan (int): the first channel to send output to (channels start with 1)
             speed (float): the playback speed
@@ -2562,8 +2586,8 @@ class Engine:
             >>> sample, sr = sndfileio.sndread("stereo.wav")
             # modify the sample in python
             >>> sample *= 0.5
-            >>> tabnum = e.makeTable(sample, sr=sr, block=True)
-            >>> eventid = e.playSample(tabnum)
+            >>> source = e.makeTable(sample, sr=sr, block=True)
+            >>> eventid = e.playSample(source)
             # gain (p4) and speed (p5) can be modified while playing
             # Play at half speed
             >>> e.setp(eventid, 5, 0.5)
@@ -2584,10 +2608,10 @@ class Engine:
     def playSoundFromDisc(self, path:str, delay=0., chan=0, speed=1., fade=0.01
                           ) -> float:
         """
-        Play a soundfile from disc (via diskin2).
+        Play a output from disc (via diskin2).
 
         Args:
-            path: the path to the soundfile
+            path: the path to the output
             delay: time offset to start playing
             chan: first channel to output to
             speed: playback speed (2.0 will sound an octave higher)
@@ -2683,7 +2707,7 @@ class Engine:
         Automate a table slot
 
         Args:
-            tabnum: the number of the table to modify
+            source: the number of the table to modify
             idx: the slot index
             pairs: the automation data is given as a flat sequence of pairs (time,
               value). Times are relative to the start of the automation event.
@@ -2711,13 +2735,13 @@ class Engine:
         ...   ftfree itab, 1  ; free the table when finished
         ... endin
         ... ''')
-        >>> tabnum = e.makeTable([0.1, 1000])
-        >>> eventid = e.sched(10, 0, 10, args=(tabnum,))
+        >>> source = e.makeTable([0.1, 1000])
+        >>> eventid = e.sched(10, 0, 10, args=(source,))
         # automate the frequency (slot 1)
-        >>> e.automateTable(tabnum, 1, [0, 1000, 3, 200, 5, 200])
+        >>> e.automateTable(source, 1, [0, 1000, 3, 200, 5, 200])
 
         >>> # Automate from the current value, will produce a fade-out
-        >>> e.automateTable(tabnum, 0, [0, -1, 2, 0], overtake=True, delay=5)
+        >>> e.automateTable(source, 0, [0, -1, 2, 0], overtake=True, delay=5)
 
         See Also
         ~~~~~~~~
@@ -2742,7 +2766,7 @@ class Engine:
             p1: the fractional instr number of a running event, or an int number
                 to modify all running instances of that instr
             pidx: the pfield index. If the pfield to modify if p4, pidx should be 4
-            pairs: the automation data is given as a flat seq. of pairs (time, value).
+            pairs: the automation data is given as a flat data. of pairs (time, value).
                 Times are relative to the start of the automation event
             mode: one of 'linear', 'cos', 'expon(xx)', 'smooth'. See the csound opcode
                 `interp1d` for more information

@@ -30,12 +30,7 @@ Example
 
 from __future__ import annotations
 import os
-import dataclasses
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import List, Dict, Tuple, KeysView, Union as U, Optional as Opt
-import textwrap as _textwrap
-
+from dataclasses import dataclass
 from .config import config
 from . import csoundlib
 from .instr import Instr
@@ -45,9 +40,16 @@ from . import engineorc
 from emlib import misc, iterlib
 import numpy as np
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
+import textwrap as _textwrap
+
+
+
 __all__ = ["Renderer", "ScoreEvent"]
 
-@dataclasses.dataclass
+@dataclass
 class ScoreEvent:
     """
     A ScoreEvent represent a csound event. It is used by the
@@ -63,7 +65,7 @@ class ScoreEvent:
     dur: float
     args: List[float]
     eventId: int = 0
-    renderer: Opt[Renderer] = None
+    renderer: Optional[Renderer] = None
 
     def setp(self, delay:float, *args, **kws) -> None:
         """
@@ -94,6 +96,11 @@ class ScoreEvent:
             raise RuntimeError("This ScoreEvent has no associated renderer")
         self.renderer.setp(self, delay=delay, *args, **kws)
 
+    def automatep(self, param: str, pairs: Union[List[float], np.ndarray],
+                  mode="linear", delay: float = None) -> None:
+        self.renderer.automatep(self, param=param, pairs=pairs, mode=mode,
+                                delay=delay)
+
 
 _offlineOrc = r'''
 gi__soundfontIndexes dict_new "str:float"
@@ -115,7 +122,7 @@ instr _automatePargViaTable
   kt timeinsts
   kidx bisect kt, itabpairs, 2, 0
   ky interp1d kidx, itabpairs, Sinterpmethod, 2, 1
-  println "kt: %f, kidx: %f, ky: %f", kt, kidx, ky
+  ; println "kt: %f, kidx: %f, ky: %f", kt, kidx, ky
   pwrite ip1, ipindex, ky
 endin 
 
@@ -181,7 +188,7 @@ class Renderer:
         ksmps: csound ksmps
         a4: reference frequency
         maxpriorities: max. number of priority groups. This will determine
-            how long an effects chain can be
+            how long an effect chain can be
         bucketsize: max. number of instruments per priority group
 
     Example
@@ -207,8 +214,6 @@ class Renderer:
         renderer.automatep(events[0], 'kmidi', pairs=[0, 60, 2, 59])
         renderer.setp(events[1], 3, 'kmidi', 67.2)
         renderer.render("out.wav")
-
-
     """
 
 
@@ -218,6 +223,10 @@ class Renderer:
         """
 
         """
+        self.sr = sr
+        self.nchnls = nchnls
+        self.ksmps = ksmps
+        self.a4 = a4
         self._idCounter = 0
         self._eventsIndex: Dict[int, ScoreEvent] = {}
         a4 = a4 or config['A4']
@@ -234,21 +243,13 @@ class Renderer:
         self._numInstancesPerInstr = 10000
         self._numAudioBuses = numAudioBuses
 
-        # a list of i events, starting with p1
-        self.events: List[List[float]] = []
-        self.unscheduledEvents: List[List[float]] = []
         self.csd.addGlobalCode(_textwrap.dedent(_offlineOrc))
         self._busSystemInitialized = False
         self._busTokenCount = 0
 
-    @property
-    def nchnls(self):
-        return self.csd.nchnls
-
     def _commitInstrument(self, instrname: str, priority=1) -> int:
         """
-        Generates a concrete version of the instrument
-        (with the given priority).
+        Creaaate concrete instrument at the given priority
 
         Returns the instr number
 
@@ -370,7 +371,7 @@ class Renderer:
         """
         return self._instrdefs
 
-    def getInstr(self, name) -> Opt[Instr]:
+    def getInstr(self, name) -> Optional[Instr]:
         return self._instrdefs.get(name)
 
     def addGlobalCode(self, code: str) -> None:
@@ -398,7 +399,7 @@ class Renderer:
               delay=0.,
               dur=-1.,
               priority=1,
-              pargs: U[List[float], Dict[str, float]] = None,
+              pargs: Union[List[float], Dict[str, float]] = None,
               tabargs: Dict[str, float] = None,
               **pkws) -> ScoreEvent:
         """
@@ -411,7 +412,7 @@ class Renderer:
             delay: time offset
             dur: duration of this event. -1: endless
             pargs: pargs beginning with p5
-                (p1: instrnum, p2: delay, p3: duration, p4: tabnum)
+                (p1: instrnum, p2: delay, p3: duration, p4: source)
             tabargs: a dict of the form param: value, to initialize
                 values in the exchange table (if defined by the given
                 instrument)
@@ -446,15 +447,15 @@ class Renderer:
             raise KeyError(f"instrument {instrname} is not defined")
         instrnum = self._commitInstrument(instrname, priority)
         if instr.hasExchangeTable():
-            tableinit = instr.overrideTable(tabargs)
-            tabnum = self.csd.addTableFromSeq(tableinit)
+            tabnum = self.csd.addTableFromData(instr.overrideTable(tabargs),
+                                               start=max(0., delay - 2.))
         else:
             tabnum = 0
         args = internalTools.instrResolveArgs(instr, tabnum, pargs, pkws)
         p1 = self._getUniqueP1(instrnum)
         self.csd.addEvent(p1, start=delay, dur=dur, args=args)
         eventId = self._generateEventId()
-        event = ScoreEvent(p1, delay, dur, args, eventId)
+        event = ScoreEvent(p1, delay, dur, args, eventId, renderer=self)
         self._eventsIndex[eventId] = event
         return event
 
@@ -518,9 +519,9 @@ class Renderer:
         self.csd.setOptions(*options)
 
     def render(self, outfile: str = None, samplefmt: str = None,
-               wait=True, quiet=False, openWhenDone=False) -> str:
+               wait=True, quiet:bool=None, openWhenDone=False) -> str:
         """
-        Render to a soundfile
+        Render to a output
 
         To further customize the render set any csound options via
         :meth:`Renderer.setCsoundOptions`
@@ -540,11 +541,12 @@ class Renderer:
         Returns:
             the path of the rendered file
         """
-        import tempfile
         if outfile is None:
+            import tempfile
             outfile = tempfile.mktemp(suffix=".wav")
         if not self.csd.score:
             raise ValueError("score is empty")
+        quiet = quiet if quiet is not None else config['rec_suppress_output']
         if quiet:
             run_suppressdisplay = True
             run_piped = True
@@ -558,6 +560,7 @@ class Renderer:
         self.csd.setSampleFormat(samplefmt)
         proc = self.csd.run(output=outfile,
                             suppressdisplay=run_suppressdisplay,
+                            nomessages=run_suppressdisplay,
                             piped=run_piped)
         if openWhenDone:
             proc.wait()
@@ -566,27 +569,23 @@ class Renderer:
             proc.wait()
         return outfile
 
-    def generateCsd(self) -> str:
-        """
-        Generate the csd for this renderer as string
-
-        Returns:
-            the csd as string
-        """
-        import io
-        stream = io.StringIO()
-        self.csd.writeCsd(stream)
-        return stream.getvalue()
-
     def writeCsd(self, outfile: str) -> None:
         """
         Generate the csd for this renderer, write it to `outfile`
-        """
-        with open(outfile, "w") as f:
-            csd = self.generateCsd()
-            f.write(csd)
 
-    def getEventById(self, eventid: int) -> Opt[ScoreEvent]:
+        If this csd includes any datafiles (tables with data exceeding
+        the limit to include the data 'inline') or soundfiles defined
+        relative to the csd, these datafiles are written to a subfolder
+        with the name f'{outfile}.assets' created besides outfile
+
+        For example, if we call `writeCsd` as `renderer.writeCsd('~/foo/myproj.csd')`,
+        any datafiles will be saved in `'~/foo/myproj.assets'` and referenced
+        with relative paths as `'myproj.assets/datafile.gen23'` or
+        `'myproj.assets/mysnd.wav'`
+        """
+        self.csd.write(outfile)
+
+    def getEventById(self, eventid: int) -> Optional[ScoreEvent]:
         """
         Retrieve a scheduled event by its eventid
 
@@ -657,32 +656,64 @@ class Renderer:
         pargs.extend(pairs)
         self.csd.addEvent("_pwrite", start=delay, dur=0.1, args=pargs)
 
-    def readSoundfile(self, path: str, tabnum:int=None, chan=0, start=0., skiptime=0.) -> int:
+    def makeTable(self, data: Union[np.ndarray, List[float]] = None,
+                  size: int = 0, tabnum: int = 0, sr: int = 0,
+                  delay=0.
+                  ) -> int:
         """
-        Add code to this offline renderer to load a soundfile
+        Create a table with given data or an empty table of the given size
 
         Args:
-            path: the path of the soundfile to load
+            data (np.ndarray | List[float]): the data of the table. Use None
+                if the table should be empty
+            size (int): if not data is given, sets the size of the empty table created
+            tabnum (int): 0 to let csound determine a table number, -1 to self assign
+                a value
+            sr (int): the samplerate of the data, if applicable.
+            delay: when to create this table
+
+        Returns:
+            the table number
+        """
+        if data is not None:
+            return self.csd.addTableFromData(data=data, tabnum=tabnum, start=delay, sr=sr)
+        else:
+            assert size > 0
+            return self.csd.addEmptyTable(size=size, sr=sr)
+
+    def readSoundfile(self, path: str, tabnum:int=None, chan=0, start=0., skiptime=0.
+                      ) -> int:
+        """
+        Add code to this offline renderer to load a output
+
+        Args:
+            path: the path of the output to load
             tabnum: the table number to assign, or None to autoassign a number
             chan: the channel to read, or 0 to read all channels
-            start: moment in the score to read this soundfile
-            skiptime: skip this time at the beginning of the soundfile
+            start: moment in the score to read this output
+            skiptime: skip this time at the beginning of the output
 
         Returns:
             the assigned table number
         """
         return self.csd.addSndfile(sndfile=path, tabnum=tabnum,
-                                   start=start, skiptime=skiptime)
+                                   start=start, skiptime=skiptime,
+                                   chan=chan)
 
-    def playSample(self, tabnum:int, delay=0., chan=1, speed=1., gain=1., fade=0.,
-                   starttime=0., dur=-1) -> None:
+    def playSample(self, source:Union[int, str, np.ndarray],
+                   delay=0., chan=1, speed=1., gain=1.,
+                   fade=0., starttime=0., dur=-1, sr=0
+                   ) -> None:
         """
-        Add an instrument definition and an event to play the given
+        Play a table or a soundfile
+
+        Adds an instrument definition and an event to play the given
         table as sound (assumes that the table was allocated via
         :meth:`~Renderer.readSoundFile` or any other GEN1 ftgen
 
         Args:
-            tabnum: the table number to play
+            source: the table number to play, the path of a soundfile or a numpy array
+                holding audio samples (in this case, sr must be given)
             delay: when to start playback
             chan: the channel to play
             speed: the speed to play at
@@ -691,13 +722,25 @@ class Renderer:
             starttime: playback does not start at the beginning of
                 the table but at `starttime`
             dur: duration of playback. -1=until end of sample
+            sr: when using audio samples (a numpy array) as source, sr must be given
         """
-        self.csd.playTable(tabnum=tabnum, start=delay, dur=dur,
+        if isinstance(source, np.ndarray):
+            assert sr > 0
+            tabnum = self.makeTable(data=source, sr=sr)
+            return self.playSample(source=tabnum, delay=delay, chan=chan, speed=speed,
+                                   gain=gain, fade=fade, starttime=starttime, dur=dur)
+
+        if isinstance(source, str):
+            tabnum = self.readSoundfile(path=source, start=delay, skiptime=starttime)
+        else:
+            tabnum = source
+        assert tabnum > 0
+        self.csd.playTable(tabnum=source, start=delay, dur=dur,
                            gain=gain, speed=speed, chan=chan, fade=fade,
                            skip=starttime)
 
     def automatep(self, event: ScoreEvent, param: str,
-                  pairs: U[List[float], np.ndarray],
+                  pairs: Union[List[float], np.ndarray],
                   mode="linear", delay: float = None) -> None:
         """
         Automate a pfield of a scheduled event
@@ -725,6 +768,6 @@ class Renderer:
             dur = end-start
         modeint = self.strSet(mode)
         # we schedule the table to be created prior to the start of the automation
-        tabpairs = self.csd.addTableFromSeq(pairs, start=start)
+        tabpairs = self.csd.addTableFromData(pairs, start=start)
         args = [event.p1, pindex, tabpairs, modeint]
         self.csd.addEvent("_automatePargViaTable", start=delay, dur=dur, args=args)

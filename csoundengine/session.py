@@ -176,11 +176,12 @@ from . import internalTools as tools
 from .sessioninstrs import builtinInstrs
 from . import state as _state
 from . import jupytertools
+from .offline import Renderer
+
 import numpy as np
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from .offline import Renderer
     from typing import *
 elif 'sphinx' in sys.modules:
     from typing import *
@@ -891,20 +892,20 @@ class Session:
 
     def readSoundfile(self, path="?", chan=0, free=False) -> TableProxy:
         """
-        Read a soundfile, store its metadata in a :class:`~csoundengine.tableproxy.TableProxy`
+        Read a output, store its metadata in a :class:`~csoundengine.tableproxy.TableProxy`
 
         Args:
-            path: the path to a soundfile. **"?" to open file via a gui dialog**
+            path: the path to a output. **"?" to open file via a gui dialog**
             chan: the channel to read, or 0 to read all channels into a
                 (possibly) stereo or multichannel table
             free: free the table when the returned TableDef is itself deallocated
 
         Returns:
             a TableProxy, holding information like
-            .tabnum: the table number
+            .source: the table number
             .path: the path you just passed
-            .nchnls: the number of channels in the soundfile
-            .sr: the sample rate of the soundfile
+            .nchnls: the number of channels in the output
+            .sr: the sample rate of the output
 
         """
         if path == "?":
@@ -987,7 +988,7 @@ class Session:
         """
         Play a sample.
 
-        If sample data in a table or from a soundfile with samplerate
+        If sample data in a table or from a output with samplerate
         compensation to ensure the original pitch.
 
         Args:
@@ -1036,7 +1037,8 @@ class Session:
                                      icompensatesr=int(compensateSamplerate),
                                      kchan=chan, kspeed=speed, kpan=pan, kgain=gain))
 
-    def makeRenderer(self, sr: int = None, ksmps: int = None) -> Renderer:
+    def makeRenderer(self, sr: int = None, nchnls: int = None, ksmps: int = None
+                     ) -> Renderer:
         """
         Create a :class:`~csoundengine.offline.Renderer` (to render offline) with
         the instruments defined in this Session
@@ -1044,8 +1046,10 @@ class Session:
         To schedule events, use the .sched method of the renderer
 
         Args:
-            sr: the samplerate (see config['rec.sr'])
-            ksmps: ksmps used for rendering (see also config['rec.ksmps'])
+            sr: the samplerate (see config['rec_sr'])
+            ksmps: ksmps used for rendering (see also config['rec_ksmps'])
+            nchnls: the number of output channels. If not given, nchnls is taken
+                from the session
 
         Returns:
             a Renderer
@@ -1065,9 +1069,9 @@ class Session:
             >>> renderer.render("out.wav")
 
         """
-        renderer = Renderer(sr=sr or config['rec.sr'],
-                            nchnls=self.engine.nchnls,
-                            ksmps=ksmps or config['rec.ksmps'],
+        renderer = Renderer(sr=sr or config['rec_sr'],
+                            nchnls=nchnls if nchnls is not None else self.engine.nchnls,
+                            ksmps=ksmps or config['rec_ksmps'],
                             a4=self.engine.a4)
         for instrname, instrdef in self.instrs.items():
             renderer.registerInstr(instrdef)

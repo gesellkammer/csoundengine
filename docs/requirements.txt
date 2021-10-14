@@ -3,7 +3,7 @@ scipy
 matplotlib
 JACK-client
 ctcsound
-sndfileio
+sndfileio>=1.8
 emlib
 cachetools
 configdict>=0.4
