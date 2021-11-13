@@ -1,7 +1,7 @@
 csoundengine
 ============
 
-This package implements a simple interface to run and control a csound process
+This package implements an intuitive interface to run and control a csound process
 
 
 Documentation
