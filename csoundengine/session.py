@@ -680,6 +680,12 @@ class Session:
     def assignBus(self) -> int:
         """ Creates a bus in the engine
 
+        This is just a wrapper around Engine.assignBus(). See :meth:`Engine.assignBus` for
+        more information
+
+        A bus is reference counted and is kept alive as long as there are instruments using
+        it via any of the builtin bus opcdodes: "busin", "busout", "busmix".
+
         For more information on the bus-opcodes, see
         `Bus Opcodes <https://csoundengine.readthedocs.io/en/latest/Builtin-Opcodes.html#bus-opcodes>`_
 

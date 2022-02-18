@@ -3079,10 +3079,30 @@ class Engine:
         """
         Assign one audio/control bus, returns the bus number.
 
+        Args:
+            addref: add a reference to the used bus. This ensures that the bus
+                will not get collected even when all the clients are finished using it.
+                (see below for more information)
+
         This can be used together with the built-in opcodes `busout`, `busin`
         and `busmix`. From csound a bus can also be assigned by calling `busassign`
 
+        Buses are reference counted and are collected when there are no more clients
+        using it. At creation the bus is "parked", waiting to be used by any client.
+        As long as no clients use it, the bus stays in this state and is ready to
+        be used.
+        Multiple clients can use a bus and the bus is kept alive as long as there
+        are clients using it. When each client starts using it, via the any of the
+        bus opcodes, like "busin", the reference count of the bus is increased.
+        After a client has finished using it the reference count is automatically
+        decreased and if it reaches 0 the bus is collected.
+
+        Order of evaluation is important: **buses are cleared at the end of each
+        performance cycle** (they can only be used to communicate from a low
+        priority to a high priority instrument)
+
         For more information, see `Bus Opcodes <https://csoundengine.readthedocs.io/en/latest/Builtin-Opcodes.html#bus-opcodes>`_
+
 
         Example
         =======
@@ -3156,6 +3176,8 @@ class Engine:
         # bus index assigned by csound for any future query
 
         synctoken = self._getSyncToken()
+        # Assigns a bus to the given token
+        #                                                1 = create bus
         msg = f'i "_busindex" 0 0 {synctoken} {bustoken} 1'
         def callback(synctoken, bustoken=bustoken):
             self._busIndexes[bustoken] = int(self._responsesTable[synctoken])

@@ -213,6 +213,30 @@ def _installPluginsFromDist():
         raise RuntimeError("There was an error in the installation")
 
 
+def _installPluginsViaRisset() -> bool:
+    logger.info("Trying to install plugins via risset")
+    try:
+        import risset
+        logger.info("Risset found")
+        idx = risset.MainIndex()
+        for pluginname in ['else', 'beosc', 'klib']:
+            p = idx.plugins.get(pluginname)
+            if p is None:
+                logger.error(f"Plugin {pluginname} not found in risset's index")
+                return False
+            elif idx.is_plugin_installed(p):
+                logger.debug(f"Plugin {pluginname} already installed, skipping")
+            else:
+                errmsg = idx.install_plugin(p)
+                if errmsg:
+                    logger.error(f"Error while installing plugin {pluginname}: {errmsg}")
+                    return False
+        return True
+    except ImportError:
+        logger.error("Risset not found, can't install plugins this way")
+        return False
+
+
 def installPlugins() -> None:
     """
     Install all needed plugins
@@ -222,7 +246,11 @@ def installPlugins() -> None:
     if pluginsInstalled():
         logger.info("Plugins are already installed, installed plugins will be "
                     "(eventually) overwritten")
+
     try:
+        ok = _installPluginsViaRisset()
+        if ok:
+            return
         zipped = downloadLatestPluginForPlatform()
         _installPluginsFromZipFile(zipped)
         return

@@ -80,7 +80,7 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
     dur = 5
     for i, midinote in enumerate(range(60, 72, 2)):
         # for each synth, we create a bus to plug it to an effect, in this case a filter
-        bus = session.newBus()
+        bus = session.assignBus()
         # start time for synth and effect
         start = i * 1
         # Schedule a synth

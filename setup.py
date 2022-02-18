@@ -40,7 +40,8 @@ setup(
         "pygments",
         "sf2utils",
         "jupyter",
-        "ipywidgets"
+        "ipywidgets",
+        "risset"
     ],
     license="BSD",
     classifiers=[

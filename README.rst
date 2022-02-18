@@ -89,7 +89,7 @@ higher level interface, allowing to:
     # Create an Engine and a corresponding Session using default options
     session = Engine().session()
 
-    # create a master audio channel
+    # create a master audio bus
     masterbus = session.assignBus()
 
     # define instruments
@@ -117,18 +117,19 @@ higher level interface, allowing to:
     ''')
 
     # Start a master instance at the end of the evaluation chain
-    master = session.sched("master", imasterbus=masterbus.busnum, priority=10)
+    master = session.sched("master", imasterbus=masterbus, priority=10)
 
     # Launch some notes
     for i, midinote in enumerate(range(60, 72, 2)):
         # for each synth, we create a bus to plug it to an effect, in this case a filter
-        bus = session.newBus()
+        # The bus will be collected once all clients are finished
+        bus = session.assignBus()
         
         # start time for synth and effect
         start = i * 1
         
         # Schedule a synth
-        synth = session.sched("synth", delay=start, dur=5, kmidi=midinote, ibus=bus.busnum)
+        synth = session.sched("synth", delay=start, dur=5, kmidi=midinote, ibus=bus)
         
         # Automate pitch transposition so that it descends 2 semitones over the
         # duration of the event
@@ -142,9 +143,8 @@ higher level interface, allowing to:
                              priority=synth.priority+1,
                              kcutoff=2000, 
                              kresonance=0.92, 
-                             ibus=bus.busnum, 
-                             imasterbus=masterbus.busnum,
-                             whenfinished=lambda p1, bus=bus: bus.free())
+                             ibus=bus, 
+                             imasterbus=masterbus)
         
         # Automate the cutoff freq. of the filter
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start) 
