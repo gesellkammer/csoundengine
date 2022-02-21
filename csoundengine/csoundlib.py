@@ -6,7 +6,6 @@ from __future__ import annotations
 import math as _math
 import os as _os
 import sys
-import sys as _sys
 import subprocess as _subprocess
 import re as _re
 import shutil as _shutil
@@ -29,7 +28,7 @@ import emlib.dialogs
 import numpy as np
 
 from typing import TYPE_CHECKING
-if TYPE_CHECKING:
+if TYPE_CHECKING or "sphinx" in sys.modules:
     from typing import *
     Curve = Callable[[float], float]
 
@@ -108,7 +107,7 @@ class AudioBackend:
 
     def isAvailable(self) -> bool:
         """ Is this backend available? """
-        if _sys.platform not in self.platforms:
+        if sys.platform not in self.platforms:
             return False
         if self.alwaysAvailable:
             return True
@@ -233,7 +232,7 @@ class _PortaudioBackend(AudioBackend):
     def __init__(self, kind='callback'):
         shortname = "pa_cb" if kind == 'callback' else 'pa_bl'
         longname = f"portaudio-{kind}"
-        if _sys.platform == 'linux' and linuxaudio.isPipewireRunning():
+        if sys.platform == 'linux' and linuxaudio.isPipewireRunning():
             hasSystemSr = True
         else:
             hasSystemSr = False
@@ -243,7 +242,7 @@ class _PortaudioBackend(AudioBackend):
                          hasSystemSr=hasSystemSr)
 
     def getSystemSr(self) -> Optional[int]:
-        if _sys.platform == 'linux' and linuxaudio.isPipewireRunning():
+        if sys.platform == 'linux' and linuxaudio.isPipewireRunning():
             return linuxaudio.pipewireInfo().sr
         return super().getSystemSr()
 
@@ -544,7 +543,7 @@ def userPluginsFolder(float64=True) -> str:
     For 32-bit plugins the folder is the same, without the '64' ending (``.../plugins``)
     """
     arch = 'float64' if float64 else 'float32'
-    folder = _pluginsFolders[arch][_sys.platform]
+    folder = _pluginsFolders[arch][sys.platform]
     return _os.path.expandvars(folder)
 
 
@@ -1176,10 +1175,10 @@ def audioBackends(available=False, platform:str=None) -> List[AudioBackend]:
     if platform is not None:
         platform = normalizePlatform(platform)
     if available:
-        platform = _sys.platform
+        platform = sys.platform
     elif platform is None:
-        platform = _sys.platform
-    if available and platform != _sys.platform:
+        platform = sys.platform
+    if available and platform != sys.platform:
         available = False
     backends = _backendsByPlatform[platform]
     if available:
@@ -1212,7 +1211,7 @@ def getAudioBackend(name:str=None) -> Optional[AudioBackend]:
         name: the name of the backend
 
     ========== =================== ======= ========= =======
-     Name       Description         Linux   Windows   MacOS
+    Name       Description         Linux   Windows   MacOS
     ========== =================== ======= ========= =======
     pa_cb      portaudio-callback     x        x        x
     pa_bl      portaudio-blocking     x        x        x
@@ -1222,8 +1221,7 @@ def getAudioBackend(name:str=None) -> Optional[AudioBackend]:
     pulseaudio alias to pulse         x        -        -
     auhal      coreaudio              -        -        x
     coreaudio  alias to auhal         -        -        x
-    ========== ==================  ======= ========= =======
-
+    ========== =================== ======= ========= =======
     """
     if name is None:
         return getDefaultBackend()

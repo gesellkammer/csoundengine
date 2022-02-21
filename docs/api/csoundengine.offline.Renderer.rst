@@ -6,12 +6,6 @@ Renderer
 .. autoclass:: Renderer
    :show-inheritance:
 
-   .. rubric:: Attributes Summary
-
-   .. autosummary::
-
-      ~Renderer.nchnls
-
    .. rubric:: Methods Summary
 
    .. autosummary::
@@ -20,10 +14,11 @@ Renderer
       ~Renderer.assignBus
       ~Renderer.automatep
       ~Renderer.defInstr
-      ~Renderer.generateCsd
       ~Renderer.getEventById
       ~Renderer.getEventsByP1
+      ~Renderer.getInstr
       ~Renderer.isInstrDefined
+      ~Renderer.makeTable
       ~Renderer.playSample
       ~Renderer.readSoundfile
       ~Renderer.registerInstr
@@ -35,20 +30,17 @@ Renderer
       ~Renderer.strSet
       ~Renderer.writeCsd
 
-   .. rubric:: Attributes Documentation
-
-   .. autoattribute:: nchnls
-
    .. rubric:: Methods Documentation
 
    .. automethod:: addGlobalCode
    .. automethod:: assignBus
    .. automethod:: automatep
    .. automethod:: defInstr
-   .. automethod:: generateCsd
    .. automethod:: getEventById
    .. automethod:: getEventsByP1
+   .. automethod:: getInstr
    .. automethod:: isInstrDefined
+   .. automethod:: makeTable
    .. automethod:: playSample
    .. automethod:: readSoundfile
    .. automethod:: registerInstr

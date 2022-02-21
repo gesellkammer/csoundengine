@@ -24,3 +24,4 @@ Both an Engine and its associated Session are conceived to run in real-time. See
     config
     csoundlib
     magics
+    jupyternotebook

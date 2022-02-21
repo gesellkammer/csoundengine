@@ -30,6 +30,7 @@ Example
 
 from __future__ import annotations
 import os
+import sys
 from dataclasses import dataclass
 from .config import config
 from . import csoundlib
@@ -41,7 +42,7 @@ from emlib import misc, iterlib
 import numpy as np
 
 from typing import TYPE_CHECKING
-if TYPE_CHECKING:
+if TYPE_CHECKING or "sphinx" in sys.modules:
     from typing import *
 import textwrap as _textwrap
 

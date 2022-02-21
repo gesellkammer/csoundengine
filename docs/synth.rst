@@ -10,13 +10,13 @@ A Synth is a wrapper for a unique event scheduled via a Session.
     :meth:`~csoundengine.session.Session.sched`
 
 
-The lifetime of the underlying csound event is not bound to the Synth
-object. In order to stop a synth :meth:`~csoundengine.Synth.stop` must 
+**The lifetime of the underlying csound event is not bound to the Synth
+object**. In order to stop a synth :meth:`~csoundengine.Synth.stop` must
 be called explicitely
 
 
 Examples
--------
+--------
 
 Automate a synth
 ~~~~~~~~~~~~~~~~

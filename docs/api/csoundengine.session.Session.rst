@@ -22,6 +22,7 @@ Session
       ~Session.prepareSched
       ~Session.readSoundfile
       ~Session.registerInstr
+      ~Session.registeredInstrs
       ~Session.restart
       ~Session.sched
       ~Session.scheduledSynths
@@ -43,6 +44,7 @@ Session
    .. automethod:: prepareSched
    .. automethod:: readSoundfile
    .. automethod:: registerInstr
+   .. automethod:: registeredInstrs
    .. automethod:: restart
    .. automethod:: sched
    .. automethod:: scheduledSynths

@@ -87,3 +87,7 @@ napoleon_use_admonition_for_references = False
 napoleon_use_ivar = False
 napoleon_use_param = True
 napoleon_use_rtype = True
+
+html_theme_options = {
+    'navigation_depth': 3,
+}

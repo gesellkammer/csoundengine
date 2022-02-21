@@ -731,7 +731,6 @@ class Engine:
         if cs.version() < 6160:
             ver = cs.version() / 1000
             raise RuntimeError(f"Csound's version should be >= 6.16, got {ver:.2f}")
-        print("options", options)
         for opt in options:
             cs.setOption(opt)
         if self.includes:
@@ -1681,7 +1680,7 @@ class Engine:
         """
         Set metadata for a table holding sound samples.
 
-        When csound reads a output into a table, it stores some additional data,
+        When csound reads a soundfile into a table, it stores some additional data,
         like samplerate and number of channels. A table created by other means and
         then filled with samples normally does not have this information. In most
         of the times this is ok, but there are some opcodes which need this information
@@ -1791,7 +1790,7 @@ class Engine:
         """
         Plot the content of the table via matplotlib.pyplot
 
-        If the sr is known the table is plotted as a output, with time as the x-coord.
+        If the sr is known the table is plotted as a waveform, with time as the x-coord.
         Otherwise the table's raw data is plotted, with the index as x the x-coord.
         The samplerate will be known if the table was created via
         :meth:`Engine.readSoundfile` or read via GEN1. The sr can also be passed explicitely
@@ -1799,7 +1798,7 @@ class Engine:
 
         Args:
             tabnum: the table to plot
-            sr: the samplerate of the data. Needed to plot as a output if the table was
+            sr: the samplerate of the data. Needed to plot as a waveform if the table was
                 not loaded via GEN1 (or via :meth:`Engine.readSoundfile`).
 
         .. code::
@@ -2356,7 +2355,7 @@ class Engine:
     def readSoundfile(self, path:str="?", tabnum:int = None, chan=0,
                       callback=None, block=False) -> int:
         """
-        Read a output into a table (via GEN1), returns the table number
+        Read a soundfile into a table (via GEN1), returns the table number
 
         Args:
             path: the path to the output -- **"?" to open file interactively**
@@ -2608,7 +2607,7 @@ class Engine:
     def playSoundFromDisc(self, path:str, delay=0., chan=0, speed=1., fade=0.01
                           ) -> float:
         """
-        Play a output from disc (via diskin2).
+        Play a soundfile from disc (via diskin2).
 
         Args:
             path: the path to the output
@@ -3101,14 +3100,12 @@ class Engine:
         performance cycle** (they can only be used to communicate from a low
         priority to a high priority instrument)
 
-        For more information, see `Bus Opcodes <https://csoundengine.readthedocs.io/en/latest/Builtin-Opcodes.html#bus-opcodes>`_
-
+        For more information, see :ref:`Bus Opcodes<busopcodes>`
 
         Example
         =======
 
-        Pass audio from one instrument to another. Order of evaluation is important
-        because buses are cleared at the end of each performance cycle
+        Pass audio from one instrument to another.
 
         >>> e = Engine(...)
         >>> e.compile(r'''
@@ -3130,8 +3127,9 @@ class Engine:
         >>> s1 = e.sched(10, 0, 4, (busnum,))
         >>> s2 = e.sched(20, 0, 4, (busnum,))
 
-        Modulate one instr with another, at k-rate. At k-rate the order of evaluation
-        is not important because control buses are not cleared at the end of each cycle
+        Modulate one instr with another, at k-rate. **At k-rate the order of evaluation
+        is not important because control buses are not cleared at the end of each cycle**
+        (control buses act like global variables)
 
         >>> e.compile(r'''
         ... instr 30

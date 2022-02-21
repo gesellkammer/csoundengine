@@ -17,6 +17,7 @@ ScoreEvent
 
    .. autosummary::
 
+      ~ScoreEvent.automatep
       ~ScoreEvent.setp
 
    .. rubric:: Attributes Documentation
@@ -26,4 +27,5 @@ ScoreEvent
 
    .. rubric:: Methods Documentation
 
+   .. automethod:: automatep
    .. automethod:: setp

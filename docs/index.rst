@@ -7,7 +7,8 @@
 csoundengine - Documentation
 ============================
 
-This package implements an interface to run and control a csound process.
+**csoundengine** is a library to run and control a csound process for realtime or offline
+sound processing.
 
 The source code of this package lives in https://github.com/gesellkammer/csoundengine
 
