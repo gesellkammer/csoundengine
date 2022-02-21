@@ -63,7 +63,7 @@ instance. All audio processing is run in a separate performance thread.
     engine.eventui(event, p4=(0, 127), p5=(0, 1), kcutoff=(100, 5000))
 
 
-.. figure:: docs/assets/eventui2.png
+.. figure:: https://csoundengine.readthedocs.io/en/latest/_images/jupyter-session-1.png
 
 
 Session - high level interface
