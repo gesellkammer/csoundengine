@@ -1,6 +1,6 @@
 *.egg*
 .idea
-docs/_*
+docs/_build
 docs/api
 *.pyc
 build

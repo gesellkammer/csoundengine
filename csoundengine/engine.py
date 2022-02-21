@@ -915,13 +915,13 @@ class Engine:
 
     def bufferLatency(self) -> float:
         """
-        The latency (in seconds) of the communication to the csound process.
+        The latency of the communication to the csound process.
 
         ::
 
-            bufferLatency = buffersize * numbuffers / sr
+            bufferLatencySeconds = buffersize * numbuffers / sr
 
-        This latency depends on the buffersize and number of buffers
+        This latency depends on the buffersize and number of buffers.
         """
         return self.bufferSize/self.sr * self.numBuffers
 
@@ -1171,6 +1171,10 @@ class Engine:
         """
         Lock the elapsed time clock
 
+        This ensures that events scheduled while the clock is locked will run
+        in sync. For this to work all events scheduled must have some latency (they
+        must run in the future)
+
         Example
         ~~~~~~~
 
@@ -1187,13 +1191,12 @@ class Engine:
             >>> for t in np.arange(0, 10, 0.2):
             ...     e.sched(10, t, 0.15, args=[1000])
             ...     e.sched(10, t, 0.15, args=[800])
-            >>> e.lockedElapsedTime(False)
+            >>> e.lockElapsedTime(False)
 
         See Also
         ~~~~~~~~
 
-        :meth:`Engine.lockedElapsedTime`
-        :meth:`Engine.elapsedTime`
+        :meth:`Engine.lockedElapsedTime`, :meth:`Engine.elapsedTime`
 
         """
         if lock:

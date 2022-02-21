@@ -91,3 +91,7 @@ napoleon_use_rtype = True
 html_theme_options = {
     'navigation_depth': 3,
 }
+
+html_css_files = [
+    'custom.css',
+]

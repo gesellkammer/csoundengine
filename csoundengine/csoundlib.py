@@ -27,9 +27,10 @@ import emlib.textlib
 import emlib.dialogs
 import numpy as np
 
+
 from typing import TYPE_CHECKING
-if TYPE_CHECKING or "sphinx" in sys.modules:
-    from typing import *
+if TYPE_CHECKING:
+    from typing import Callable, Tuple, Union, Dict, List, Optional, Sequence, Generator
     Curve = Callable[[float], float]
 
 
@@ -370,7 +371,7 @@ def _getVersionViaApi() -> Tuple[int, int, int]:
     """
     Returns the csound version as tuple (major, minor, patch)
     """
-    if (version := _cache['versionTriplet']):
+    if (version := _cache.get('versionTriplet')) is not None:
         return version
     info = _csoundGetInfoViaAPI()
     return info['versionTriplet']
@@ -425,17 +426,29 @@ def getVersion(useApi=True) -> Tuple[int, int, int]:
 
 def csoundSubproc(args: List[str], piped=True, wait=False) -> _subprocess.Popen:
     """
-    Calls csound with given args in a subprocess, returns such _subprocess.
+    Calls csound with given args in a subprocess, returns a subprocess.Popen object.
 
     Args:
-        args: the args passed to csound
+        args: the args passed to csound (each argument is a string)
         piped: if True, stdout and stderr are piped to the Popen object
         wait: if True, wait until csound exits
 
     Returns:
-        the _subprocess.Popen object
+        the subprocess.Popen object
 
     Raises RuntimeError if csound is not found
+
+    Example
+    -------
+
+        >>> from csoundengine import csoundlib
+        >>> proc = csoundlib.csoundSubproc(["-+rtaudio=jack", "-odac", "myfile.csd"])
+
+    See Also
+    ~~~~~~~~
+
+    * :func:`runCsd`
+
     """
     csound = findCsound()
     if not csound:
@@ -453,7 +466,8 @@ def getSystemSr(backend: str) -> Optional[float]:
     """
     Get the system samplerate for a given backend
 
-    None is returned if the backend does not support a system sr
+    None is returned if the backend does not support a system sr. At the
+    moment only **jack** and **coreaudio** (auhal) report a system-sr
 
     Args:
         backend: the name of the backend (jack, pa_cb, auhal, etc)
@@ -461,10 +475,12 @@ def getSystemSr(backend: str) -> Optional[float]:
     Returns:
         the system sr if the backend reports this information, or None
 
-    .. note::
+    See Also
+    ~~~~~~~~
 
-        Not all backends support a system sr. At the moment
-        only **jack** and **coreaudio** (auhal) report a system-sr
+    * :func:`getAudioBackend`
+    * :func:`getDefaultBackend`
+
     """
     b = getAudioBackend(backend)
     if not b:
@@ -499,6 +515,15 @@ def getDefaultBackend() -> AudioBackend:
     Get the default active backend for platform
 
     Discard any backend which is not available at the moment
+
+    ==============  =================================
+    Platform        Backends (in order of priority)
+    ==============  =================================
+    Windows         portaudio
+    macOS           auhal (coreaudio), portaudio
+    linux           jack (if running), portaudio
+    ==============  =================================
+
     """
     backends = audioBackends(available=True)
     if not backends:
@@ -524,6 +549,10 @@ def userPluginsFolder(float64=True) -> str:
     """
     Returns the user plugins folder for this platform
 
+    This is the folder where csound will search for user-installed
+    plugins. The returned folder is always an absolute path. It is not
+    checked if the folder actually exists.
+
     Args:
         float64: if True, report the folder for 64-bit plugins
 
@@ -533,7 +562,7 @@ def userPluginsFolder(float64=True) -> str:
     **Folders for 64-bit plugins**:
 
     ======== ======================================================
-     OS       Folder
+     OS       Plugins folder
     ======== ======================================================
      Linux    ``~/.local/lib/csound/6.0/plugins64``
      macOS    ``~/Library/csound/6.0/plugins64``
@@ -544,7 +573,7 @@ def userPluginsFolder(float64=True) -> str:
     """
     arch = 'float64' if float64 else 'float32'
     folder = _pluginsFolders[arch][sys.platform]
-    return _os.path.expandvars(folder)
+    return _os.path.abspath(_os.path.expandvars(folder))
 
 
 def runCsd(csdfile:str,
@@ -577,9 +606,14 @@ def runCsd(csdfile:str,
             as comment metadata (when running offline)
 
     Returns:
-        the _subprocess.Popen object. In order to wait until
+        the `subprocess.Popen` object. In order to wait until
         rendering is finished in offline mode, call .wait on the
         returned process
+
+    See Also
+    ~~~~~~~~
+
+    * :func:`csoundSubproc`
     """
     args = []
     offline = True
@@ -715,6 +749,17 @@ class ScoreEvent:
 
 @dataclass
 class TableDataFile:
+    """
+    A TableDataFile represents a table, holding either the data
+    or a file to the data
+
+    Attributes:
+        tabnum: the f-table number
+        data: the data itself or a path to a file
+        fmt: the format of the file
+        start: start time to define the table
+        size: the size of the table
+    """
     tabnum: int
     data: Union[List[float], np.ndarray, str]
     """the data itself or a path to a file"""
@@ -796,21 +841,24 @@ def parseScore(sco: str) -> Generator[ScoreEvent, None, None]:
         yield ScoreEvent(kind, p1, t0, dur, args)
 
 
-def opcodesList(cached=True, opcodedir:str=None) -> List[str]:
+def opcodesList(cached=True, opcodedir: str = None) -> List[str]:
     """
     Return a list of the opcodes present
 
     Args:
-        cached: if True, results are remembers between calls
+        cached: if True, results are remembered between calls
         opcodedir: if given, plugin libraries will be loaded from
-            this path (option --opcode-dir in csound)
+            this path (option --opcode-dir in csound). In this case
+            the cache is not used
 
     Returns:
         a list of all available opcodes
     """
-    if cached and _cache['opcodes'] is not None:
+    if opcodedir is not None:
+        cached = False
+    if cached and _cache.get('opcodes') is not None:
         return _cache['opcodes']
-    return _csoundGetInfoViaAPI()['opcodes']
+    return _csoundGetInfoViaAPI(opcodedir=opcodedir)['opcodes']
 
 
 def _csoundGetInfoViaAPI(opcodedir:str=None) -> dict:
@@ -1213,14 +1261,14 @@ def getAudioBackend(name:str=None) -> Optional[AudioBackend]:
     ========== =================== ======= ========= =======
     Name       Description         Linux   Windows   MacOS
     ========== =================== ======= ========= =======
-    pa_cb      portaudio-callback     x        x        x
-    pa_bl      portaudio-blocking     x        x        x
-    portaudio  alias to pa_cb         x        x        x
-    jack       jack                   x        ?        x
-    pulse      pulseaudio             x        -        -
-    pulseaudio alias to pulse         x        -        -
-    auhal      coreaudio              -        -        x
-    coreaudio  alias to auhal         -        -        x
+    pa_cb      portaudio-callback     ✓        ✓        ✓
+    pa_bl      portaudio-blocking     ✓        ✓        ✓
+    portaudio  alias to pa_cb         ✓        ✓        ✓
+    jack       jack                   ✓        ?        ✓
+    pulse      pulseaudio             ✓        ✗        ✗
+    pulseaudio alias to pulse         ✓        ✗        ✗
+    auhal      coreaudio              ✗        ✗        ✓
+    coreaudio  alias to auhal         ✗        ✗        ✓
     ========== =================== ======= ========= =======
     """
     if name is None:
@@ -1304,10 +1352,12 @@ def csoundOptionForSampleFormat(fmt:str) -> str:
     for csound
 
     Args:
-        fmt (str): the desired sample format
+        fmt (str): the desired sample format. Either pcmXX of floatXX
+          where XX stands for the number of bits per sample (pcm24,
+          float32, etc)
 
     Returns:
-        the command line option corresponding to the given format
+        the csound command line option corresponding to the given format
 
     Example
     =======
@@ -1362,15 +1412,14 @@ _builtinInstrs = {
 
 class Csd:
     """
-    A Csd object can be used to build a csound script by adding
-    global code, instruments, score events, etc.
+    Build a csound script by adding global code, instruments, score events, etc.
 
     Args:
         sr: the sample rate of the generated audio
         ksmps: the samples per cycle to use
         nchnls: the number of output channels
         a4: the reference frequency
-        optiosn (list[str]): any number of extraOptions options passed to csound
+        optiosn (list[str]): any number of extra options passed to csound
         nodisplay: if True, avoid outputting debug information
         carry: should carry be enabled in the score?
 
@@ -1379,7 +1428,7 @@ class Csd:
 
     .. code::
 
-        >>> from csoundengine import csoundlib
+        >>> from csoundengine.csoundlib import *
         >>> csd = Csd(ksmps=32, nchnls=4)
         >>> csd.addInstr('sine', r'''
         ...   ifreq = p4
@@ -1831,21 +1880,23 @@ class Csd:
                       piped=piped, extra=extraOptions)
 
 
-def mincer(sndfile:str, outfile:str,
+def mincer(sndfile:str,
+           outfile:str,
            timecurve:Union[Curve, float],
            pitchcurve:Union[Curve, float],
            dt=0.002, lock=False, fftsize=2048, ksmps=128, debug=False
            ) -> dict:
     """
-    Stretch/Pitchshift a output using csound's mincer opcode
+    Stretch/Pitchshift a output using csound's mincer opcode (offline)
 
     Args:
-        sndfile: the path to a output
+        sndfile: the path to a soundfile
         timecurve: a func mapping time to playback time or a scalar indicating
             a timeratio (2 means twice as fast, 1 to leave unmodified)
         pitchcurve: a func time to pitchscale, or a scalar indicating a freqratio
         outfile: the path to a resulting outfile. The resulting file is always a
-            32-bit float .wav file
+            32-bit float .wav file. The samplerate and number of channels match those
+            of the input file
         dt: the sampling period to sample the curves
         lock: should mincer be run with phase-locking?
         fftsize: the size of the fft
@@ -1860,11 +1911,6 @@ def mincer(sndfile:str, outfile:str,
 
         If the mapped time excedes the bounds of the sndfile, silence is generated.
         For example, a negative time or a time exceding the duration of the sndfile
-
-    .. note::
-
-        The samplerate and number of channels of of the generated file matches
-        that of the input file
 
     Examples
     ========
@@ -2046,7 +2092,7 @@ def recInstr(body:str, events:list, init="", outfile:str=None,
     return outfile, proc
 
 
-def _ftsaveReadText(path):
+def _ftsaveReadText(path: str) -> List[np.ndarray]:
     # a file can have multiple tables saved
     lines = iter(open(path))
     tables = []
@@ -2077,7 +2123,7 @@ def _ftsaveReadText(path):
     return tables
  
 
-def ftsaveRead(path, mode="text"):
+def ftsaveRead(path, mode="text") -> List[np.ndarray]:
     """
     Read a file saved by ftsave, returns a list of tables
     """
@@ -2481,6 +2527,15 @@ def bestSampleFormatForExtension(ext: str) -> str:
     Returns:
         a sample format of the form "pcmXX" or "floatXX", where XX determines
         the bit rate ("pcm16", "float32", etc)
+
+    ========== ================
+    Extension  Sample Format
+    ========== ================
+    wav        float32
+    aif        float32
+    flac       pcm24
+    ========== ================
+
     """
     if ext[0] == ".":
         ext = ext[1:]
@@ -2541,9 +2596,10 @@ def _soundfontGetInstrumentsAndPresets(sfpath: str
                                        ) -> Tuple[List[Tuple[int, str]],
                                                   List[Tuple[int, int, str]]]:
     """
-    Returns a tuple (instruments, presets), where instruments is a list
-    of tuples(instridx, instrname) and presets is a list of tuples
-    (bank, presetnum, name)
+    Returns a tuple (instruments, presets)
+
+    Where instruments is a list of tuples(instridx, instrname) and presets
+    is a list of tuples (bank, presetnum, name)
     """
     from sf2utils.sf2parse import Sf2File
     f = open(sfpath, 'rb')
@@ -2568,10 +2624,11 @@ def soundfontGetInstruments(sfpath: str) -> List[Tuple[int, str]]:
     banks/presets
 
     Args:
-        sfpath: the path to the soundfont
+        sfpath: the path to the soundfont. "?" to open a file-browser dialog
 
     Returns:
-        a list of tuples (index:int, instrname:str)
+        List[Tuple[int,str]] - a list of tuples, where each tuple has the form
+        (index: int, instrname: str)
     """
     if sfpath == "?":
         sfpath = _state.openSoundfont(ensureSelection=True)
@@ -2584,7 +2641,7 @@ def soundfontGetPresets(sfpath: str) -> List[Tuple[int, int, str]]:
     Get presets from a soundfont
 
     Args:
-        sfpath: the path to the soundfont
+        sfpath: the path to the soundfont. "?" to open a file-browser dialog
 
     Returns:
         a list of tuples (bank:int, presetnum:int, name:str)
@@ -2622,7 +2679,7 @@ def soundfontInstrument(sfpath: str, name:str) -> Optional[int]:
     or `sfinstr3`
 
     Args:
-        sfpath: the path to a .sf2 file
+        sfpath: the path to a .sf2 file. "?" to open a file-browser dialog
         name: the instrument name
 
     Returns:
@@ -2659,3 +2716,6 @@ def highlightCsoundOrc(code: str, theme:str=None) -> str:
     csndlex = pygments.lexers.csound.CsoundOrchestraLexer()
     html = pygments.highlight(code, lexer=csndlex, formatter=htmlfmt)
     return html
+
+
+del dataclass
