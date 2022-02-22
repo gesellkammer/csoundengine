@@ -10,8 +10,8 @@ Engine
 The core of **csoundengine** is the :class:`~csoundengine.engine.Engine` class,
 which wraps a csound process and allows transparent control over all parameters,
 while providing sane defaults adapted to the running system. It uses the csound
-API to communicate with a running csound instance. All audio processing is run
-in a separate thread with realtime priority to avoid dropouts.
+API to communicate with csound. All audio processing is run in a thread with
+realtime priority to avoid dropouts.
 
 A csound process is launched by creating a new Engine. If not given any options,
 the current system is queried regarding number of channels, samplerate or buffer size,
@@ -160,6 +160,12 @@ Features
 
 * **Detection of current environment** - *csoundengine* queries the os/hardware to determine the
   system samplerate, hardware number of channels and most appropriate buffer size
+* **Named parameters and defaults** - An instrument in **csoundengine** can have named
+  parameters and default values. This makes it very easy to create instruments with
+  many parameters. When an instance of such an instrument is scheduled **csoundengine**
+  fills the values of any parameter which is not explicitely given with the default
+  value. Any parg can also be modulated in real-time. See :meth:`Engine.setp() <csoundengine.engine.Engine.setp>`
+  and :meth:`Engine.setp() <csoundengine.engine.Engine.getp>`
 * **Event ids / Modulation** - in *csoundengine* every event is assigned a unique id, allowing the user
   to control it during performance, from python or from csound directly.
 * **Informed use of the Csound API** - *csoundengine* uses the most convenient part of the

@@ -1261,7 +1261,7 @@ class Engine:
             a fractional p1 of the instr started, which identifies this event
 
         Example
-        =======
+        -------
 
         >>> from csoundengine import *
         >>> e = Engine()
@@ -1286,7 +1286,7 @@ class Engine:
         ...     time.sleep(0.01)
         >>> e.unsched(eventid)
 
-    To ensure simultaneity between events::
+        To ensure simultaneity between events:
 
         >>> now = e.elapsedTime()
         >>> for t in np.arange(2, 4, 0.2):
@@ -2689,7 +2689,7 @@ class Engine:
             the current value of the given pfield
 
         Example
-        =======
+        -------
 
         TODO
 

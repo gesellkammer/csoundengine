@@ -1,6 +1,9 @@
+
 """
 This module provides an interface to offline rendering using the same
-mechanisms as a Session.
+interface as a :class:`~csoundengine.session.Session`. In fact, any realtime
+code run via a :class:`~csoundengine.session.Session` can be rendered offline
+by replacing the Session via a :class:`~csoundengine.offline.Renderer`
 
 Example
 =======
@@ -59,13 +62,24 @@ class ScoreEvent:
     NB: instances of this class are **NOT** created by the used directly, they
     are generated when scheduling events
 
-    * eventId: a unique identifier
+    Attributes:
+        p1: a unique (fractional) instr number
+        start: start time of this event (p2)
+        dur: duration of this event (p3)
+        args: rest of pargs, starting with p4
+        eventId: a unique identifier for this event
+        paramTable: if the instrument of this event has a parameters table,
+            this attribute points to the table index (0 if no parameters table).
+            Normally, if the inst has a parameters table the table index is
+            passed as p4, so paramTable == args[0]
+        renderer: the renderer which scheduled this score event (if any)
     """
     p1: float
     start: float
     dur: float
     args: List[float]
     eventId: int = 0
+    paramTable: int = 0
     renderer: Optional[Renderer] = None
 
     def setp(self, delay:float, *args, **kws) -> None:
@@ -99,8 +113,29 @@ class ScoreEvent:
 
     def automatep(self, param: str, pairs: Union[List[float], np.ndarray],
                   mode="linear", delay: float = None) -> None:
+        """
+        Automate a named parg
+
+        See Also
+        ~~~~~~~~
+
+        * :meth: `csoundengine.offline.Renderer.automatep`
+        """
         self.renderer.automatep(self, param=param, pairs=pairs, mode=mode,
                                 delay=delay)
+
+    def automateTable(self, param: str, pairs: Union[List[float], np.ndarray],
+                      mode="linear", delay=0.) -> None:
+        """
+        Automate the event's parameter table with the given pairs
+
+        See Also
+        ~~~~~~~~
+
+        * :meth:`csoundengine.offline.Renderer.automateTable`
+        """
+        self.renderer.automateTable(self, param=param, pairs=pairs, mode=mode,
+                                    delay=delay)
 
 
 _offlineOrc = r'''
@@ -110,6 +145,7 @@ gi__soundfontIndexCounter init 1000
 chn_k "_soundfontPresetCount", 3
 
 instr _automatePargViaTable
+  ; automates a parg from a table
   ip1 = p4
   ipindex = p5
   itabpairs = p6  ; a table containing flat pairs t0, y0, t1, y1, ...
@@ -123,9 +159,26 @@ instr _automatePargViaTable
   kt timeinsts
   kidx bisect kt, itabpairs, 2, 0
   ky interp1d kidx, itabpairs, Sinterpmethod, 2, 1
-  ; println "kt: %f, kidx: %f, ky: %f", kt, kidx, ky
   pwrite ip1, ipindex, ky
 endin 
+
+instr _automateTableViaTable
+  ; automates a slot within a table from another table
+  itabnum = p4
+  ipindex = p5
+  itabpairs = p6
+  imode = p7
+  Sinterpmethod = strget(imode)
+  if ftexists:i(itabpairs) == 0 then
+    initerror sprintf("Table with pairs %d does not exists", itabpairs)
+  endif 
+  ftfree itabpairs, 1
+  kt timeinsts
+  kidx bisect kt, itabpairs, 2, 0
+  ky interp1d kidx, itabpairs, Sinterpmethod, 2, 1
+  tabw ky, ipindex, itabnum
+endin 
+  
 
 instr _pwrite
   ip1 = p4
@@ -228,8 +281,9 @@ class Renderer:
         self.nchnls = nchnls
         self.ksmps = ksmps
         self.a4 = a4
+        # maps eventid -> ScoreEvent.
+        self.scheduledEvents: Dict[int, ScoreEvent] = {}
         self._idCounter = 0
-        self._eventsIndex: Dict[int, ScoreEvent] = {}
         a4 = a4 or config['A4']
         sr = sr or config['rec.sr']
         ksmps = ksmps or config['rec.ksmps']
@@ -243,6 +297,7 @@ class Renderer:
         self._instanceCounters: Dict[int, int] = {}
         self._numInstancesPerInstr = 10000
         self._numAudioBuses = numAudioBuses
+        self._numControlBuses = 10000
 
         self.csd.addGlobalCode(_textwrap.dedent(_offlineOrc))
         self._busSystemInitialized = False
@@ -289,7 +344,7 @@ class Renderer:
         """
         Returns True if an Instr with the given name has been registered
         """
-        return instrname in self.registeredInstrs()
+        return instrname in self._instrdefs
 
     def registerInstr(self, instr: Instr) -> None:
         """
@@ -358,8 +413,8 @@ class Renderer:
             >>> synth = renderer.sched('sine', 0, dur=10, ibus=bus, kmidi=67)
             >>> synth.setp(kmidi=60, delay=2)
 
-            >>> filt = session.sched('filter', 0, dur=synth.dur, priority=synth.priority+1,
-            ...                      tabargs={'bus': bus, 'cutoff': 1000})
+            >>> filt = renderer.sched('filter', 0, dur=synth.dur, priority=synth.priority+1,
+            ...                       tabargs={'bus': bus, 'cutoff': 1000})
             >>> filt.automateTable('cutoff', [3, 1000, 6, 200, 10, 4000])
         """
         instr = Instr(name=name, body=body, **kws)
@@ -415,7 +470,7 @@ class Renderer:
             pargs: pargs beginning with p5
                 (p1: instrnum, p2: delay, p3: duration, p4: source)
             tabargs: a dict of the form param: value, to initialize
-                values in the exchange table (if defined by the given
+                values in the parameter table (if defined by the given
                 instrument)
 
         Returns:
@@ -447,24 +502,25 @@ class Renderer:
         if not instr:
             raise KeyError(f"instrument {instrname} is not defined")
         instrnum = self._commitInstrument(instrname, priority)
-        if instr.hasExchangeTable():
+        tabnum = 0
+        if instr.hasParamTable():
             tabnum = self.csd.addTableFromData(instr.overrideTable(tabargs),
                                                start=max(0., delay - 2.))
-        else:
-            tabnum = 0
         args = internalTools.instrResolveArgs(instr, tabnum, pargs, pkws)
         p1 = self._getUniqueP1(instrnum)
         self.csd.addEvent(p1, start=delay, dur=dur, args=args)
         eventId = self._generateEventId()
-        event = ScoreEvent(p1, delay, dur, args, eventId, renderer=self)
-        self._eventsIndex[eventId] = event
+        event = ScoreEvent(p1, delay, dur, args, eventId, paramTable=tabnum,
+                           renderer=self)
+        self.scheduledEvents[eventId] = event
         return event
 
     def _initBusSystem(self) -> None:
         if self._busSystemInitialized:
             return
         code = engineorc.busSupportCode(numAudioBuses=self._numAudioBuses,
-                                        clearBusesInstrnum=engineorc.CONSTS['postProcInstrnum'])
+                                        clearBusesInstrnum=engineorc.CONSTS['postProcInstrnum'],
+                                        numControlBuses=self._numControlBuses)
         self.csd.addGlobalCode(code)
         self._busSystemInitialized = True
 
@@ -478,8 +534,8 @@ class Renderer:
             >>> from csoundengine.offline import Renderer
             >>> r = Renderer()
             >>> Instr('vco', r'''
-            ...     kfreq=p4
-            ...     kamp=p5
+            ...     kfreq=p5
+            ...     kamp=p6
             ...     asig vco2 1, kfreq
             ...     aenv = linsegr:a(0, 0.01, 1, 0.01, 0)
             ...     aenv *= lag:a(a(kamp), 0.1)
@@ -522,7 +578,7 @@ class Renderer:
     def render(self, outfile: str = None, samplefmt: str = None,
                wait=True, quiet:bool=None, openWhenDone=False) -> str:
         """
-        Render to a output
+        Render to a soundfile
 
         To further customize the render set any csound options via
         :meth:`Renderer.setCsoundOptions`
@@ -574,15 +630,19 @@ class Renderer:
         """
         Generate the csd for this renderer, write it to `outfile`
 
+        Args:
+            outfile: the path of the generated csd
+
         If this csd includes any datafiles (tables with data exceeding
         the limit to include the data 'inline') or soundfiles defined
         relative to the csd, these datafiles are written to a subfolder
-        with the name f'{outfile}.assets' created besides outfile
+        with the name ``{outfile}.assets``, where outfile is the
+        outfile given as argument
 
-        For example, if we call `writeCsd` as `renderer.writeCsd('~/foo/myproj.csd')`,
-        any datafiles will be saved in `'~/foo/myproj.assets'` and referenced
-        with relative paths as `'myproj.assets/datafile.gen23'` or
-        `'myproj.assets/mysnd.wav'`
+        For example, if we call ``writeCsd`` as ``renderer.writeCsd('~/foo/myproj.csd')`` ,
+        any datafiles will be saved in ``'~/foo/myproj.assets'`` and referenced
+        with relative paths as ``'myproj.assets/datafile.gen23'`` or
+        ``'myproj.assets/mysnd.wav'``
         """
         self.csd.write(outfile)
 
@@ -596,7 +656,7 @@ class Renderer:
         Returns:
             the ScoreEvent if it exists, or None
         """
-        return self._eventsIndex.get(eventid)
+        return self.scheduledEvents.get(eventid)
 
     def getEventsByP1(self, p1: float) -> List[ScoreEvent]:
         """
@@ -610,7 +670,7 @@ class Renderer:
             a list of all scheduled events with the given p1
 
         """
-        return [ev for ev in self._eventsIndex.values() if ev.p1 == p1]
+        return [ev for ev in self.scheduledEvents.values() if ev.p1 == p1]
 
     def strSet(self, s: str) -> int:
         """
@@ -636,9 +696,30 @@ class Renderer:
         return instr
 
     def setp(self, event: ScoreEvent, delay: float, *args, **kws):
-        """ Modify a pfield of a scheduled event at the given time
-        NB: the instr needs to have assigned the pfield to a k-rate variable
-        (example: kfreq = p4"""
+        """
+        Modify a pfield of a scheduled event at the given time
+
+        **NB**: the instr needs to have assigned the pfield to a k-rate variable
+        (example: ``kfreq = p5``)
+
+        Args:
+            event: the event to modify
+            delay: time offset of the modification
+
+        Example
+        -------
+
+            >>> from csoundengine.offline import Renderer
+            >>> renderer = Renderer()
+            >>> instr = Instr("sine", '''
+            ... |kmidi=60|
+            ... outch 1, oscili:a(0.1, mtof:k(kmidi))
+            ... ''')
+            >>> renderer.registerInstr(instr)
+            >>> event = renderer.sched("sine", pargs={'kmidi': 62})
+            >>> renderer.setp(event, 10, kmidi=67)
+            >>> renderer.render("outfile.wav")
+        """
         instr = self._instrFromEvent(event)
         pairsd = {}
         if not kws:
@@ -685,14 +766,14 @@ class Renderer:
     def readSoundfile(self, path: str, tabnum:int=None, chan=0, start=0., skiptime=0.
                       ) -> int:
         """
-        Add code to this offline renderer to load a output
+        Add code to this offline renderer to load a soundfile
 
         Args:
-            path: the path of the output to load
+            path: the path of the soundfile to load
             tabnum: the table number to assign, or None to autoassign a number
             chan: the channel to read, or 0 to read all channels
-            start: moment in the score to read this output
-            skiptime: skip this time at the beginning of the output
+            start: moment in the score to read this soundfile
+            skiptime: skip this time at the beginning of the soundfile
 
         Returns:
             the assigned table number
@@ -772,3 +853,63 @@ class Renderer:
         tabpairs = self.csd.addTableFromData(pairs, start=start)
         args = [event.p1, pindex, tabpairs, modeint]
         self.csd.addEvent("_automatePargViaTable", start=delay, dur=dur, args=args)
+
+    def automateTable(self, event: ScoreEvent, param: str,
+                      pairs: Union[List[float], np.ndarray],
+                      mode="linear", delay: float = None) -> None:
+        """
+        Automate a slot of an event param table
+
+        Args:
+            event: the event to modify. Its instrument should define a param table
+            param: the named slot to modify
+            pairs: the automation data is given as a flat sequence of pairs (time,
+              value). Times are relative to the start of the automation event.
+              The very first value can be a NAN, in which case the current value
+              in the table is used.
+            mode: one of 'linear', 'cos', 'expon(xx)', 'smooth'. See the opcode
+              `interp1d` for more information
+            delay: the time delay to start the automation.
+
+        Example
+        =======
+
+        >>> from csoundengine import offline
+        >>> r = offline.Renderer()
+        >>> r.defInstr('oscili', r'''
+        ... {kamp=0.1, kfreq=1000}
+        ... outch 1, oscili:a(kamp, kfreq)
+        ... ''')
+        >>> ev = r.sched('oscili', delay=1, tabargs={'kfreq': 440})
+        >>> r.automateTable(ev, 'kfreq', pairs=[0, 440, 2, 880])
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Renderer.setp`
+        :meth:`~Renderer.automatep`
+        """
+
+        if delay is None:
+            delay = event.start
+        instr = self._instrFromEvent(event)
+        if not instr.hasParamTable():
+            raise RuntimeError(f"instr {instr.name} does not define a parameters table")
+        if event.paramTable == 0:
+            raise RuntimeError(f"instr {instr.name} should have a parameters table, but"
+                               f"no table has been assigned (p1: {event.p1}")
+        pindex = instr.paramTableParamIndex(param)
+        assert pindex >= 0
+        dur = pairs[-2] - pairs[0]
+        epsilon = self.csd.ksmps / self.csd.sr * 3
+        start = max(0., delay - epsilon)
+        if event.dur > 0:
+            # we clip the duration of the automation to the lifetime of the automated event
+            end = min(event.start + event.dur, start + dur + epsilon)
+            dur = end - start
+        modeint = self.strSet(mode)
+        # we schedule the table to be created prior to the start of the automation
+        tabpairs = self.csd.addTableFromData(pairs, start=start)
+        args = [event.paramTable, pindex, tabpairs, modeint]
+        self.csd.addEvent("_automateTableViaTable", start=delay, dur=dur, args=args)
+

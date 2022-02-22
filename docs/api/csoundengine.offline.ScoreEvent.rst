@@ -11,21 +11,25 @@ ScoreEvent
    .. autosummary::
 
       ~ScoreEvent.eventId
+      ~ScoreEvent.exchangeTable
       ~ScoreEvent.renderer
 
    .. rubric:: Methods Summary
 
    .. autosummary::
 
+      ~ScoreEvent.automateTable
       ~ScoreEvent.automatep
       ~ScoreEvent.setp
 
    .. rubric:: Attributes Documentation
 
    .. autoattribute:: eventId
+   .. autoattribute:: exchangeTable
    .. autoattribute:: renderer
 
    .. rubric:: Methods Documentation
 
+   .. automethod:: automateTable
    .. automethod:: automatep
    .. automethod:: setp

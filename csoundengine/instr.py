@@ -45,7 +45,7 @@ class Instr:
         tabledef: similar to args, but not using pfields but a table. In this
             case all variables are k-type and do not need the "k" prefix
         numchans: currently not used
-        freetable: if True, the Instr generates code to free the param table
+        freetable: if True, the Instr generates code to free the parameters table
         doc: some text documenting the use/purpose of this Instr
         originalBody: the body before any code-generation.
 
@@ -559,15 +559,31 @@ class Instr:
             popen.wait()
         return outfile
 
-    def hasExchangeTable(self) -> bool:
+    def hasParamTable(self) -> bool:
         """
-        Returns True if this instrument defines an exchange table
+        Returns True if this instrument defines a parameters table
         """
         return self._tableDefaultValues is not None and len(self._tableDefaultValues)>0
 
+    def paramTableParamIndex(self, param: str) -> int:
+        """
+        Returns the index of a parameter name
+
+        Returns -1 if the parameter was not found in the table definition
+        Raises RuntimeError if this Instr does not have a parameters table
+        """
+        if not self.hasParamTable():
+            raise RuntimeError(f"This instr ({self.name}) does not have a parameters table")
+        idx = self._tableNameToIndex.get(param)
+        if idx is None:
+            logger.warning(f"Parameter {param} not known for instr {self.name}."
+                           f" Known parameters: {self._tableNameToIndex.keys()}")
+            return -1
+        return idx
+
     def overrideTable(self, d: Dict[str, float]=None, **kws) -> List[float]:
         """
-        Overrides default values in the exchange table
+        Overrides default values in the params table
         Returns the initial values
 
         Args:
@@ -578,7 +594,7 @@ class Instr:
 
         Returns:
             A list of floats holding the new initial values of the
-            exchange table
+            parameters table
 
         Example:
             instr.overrideTable(param1=value1, param2=value2)

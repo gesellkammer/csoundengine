@@ -551,10 +551,11 @@ class Synth(AbstrSynth):
         Modify dynamic (named) arguments through an interactive user-interface
 
         If run inside a jupyter notebook, this method will create embedded widgets
-        to control the values of the dynamic pfields of an event
+        to control the values of the dynamic pfields of an event. Dynamic pfields
+        are those assigned to a k-variable or declared as ``|karg|`` (see below)
 
         Args:
-            **specs: a dict mapping named arg to a tuple (minvalue, maxvalue)
+            specs: a dict mapping named arg to a tuple (minvalue, maxvalue)
 
         Example
         =======
@@ -850,6 +851,9 @@ class SynthGroup(AbstrSynth):
                 synth.setp(*args, delay=delay, **kws)
 
     def tableParams(self) -> Set[str]:
+        """
+        Returns a set of available named parameters for this group
+        """
         allparams = set()
         for synth in self.synths:
             params = synth.tableParams()

@@ -12,6 +12,7 @@ Renderer
 
       ~Renderer.addGlobalCode
       ~Renderer.assignBus
+      ~Renderer.automateTable
       ~Renderer.automatep
       ~Renderer.defInstr
       ~Renderer.getEventById
@@ -34,6 +35,7 @@ Renderer
 
    .. automethod:: addGlobalCode
    .. automethod:: assignBus
+   .. automethod:: automateTable
    .. automethod:: automatep
    .. automethod:: defInstr
    .. automethod:: getEventById

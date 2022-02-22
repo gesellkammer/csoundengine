@@ -33,7 +33,7 @@ class ParamTable:
     """
     def __init__(self,
                  idx: int,
-                 engine: Engine,
+                 engine: Engine = None,
                  mapping: Dict[str, int] = None,
                  instrName: str = None):
         """
@@ -77,6 +77,8 @@ class ParamTable:
 
     @property
     def array(self):
+        if self.engine is None:
+            raise RuntimeError("This table has no Engine assigned")
         if self._array is not None:
             return self._array
         self._array = a = self.engine.csound.table(self.tableIndex)
@@ -104,6 +106,8 @@ class ParamTable:
             key: a key as defined in mapping
             value: the value to set the corresponding index to
         """
+        if self.engine is None:
+            raise RuntimeError("This table has no Engine assigned")
         idx = self.mapping.get(key, -1)
         if idx<0:
             if not self._failSilently:
@@ -116,6 +120,8 @@ class ParamTable:
         Get the value of a named slot. If key is not found, return default
         (similar to dict.get)
         """
+        if self.engine is None:
+            raise RuntimeError("This table has no Engine assigned")
         idx = self.mapping.get(key, -1)
         if idx == -1:
             return default
@@ -148,6 +154,8 @@ class ParamTable:
         return {key:values[idx] for key, idx in self.mapping.items()}
 
     def _getNamed(self, key: str) -> float:
+        if self.engine is None:
+            raise RuntimeError("This table has no Engine assigned")
         idx: int = self.mapping.get(key, -1)
         if idx<0:
             raise KeyError(f"key {key} not known (keys={list(self.mapping.keys())}")
@@ -155,6 +163,8 @@ class ParamTable:
 
     def free(self) -> None:
         """ Free this table """
+        if self.engine is None:
+            raise RuntimeError("This table has no Engine assigned")
         if self.deallocated:
             return
         self.engine.freeTable(self.tableIndex)
