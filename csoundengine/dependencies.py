@@ -255,7 +255,7 @@ def installPlugins() -> None:
         ok = _installPluginsViaRisset()
         if ok:
             return
-        logger.info("Could not install plugins via risset")
+        logger.error("Could not install plugins via risset")
         zipped = downloadLatestPluginForPlatform()
         _installPluginsFromZipFile(zipped)
         return
