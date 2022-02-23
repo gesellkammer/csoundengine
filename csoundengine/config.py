@@ -1,6 +1,6 @@
 import logging
 from configdict import ConfigDict
-from functools import cache
+from functools import lru_cache
 
 modulename = 'csoundengine.engine'
 
@@ -31,7 +31,7 @@ _audioBackendsByPlatform = {
 }
 
 
-@cache
+@lru_cache(maxsize=0)
 def _validateBackend2(key:str, s: str) -> bool:
     platform = key.split("_")[0]
     possibleBackends = _audioBackendsByPlatform.get(platform)
