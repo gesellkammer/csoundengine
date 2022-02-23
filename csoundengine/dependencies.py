@@ -161,8 +161,11 @@ def pluginsInstalled(cached=True) -> bool:
 
 def _getDownloadsFolder() -> Path:
     downloads = Path.home() / "Downloads"
-    assert downloads.exists()
-    return downloads
+    if downloads.exists():
+        return downloads
+    tempdir = Path(tempfile.gettempdir())
+    logger.warning(f"Downloads folder {downloads} not found, using temp dir: {tempdir}")
+    return tempdir
 
 
 def _installPluginsFromZipFile(zipped: Path):
@@ -248,9 +251,11 @@ def installPlugins() -> None:
                     "(eventually) overwritten")
 
     try:
+        logger.info("Installing external plugins via risset")
         ok = _installPluginsViaRisset()
         if ok:
             return
+        logger.info("Could not install plugins via risset")
         zipped = downloadLatestPluginForPlatform()
         _installPluginsFromZipFile(zipped)
         return
