@@ -277,6 +277,9 @@ def _checkDependencies(tryfix=False, updateState=True) -> Optional[str]:
     if version  < (6, 16, 0):
         return f"Csound version ({version}) is too old, should be >= 6.16"
 
+    if version[1] >= 7:
+        return f"Csound 7 is not yet supported!"
+
     if not pluginsInstalled():
         if tryfix:
             print("csound plugins are not installed or are too old."

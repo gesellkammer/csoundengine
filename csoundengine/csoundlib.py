@@ -30,7 +30,8 @@ import numpy as np
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Callable, Tuple, Union, Dict, List, Optional, Sequence, Generator
+    from typing import Callable, Tuple, Union, Dict, List, Optional, \
+        Sequence, Generator, Any, IO, Set
     Curve = Callable[[float], float]
 
 
@@ -46,11 +47,50 @@ def _isPulseaudioRunning() -> bool:
     if _re.search(r'\bConnection\ failure', output) is None:
         return True
     return False
-    #retcode = _subprocess.call(["pulseaudio", "--check"])
-    #return retcode == 0
 
 
 _audioDeviceRegex = r"(\d+):\s((?:adc|dac)\d+)\s*\((.*)\)(?:\s+\[ch:(\d+)\])?"
+
+
+def midiDevices(backend='portmidi') -> Tuple[List[MidiDevice], List[MidiDevice]]:
+    """
+    Returns input and output midi devices for the given backend
+
+    Args:
+        backend: the backend used for realtime midi (as passed to
+            csound via -+rtmidi={backend}
+
+    Returns:
+        a tuple (inputdevices, outputdevices), which each of these
+        is a list of MidiDevice with attributes ``deviceid`` (the value
+        passed to -M), ``name`` (the name of the device) and ``kind``
+        (one of 'input' or 'output')
+
+    ========   ===========================
+    Platform   Possible Backends
+    ========   ===========================
+    linux      portmidi, alsaseq, alsaraw
+    macos      portmidi
+    windows    portmidi
+    ========   ===========================
+    """
+
+    import ctcsound
+    csound = ctcsound.Csound()
+    csound.setOption(f"-+rtmidi={backend}")
+    csound.setOption("-odac")
+    csound.start()
+    inputdevs = csound.midiDevList(False)
+    outputdevs = csound.midiDevList(True)
+    logger.debug(f"MIDI Inputs:  {inputdevs}")
+    logger.debug(f"MIDI Outputs: {outputdevs}")
+    midiins = [MidiDevice(deviceid=d['device_id'], kind='input',
+                          name=f"{d['interface_name']}:{d['device_name']}")
+               for d in inputdevs]
+    midiouts = [MidiDevice(deviceid=d['device_id'], kind='output',
+                           name=f"{d['interface_name']}:{d['device_name']}")
+               for d in outputdevs]
+    return midiins, midiouts
 
 
 @dataclass(unsafe_hash=True)
@@ -133,6 +173,7 @@ class AudioBackend:
         The buffer size and number of buffers needed for this backend
         """
         return (self.defaultBufferSize, self.defaultNumBuffers)
+
 
     def audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
         """
@@ -761,7 +802,7 @@ class TableDataFile:
         size: the size of the table
     """
     tabnum: int
-    data: Union[List[float], np.ndarray, str]
+    data: Sequence[float]
     """the data itself or a path to a file"""
     fmt: str = 'gen23'  # One of 'wav', 'gen23'
     start: float = 0
@@ -787,7 +828,8 @@ class TableDataFile:
             saveAsGen23(self.data, outfile=outfile)
         elif self.fmt in ('wav', 'aif', 'aiff', 'flac'):
             import sndfileio
-            sndfileio.sndwrite(outfile, self.data, sr=44100,
+            dataarr = np.asarray(self.data, dtype=float)
+            sndfileio.sndwrite(outfile, dataarr, sr=44100,
                                metadata={'comment': 'Datafile'})
 
     def scoreLine(self, outfile: str) -> str:
@@ -1093,6 +1135,20 @@ def saveMatrixAsGen23(outfile: str, mtx: np.ndarray, extradata:List[float]=None,
             rowstr = " ".join(row.astype(str))
             f.write(rowstr)
             f.write("\n")
+
+@dataclass
+class MidiDevice:
+    """
+    A MidiDevice holds information about a midi device for a given backend
+
+    Attributes:
+        index: the index as listed by csound and passed to -M
+        name: the name of the device
+        kind: the kind of the device ('input', 'output')
+    """
+    deviceid: str
+    name: str
+    kind: str = 'input'
 
 
 @dataclass
@@ -1489,6 +1545,8 @@ class Csd:
     def strset(self, s:str) -> int:
         """
         Add a strset to this csd
+
+        If ``s`` has already been passed, the same index is returned
         """
         idx = self._str2index.get(s)
         if idx is not None:

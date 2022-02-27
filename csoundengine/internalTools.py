@@ -12,7 +12,7 @@ import subprocess
 if TYPE_CHECKING:
     from .instr import Instr
     from typing import *
-    from csoundlib import AudioDevice
+    from csoundlib import AudioDevice, MidiDevice
     
 
 _registry: Dict[str, Any] = {}
@@ -208,6 +208,32 @@ def selectAudioDevice(devices: List[AudioDevice], title='Select device'
     idx = outnames.index(selected)
     outdev = devices[idx]
     return outdev
+
+
+def selectMidiDevice(devices: List[MidiDevice], title='Select MIDI device'
+                     ) -> Optional[MidiDevice]:
+    """
+    Select a midi device from the given devices
+
+    Args:
+        devices: the midi devices to select from, as returned from ...
+        title: the title of the dialog
+
+    Returns:
+        the deviceid of the selected device, None if no selection was made
+        If the devices are input devices, 'all' is added as option. The given
+        value can be passed to -M csound option
+    """
+    if len(devices) == 1:
+        return devices[0]
+    names = [f"{dev.name} [{dev.deviceid}]" for dev in devices]
+    selected = emlib.dialogs.selectItem(items=names, title=title)
+    if not selected:
+        return None
+    else:
+        name, devid = selected[:-1].split("[")
+        return next(d for d in devices if d.deviceid == devid)
+
 
 
 def selectItem(items: List[str], title="Select") -> Optional[str]:

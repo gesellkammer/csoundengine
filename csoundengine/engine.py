@@ -310,6 +310,8 @@ class Engine:
         udpport: the udpport to use for real-time messages. 0=autoassign port
         commandlineOptions: extraOptions command line options passed verbatim to the
             csound process when started
+        midiin: if given, use this device as midi input. Can be '?' to select
+            from a list, or 'all' to use all devices. None indicates no midi input
 
     Attributes:
         activeEngines (dict): a dictionary of active engines (name:Engine)
@@ -319,8 +321,10 @@ class Engine:
     """
     activeEngines: Dict[str, Engine] = {}
 
-    _reservedInstrnums = set(engineorc.BUILTIN_INSTRS.values())
-    _builtinInstrs = engineorc.BUILTIN_INSTRS
+    #_reservedInstrnums = set(engineorc.BUILTIN_INSTRS.values())
+    #for instrnum in range(0, 10):
+    #    _reservedInstrnums.add(instrnum)
+    #_builtinInstrs = engineorc.BUILTIN_INSTRS
     _builtinTables = engineorc.BUILTIN_TABLES
 
     def __init__(self,
@@ -344,6 +348,9 @@ class Engine:
                  udpport:int=0,
                  commandlineOptions:List[str]=None,
                  includes:List[str]=None,
+                 midibackend:str = 'default',
+                 midiout:str = None,
+                 midiin:str = None,
                  latency:float=None):
         if name is None:
             name = _generateUniqueEngineName()
@@ -363,8 +370,9 @@ class Engine:
                 logger.error(f"Backend {backend} unknown. Available backends: "
                              f"{availableBackends}")
             else:
-                logger.error(f"Backend {backend} not avaibale. Available backends: "
+                logger.error(f"Backend {backend} not available. Available backends: "
                              f"{availableBackends}")
+
 
         cascadingBackends = [b.strip() for b in backend.split(",")]
         resolvedBackend = internalTools.resolveOption(cascadingBackends,
@@ -444,6 +452,10 @@ class Engine:
                     raise ValueError(f"Output device {outdev} not known. Possible devices: "
                                      f"{outdevs}")
                 indev, indevName = selected.id, selected.name
+
+        if midibackend == 'default':
+            midibackend = 'portmidi'
+
         commandlineOptions = commandlineOptions if commandlineOptions is not None else []
         sr = sr if sr is not None else cfg['sr']
         backendsr = csoundlib.getSamplerateForBackend(resolvedBackend)
@@ -476,7 +488,7 @@ class Engine:
 
         if quiet is None: quiet = cfg['suppress_output']
         if quiet:
-            commandlineOptions.append('-m0')
+            commandlineOptions.append('-m4')
             commandlineOptions.append('-d')
         self.name = name
         self.sr = sr
@@ -508,6 +520,16 @@ class Engine:
                            config['numbuffers'] or
                            internalTools.determineNumbuffers(self.backend or "portaudio",
                                                              buffersize=self.bufferSize))
+        self.midiBackend: Optional[str] = midibackend
+        if midiin == 'all':
+            midiindev = csoundlib.MidiDevice(deviceid='all', name='all')
+        elif midiin == '?':
+            midiindevs, midioutdevs = csoundlib.midiDevices(self.midiBackend)
+            midiindevs.append(csoundlib.MidiDevice('all', 'all'))
+            midiindev = internalTools.selectMidiDevice(midiindevs)
+        else:
+            midiindev = csoundlib.MidiDevice(deviceid=midiin, name='')
+        self.midiin: Optional[csoundlib.MidiDevice] = midiindev
         if udpserver is None: udpserver = config['start_udp_server']
         self._uddocket: Optional[socket.socket] = None
         self._sendAddr: Optional[Tuple[str, int]] = None
@@ -583,6 +605,9 @@ class Engine:
         self._lockedElapsedTime = 0.
 
         self.started = False
+        self.commandlineOptions: List[str] = []
+        self._builtinInstrs: Dict[str, int] = {}
+        self._reservedInstrnums: Set[int] = set()
         self.start()
 
     @property
@@ -711,6 +736,13 @@ class Engine:
                    f"-o{self.outdev}", f"-i{self.indev}",
                    f"-b{buffersize}", f"-B{optB}",
                    ]
+
+        if self.midiBackend:
+            options.append(f"-+rtmidi={self.midiBackend}")
+
+        if self.midiin is not None:
+            options.append(f"-M{self.midiin.deviceid}")
+
         if self._realtime:
             options.append("--realtime")
 
@@ -731,24 +763,29 @@ class Engine:
         if cs.version() < 6160:
             ver = cs.version() / 1000
             raise RuntimeError(f"Csound's version should be >= 6.16, got {ver:.2f}")
+        options = list(iterlib.unique(options))
         for opt in options:
             cs.setOption(opt)
+        self.commandlineOptions = options
         if self.includes:
             includelines = [f'#include "{include}"' for include in self.includes]
             includestr = "\n".join(includelines)
         else:
             includestr = ""
-        orc = engineorc.makeOrc(sr=self.sr,
-                                ksmps=self.ksmps,
-                                nchnls=self.nchnls,
-                                nchnls_i=self.nchnls_i,
-                                backend=self.backend,
-                                a4=self.a4,
-                                globalcode=self.globalCode,
-                                includestr=includestr,
-                                numAudioBuses=self.numAudioBuses,
-                                numControlBuses=self.numControlBuses)
 
+        orc, instrmap = engineorc.makeOrc(sr=self.sr,
+                                          ksmps=self.ksmps,
+                                          nchnls=self.nchnls,
+                                          nchnls_i=self.nchnls_i,
+                                          backend=self.backend,
+                                          a4=self.a4,
+                                          globalcode=self.globalCode,
+                                          includestr=includestr,
+                                          numAudioBuses=self.numAudioBuses,
+                                          numControlBuses=self.numControlBuses)
+        self._builtinInstrs = instrmap
+        self._reservedInstrnums = set(instrmap.values())
+        self._reservedInstrnums.add(range(1, 10))
         logger.debug("--------------------------------------------------------------")
         logger.debug("  Starting performance thread. ")
         logger.debug(f"     Csound Options: {options}")
@@ -778,6 +815,7 @@ class Engine:
         self._setupCallbacks()
         self._subgainsTable = self.csound.table(self._builtinTables['subgains'])
         self._responsesTable = self.csound.table(self._builtinTables['responses'])
+
 
         chanptr, err = self.csound.channelPtr("_soundfontPresetCount",
                                               ctcsound.CSOUND_CONTROL_CHANNEL |
@@ -987,8 +1025,15 @@ class Engine:
         """
         self._history.append(code)
         codeblocks = csoundlib.parseOrc(code)
-        instrs = [b for b in codeblocks
-                  if b.kind == 'instr']
+        for block in codeblocks:
+            if block.kind == 'instr' and block.name[0].isdigit():
+                instrnum = int(block.name)
+                if instrnum in self._reservedInstrnums:
+                    raise ValueError("Cannot compile instrument with number "
+                                     f"{instrnum}: this is a reserved instr and "
+                                     f"cannot be redefined. Reserved instrs: "
+                                     f"{sorted(self._reservedInstrnums)}")
+        instrs = [b for b in codeblocks if b.kind == 'instr']
         names = [b.name for b in instrs
                  if b.name[0].isalpha()]
 
@@ -2932,7 +2977,7 @@ class Engine:
         if len(msg) < 60000:
             self._udpSocket.sendto(msg, self._sendAddr)
             return
-        msgs = iterlib.splitInChunks(msg, 60000)
+        msgs = emlib.textlib.splitInChunks(msg, 60000)
         self._udpSocket.sendto(b"{{ " + msgs[0], self._sendAddr)
         for msg in msgs[1:-1]:
             self._udpSocket.sendto(msg, self._sendAddr)
@@ -3071,6 +3116,7 @@ class Engine:
         if index is not None:
             return index
         synctoken = self._getSyncToken()
+
         msg = f'i "_busindex" 0 0 {synctoken} {bus} {int(create)}'
         out = self._inputMessageWait(synctoken, msg)
         index = int(out)

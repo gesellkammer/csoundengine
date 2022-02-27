@@ -1,7 +1,7 @@
 from __future__ import annotations
 from string import Template
 from functools import lru_cache
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 import re
 
 # In all templates we make the difference between substitutions which
@@ -69,11 +69,6 @@ opcode sfPresetIndex, i, Sii
     endif
     xout iidx
 endop
-
-instr __init
-    ftset gi__subgains, 1
-    chnset 1, "_soundfontPresetCount"   
-endin
 
 instr _notifyDealloc
     outvalue, "__dealloc__", p4
@@ -438,7 +433,10 @@ instr ${soundfontPlay}
     endif
 endin
 
-schedule "__init", 0, 1
+
+ftset gi__subgains, 1
+chnset 1, "_soundfontPresetCount"   
+
 '''
 
 _busOrc = r'''
@@ -464,11 +462,12 @@ gi__bustoken2numk dict_new "int:float"
 
 chn_k "_busTokenCount", 3
 
-instr __businit
-    chnset 0, "_busTokenCount"
-    ftset gi__bustable, $$_BUSUNSET
-    turnoff
-endin
+
+;instr __businit
+;    chnset 0, "_busTokenCount"
+;    ftset gi__bustable, $$_BUSUNSET
+;    turnoff
+;endin
 
 opcode busassign, i, io
     itoken, ikind xin
@@ -490,50 +489,46 @@ opcode busassign, i, io
     xout ibus
 endop
 
-instr _busassign
+;instr _busassign
+;    itoken = p4
+;    ikind = p5
+;    ibus busassign itoken, ikind
+;endin
+
+instr ${busrelease}  ; release audio bus
     itoken = p4
     ikind = p5
-    ibus busassign itoken, ikind
-endin
-
-instr _busrelease  ; release audio bus
-    itoken = p4
     ibus dict_get gi__bustoken2num, itoken, -99999999
     if ibus == -99999999 then
         initerror sprintf("itoken %d has no bus assigned to it", itoken)
     endif
     
-    irefs tab_i ibus, gi__busrefs
-    if irefs <= 1 then
-        if pool_isfull:i(gi__buspool) == 1 then
-            initerror "Bus pool is full!"
+    ; ikind == 0: audio, 1: scalar
+    if ikind == 0 then
+        irefs tab_i ibus, gi__busrefs
+        if irefs <= 1 then
+            if pool_isfull:i(gi__buspool) == 1 then
+                initerror "Bus pool is full!"
+            endif
+            pool_push gi__buspool, ibus
+            dict_del gi__bustoken2num, itoken
+            tabw_i 0, ibus, gi__busrefs
+        else   
+            tabw_i irefs-1, ibus, gi__busrefs
         endif
-        pool_push gi__buspool, ibus
-        dict_del gi__bustoken2num, itoken
-        tabw_i 0, ibus, gi__busrefs
-    else   
-        tabw_i irefs-1, ibus, gi__busrefs
-    endif
-endin
-
-instr _busreleasek
-    itoken = p4
-    ibus dict_get gi__bustoken2num, itoken, -99999999
-    if ibus == -99999999 then
-        initerror sprintf("itoken %d has no bus assigned to it", itoken)
-    endif
-    irefs tab_i ibus, gi__busrefsk
-    if irefs <= 1 then
-        if pool_isfull:i(gi__buspoolk) == 1 then
-            initerror "Bus pool is full!"
+    else
+        irefs tab_i ibus, gi__busrefsk
+        if irefs <= 1 then
+            if pool_isfull:i(gi__buspoolk) == 1 then
+                initerror "Bus pool is full!"
+            endif
+            pool_push gi__buspoolk, ibus
+            dict_del gi__bustoken2num, itoken
+            tabw_i 0, ibus, gi__busrefsk
+            tabw_i $$_BUSUNSET, ibus, gi__bustable
+        else   
+            tabw_i irefs-1, ibus, gi__busrefsk
         endif
-        pool_push gi__buspoolk, ibus
-        dict_del gi__bustoken2num, itoken
-        tabw_i 0, ibus, gi__busrefsk
-        ; gk__buses[ibus] = $$_BUSUNSET
-        tabw_i $$_BUSUNSET, ibus, gi__bustable
-    else   
-        tabw_i irefs-1, ibus, gi__busrefsk
     endif
 endin
 
@@ -545,19 +540,19 @@ opcode _bususe, i, i
     endif
     irefs tab_i ibus, gi__busrefs
     tabw_i irefs+1, ibus, gi__busrefs
-    atstop "_busrelease", 0, 0, itoken
+    atstop ${busrelease}, 0, 0, itoken, 0
     xout ibus
 endop
 
-instr _busaddref
-    itoken = p4
-    ibus dict_get gi__bustoken2num, itoken, -1
-    if ibus == -1 then
-        ibus = busassign(itoken)
-    endif
-    irefs tab_i ibus, gi__busrefs
-    tabw_i irefs+1, ibus, gi__busrefs
-endin
+;instr _busaddref
+;    itoken = p4
+;    ibus dict_get gi__bustoken2num, itoken, -1
+;    if ibus == -1 then
+;        ibus = busassign(itoken)
+;    endif
+;    irefs tab_i ibus, gi__busrefs
+;    tabw_i irefs+1, ibus, gi__busrefs
+;endin
 
 opcode _bususek, i, i
     itoken xin
@@ -567,7 +562,7 @@ opcode _bususek, i, i
     endif
     irefs tab_i ibus, gi__busrefsk
     tabw_i irefs+1, ibus, gi__busrefsk
-    atstop "_busreleasek", 0, 0, itoken
+    atstop ${busrelease}, 0, 0, itoken, 1
     xout ibus
 endop
 
@@ -581,7 +576,7 @@ opcode _busget, i, ii
     xout ibus
 endop
 
-instr _busindex
+instr ${busindex}
     isynctoken = p4
     ibustoken = p5
     iassign = p6
@@ -641,7 +636,7 @@ opcode busmix, 0, ia
     ga__buses[ibus] = ga__buses[ibus] + asig
 endop
 
-instr _busoutk
+instr ${busoutk}
     itoken = p4
     ivalue = p5
     ibus = _busget(itoken, 1)
@@ -653,7 +648,10 @@ instr ${clearbuses}
     zeroarray ga__buses
 endin
 
-schedule "__businit", 0, ksmps/sr
+; schedule "__businit", 0, ksmps/sr
+chnset 0, "_busTokenCount"
+ftset gi__bustable, $$_BUSUNSET
+
 '''
 
 
@@ -666,7 +664,7 @@ def _extractInstrNames(s:str) -> List[str]:
     return names
 
 
-_instrNames = _extractInstrNames(_orc)
+_instrNames = _extractInstrNames(_orc + _busOrc)
 
 # Constants
 CONSTS = {
@@ -689,22 +687,45 @@ BUILTIN_TABLES = {name:i for i, name in enumerate(_tableNames, start=1)}
 
 
 @lru_cache(maxsize=0)
-def orcTemplate(busSupport=True) -> Template:
+def assignBuiltinInstrs(orc: str, startInstr:int=0) -> Dict[str, int]:
+    """
+    Given an orc with quotes instr. names, assign numbers to each instr
+    """
+    if startInstr == 0:
+        startInstr = CONSTS['reservedInstrsStart']
+    names = _extractInstrNames(orc)
+    instrs = {name: i for i, name in enumerate(names, start=startInstr)}
+    instrs['clearbuses'] = CONSTS['postProcInstrnum']
+    return instrs
+
+
+def _joinOrc(busSupport=True) -> str:
     parts = [_orc]
     if busSupport:
         parts.append(_busOrc)
     orc = "\n".join(parts)
-    return Template(orc)
+    return orc
 
 
+@lru_cache(maxsize=0)
 def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
             backend:str, a4:float, globalcode:str="", includestr:str="",
-            numAudioBuses:int=0,
-            numControlBuses:int=0):
+            numAudioBuses:int=0, numControlBuses:int=0
+            ) -> Tuple[str, Dict[str, int]]:
+    """
+    Create an Engine's orchestra
+
+    Returns:
+        the orchestra and a dict mapping builtin instr names to their
+        instr number
+
+    """
     withBusSupport = numAudioBuses > 0 or numControlBuses > 0
-    template = orcTemplate(busSupport=withBusSupport)
-    subs: Dict[str, Any] = {name:f"{num} ; {name}"
-                            for name, num in BUILTIN_INSTRS.items()}
+    orcproto = _joinOrc(busSupport=withBusSupport)
+    template = Template(orcproto)
+    instrs = assignBuiltinInstrs(orcproto)
+    subs: Dict[str, Any] = {name:f"{num}  /* {name} */"
+                            for name, num in instrs.items()}
     subs.update(BUILTIN_TABLES)
     subs.update(CONSTS)
     orc = template.substitute(
@@ -720,12 +741,20 @@ def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
             numControlBuses=numControlBuses,
             **subs
     )
-    return orc
+    return orc, instrs
+
 
 def busSupportCode(numAudioBuses:int,
-                   clearBusesInstrnum:int,
-                   numControlBuses:int) -> str:
-    return Template(_busOrc).substitute(numAudioBuses=numAudioBuses,
-                                        clearbuses=f'{clearBusesInstrnum} ;  clearbuses',
-                                        numControlBuses=numControlBuses,
-                                        BUSUNSET=CONSTS['BUSUNSET'])
+                   numControlBuses:int,
+                   postInstrNum:int,
+                   startInstr:int
+                   ) -> Tuple[str, Dict[str, int]]:
+    instrnums = assignBuiltinInstrs(_busOrc, startInstr)
+    subs: Dict[str, Any] = {name: f"{num}  /* {name} */"
+                            for name, num in instrnums.items()}
+    subs['clearbuses'] = f'{postInstrNum} /* clearbuses */'
+    orc = Template(_busOrc).substitute(numAudioBuses=numAudioBuses,
+                                       numControlBuses=numControlBuses,
+                                       BUSUNSET=CONSTS['BUSUNSET'],
+                                       **subs)
+    return orc, instrnums
