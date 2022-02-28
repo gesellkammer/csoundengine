@@ -117,7 +117,7 @@ if TYPE_CHECKING:
     from . import session as _session
     import socket
     callback_t = Callable[[str, float], None]
-if 'sphinx' in _sys.modules:
+elif 'sphinx' in _sys.modules:
     from typing import *
 
 try:
@@ -164,23 +164,11 @@ def _asEngine(e: Union[str, Engine]) -> Engine:
     return out
 
 
-def some(x, otherwise=False):
-    """
-    Returns x if it is not None, and *otherwise* if it is
-
-    This allows code like::
-
-        myvar = some(myvar) or default
-
-    instead of::
-
-        myvar = myvar if myvar is not None else default
-    """
-    return x if x is not None else otherwise
-
-
 @dataclasses.dataclass
 class TableInfo:
+    """
+    Information about a csound table
+    """
     sr: float
     size: int
     numChannels: int = 1
@@ -193,6 +181,7 @@ class TableInfo:
             self.hasGuard = self.size == self.numFrames * self.numChannels + 1
         if self.numFrames == -1:
             self.numFrames = self.size // self.numChannels
+
 
 def _getSoundfileInfo(path) -> TableInfo:
     import sndfileio
@@ -209,10 +198,10 @@ class _RefTimeContext:
         self.engine = engine
 
     def __enter__(self):
-        self.engine.lockElapsedTime()
+        self.engine.lockClock()
 
     def __exit__(self, *args, **kws):
-        self.engine.lockElapsedTime(False)
+        self.engine.lockClock(False)
 
 
 class Engine:
@@ -814,7 +803,7 @@ class Engine:
         self._perfThread = pt
         if config['set_sigint_handler']:
             internalTools.setSigintHandler()
-        time.sleep(0.1)
+        # time.sleep(0.05)
         self._setupCallbacks()
         self._subgainsTable = self.csound.table(self._builtinTables['subgains'])
         self._responsesTable = self.csound.table(self._builtinTables['responses'])
@@ -1207,7 +1196,7 @@ class Engine:
 
         The same result can be achieved by locking the elapsed-time clock::
 
-            >>> with e.lockedElapsedTime():
+            >>> with e.lockedClock():
             ...     for t in np.arange(0, 10, 0.2):
             ...         e.sched(10, t, 0.15, args=[1000])
             ...         e.sched(10, t, 0.15, args=[800])
@@ -1215,7 +1204,7 @@ class Engine:
         """
         return self._lockedElapsedTime or self.csound.currentTimeSamples() / self.sr
 
-    def lockElapsedTime(self, lock=True):
+    def lockClock(self, lock=True):
         """
         Lock the elapsed time clock
 
@@ -1235,11 +1224,11 @@ class Engine:
             ...   outch 1, oscili:a(0.1, ifreq) * linseg:a(0, 0.01, 1, 0.1, 0)
             ... endin
             ... ''')
-            >>> e.lockElapsedTime()
+            >>> e.lockClock()
             >>> for t in np.arange(0, 10, 0.2):
             ...     e.sched(10, t, 0.15, args=[1000])
             ...     e.sched(10, t, 0.15, args=[800])
-            >>> e.lockElapsedTime(False)
+            >>> e.lockClock(False)
 
         See Also
         ~~~~~~~~
@@ -1255,7 +1244,7 @@ class Engine:
                 logger.info("Asked to unlock the elapsed time clock, but it was not locked")
             self._lockedElapsedTime = 0
 
-    def lockedElapsedTime(self) -> _RefTimeContext:
+    def lockedClock(self) -> _RefTimeContext:
         """
         Context manager, locks and unlocks the reference time
 
@@ -1275,7 +1264,7 @@ class Engine:
             ...   outch 1, oscili:a(0.1, ifreq) * linseg:a(0, 0.01, 1, 0.1, 0)
             ... endin
             ... ''')
-            >>> with e.lockedElapsedTime():
+            >>> with e.lockedClock():
             ...     for t in np.arange(0, 10, 0.2):
             ...         e.sched(10, t, 0.15, args=[1000])
             ...         e.sched(10, t, 0.15, args=[800])
@@ -1380,11 +1369,13 @@ class Engine:
             pargsnp[1] = delay
             pargsnp[2] = dur
             pargsnp[3:] = args
-            self._perfThread.scoreEvent(0 if relative else 1, "i", pargsnp)
+            # 0: we use always absolute time
+            self._perfThread.scoreEvent(0, "i", pargsnp)
         else:
             pargs = [instrfrac, delay, dur]
             pargs.extend(a if not isinstance(a, str) else self.strSet(a) for a in args)
-            self._perfThread.scoreEvent(0 if relative else 1, "i", pargs)
+            # 0: we use always absolute time
+            self._perfThread.scoreEvent(0, "i", pargs)
         return instrfrac
 
     def _queryNamedInstrs(self, names:List[str], timeout=0.1, callback=None) -> None:

@@ -132,19 +132,11 @@ class AudioBackend:
         # we get the devices via getAudioDevices to enable caching
         indevs, outdevs = getAudioDevices(self.name)
         devs = indevs if kind == 'input' else outdevs
-        if pattern.startswith('dac:') or pattern.startswith('adc:'):
-            pattern = pattern[4:]
-            namesearch = True
-        elif _re.match('(dac|adc)[0-9]+', pattern):
-            namesearch = False
-        else:
-            namesearch = True
-        if not namesearch:
-            return next((d for d in devs
-                         if d.id == pattern), None)
-        else:
-            return next((d for d in devs
-                         if _re.search(pattern, d.name)), None)
+        match = next((d for d in devs if d.id == pattern), None)
+        if match:
+            return match
+        return next((d for d in devs
+                    if _re.search(pattern, d.name)), None)
 
     def isAvailable(self) -> bool:
         """ Is this backend available? """
@@ -196,8 +188,8 @@ class AudioBackend:
                 idxstr, devid, devname, numchannels = groups
                 numchannels = int(numchannels) if numchannels is not None else 2
             kind = 'input' if devid.startswith("adc") else 'output'
-            dev = AudioDevice(index=int(idxstr), id=devid, name=devname, kind=kind,
-                              numchannels=numchannels)
+            dev = AudioDevice(index=int(idxstr), id=devid.strip(), name=devname,
+                              kind=kind, numchannels=numchannels)
             (indevices if kind == 'input' else outdevices).append(dev)
         return indevices, outdevices
 
@@ -2219,7 +2211,10 @@ def getNchnls(backend: str=None, outpattern:str=None, inpattern:str=None,
     else:
         outdev = backendDef.searchAudioDevice(outpattern, kind='output')
         if not outdev:
-            raise ValueError(f"Output device {outpattern} not found")
+            indevs, outdevs = backendDef.audioDevices()
+            outdevids = [d.id for d in outdevs]
+            raise ValueError(f"Output device '{outpattern}' not found. Possible devices "
+                             f"are: {outdevids}")
     nchnls = outdev.numchannels if outdev.numchannels is not None else defaultout
     if inpattern is None:
         indev = adc

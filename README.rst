@@ -162,7 +162,13 @@ Dependencies
 ~~~~~~~~~~~~
 
 * python >= 3.8
-* csound >= 6.16 (https://github.com/csound/csound/releases)
+* csound 6 >= 6.16 (https://github.com/csound/csound/releases). 
+
+
+.. note:: 
+
+	csound 7 is not supported at the moment
+
 
 .. code-block:: bash
 
