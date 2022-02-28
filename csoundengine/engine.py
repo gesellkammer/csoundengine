@@ -123,11 +123,15 @@ if 'sphinx' in _sys.modules:
 try:
     import ctcsound
     _MYFLTPTR = _ctypes.POINTER(ctcsound.MYFLT)
-except:
-    print("Using mocked ctcsound, this should only happen when building"
-          "the sphinx documentation")
-    from sphinx.ext.autodoc.mock import _MockObject
-    ctcsound = _MockObject()
+except ImportError as e:
+    if 'sphinx' in _sys.modules:
+        print("Called while building sphinx documentation?")
+        print("Using mocked ctcsound, this should only happen when building"
+              "the sphinx documentation")
+        from sphinx.ext.autodoc.mock import _MockObject
+        ctcsound = _MockObject()
+    else:
+        raise e
 
 
 __all__ = [
@@ -527,8 +531,10 @@ class Engine:
             midiindevs, midioutdevs = csoundlib.midiDevices(self.midiBackend)
             midiindevs.append(csoundlib.MidiDevice('all', 'all'))
             midiindev = internalTools.selectMidiDevice(midiindevs)
-        else:
+        elif midiin:
             midiindev = csoundlib.MidiDevice(deviceid=midiin, name='')
+        else:
+            midiindev = None
         self.midiin: Optional[csoundlib.MidiDevice] = midiindev
         if udpserver is None: udpserver = config['start_udp_server']
         self._uddocket: Optional[socket.socket] = None
@@ -606,7 +612,7 @@ class Engine:
 
         self.started = False
         self.commandlineOptions: List[str] = []
-        self._builtinInstrs: Dict[str, int] = {}
+        self.builtinInstrs: Dict[str, int] = {}
         self._reservedInstrnums: Set[int] = set()
         self.start()
 
@@ -737,10 +743,9 @@ class Engine:
                    f"-b{buffersize}", f"-B{optB}",
                    ]
 
-        if self.midiBackend:
-            options.append(f"-+rtmidi={self.midiBackend}")
-
         if self.midiin is not None:
+            if self.midiBackend:
+                options.append(f"-+rtmidi={self.midiBackend}")
             options.append(f"-M{self.midiin.deviceid}")
 
         if self._realtime:
@@ -777,15 +782,13 @@ class Engine:
                                           ksmps=self.ksmps,
                                           nchnls=self.nchnls,
                                           nchnls_i=self.nchnls_i,
-                                          backend=self.backend,
                                           a4=self.a4,
                                           globalcode=self.globalCode,
                                           includestr=includestr,
                                           numAudioBuses=self.numAudioBuses,
                                           numControlBuses=self.numControlBuses)
-        self._builtinInstrs = instrmap
+        self.builtinInstrs = instrmap
         self._reservedInstrnums = set(instrmap.values())
-        self._reservedInstrnums.add(range(1, 10))
         logger.debug("--------------------------------------------------------------")
         logger.debug("  Starting performance thread. ")
         logger.debug(f"     Csound Options: {options}")
@@ -839,7 +842,7 @@ class Engine:
 
     def _setupGlobalInstrs(self):
         if self.hasBusSupport():
-            self._perfThread.scoreEvent(0, "i", [self._builtinInstrs['clearbuses'], 0, -1])
+            self._perfThread.scoreEvent(0, "i", [self.builtinInstrs['clearbuses'], 0, -1])
 
     def stop(self):
         """
@@ -989,7 +992,7 @@ class Engine:
         assert self._perfThread
         self._perfThread.flushMessageQueue()
         token = self._getSyncToken()
-        pargs = [self._builtinInstrs['pingback'], 0, 0, token]
+        pargs = [self.builtinInstrs['pingback'], 0, 0, token]
         self._eventWait(token, pargs)
 
     def compile(self, code:str, block=False) -> None:
@@ -1135,7 +1138,7 @@ class Engine:
                 raise ValueError(f"table {tabnum} not found")
             arr[idx] = value
         else:
-            pargs = [self._builtinInstrs['tabwrite'], delay, 0, tabnum, idx, value]
+            pargs = [self.builtinInstrs['tabwrite'], delay, 0, tabnum, idx, value]
             assert self._perfThread is not None
             self._perfThread.scoreEvent(0, "i", pargs)
 
@@ -1417,7 +1420,7 @@ class Engine:
             return
 
         tokens = [self._getSyncToken() for _ in range(len(names))]
-        instr = self._builtinInstrs['nstrnum']
+        instr = self.builtinInstrs['nstrnum']
         for name, token in zip(names, tokens):
             msg = f'i {instr} 0 0 {token} "{name}"'
             self._perfThread.inputMessage(msg)
@@ -1450,7 +1453,7 @@ class Engine:
         as `callback(name:str, instrnum:int)`
         """
         synctoken = self._getSyncToken()
-        msg = f'i {self._builtinInstrs["nstrnumsync"]} {delay} 0 {synctoken} "{name}"'
+        msg = f'i {self.builtinInstrs["nstrnumsync"]} {delay} 0 {synctoken} "{name}"'
 
         def _callback(synctoken, instrname=name, func=callback):
             instrnum = int(self._responsesTable[synctoken])
@@ -1484,7 +1487,7 @@ class Engine:
             self._queryNamedInstrAsync(instrname, delay=0, callback=callback)
             return 0
         token = self._getSyncToken()
-        msg = f'i {self._builtinInstrs["nstrnumsync"]} 0 0 {token} "{instrname}"'
+        msg = f'i {self.builtinInstrs["nstrnumsync"]} 0 0 {token} "{instrname}"'
         out = self._inputMessageWait(token, msg)
         assert out is not None
         out = int(out)
@@ -1523,7 +1526,7 @@ class Engine:
         """
         if isinstance(p1, str):
             p1 = self.queryNamedInstr(p1)
-        pfields = [self._builtinInstrs['turnoff'], delay, 0, p1]
+        pfields = [self.builtinInstrs['turnoff'], delay, 0, p1]
         self._perfThread.scoreEvent(0, "i", pfields)
 
     def unschedFuture(self, p1:Union[float, str]) -> None:
@@ -1543,7 +1546,7 @@ class Engine:
         if isinstance(p1, str):
             p1 = self.queryNamedInstr(p1)
         dur = self.ksmps/self.sr * 2
-        pfields = [self._builtinInstrs['turnoff_future'], 0, dur, p1]
+        pfields = [self.builtinInstrs['turnoff_future'], 0, dur, p1]
         self._perfThread.scoreEvent(0, "i", pfields)
 
     def unschedAll(self) -> None:
@@ -1743,7 +1746,7 @@ class Engine:
                 the table wass not created via the engine
         """
         logger.info(f"Setting table metadata. {tabnum=}, {sr=}, {numchannels=}")
-        pargs = [self._builtinInstrs['ftsetparams'], 0, 0., tabnum, sr, numchannels]
+        pargs = [self.builtinInstrs['ftsetparams'], 0, 0., tabnum, sr, numchannels]
         tabinfo = self._tableInfo.get(tabnum)
         if tabinfo:
             tabinfo.sr = sr
@@ -1779,7 +1782,7 @@ class Engine:
         >>> e.schedCallback(2, lambda:print(f"Elapsed time: {time.time() - startTime}"))
         """
         token = self._getSyncToken()
-        pargs = [self._builtinInstrs['pingback'], delay, 0.01, token]
+        pargs = [self.builtinInstrs['pingback'], delay, 0.01, token]
         self._eventWithCallback(token, pargs, lambda token: callback())
 
     def _eventWait(self, token:int, pargs:Sequence[float], timeout:float=None
@@ -2067,7 +2070,7 @@ class Engine:
             returns the table number
         """
         token = self._getSyncToken()
-        maketableInstrnum = self._builtinInstrs['maketable']
+        maketableInstrnum = self.builtinInstrs['maketable']
         delay = 0
         assert tabnum >= 0
         if data is None:
@@ -2170,11 +2173,11 @@ class Engine:
                 self.csound.setAudioChannel(channel, value)
         elif method == 'score':
             if isinstance(value, (int, float)):
-                instrnum = self._builtinInstrs['chnset']
+                instrnum = self.builtinInstrs['chnset']
                 s = f'i {instrnum} {delay} 0 "{channel}" {value}'
                 self._perfThread.inputMessage(s)
             else:
-                instrnum = self._builtinInstrs['chnsets']
+                instrnum = self.builtinInstrs['chnsets']
                 s = f'i {instrnum} {delay} 0 "{channel}" "{value}"'
                 self._perfThread.inputMessage(s)
         elif method == 'udp':
@@ -2381,7 +2384,7 @@ class Engine:
         if info and cache:
             return info
         toks = [self._getSyncToken() for _ in range(4)]
-        pargs = [self._builtinInstrs['tableInfo'], 0, 0., tabnum]
+        pargs = [self.builtinInstrs['tableInfo'], 0, 0., tabnum]
         pargs.extend(toks)
         q = _queue.Queue()
 
@@ -2445,7 +2448,7 @@ class Engine:
         self._tableInfo[tabnum] = _getSoundfileInfo(path)
 
         token = self._getSyncToken()
-        p1 = self._builtinInstrs['readSndfile']
+        p1 = self.builtinInstrs['readSndfile']
         msg = f'i {p1} 0 0. {token} "{path}" {tabnum} {chan}'
         if callback:
             self._inputMessageWithCallback(token, msg, lambda *args: callback())
@@ -2519,7 +2522,7 @@ class Engine:
         if vel is None:
             vel = amp/127
         args = [pitch, amp, index, vel, chan]
-        return self.sched(self._builtinInstrs['soundfontPlay'], delay=delay, dur=dur,
+        return self.sched(self.builtinInstrs['soundfontPlay'], delay=delay, dur=dur,
                           args=args)
 
 
@@ -2563,7 +2566,7 @@ class Engine:
         idx = self._soundfontPresetCountPtr[0]
         self._soundfontPresetCountPtr[0] += 1
         self._soundfontPresets[tup] = idx
-        instrnum = self._builtinInstrs['sfPresetAssignIndex']
+        instrnum = self.builtinInstrs['sfPresetAssignIndex']
         s = f'i {instrnum} 0 0 "{sf2path}" {bank} {presetnum} {idx}'
         self._perfThread.inputMessage(s)
         return idx
@@ -2588,7 +2591,7 @@ class Engine:
         """
         if isinstance(instr, int):
             token = self._getSyncToken()
-            pargs = [self._builtinInstrs['uniqinstance'], 0, 0.01, token, instr]
+            pargs = [self.builtinInstrs['uniqinstance'], 0, 0.01, token, instr]
             uniqinstr = self._eventWait(token, pargs)
             if uniqinstr is None:
                 raise RuntimeError("failed to get unique instance")
@@ -2649,7 +2652,7 @@ class Engine:
 
         """
         args = [gain, speed, tabnum, chan, fade, starttime, gaingroup, lagtime]
-        return self.sched(self._builtinInstrs['playgen1'], delay=delay, dur=dur,
+        return self.sched(self.builtinInstrs['playgen1'], delay=delay, dur=dur,
                           args=args)
 
     def playSoundFromDisc(self, path:str, delay=0., chan=0, speed=1., fade=0.01
@@ -2675,7 +2678,7 @@ class Engine:
 
         """
         assert self.started
-        p1 = self._assignEventId(self._builtinInstrs['playsndfile'])
+        p1 = self._assignEventId(self.builtinInstrs['playsndfile'])
         #pargs = [p1, delay, -1, self.strSet(path), chan, speed, fade]
         #self._perfThread.scoreEvent(0, "i", pargs)
         msg = f"i {p1} {delay} -1 \"{path}\" {chan} {speed} {fade}"
@@ -2720,7 +2723,7 @@ class Engine:
         # this limit is just the limit of the pwrite instr, not of the opcode
         args = [p1, numpairs]
         args.extend(pairs)
-        self.sched(self._builtinInstrs['pwrite'], delay=delay, dur=0, args=args)
+        self.sched(self.builtinInstrs['pwrite'], delay=delay, dur=0, args=args)
 
     def getp(self, eventid: float, idx: int) -> float:
         """
@@ -2744,7 +2747,7 @@ class Engine:
         """
         token = self._getSyncToken()
         notify = 1
-        pargs = [self._builtinInstrs['pread'], 0, 0, token, eventid, idx, notify]
+        pargs = [self.builtinInstrs['pread'], 0, 0, token, eventid, idx, notify]
         value = self._eventWait(token, pargs)
         return value
 
@@ -2800,7 +2803,7 @@ class Engine:
         tabpairs = self.makeTable(pairs, tabnum=0, block=True)
         args = [tabnum, idx, tabpairs, self.strSet(mode), 2, 1, int(overtake)]
         dur = pairs[-2]+self.ksmps/self.sr
-        return self.sched(self._builtinInstrs['automateTableViaTable'], delay=delay,
+        return self.sched(self.builtinInstrs['automateTableViaTable'], delay=delay,
                           dur=dur, args=args)
 
     def automatep(self, p1: float, pidx: int, pairs:Sequence[float], mode='linear',
@@ -2849,7 +2852,7 @@ class Engine:
         args = [p1, pidx, tabnum, self.strSet(mode), int(overtake)]
         dur = pairs[-2]+self.ksmps/self.sr
         assert isinstance(dur, float)
-        return self.sched(self._builtinInstrs['automatePargViaTable'], delay=delay,
+        return self.sched(self.builtinInstrs['automatePargViaTable'], delay=delay,
                           dur=dur, args=args)
 
     def strSet(self, s:str, sync=False) -> int:
@@ -2876,7 +2879,7 @@ class Engine:
         if stringIndex:
             return stringIndex
         stringIndex = self._getStrIndex()
-        instrnum = self._builtinInstrs['strset']
+        instrnum = self.builtinInstrs['strset']
         msg = f'i {instrnum} 0 0 "{s}" {stringIndex}'
         self._perfThread.inputMessage(msg)
         self._strToIndex[s] = stringIndex
@@ -2936,7 +2939,7 @@ class Engine:
         """
         logger.debug(f"Freeing table {tableindex}")
         self._releaseTableNumber(tableindex)
-        pargs = [self._builtinInstrs['freetable'], delay, 0., tableindex]
+        pargs = [self.builtinInstrs['freetable'], delay, 0., tableindex]
         self._perfThread.scoreEvent(0, "i", pargs)
 
     def testAudio(self, dur=4.) -> float:
@@ -2944,7 +2947,7 @@ class Engine:
         Test this engine's output
         """
         assert self.started
-        return self.sched(self._builtinInstrs['testaudio'], dur=dur)
+        return self.sched(self.builtinInstrs['testaudio'], dur=dur)
 
 
     # ~~~~~~~~~~~~~~~ UDP ~~~~~~~~~~~~~~~~~~
@@ -3076,7 +3079,6 @@ class Engine:
             self._perfThread.inputMessage(msg)
         else:
             busidx = self._busIndex(bus, create=True)
-            print("busidx", busidx)
             self._kbusTable[busidx] = value
 
     def readBus(self, bus:int, default:float=0.) -> float:
@@ -3116,9 +3118,8 @@ class Engine:
         if index is not None:
             return index
         synctoken = self._getSyncToken()
-
-        msg = f'i "_busindex" 0 0 {synctoken} {bus} {int(create)}'
-        out = self._inputMessageWait(synctoken, msg)
+        pargs = [self.builtinInstrs['busindex'], 0, 0, synctoken, bus, int(create)]
+        out = self._eventWait(synctoken, pargs)
         index = int(out)
         self._busIndexes[bus] = index
         return index
@@ -3215,8 +3216,8 @@ class Engine:
         bustoken = int(self._busTokenCountPtr[0])
         self._busTokenCountPtr[0] = bustoken+1
         if addref:
-            msg = f'i "_bususe" 0 0 {bustoken}'
-            self._perfThread.inputMessage(msg)
+            pfields = [self.builtinInstrs['busaddref'], 0, 0, bustoken]
+            self._perfThread.scoreEvent(0, "i", pfields)
 
         # before returning the bustoken we schedule a query
         # so that we can return immediately but update the actual
@@ -3224,11 +3225,11 @@ class Engine:
 
         synctoken = self._getSyncToken()
         # Assigns a bus to the given token
-        #                                                1 = create bus
-        msg = f'i "_busindex" 0 0 {synctoken} {bustoken} 1'
+        # 1 = create bus
+        pfields = [self.builtinInstrs['busindex'], 0, 0, synctoken, bustoken, 1]
         def callback(synctoken, bustoken=bustoken):
             self._busIndexes[bustoken] = int(self._responsesTable[synctoken])
-        self._inputMessageWithCallback(synctoken, msg, callback)
+        self._eventWithCallback(synctoken, pfields, callback)
         return bustoken
 
     def hasBusSupport(self) -> bool:

@@ -590,7 +590,8 @@ class Session:
         if instrdef is None:
             raise ValueError(f"instrument {name} not registered")
         instrnum = self._registerInstrAtPriority(name, priority)
-        instrtxt = tools.instrWrapBody(instrdef.body, instrnum, addNotificationCode=True)
+        instrtxt = tools.instrWrapBody(instrdef.body, instrnum,
+                                       notifyDeallocInstrnum=self.engine.builtinInstrs['notifyDealloc'])
         try:
             self.engine.compile(instrtxt)
         except CsoundError as e:

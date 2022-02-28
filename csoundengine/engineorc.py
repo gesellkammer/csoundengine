@@ -70,7 +70,7 @@ opcode sfPresetIndex, i, Sii
     xout iidx
 endop
 
-instr _notifyDealloc
+instr ${notifyDealloc}
     outvalue, "__dealloc__", p4
 endin
 
@@ -544,15 +544,15 @@ opcode _bususe, i, i
     xout ibus
 endop
 
-;instr _busaddref
-;    itoken = p4
-;    ibus dict_get gi__bustoken2num, itoken, -1
-;    if ibus == -1 then
-;        ibus = busassign(itoken)
-;    endif
-;    irefs tab_i ibus, gi__busrefs
-;    tabw_i irefs+1, ibus, gi__busrefs
-;endin
+instr ${busaddref}
+    itoken = p4
+    ibus dict_get gi__bustoken2num, itoken, -1
+    if ibus == -1 then
+        ibus = busassign(itoken)
+    endif
+    irefs tab_i ibus, gi__busrefs
+    tabw_i irefs+1, ibus, gi__busrefs
+endin
 
 opcode _bususek, i, i
     itoken xin
@@ -709,7 +709,7 @@ def _joinOrc(busSupport=True) -> str:
 
 @lru_cache(maxsize=0)
 def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
-            backend:str, a4:float, globalcode:str="", includestr:str="",
+            a4:float, globalcode:str="", includestr:str="",
             numAudioBuses:int=0, numControlBuses:int=0
             ) -> Tuple[str, Dict[str, int]]:
     """
@@ -733,7 +733,6 @@ def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
             ksmps=ksmps,
             nchnls=nchnls,
             nchnls_i=nchnls_i,
-            backend=backend,
             a4=a4,
             globalcode=globalcode,
             includes=includestr,

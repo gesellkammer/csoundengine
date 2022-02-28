@@ -113,27 +113,27 @@ def instrResolveArgs(instr: Instr,
     return allargs
 
 
+def addNotifycationAtStop(body: str, notifyDeallocInstrnum: int) -> str:
+    notifystr = f'atstop {notifyDeallocInstrnum}, 0.01, 0.0, p1'
+    out = "\n".join([notifystr, body])
+    return out
+
+
 def instrWrapBody(body:str, instrid:Union[int, str, Sequence[str]], comment:str= '',
-                  addNotificationCode=False) -> str:
+                  notifyDeallocInstrnum: int = 0
+                  ) -> str:
     s = r"""
 instr {instrnum}  {commentstr}
-    {notifystr}
     {body}
 endin
     """
-    if addNotificationCode:
-        # notifystr = 'defer "outvalue", "__dealloc__", p1'
-        # TODO: defer can cause memory corruption in some cases
-        notifystr = 'atstop "_notifyDealloc", 0.01, 0.0, p1'
-    else:
-        notifystr = ''
+    if notifyDeallocInstrnum > 0:
+        body = addNotifycationAtStop(body, notifyDeallocInstrnum)
     commentstr = "; " + comment if comment else ""
     if isinstance(instrid, (list, tuple)):
         instrid = ", ".join([str(i) for i in instrid])
-    s = s.format(instrnum=instrid, body=body, notifystr=notifystr,
-                 commentstr=commentstr)
-    s = textwrap.dedent(s)
-    return s
+    s = s.format(instrnum=instrid, body=body, commentstr=commentstr)
+    return textwrap.dedent(s)
 
 
 def addLineNumbers(code: str) -> str:
