@@ -1373,7 +1373,6 @@ class Engine:
             self._perfThread.scoreEvent(1, "i", pargsnp)
         else:
             pargs = [instrfrac, delay, dur]
-            print("sched delay: ", delay)
             pargs.extend(a if not isinstance(a, str) else self.strSet(a) for a in args)
             # 1: we use always absolute time
             self._perfThread.scoreEvent(1, "i", pargs)
