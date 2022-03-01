@@ -481,7 +481,7 @@ class Engine:
 
         if quiet is None: quiet = cfg['suppress_output']
         if quiet:
-            commandlineOptions.append('-m4')
+            commandlineOptions.append('-m0')
             commandlineOptions.append('-d')
         self.name = name
         self.sr = sr
@@ -1370,12 +1370,13 @@ class Engine:
             pargsnp[2] = dur
             pargsnp[3:] = args
             # 0: we use always absolute time
-            self._perfThread.scoreEvent(0, "i", pargsnp)
+            self._perfThread.scoreEvent(1, "i", pargsnp)
         else:
             pargs = [instrfrac, delay, dur]
+            print("sched delay: ", delay)
             pargs.extend(a if not isinstance(a, str) else self.strSet(a) for a in args)
-            # 0: we use always absolute time
-            self._perfThread.scoreEvent(0, "i", pargs)
+            # 1: we use always absolute time
+            self._perfThread.scoreEvent(1, "i", pargs)
         return instrfrac
 
     def _queryNamedInstrs(self, names:List[str], timeout=0.1, callback=None) -> None:
@@ -3152,6 +3153,7 @@ class Engine:
         >>> e.compile(r'''
         ... instr 10
         ...   ibus = p4
+        ...   kfreq = 1000
         ...   asig vco2 0.1, kfreq
         ...   busout(ibus, asig)
         ... endin
@@ -3163,6 +3165,7 @@ class Engine:
         ...   ; do something with asig
         ...   asig *= 0.5
         ...   outch 1, asig
+        ... endin
         ... ''')
         >>> busnum = e.assignBus()
         >>> s1 = e.sched(10, 0, 4, (busnum,))

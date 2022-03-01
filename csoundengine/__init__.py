@@ -95,7 +95,7 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
 """
 from .dependencies import checkDependencies
-ok = checkDependencies(force=False, tryfix=True)
+ok = checkDependencies(force=False, fix=True)
 if not ok:
     raise RuntimeError("Depencencies not fullfilled")
 

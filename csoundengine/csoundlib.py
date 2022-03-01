@@ -26,6 +26,7 @@ import emlib.misc
 import emlib.textlib
 import emlib.dialogs
 import numpy as np
+import ctcsound
 
 
 from typing import TYPE_CHECKING
@@ -75,7 +76,6 @@ def midiDevices(backend='portmidi') -> Tuple[List[MidiDevice], List[MidiDevice]]
     ========   ===========================
     """
 
-    import ctcsound
     csound = ctcsound.Csound()
     csound.setOption(f"-+rtmidi={backend}")
     csound.setOption("-odac")
@@ -150,6 +150,22 @@ class AudioBackend:
     def getSystemSr(self) -> Optional[int]:
         """Get the system samplerate for this backend, if available"""
         if not self.hasSystemSr:
+            logger.debug(f"Backend {self.name} does not have a system sr, returning default")
+            return 44100
+        cs = ctcsound.Csound()
+        cs.setOption("-odac")
+        cs.setOption(f"-+rtaudio={self.name}")
+        ok = cs.start()
+        if ok == -1:
+            logger.error(f"Backend {self.name} not available")
+            return None
+        sr = cs.systemSr(0)
+        cs.stop()
+        return int(sr) if sr > 0 else None
+
+    def _getSystemSr(self) -> Optional[int]:
+        """Get the system samplerate for this backend, if available"""
+        if not self.hasSystemSr:
             return 44100
         proc = csoundSubproc(["-odac", f"-+rtaudio={self.name}", "--get-system-sr"], wait=True)
         for line in proc.stdout.readlines():
@@ -168,6 +184,28 @@ class AudioBackend:
 
 
     def audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+        cs = ctcsound.Csound()
+        for opt in ['-+rtaudio='+self.name, "-m16", "-odac"]:
+            cs.setOption(opt)
+        cs.start()
+        csoutdevs = cs.audioDevList(True)
+        csindevs = cs.audioDevList(False)
+        outdevs = [AudioDevice(id=d['device_id'],
+                               name=d['device_name'],
+                               kind='output',
+                               index=i,
+                               numchannels=d['max_nchnls'])
+                   for i, d in enumerate(csoutdevs)]
+        indevs = [AudioDevice(id=d['device_id'],
+                               name=d['device_name'],
+                               kind='input',
+                               index=i,
+                               numchannels=d['max_nchnls'])
+                   for i, d in enumerate(csindevs)]
+        cs.stop()
+        return indevs, outdevs
+
+    def _audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
         """
         Returns a tuple (input devices, output devices)
         """
@@ -296,7 +334,7 @@ class _PortaudioBackend(AudioBackend):
                 outdev = outdevs[0]
         return indev, outdev
 
-    def audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+    def _audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
         indevices, outdevices = [], []
         proc = csoundSubproc(['-+rtaudio=pa_cb', '-odac', '--devices'], wait=True)
         if sys.platform == 'win32':
@@ -326,8 +364,6 @@ class _PortaudioBackend(AudioBackend):
                                   numchannels=None)
                 (indevices if kind == 'input' else outdevices).append(dev)
         return indevices, outdevices
-
-
 
 
 class _AlsaBackend(AudioBackend):
@@ -663,7 +699,7 @@ def runCsd(csdfile:str,
     if nodisplay:
         args.append('-d')
     if nomessages:
-        args.append('-m0')
+        args.append('-m16')
     if comment and offline:
         args.append(f'-+id_comment="{comment}"')
     if extra:
@@ -900,7 +936,7 @@ def _csoundGetInfoViaAPI(opcodedir:str=None) -> dict:
     cs = ctcsound.Csound()
     cs.setOption("-d")  # supress displays
     if opcodedir:
-        cs.setOption(f'--opcode-dir="{opcodedir}"')
+        cs.setOption(f'--opcode-dir={opcodedir}')
     opcodes, n = cs.newOpcodeList()
     opcodeNames = [opc.opname.decode('utf-8') for opc in opcodes]
     cs.disposeOpcodeList(opcodes)

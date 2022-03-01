@@ -154,7 +154,7 @@ def pluginsInstalled(cached=True) -> bool:
         "dict_new", "dict_set", "dict_get",
         "pool_gen", "pool_pop", "pool_push", "pool_isfull",
         'interp1d', 'bisect', 'ftsetparams', 'zeroarray',
-        'panstereo'
+        'panstereo', 'poly0'
     }
     return neededOpcodes.intersection(opcodes) == neededOpcodes
 
@@ -222,7 +222,7 @@ def _installPluginsViaRisset() -> bool:
         import risset
         logger.info("Risset found")
         idx = risset.MainIndex()
-        for pluginname in ['else', 'beosc', 'klib']:
+        for pluginname in ['else', 'beosc', 'klib', 'poly']:
             p = idx.plugins.get(pluginname)
             if p is None:
                 logger.error(f"Plugin {pluginname} not found in risset's index")
@@ -240,7 +240,7 @@ def _installPluginsViaRisset() -> bool:
         return False
 
 
-def installPlugins() -> None:
+def installPlugins() -> bool:
     """
     Install all needed plugins
 
@@ -253,20 +253,25 @@ def installPlugins() -> None:
     try:
         logger.info("Installing external plugins via risset")
         ok = _installPluginsViaRisset()
-        if ok:
-            return
-        logger.error("Could not install plugins via risset")
-        zipped = downloadLatestPluginForPlatform()
-        _installPluginsFromZipFile(zipped)
-        return
+        if not ok:
+            logger.error("Could not install plugins via risset")
+            zipped = downloadLatestPluginForPlatform()
+            _installPluginsFromZipFile(zipped)
+        return pluginsInstalled(cached=False)
     except RuntimeError as e:
         logger.error(f"Could not install plugins from github: {e}")
     logger.info("Installing plugins from distribution")
     _installPluginsFromDist()
-    logger.info("<<< Plugins installed successfully! >>>")
+    ok = pluginsInstalled(cached=False)
+    if ok:
+        logger.info("<<< Plugins installed successfully! >>>")
+    else:
+        logger.error("Plugins are not installed correctly")
+    return ok
 
 
-def _checkDependencies(tryfix=False, updateState=True) -> Optional[str]:
+
+def _checkDependencies(fix=False, updateState=True) -> Optional[str]:
     """
     Either returns None or an error message
     """
@@ -277,29 +282,30 @@ def _checkDependencies(tryfix=False, updateState=True) -> Optional[str]:
     if version  < (6, 16, 0):
         return f"Csound version ({version}) is too old, should be >= 6.16"
 
-    if version[1] >= 7:
+    if version[0] >= 7:
         return f"Csound 7 is not yet supported!"
 
     if not pluginsInstalled():
-        if tryfix:
+        if fix:
             print("csound plugins are not installed or are too old."
                   " I will try to install them now")
             installPlugins()
         else:
-            return ("csound plugins are not installed. Install them from "
+            return ("Some plugins are not installed. Install them via risset "
+                    "(risset install \"*\"), or manually from "
                     "https://github.com/csound-plugins/csound-plugins/releases")
     logger.info("Dependencies OK")
     if updateState:
         state['last_run'] = datetime.now().isoformat()
 
 
-def checkDependencies(force=True, tryfix=False) -> bool:
+def checkDependencies(force=True, fix=False) -> bool:
     """
     Check that all external dependencies are fullfilled.
 
     Args:
         force: if True, do not use cached results
-        tryfix: if True, try to fix missing dependencies, where possible
+        fix: if True, try to fix missing dependencies, where possible
 
     Returns:
         True if all dependencies are fullfilled
@@ -307,12 +313,13 @@ def checkDependencies(force=True, tryfix=False) -> bool:
     """
     # Skip checks if only building docs
     if 'sphinx' in sys.modules:
+        logger.info("Called by sphinx? Skipping dependency check")
         return True
 
     timeSincelast_run = datetime.now() - datetime.fromisoformat(state['last_run'])
-    if force or timeSincelast_run.days > 30:
+    if force or timeSincelast_run.days > 1:
         logger.warning("Checking dependencies")
-        errormsg = _checkDependencies(tryfix=tryfix)
+        errormsg = _checkDependencies(fix=fix)
         if errormsg:
             logger.error(errormsg)
             return False

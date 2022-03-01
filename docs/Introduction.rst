@@ -35,7 +35,7 @@ most appropriate audio backend, etc.
         kfreq = mtof:k(kmidinote)
         ; A filtered sawtooth
         asig  = vco2:a(kamp*0.7, kfreq)
-        asig += vco2.a(kamp*0.7, kfreq + kdetune)
+        asig += vco2:a(kamp*0.7, kfreq + kdetune)
         asig = moogladder2(asig, kcutoff, 0.9)
         ; Attack / Release
         aenv = linsegr:a(0, 0.01, 1, 0.2, 0)
