@@ -42,6 +42,7 @@ except ImportError as e:
         from sphinx.ext.autodoc.mock import _MockObject
         ctcsound = _MockObject()
     else:
+        print("ctcsound not found!")
         raise e
 
 logger = _logging.getLogger("csoundengine")
