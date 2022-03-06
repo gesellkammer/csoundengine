@@ -131,7 +131,7 @@ elif 'sphinx' in _sys.modules:
 try:
     import ctcsound
     _MYFLTPTR = _ctypes.POINTER(ctcsound.MYFLT)
-except ImportError as e:
+except (OSError, ImportError) as e:
     if 'sphinx' in _sys.modules:
         print("Called while building sphinx documentation?")
         print("Using mocked ctcsound, this should only happen when building"
