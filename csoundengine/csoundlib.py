@@ -26,7 +26,6 @@ import emlib.misc
 import emlib.textlib
 import emlib.dialogs
 import numpy as np
-import ctcsound
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -34,6 +33,16 @@ if TYPE_CHECKING:
         Sequence, Generator, Any, Set
     Curve = Callable[[float], float]
 
+
+try:
+    import ctcsound
+except ImportError as e:
+    if 'sphinx' in sys.modules:
+        print("Called while building sphinx documentation?")
+        from sphinx.ext.autodoc.mock import _MockObject
+        ctcsound = _MockObject()
+    else:
+        raise e
 
 logger = _logging.getLogger("csoundengine")
 
@@ -74,7 +83,6 @@ def midiDevices(backend='portmidi') -> Tuple[List[MidiDevice], List[MidiDevice]]
     windows    portmidi
     ========   ===========================
     """
-
     csound = ctcsound.Csound()
     csound.setOption(f"-+rtmidi={backend}")
     csound.setOption("-odac")
@@ -567,7 +575,6 @@ def _getJackSrViaClient() -> float:
 def _getCsoundSystemSr(backend:str) -> float:
     if backend not in {'jack', 'auhal'}:
         raise ValueError(f"backend {backend} does not support system sr")
-    import ctcsound
     csound = ctcsound.Csound()
     csound.setOption(f"-+rtaudio={backend}")
     csound.setOption("-odac")
@@ -931,7 +938,6 @@ def opcodesList(cached=True, opcodedir: str = None) -> List[str]:
 
 
 def _csoundGetInfoViaAPI(opcodedir:str=None) -> dict:
-    import ctcsound
     cs = ctcsound.Csound()
     cs.setOption("-d")  # supress displays
     if opcodedir:
