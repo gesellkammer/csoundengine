@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 try:
     import ctcsound
-except ImportError as e:
+except (OSError, ImportError) as e:
     if 'sphinx' in sys.modules:
         print("Called while building sphinx documentation?")
         from sphinx.ext.autodoc.mock import _MockObject
