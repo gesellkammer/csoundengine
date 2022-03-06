@@ -1,3 +1,6 @@
+
+.. _configuration:
+
 =============
 Configuration
 =============
@@ -88,9 +91,13 @@ rec_ksmps:
     | *samples per cycle when rendering*
 
 rec_sample_format:
-    | Default: **float**  -- `(str, int)`
+    | Default: **float**  -- `(int, str)`
     | Choices: ``16, 24, 32, float``
     | *Sample format used when rendering*
+
+rec_suppress_output:
+    | Default: **False**  -- `bool`
+    | *Supress debugging output when rendering offline*
 
 buffersize:
     | Default: **0**  -- `int`
@@ -120,6 +127,10 @@ A4:
 check_pargs:
     | Default: **False**  -- `bool`
     | *Check number of pargs passed to instr*
+
+offline_score_table_size_limit:
+    | Default: **1900**  -- `int`
+    | *size limit when writing tables as f score statements via gen2. If a table is bigger than this size, it is saved as a datafile as gen23 or wav*
 
 fail_if_unmatched_pargs:
     | Default: **False**  -- `bool`
@@ -181,6 +192,10 @@ synth_repr_max_args:
     | Default: **12**  -- `int`
     | *Max. number of pfields shown when in a synth's repr*
 
+synthgroup_repr_max_rows:
+    | Default: **16**  -- `int`
+    | *Max. number of rows for a SynthGroup repr*
+
 jupyter_synth_repr_stopbutton:
     | Default: **True**  -- `bool`
     | *When running inside a jupyter notebook, display a stop buttonfor Synths and SynthGroups*
@@ -204,3 +219,36 @@ magics_print_info:
 jupyter_slider_width:
     | Default: **80%**  -- `str`
     | *CSS Width used by an interactive slider in jupyter*
+
+timeout:
+    | Default: **2.0**  -- `float`
+    | *Timeout for any action waiting a response from csound*
+
+sched_latency:
+    | Default: **0.0**  -- `float`
+    | *Time delay added to any event scheduled to ensure that simultameous events arenot offset by scheduling overhead*
+
+datafile_format:
+    | Default: **gen23**  -- `str`
+    | Choices: ``gen23, wav``
+    | *Format used when saving a table as a datafile*
+
+spectrogram_colormap:
+    | Default: **inferno**  -- `str`
+    | Choices: ``viridis, plasma, inferno, magma, cividis``
+
+samplesplot_figsize:
+    | Default: **12:4**  -- `str`
+    | *The figure size of the plot in the form '<width>:<height>'*
+
+spectrogram_figsize:
+    | Default: **24:8**  -- `str`
+    | *The figure size of the plot in the form '<width>:<height>'*
+
+spectrogram_maxfreq:
+    | Default: **12000**  -- `int`
+    | *Highest freq. in a spectrogram*
+
+spectrogram_window:
+    | Default: **hamming**  -- `str`
+    | Choices: ``hamming, hanning``

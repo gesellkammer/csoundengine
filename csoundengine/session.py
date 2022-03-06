@@ -685,32 +685,40 @@ class Session:
         more information
 
         A bus is reference counted and is kept alive as long as there are instruments using
-        it via any of the builtin bus opcdodes: "busin", "busout", "busmix".
+        it via any of the builtin bus opcdodes: :ref:`busin<busin>`, :ref:`busout<busout>`,
+        :ref:`busmix<busmix>`
 
-        For more information on the bus-opcodes, see
-        `Bus Opcodes <https://csoundengine.readthedocs.io/en/latest/Builtin-Opcodes.html#bus-opcodes>`_
+        For more information on the bus-opcodes, see :ref:`Bus Opcodes<busopcodes>`
 
         Example
         =======
 
-        >>> from csoundengine import *
-        >>> s = Engine().session()
-        >>> s.defInstr('sender', r'''
-        ... ibus = p5
-        ... asig vco2 0.1, 1000
-        ... busout(ibus, asig)
-        ... ''')
-        >>> s.defInstr('receiver', r'''
-        ... ibus = p5
-        ... asig = busin:a(ibus)
-        ... asig *= 0.5
-        ... outch 1, asig
-        ... ''')
-        >>> bus = s.assignBus()
-        >>> chain = [s.sched('sender', ibus=bus),
-        ...          s.sched('reveiver', ibus=bus)]
-        >>> for synth in chain:
-        ...     synth.stop()
+        .. code-block:: python
+
+            from csoundengine import *
+
+            e = Engine()
+            s = e.session()
+
+            s.defInstr('sender', r'''
+            ibus = p5
+            asig vco2 0.1, 1000
+            busout(ibus, asig)
+            ''')
+
+            s.defInstr('receiver', r'''
+            ibus  = p5
+            kgain = p6
+            asig = busin:a(ibus)
+            asig *= a(kgain)
+            outch 1, asig
+            ''')
+
+            bus = s.assignBus()
+
+            chain = [s.sched('sender', ibus=bus),
+                     s.sched('receiver', ibus=bus, kgain=0.5)]
+
         """
         return self.engine.assignBus()
 
@@ -899,10 +907,10 @@ class Session:
 
     def readSoundfile(self, path="?", chan=0, free=False) -> TableProxy:
         """
-        Read a output, store its metadata in a :class:`~csoundengine.tableproxy.TableProxy`
+        Read a soundfile, store its metadata in a :class:`~csoundengine.tableproxy.TableProxy`
 
         Args:
-            path: the path to a output. **"?" to open file via a gui dialog**
+            path: the path to a soundfile. **"?" to open file via a gui dialog**
             chan: the channel to read, or 0 to read all channels into a
                 (possibly) stereo or multichannel table
             free: free the table when the returned TableDef is itself deallocated
@@ -967,22 +975,28 @@ class Session:
         Returns:
             a TableProxy object
         """
-        tabnum = self.engine.makeTable(data=data, size=size, tabnum=tabnum,
-                                       _instrnum=_instrnum, block=block,
-                                       callback=callback, sr=sr)
-        if data is not None:
-            if isinstance(data, np.ndarray):
-                nchnls = tools.arrayNumChannels(data)
-            elif isinstance(data, list):
-                nchnls = 1
-                assert isinstance(data[0], float)
-            else:
-                raise TypeError(f"data should be np.ndarray or list[float], got "
-                                f"{type(data)} = {data=}")
-            numframes = len(data)
-        else:
-            numframes = size
+        if size:
+            assert not data
+            tabnum = self.engine.makeEmptyTable(size=size, numchannels=1, sr=sr)
             nchnls = 1
+            numframes = size
+        else:
+            tabnum = self.engine.makeTable(data=data, tabnum=tabnum,
+                                           _instrnum=_instrnum, block=block,
+                                           callback=callback, sr=sr)
+            if data is not None:
+                if isinstance(data, np.ndarray):
+                    nchnls = tools.arrayNumChannels(data)
+                elif isinstance(data, list):
+                    nchnls = 1
+                    assert isinstance(data[0], float)
+                else:
+                    raise TypeError(f"data should be np.ndarray or list[float], got "
+                                    f"{type(data)} = {data=}")
+                numframes = len(data)
+            else:
+                numframes = size
+                nchnls = 1
 
         return TableProxy(tabnum=tabnum, sr=sr, nchnls=nchnls, numframes=numframes,
                           engine=self.engine, freeself=freeself)
@@ -995,8 +1009,9 @@ class Session:
         """
         Play a sample.
 
-        If sample data in a table or from a output with samplerate
-        compensation to ensure the original pitch.
+        This method ensures that the sample is played at the original pitch,
+        indendent of the current samplerate. The source can be a table,
+        a soundfile or a :class:`~csoundengine.tableproxy.TableProxy`
 
         Args:
             sample: table number, a path to a sample or a TableProxy

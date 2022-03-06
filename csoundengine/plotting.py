@@ -5,18 +5,9 @@ from scipy import signal
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-from configdict import ConfigDict
 from . import internalTools
-
-
-config = ConfigDict("csoundengine.plotting")
-config.addKey('spectrogram.colormap', 'inferno', choices=plt.colormaps())
-config.addKey('samplesplot.figsize', (12, 4))
-config.addKey('spectrogram.figsize', (24, 8))
-config.addKey('spectrogram.maxfreq', 12000,
-              doc="Highest frequency in a spectrogram")
-config.addKey('spectrogram.window', 'hamming', choices={'hamming', 'hanning'})
-config.load()
+from .config import config
+from typing import Tuple
 
 
 def _envelope(x: np.ndarray, hop:int):
@@ -34,12 +25,26 @@ def _frames_to_samples(frames:np.ndarray, hop_length=512, n_fft:int=None) -> np.
     return (np.asanyarray(frames) * hop_length + offset).astype(int)
 
 
+def _figsizeAsTuple(figsize) -> Tuple[int, int]:
+    if isinstance(figsize, tuple):
+        return figsize
+    elif isinstance(figsize, list):
+        assert len(figsize) == 2
+        return tuple(figsize)
+    elif isinstance(figsize, str):
+        parts = figsize.split(":")
+        assert len(parts) == 2
+        return int(parts[0]), int(parts[1])
+    else:
+        raise ValueError(f"Could not interpret {figsize} as a figure size")
+
+
 def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False) -> None:
     numch = internalTools.arrayNumChannels(samples)
     numsamples = samples.shape[0]
     dur = numsamples / samplerate
     times = np.linspace(0, dur, numsamples)
-    figsize = config['samplesplot.figsize']
+    figsize = _figsizeAsTuple(config['samplesplot_figsize'])
     figsize = figsize[0]*2, figsize[1]
     f = plt.figure(figsize=figsize)
     ax1 = f.add_subplot(numch, 1, 1)
@@ -109,18 +114,15 @@ def plotSamples(samples: np.ndarray, samplerate: int, profile: str= 'auto',
     if maxpoints < numsamples:
         targetsr = min(maxsr, (samplerate * numsamples) // maxpoints)
     hop_length = samplerate // targetsr
-    figsize = config['samplesplot.figsize']
+    figsize = _figsizeAsTuple(config['samplesplot_figsize'])
     if profile == "medium":
         figsize = int(figsize[0]*1.4), figsize[1]
     f = plt.figure(figsize=figsize)
     ax1 = f.add_subplot(numch, 1, 1)
     for i in range(numch):
-        if i == 0:
-            axes = ax1
-        else:
-            axes = f.add_subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
+        ax = ax1 if i==0 else f.add_subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
         if i < numch - 1:
-            plt.setp(axes.get_xticklabels(), visible=False)
+            plt.setp(ax.get_xticklabels(), visible=False)
 
         chan = internalTools.getChannel(samples, i)
         env = _envelope(np.ascontiguousarray(chan), hop_length)
@@ -129,8 +131,10 @@ def plotSamples(samples: np.ndarray, samplerate: int, profile: str= 'auto',
         locs = _frames_to_time(np.arange(len(samples_top)),
                                sr=samplerate,
                                hop_length=hop_length)
-        axes.fill_between(locs, samples_bottom, samples_top)
-        axes.set_xlim([locs.min(), locs.max()])
+        ax.fill_between(locs, samples_bottom, samples_top)
+        ax.set_xlim([locs.min(), locs.max()])
+    f.subplots_adjust(left=0.1, right=0.1, top=0.1, bottom=0.1)
+    f.tight_layout(pad=0.1)
     if not matplotlibIsInline() and show:
         plt.show()
 
@@ -150,10 +154,10 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
         overlap: the number of overlaps. If fftsize=2048, an overlap of 4 will result
             in a hopsize of 512 samples
         axes: the axes to plot on. If None, new axes will be created
-        cmap: colormap, see pyplot.colormaps() (see config['spectrogram.cmap'])
+        cmap: colormap, see pyplot.colormaps() (see config['spectrogram_colormap'])
         minfreq: initial min.frequency
         maxfreq: initial max. frequency. If None, a configurable default will be used
-            (see config['spectrogram.maxfreq')
+            (see config['spectrogram_maxfreq')
         interpolation: one of 'bilinear'
         mindb: the amplitude threshold
         show: if True, show the plot. Otherwise matplotlib.pyplot.show() needs
@@ -163,14 +167,15 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
         the axes object
     """
     if axes is None:
-        f: plt.Figure = plt.figure(figsize=config['spectrogram.figsize'])
+        figsize = _figsizeAsTuple(config['spectrogram_figsize'])
+        f: plt.Figure = plt.figure(figsize=figsize)
         axes:plt.Axes = f.add_subplot(1, 1, 1)
     hopsize = int(fftsize / overlap)
     noverlap = fftsize - hopsize
     if window is None:
-        window = config['spectrogram.window']
+        window = config['spectrogram_window']
     win = signal.get_window(window, fftsize)
-    cmap = cmap if cmap is not None else config['spectrogram.colormap']
+    cmap = cmap if cmap is not None else config['spectrogram_colormap']
     axes.specgram(samples,
                   NFFT=fftsize,
                   Fs=samplerate,
@@ -180,7 +185,7 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
                   interpolation=interpolation,
                   vmin=mindb)
     if maxfreq is None:
-        maxfreq = config['spectrogram.maxfreq']
+        maxfreq = config['spectrogram_maxfreq']
     axes.set_ylim(minfreq, maxfreq)
     if not matplotlibIsInline() and show:
         plt.show()

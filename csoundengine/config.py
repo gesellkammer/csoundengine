@@ -49,6 +49,13 @@ def _validateBackend(cfg: dict, key:str, s: str) -> bool:
     return _validateBackend2(key, s)
 
 
+def _validateFigsize(cfg: dict, key: str, val) -> bool:
+    if not isinstance(val, str):
+        return False
+    parts = val.split(":")
+    return len(parts) == 2 and all(p.isnumeric() for p in parts)
+
+
 _('sr', 0,
   choices=(0, 22050, 44100, 48000, 88200, 96000),
   doc='samplerate - 0=default sr for the backend')
@@ -148,6 +155,17 @@ _('sched_latency', 0.,
 _('datafile_format', 'gen23',
   choices={'gen23', 'wav'},
   doc='Format used when saving a table as a datafile')
+
+# Plotting
+_('spectrogram_colormap', 'inferno', choices={'viridis', 'plasma', 'inferno', 'magma', 'cividis'})
+_('samplesplot_figsize', "12:4", validatefunc=_validateFigsize,
+  doc="The figure size of the plot in the form '<width>:<height>'")
+_('spectrogram_figsize', "24:8", validatefunc=_validateFigsize,
+  doc="The figure size of the plot in the form '<width>:<height>'")
+_('spectrogram_maxfreq', 12000,
+  doc="Highest freq. in a spectrogram")
+_('spectrogram_window', 'hamming', choices={'hamming', 'hanning'})
+
 
 assert 'num_control_buses' in config.default
 config.load()

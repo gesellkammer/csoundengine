@@ -11,7 +11,7 @@ ScoreEvent
    .. autosummary::
 
       ~ScoreEvent.eventId
-      ~ScoreEvent.exchangeTable
+      ~ScoreEvent.paramTable
       ~ScoreEvent.renderer
 
    .. rubric:: Methods Summary
@@ -25,7 +25,7 @@ ScoreEvent
    .. rubric:: Attributes Documentation
 
    .. autoattribute:: eventId
-   .. autoattribute:: exchangeTable
+   .. autoattribute:: paramTable
    .. autoattribute:: renderer
 
    .. rubric:: Methods Documentation

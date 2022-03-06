@@ -23,6 +23,9 @@ These user-defined-opcodes are also present for offline rendering
 
 -----
 
+
+.. _busin:
+
 busin
 -----
 
@@ -63,6 +66,8 @@ Receives audio from a bus
 
 -----
 
+.. _busout:
+
 busout
 ------
 
@@ -97,6 +102,8 @@ multiple sends to a bus use ``busmix``
       
 -----
 
+.. _busassign:
+
 busassign
 ----------
 
@@ -110,6 +117,8 @@ Assigns an unused bus
 
 -----
 
+
+.. _busmix:
 
 busmix
 ------

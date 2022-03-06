@@ -68,17 +68,24 @@ customized via::
     from csoundengine import *
     config.edit()
 
-For more information, see
-`Configuration <https://csoundengine.readthedocs.io/en/latest/config.html>`_
+.. hint::
+
+    For more information, see :ref:`Configuration<configuration>`
 
 Interactive Use
 ---------------
 
-**csoundengine** is optimized to be used interactively within `jupyter`.
+**csoundengine** is optimized to be used interactively and particularly
+within `Jupyter <https://jupyter.org/>`_. See :ref:`Csoundengine inside Jupyter<jupyternotebook>`
+
+IPython Magic
+~~~~~~~~~~~~~
+
+**csoundengine** also defines a set of ipython/jupyter :doc:`magics <magics>`
+
 
 .. figure:: assets/eventui.png
 
-**csoundengine** also defines a set of ipython/jupyter :doc:`magics <magics>`
 
 """
 from __future__ import annotations
@@ -108,6 +115,7 @@ from . import jacktools as jacktools
 from . import internalTools
 from . import engineorc
 from . import state as _state
+from . import termui as _termui
 from .engineorc import CONSTS
 from .errors import *
 
@@ -886,18 +894,19 @@ class Engine:
     def restart(self) -> None:
         """ Restart this engine. All defined instrs / tables are removed"""
         self.stop()
-        time.sleep(2)
+        _termui.waitWithAnimation(2)
         self.start()
         
     def _outcallback(self, _, channelName, valptr, chantypeptr):
         func = self._outvalueCallbacks.get(channelName)
         if not func:
+            logger.error(f"outvalue: callback not set for channel {channelName}")
             return
-        assert callable(func)
         val = _ctypes.cast(valptr, _MYFLTPTR).contents.value
         func(channelName, val)
 
     def _setupCallbacks(self) -> None:
+        assert self.csound is not None
 
         def _syncCallback(_, token):
             """ Called with outvalue __sync__, the value is put
@@ -915,7 +924,6 @@ class Engine:
                 logger.error(f"Unknown sync token: {token}")
 
         self._outvalueCallbacks[bytes("__sync__", "ascii")] = _syncCallback
-        assert self.csound is not None
         self.csound.setOutputChannelCallback(self._outcallback)
 
     def registerOutvalueCallback(self, chan:str, func: callback_t) -> None:
@@ -1131,7 +1139,7 @@ class Engine:
             assert self._perfThread is not None
             self._perfThread.scoreEvent(0, "i", pargs)
 
-    def getTableData(self, idx:int, flat=True) -> Optional[np.ndarray]:
+    def getTableData(self, idx:int, flat=False) -> Optional[np.ndarray]:
         """
         Returns a numpy array pointing to the data of the table.
 
@@ -1295,39 +1303,42 @@ class Engine:
                 `engine.elapsedTime()`
 
         Returns: 
-            a fractional p1 of the instr started, which identifies this event
+            a fractional p1 of the instr started, which identifies this event.
+            If instr is a fractional named instr, like "synth.01", then this
+            same instr is returned as eventid (as a string).
 
         Example
         -------
 
-        >>> from csoundengine import *
-        >>> e = Engine()
-        >>> e.compile(r'''
-        ...   instr 10
-        ...     kfreq = p4
-        ...     kcutoff = p5
-        ...     Smode strget p6
-        ...     asig vco2 0.1, kfreq
-        ...     if strcmp(Smode, "lowpass") == 0 then
-        ...       asig moogladder2 asig, kcutoff, 0.95
-        ...     else
-        ...       asig K35_hpf asig, kcutoff, 9.0
-        ...     endif
-        ...     outch 1, asig
-        ...   endif
-        ... ''')
-        >>> eventid = e.sched(10, 2, args=[200, 400, "lowpass"])
-        >>> # simple automation in python
-        >>> for cutoff in range(400, 3000, 10):
-        ...     e.setp(eventid, 5, cutoff)
-        ...     time.sleep(0.01)
-        >>> e.unsched(eventid)
+        .. code-block :: python
 
-        To ensure simultaneity between events:
-
-        >>> now = e.elapsedTime()
-        >>> for t in np.arange(2, 4, 0.2):
-        ...     e.sched(10, t+now, 0.2, relative=False)
+            from csoundengine import *
+            e = Engine()
+            e.compile(r'''
+              instr 10
+                kfreq = p4
+                kcutoff = p5
+                Smode strget p6
+                asig vco2 0.1, kfreq
+                if strcmp(Smode, "lowpass") == 0 then
+                  asig moogladder2 asig, kcutoff, 0.95
+                else
+                  asig K35_hpf asig, kcutoff, 9.0
+                endif
+                outch 1, asig
+              endin
+            ''')
+            eventid = e.sched(10, 2, args=[200, 400, "lowpass"])
+            # simple automation in python
+            for cutoff in range(400, 3000, 10):
+                e.setp(eventid, 5, cutoff)
+                time.sleep(0.01)
+            e.unsched(eventid)
+            #
+            # To ensure simultaneity between events:
+            now = e.elapsedTime()
+            for t in np.arange(2, 4, 0.2):
+                e.sched(10, t+now, 0.2, relative=False)
 
         See Also
         ~~~~~~~~
@@ -1567,8 +1578,8 @@ class Engine:
         >>> from csoundengine import *
         >>> session = Engine().session()
         >>> session.defInstr("synth", r'''
-        ... kamp = p4
-        ... kmidi = p5
+        ... kamp  = p5    ; notice that p4 is reserved
+        ... kmidi = p6
         ... asig vco2 kamp, mtof:k(kmidi)
         ... chnmix asig, "mix1"
         ... ''')
@@ -1611,7 +1622,7 @@ class Engine:
         >>> tabarray = e.getTableData(source)
         >>> tabarray[0] = 0.5
         >>> eventid = e.sched(10, args=[67, source, 0])
-        # fade out
+        >>> # fade out
         >>> e.automateTable(source=source, idx=0, pairs=[1, 0.5, 5, 0.])
 
         .. seealso::
@@ -1629,17 +1640,15 @@ class Engine:
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         return tabnum
 
-    def makeTable(self, data:Union[Sequence[float], np.ndarray]=None,
-                  size:int = 0, tabnum:int=0, sr:int=0,
-                  block=True, callback=None,
+    def makeTable(self, data:Union[Sequence[float], np.ndarray],
+                  tabnum:int=0, sr:int=0, block=True, callback=None,
                   _instrnum=-1.
                   ) -> int:
         """
         Create a new table and fill it with data.
 
         Args:
-            data: the data used to fill the table, or None if creating an empty table
-            size: the size of the table (will only be used if no data is supplied)
+            data: the data used to fill the table
             source: the table number. If -1, a number is assigned by the engine.
                 If 0, a number is assigned by csound (only possible in block or
                 callback mode)
@@ -1655,14 +1664,16 @@ class Engine:
         Example
         =======
 
-        >>> from csoundengine import *
-        >>> e = Engine()
-        >>> import sndfileio
-        >>> sample, sr = sndfileio.sndread("stereo.wav")
-        >>> # modify the sample in python
-        >>> sample *= 0.5
-        >>> source = e.makeTable(sample, sr=sr, block=True)
-        >>> e.playSample(source)
+        .. code-block:: python
+
+            from csoundengine import *
+            e = Engine()
+            import sndfileio
+            sample, sr = sndfileio.sndread("stereo.wav")
+            # modify the sample in python
+            sample *= 0.5
+            source = e.makeTable(sample, sr=sr, block=True)
+            e.playSample(source)
 
         See Also
         ~~~~~~~~
@@ -1676,10 +1687,17 @@ class Engine:
             tabnum = self._assignTableNumber(p1=_instrnum)
         elif tabnum == 0 and not callback:
             block = True
-        if block or callback:
-            assignedTabnum = self._makeTableNotify(data=data, size=size, sr=sr,
-                                                   tabnum=tabnum, callback=callback)
+        if block or callback or len(data) >= 1900:
+            if not block and not callback:
+                # User didn't ask for blocking operation, but there is no way
+                # to do this totally async, since we need to first create the
+                # table in order to fill it with data.
+                logger.info(f"Creating table {tabnum}. This operation will block"
+                            f" anyway, since the data is too big to be sent inline")
+            assignedTabnum = self._makeTableNotify(data=data, sr=sr, tabnum=tabnum,
+                                                   callback=callback)
             assert assignedTabnum > 0
+            # Remove cached table data array, if any
             self._tableCache.pop(assignedTabnum, None)
             return assignedTabnum
 
@@ -1687,30 +1705,21 @@ class Engine:
         assert tabnum > 0
         self._tableCache.pop(int(tabnum), None)
 
-        if not data or len(data) < 1900:
-            if not data:
-                # an empty table
-                assert size > 0
-                pargs = [tabnum, 0, size, -2, 0]
-                self._perfThread.scoreEvent(0, "f", pargs)
-                self._perfThread.flushMessageQueue()
-                numchannels = 1
-            else:
-                assert size == 0
-                size = len(data)
-                numchannels = 1 if len(data.shape) == 1 else data.shape[1]
-                # data can be passed as p-args directly
-                arr = np.zeros((len(data)+4,), dtype=float)
-                arr[0:4] = [tabnum, 0, len(data), -2]
-                arr[4:] = data
-                self._perfThread.scoreEvent(0, "f", arr)
-                self._perfThread.flushMessageQueue()
-            self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
-        else:
-            self._makeTableNotify(data=data, tabnum=tabnum, sr=sr)
+        # data can be passed as p-args directly (non-blocking)
+        size = len(data)
+        numchannels = 1 if len(data.shape) == 1 else data.shape[1]
+        arr = np.zeros((len(data)+4,), dtype=float)
+        arr[0:4] = [tabnum, 0, size, -2]
+        arr[4:] = data
+        self._perfThread.scoreEvent(0, "f", arr)
+        self._perfThread.flushMessageQueue()
+        self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         return int(tabnum)
 
     def tableExists(self, tabnum: int) -> bool:
+        """
+        Returns True if a table with the given number exists
+        """
         try:
             tabinfo = self.tableInfo(tabnum)
         except TableNotFoundError:
@@ -1751,7 +1760,7 @@ class Engine:
 
     def _registerSync(self, token:int) -> _queue.Queue:
         table = self._responsesTable
-        q: _queue.Queue = _queue.Queue()
+        q = _queue.Queue()
         self._responseCallbacks[token] = lambda token, q=q, t=table: q.put(t[token])
         return q
 
@@ -1762,6 +1771,9 @@ class Engine:
         Args:
             delay (float): the delay time, in seconds
             callback (callable): the callback, a function of the sort () -> None
+
+        The callback will be called after the given delay, plus some jitter
+        (~ 2/3 k-cycles after, never before)
 
         Example
         =======
@@ -1790,7 +1802,7 @@ class Engine:
 
     def plotTableSpectrogram(self, tabnum: int, fftsize=2048, mindb=-90,
                              maxfreq:int=None, overlap:int=4, minfreq:int=0,
-                             sr:int=44100
+                             sr:int=44100, chan=0
                              ) -> None:
         """
         Plot a spectrogram of the audio data in the given table
@@ -1807,6 +1819,7 @@ class Engine:
             minfreq (int): the min. frequency to plot
             sr: the fallback samplerate, used when the table has no samplerate
                 information of its own
+            chan: which channel to plot if the table is multichannel
 
         Example
         -------
@@ -1821,6 +1834,8 @@ class Engine:
         """
         from . import plotting
         data = self.getTableData(tabnum)
+        if internalTools.arrayNumChannels(data) > 1:
+            data = data[:, chan]
         tabinfo = self.tableInfo(tabnum)
         if tabinfo.sr > 0:
             sr = tabinfo.sr
@@ -1881,7 +1896,7 @@ class Engine:
         """
         from csoundengine import plotting
         assert isinstance(tabnum, int) and tabnum > 0
-        data = self.getTableData(tabnum)
+        data = self.getTableData(tabnum, flat=False)
         tabinfo = self.tableInfo(tabnum)
 
         if not sr and tabinfo.sr > 0:
@@ -1978,8 +1993,9 @@ class Engine:
                 outvalues a "__sync__" message.
         """
         assert token == pargs[3]
+        assert isinstance(token, int)
         table = self._responsesTable
-        self._responseCallbacks[token] = lambda token, t=table: callback(t[token])
+        self._responseCallbacks[token] = lambda token, t=table, c=callback: c(t[token])
         self._perfThread.scoreEvent(0, "i", pargs)
         return None
 
@@ -2042,7 +2058,7 @@ class Engine:
         """
         Create a table with data (or an empty table of the given size).
 
-        Let csound generate a table index if needed
+        Let csound generate a table index if needed.
 
         Args:
             data: the data to put in the table
@@ -2077,7 +2093,8 @@ class Engine:
             numchannels = internalTools.arrayNumChannels(data)
             numitems = len(data) * numchannels
             if numchannels > 1:
-                data = data.ravel()
+                data = data.flatten()
+                # data = data.ravel()
             if numitems < 1900:
                 # create a table with the given data
                 # if the table is small we can create it and fill it in one go
@@ -2089,7 +2106,7 @@ class Engine:
                          sr, numchannels]
                 pargs.extend(data)
             else:
-                # create an empty table, fill it via a pointer
+                # create an empty table (blocking), fill it via a pointer
                 empty = 1
                 pargs = [maketableInstrnum, delay, 0., token, tabnum, numitems, empty,
                          sr, numchannels]
@@ -2415,7 +2432,7 @@ class Engine:
         >>> e = Engine()
         >>> source = e.readSoundfile("stereo.wav", block=True)
         >>> eventid = e.playSample(source)
-        # Reduce the gain to 0.8 and playback speed to 0.5 after 2 seconds
+        >>> # Reduce the gain to 0.8 and playback speed to 0.5 after 2 seconds
         >>> e.setp(eventid, 4, 0.8, 5, 0.5, delay=2)
 
         See Also
@@ -2435,17 +2452,29 @@ class Engine:
 
         if tabnum is None:
             tabnum = self._assignTableNumber()
+        elif tabnum == 0 and not callback and not block:
+            logger.info("readSoundfile: tabnum==0 indicates that csound must assign"
+                        "a table number. This operation will block until the soundfile"
+                        "is read. To avoid this, set tabnum to None; in this case"
+                        "csoundengine will assign a table number itself and the"
+                        "operation can be non-blocking")
+            block = True
 
         self._tableInfo[tabnum] = _getSoundfileInfo(path)
 
-        token = self._getSyncToken()
+        if block or callback:
+            token = self._getSyncToken()
+        else:
+            # if token is set to 0, no notification takes place
+            token = 0
         p1 = self.builtinInstrs['readSndfile']
         msg = f'i {p1} 0 0. {token} "{path}" {tabnum} {chan}'
         if callback:
             self._inputMessageWithCallback(token, msg, lambda *args: callback())
-        else:
-            assert block
+        elif block:
             self._inputMessageWait(token, msg)
+        else:
+            self._perfThread.inputMessage(msg)
         return tabnum
 
     def soundfontPlay(self, index: int, pitch:float, amp:float=0.7, delay=0.,
@@ -2594,6 +2623,7 @@ class Engine:
                    starttime=0., gaingroup=0, lagtime=0.01, dur=-1.) -> float:
         """
         Play a sample already loaded into a table.
+
         Speed and gain can be modified via setp while playing
 
         Args:
@@ -2625,12 +2655,12 @@ class Engine:
             >>> e = Engine()
             >>> import sndfileio
             >>> sample, sr = sndfileio.sndread("stereo.wav")
-            # modify the sample in python
+            >>> # modify the sample in python
             >>> sample *= 0.5
             >>> source = e.makeTable(sample, sr=sr, block=True)
             >>> eventid = e.playSample(source)
-            # gain (p4) and speed (p5) can be modified while playing
-            # Play at half speed
+            ... # gain (p4) and speed (p5) can be modified while playing
+            ... # Play at half speed
             >>> e.setp(eventid, 5, 0.5)
 
         See Also
@@ -2748,12 +2778,10 @@ class Engine:
         Automate a table slot
 
         Args:
-            source: the number of the table to modify
+            tabnum: the number of the table to modify
             idx: the slot index
             pairs: the automation data is given as a flat sequence of pairs (time,
               value). Times are relative to the start of the automation event.
-              The very first value can be a NAN, in which case the current value
-              in the table is used.
             mode: one of 'linear', 'cos', 'expon(xx)', 'smooth'. See the opcode
               `interp1d` for more information
             delay: the time delay to start the automation.
@@ -2791,7 +2819,7 @@ class Engine:
         :meth:`~Engine.automatep`
         """
         # tabpairs table will be freed by the instr itself
-        tabpairs = self.makeTable(pairs, tabnum=0, block=True)
+        tabpairs = self.makeTable(pairs, tabnum=0, block=False)
         args = [tabnum, idx, tabpairs, self.strSet(mode), 2, 1, int(overtake)]
         dur = pairs[-2]+self.ksmps/self.sr
         return self.sched(self.builtinInstrs['automateTableViaTable'], delay=delay,
@@ -2839,7 +2867,7 @@ class Engine:
         :meth:`~Engine.automateTable`
         """
         # table will be freed by the instr itself
-        tabnum = self.makeTable(pairs, tabnum=0, block=True)
+        tabnum = self.makeTable(pairs, tabnum=0, block=False)
         args = [p1, pidx, tabnum, self.strSet(mode), int(overtake)]
         dur = pairs[-2]+self.ksmps/self.sr
         assert isinstance(dur, float)
@@ -3207,6 +3235,7 @@ class Engine:
         if not self.hasBusSupport():
             raise RuntimeError("This Engine was created without bus support")
         bustoken = int(self._busTokenCountPtr[0])
+        assert isinstance(bustoken, int)
         self._busTokenCountPtr[0] = bustoken+1
         if addref:
             pfields = [self.builtinInstrs['busaddref'], 0, 0, bustoken]
@@ -3220,8 +3249,10 @@ class Engine:
         # Assigns a bus to the given token
         # 1 = create bus
         pfields = [self.builtinInstrs['busindex'], 0, 0, synctoken, bustoken, 1]
-        def callback(synctoken, bustoken=bustoken):
-            self._busIndexes[bustoken] = int(self._responsesTable[synctoken])
+
+        def callback(synctoken, bustoken=bustoken, self=self):
+            self._busIndexes[bustoken] = int(self._responsesTable[int(synctoken)])
+
         self._eventWithCallback(synctoken, pfields, callback)
         return bustoken
 

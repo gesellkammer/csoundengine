@@ -1,11 +1,12 @@
 from __future__ import annotations
 from emlib import textlib, iterlib
+import re
 
-import csoundengine.csoundlib
 from .config import config, logger
 from .errors import CsoundError
 from . import csoundlib
 from . import jupytertools
+
 
 from typing import Dict, Optional as Opt, List, Union as U, Sequence as Seq, Tuple
 
@@ -13,13 +14,17 @@ from typing import Dict, Optional as Opt, List, Union as U, Sequence as Seq, Tup
 class Instr:
     """
     An Instr is a template used to schedule a concrete instrument
-    at a :class:`~csoundengine.session.Session` or a :class:`~csoundengine.offline.Renderer`.
-    It must be registered to be used.
+    within a :class:`~csoundengine.session.Session` or a :class:`~csoundengine.offline.Renderer`.
+
+    .. note::
+
+        An Instr must be registered at the Session or the Renderer before it can be used.
+        See :meth:`csoundengine.instr.Instr.register` or :meth:`csoundengine.session.Session.defInstr`
 
     Args:
         name: the name of the instrument
         body: the body of the instr (the text **between** 'instr' end 'endin')
-        args: if given, a dictionary defining pfields and their defaults.
+        args: if given, a dictionary defining default values for pfields
         init: code to be initialized at the instr0 level
         tabledef: An instrument can have an associated table to be able to pass
             dynamic parameters which are specific to this note (for example,
@@ -38,9 +43,10 @@ class Instr:
     Attributes:
         name: the name of this Instr
         body: the body of the instr (the text inside instr xxx/endin)
-        args: a dict like ``{'ibus': 1, 'kfreq': 440}``, defining pfields and
-            their default values. The mapping between pfield name and index
-            is done by order, starting with p5.
+        args: a dict like ``{'ibus': 1, 'kfreq': 440}``, defining default values for
+            pfields. The mapping between pfield name and index
+            is done by order, starting with p5 (**NB**: an instr cannot use ``p4``, since
+            ``p4`` is reserved for the parameter table)
         init: any global code needed
         tabledef: similar to args, but not using pfields but a table. In this
             case all variables are k-type and do not need the "k" prefix
@@ -51,7 +57,7 @@ class Instr:
 
 
     Example
-    =======
+    -------
 
     .. code-block:: python
 
@@ -64,6 +70,8 @@ class Instr:
         ''').register(s)
         synth = s.sched('sine', kfreq=440, kamp=0.1)
         synth.stop()
+
+    **Default Values**
 
     An Instr can define default values for any of its p-fields:
 
@@ -80,6 +88,8 @@ class Instr:
         # We schedule an event of sine, kamp will take the default (0.1)
         synth = s.sched('sine', kfreq=440)
         synth.stop()
+
+    **Inline arguments**
 
     An inline args declaration can set both pfield name and default value:
 
@@ -124,7 +134,7 @@ class Instr:
     the event is done. Call :meth:`~csoundengine.instr.Instr.dump` to see
     the generated code:
 
-    .. code-block:: csound
+    .. code-block:: python
 
         i_params = p4
         if ftexists(i_params) == 0 then
@@ -138,6 +148,8 @@ class Instr:
         kfreq tab 1, i_params
         a0 = oscili:a(kamp, kfreq)
         outch 1, a0
+
+    **Offline rendering**
 
     An Instr can also be used to define instruments for offline rendering (see
     :class:`~csoundengine.offline.Renderer`)
@@ -176,6 +188,7 @@ class Instr:
         renderer.render("out.wav")
 
     """
+
     __slots__ = (
         'body', 'name', 'args', 'init', '_tableDefaultValues', '_tableNameToIndex',
         'tabledef', 'numchans', 'instrFreesParamTable', 'doc',
@@ -318,7 +331,7 @@ class Instr:
         if self.tabledef:
             parts.append(f'&nbsp&nbsp&nbsp&nbsptabargs = <code>{self.tabledef}</code>')
         if config['jupyter_instr_repr_show_code']:
-            parts.append(csoundengine.csoundlib.highlightCsoundOrc(self.body))
+            parts.append(csoundlib.highlightCsoundOrc(self.body))
         return "\n".join(parts)
 
 
@@ -629,6 +642,11 @@ def _checkInstr(instr: str) -> str:
     if "instr" in lines[0] or "endin" in lines[-1]:
         errmsg = ("instr should be the body of the instrument,"
                   " without 'instr' and 'endin")
+    for i, line in enumerate(lines):
+        if re.search(r"\bp4\b", line):
+            errmsg = (f"The instr uses p4, but p4 is reserved for the parameters table. "
+                      f"Line {i}: {line}")
+            break
     return errmsg
 
 

@@ -12,7 +12,16 @@ class TableProxy:
     """
     A TableProxy is a proxy to an existing csound table
 
-    .. note::
+    Args:
+        tabnum: the csound table number
+        sr: the sample rate of the table
+        nchnls: the number of channels in the table
+        numframes: the number of frames (data = numframes * nchnls)
+        engine: the corresponding Engine
+        path: the path to the output, if known
+        freeself: if True, csound will free the table when this object goes out of scope
+
+    .. warning::
 
         A TableProxy is **never** created by the user directly. It is returned
         by certain operations within a :class:`~csoundengine.session.Session`,
@@ -27,7 +36,9 @@ class TableProxy:
         >>> from csoundengine import *
         >>> session = Engine().session()
         >>> table = session.readSoundfile("mono.wav")
-        # table is a TableProxy
+        >>> table
+        TableProxy(tabnum=1, sr=44100, nchnls=1, engine=Engine(…), numframes=102400, path='mono.wav', freeself=False)
+        >>> session.playSample(table, loop=True)
         >>> table.plot()
 
     .. image:: assets/tableproxy-plot.png
@@ -43,22 +54,10 @@ class TableProxy:
                  tabnum: int,
                  engine: Engine,
                  numframes: int,
-                 sr: int=0,
-                 nchnls: int=1,
-                 path:str='',
+                 sr: int = 0,
+                 nchnls: int = 1,
+                 path: str = '',
                  freeself=False):
-        """
-        Args:
-            tabnum (int) - the csound table number
-            sr (int) - the sample rate of the table
-            nchnls (int) - the number of channels in the table
-            numframes (int) - the number of frames (data = numframes * nchnls)
-            engine (Engine) - the corresponding Engine
-            path (str) - the path to the output, if known
-            freeself (bool) - if True, csound will free the table when this object
-                goes out of scope
-
-        """
         if path:
             path = os.path.abspath(os.path.expanduser(path))
         self.tabnum = tabnum
@@ -138,43 +137,3 @@ class TableProxy:
         from . import plotting
         plotting.plotSpectrogram(self.getData(), self.sr, fftsize=fftsize, mindb=mindb,
                                  maxfreq=maxfreq, minfreq=minfreq, overlap=overlap)
-
-    def playWithSession(self, **kws) -> Synth:
-        """
-        A proxy to Session.playSample
-
-        Possible kws
-        ------------
-
-        dur:
-            the duration of playback (-1 to play the whole sample)
-        chan:
-            the channel to play the sample to. In the case of multichannel
-            samples, this is the first channel
-        pan:
-            a value between 0-1. -1 means default, which is 0 for mono,
-            0.5 for stereo. For multichannel (3+) samples, panning is not
-            taken into account
-        gain:
-            gain factor. See also: gaingroup
-        speed:
-            speed of playback
-        loop:
-            True/False or -1 to loop as defined in the file itself (not all
-            file formats define loop points)
-        delay:
-            time to wait before playback starts
-        start:
-            the starting playback time (0=play from beginning)
-        fade:
-            fade in/out in secods. -1=default
-        gaingroup:
-            the idx of a gain group. The gain of all samples routed to the
-            same group are scaled by the same value and can be altered as a group
-            via Engine.setSubGain(idx, gain)
-
-        Returns:
-             A Synth. Modulatable parameters: gain, speed, chan, pan
-             (see Synth.pwrite)
-        """
-        return self.engine.session().playSample(self, **kws)

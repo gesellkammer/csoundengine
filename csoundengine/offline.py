@@ -1,7 +1,7 @@
 
 """
-This module provides an interface to offline rendering using the same
-interface as a :class:`~csoundengine.session.Session`. In fact, any realtime
+This module implements offline rendering using the same
+interface as a :class:`~csoundengine.session.Session`. Any realtime
 code run via a :class:`~csoundengine.session.Session` can be rendered offline
 by replacing the Session via a :class:`~csoundengine.offline.Renderer`
 
@@ -428,6 +428,11 @@ class Renderer:
         return self._instrdefs
 
     def getInstr(self, name) -> Optional[Instr]:
+        """
+        Find a registered Instr, by name
+
+        Returns None if no such Instr was registered
+        """
         return self._instrdefs.get(name)
 
     def addGlobalCode(self, code: str) -> None:
@@ -463,12 +468,11 @@ class Renderer:
 
         Args:
             instrname: the name of the already registered instrument
-            priority: the priority 1-9, will decide the order of
-                execution
+            priority: determines the order of execution
             delay: time offset
             dur: duration of this event. -1: endless
             pargs: pargs beginning with p5
-                (p1: instrnum, p2: delay, p3: duration, p4: source)
+                (p1: instrnum, p2: delay, p3: duration, p4: reserved)
             tabargs: a dict of the form param: value, to initialize
                 values in the parameter table (if defined by the given
                 instrument)

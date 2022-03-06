@@ -2,27 +2,21 @@ Introduction
 ============
 
 **csoundengine** is a library to run and control a csound process using
-its API (via `ctcsound <https://csound.com/docs/ctcsound/>`_).
+its API (via `ctcsound <https://csound.com/docs/ctcsound/>`__).
 
 Engine
 ------
 
-The core of **csoundengine** is the :class:`~csoundengine.engine.Engine` class,
-which wraps a csound process and allows transparent control over all parameters,
-while providing sane defaults adapted to the running system. It uses the csound
-API to communicate with csound. All audio processing is run in a thread with
-realtime priority to avoid dropouts.
-
-A csound process is launched by creating a new Engine. If not given any options,
-the current system is queried regarding number of channels, samplerate or buffer size,
-most appropriate audio backend, etc.
+The core of **csoundengine** is the :class:`~csoundengine.engine.Engine` class.
+An **Engine** wraps a csound process transparently: it lets the user compile
+csound code and schedule events without any overhead.
 
 .. code-block:: python
 
     from csoundengine import *
     # create an Engine with default/detected options for the platform.
     engine = Engine()
-    
+
     # Define an instrument
     engine.compile('''
       instr synth
@@ -48,6 +42,21 @@ most appropriate audio backend, etc.
     # of the running instrument, which can be used to further control it
     event = engine.sched("synth", args=[48, 0.2, 3000, 4])
 
+A csound process is launched by creating a new Engine. One difference to csound here is
+that **csoundengine** will query the system regarding audio backend, audio device,
+number of channels, samplerate, etc., for any option that is not explicitly given
+(instead of using some arbitrary default). For example, in linux **csoundengine**
+will first check if jack is running and use that, or fallback to portaudio otherwise
+(the order can be configured). If not given an audio device it will use the default
+device for the backend and will query the number of channels and use that as
+the `nchnls` option.
+
+Another difference to notice is that in **csoundengine** instruments can declare
+*pargs* as dynamic values (k-variables), which can be modulated after the
+event has started.
+
+.. code-block:: python
+
     # Change midinote. setp means: set p-field. This sets p4 (kmidinote) to 50
     engine.setp(event, 4, 50)
 
@@ -56,6 +65,19 @@ most appropriate audio backend, etc.
 
     # Stop the synth
     engine.unsched(event)
+
+
+An :class:`~csoundengine.engine.Engine` uses the csound API to communicate with
+csound. All audio processing is run in a thread with realtime priority to avoid
+dropouts.
+
+Built-in instruments
+~~~~~~~~~~~~~~~~~~~~
+
+An :class:`~csoundengine.engine.Engine` provides built-in functionality to
+perform common tasks, like reading a soundfile (:meth:`~csoundengine.engine.Engine.readSoundfile`),
+playing a sample from a table (:meth:`~csoundengine.engine.Engine.playSample`) or from disk
+(:meth:`~csoundengine.engine.Engine.playSampleFromDisk`)
 
 
 ----------------------------------
@@ -148,7 +170,7 @@ higher level interface, allowing to:
 csoundengine vs ctcsound
 ------------------------
 
-**csoundengine** uses `ctcsound <https://github.com/csound/csound/blob/master/interfaces/ctcsound.py>`_
+**csoundengine** uses `ctcsound <https://github.com/csound/csound/blob/master/interfaces/ctcsound.py>`__
 to interact with csound. **ctcsound** follows the csound API very closely and requires good knowledge
 of it in order to avoid crashes and provide good performance. **csoundengine** bundles
 this knowledge into a wrapper which is flexible for advanced use cases but enables a casual

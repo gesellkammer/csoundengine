@@ -1,4 +1,4 @@
-Session - High-level interface
+Session – High-level interface
 ==============================
 
 .. automodapi:: csoundengine.session

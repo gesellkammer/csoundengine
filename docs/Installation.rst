@@ -10,13 +10,13 @@ the same::
 Dependencies
 ------------
 
-`csoundengine` needs a recent version of csound (at least 6.16). Csound can be downloaded from 
-`<https://github.com/csound/csound/releases>`_
+* **csound6** (>= **6.16**): `<https://github.com/csound/csound/releases>`_
+  (*csound7* is not supported)
 
 
-.. note::
+.. admonition:: Linux: Installing from source
 
-   The csound version packaged with most linux distributions is often
-   too old. The best way to install csound is to install it from
-   source. See `Csound's BUILD documentation <https://github.com/csound/csound/blob/develop/BUILD.md>`_
-   for instructions
+    The csound version packaged with most linux distributions is often
+    too old. The best way to get csound is to install it from
+    source. See `Csound's BUILD documentation <https://github.com/csound/csound/blob/develop/BUILD.md>`_
+    for reference

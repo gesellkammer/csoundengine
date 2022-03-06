@@ -275,8 +275,10 @@ instr ${readSndfile}
     itab = p6
     ichan = p7
     itab2 ftgen itab, 0, 0, -1, Spath, 0, 0, ichan
-    tabw_i itab2, itoken, gi__responses
-    outvalue "__sync__", itoken
+    if itoken > 0 then
+        tabw_i itab2, itoken, gi__responses
+        outvalue "__sync__", itoken
+    endif
 endin
 
 instr ${playgen1}
@@ -285,7 +287,6 @@ instr ${playgen1}
     pset 0, 0, 0, 1,    1,     1,      1,    0.05, 0,         0,        0.01
     kgain = p4
     kspeed = p5
-    ksampsplayed = 0
     itabnum, ichan, ifade, ioffset, igaingroup, ilagtime passign 6
     ifade = max(ifade, ksmps/sr*2)
     inumsamples = nsamp(itabnum)
@@ -294,23 +295,31 @@ instr ${playgen1}
         initerror sprintf("Could not determine sr for table %d", itabnum)
     endif
     istartframe = ioffset * itabsr
-    ksampsplayed += ksmps * kspeed
+    idur = inumsamples / itabsr
+    kplayhead init ioffset
+    iperiod = ksmps/sr
+    kperiod = iperiod * kspeed
+    kplayhead += kperiod 
+    
+    if (release() == 0) && (kplayhead >= (idur-ifade-kperiod)) then
+        turnoff
+    endif
+    
     ; ar[] loscilx xamp, kcps, ifn, iwsize, ibas, istrt
     aouts[] loscilx 1, kspeed, itabnum, 4, 1, istartframe
+    inumouts = lenarray(aouts)
     aenv = linsegr:a(0, ifade, 1, ifade, 0)
     kgain *= table:k(igaingroup, gi__subgains)
     again = lag:a(a(kgain), ilagtime)
     aenv *= again
     aouts = aouts * aenv
-    inumouts = lenarray(aouts)
+    
     kchan = 0
     while kchan < inumouts do
         outch kchan+ichan, aouts[kchan]
         kchan += 1
     od
-    if ksampsplayed >= inumsamples then
-        turnoff
-    endif
+    
 endin
 
 instr ${strset}

@@ -16,9 +16,14 @@ Syntax::
 %%csound
 --------
 
-Compile the code in this cell within the current Engine. The current engine
-can be explicitely selected via ``%csound setengine <enginename>``. Otherwise
-the last started Engine will be used.
+Compile the code in this cell within the current Engine (notice the difference between `%csound`
+which is a line-magic and `%%csound` which is a cell-magic)
+
+.. admonition:: Setting the current Engine / Session
+
+    The current engine can be explicitely selected via ``%csound setengine <enginename>``.
+    Otherwise the last started Engine will be used. Whenever an Engine/Session is explicitly
+    set as active, any new Engine will not override this setting.
 
 
 .. code-block:: python
@@ -45,7 +50,8 @@ the last started Engine will be used.
 %%definstr
 ----------
 
-Defines a new Instr inside the current Session
+Defines a new Instr inside the current Session (the current Session is the Session
+associated with the current Engine)
 
 .. code-block:: python
 

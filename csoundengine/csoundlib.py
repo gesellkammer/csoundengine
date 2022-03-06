@@ -12,7 +12,7 @@ import shutil as _shutil
 import logging as _logging
 import textwrap as _textwrap
 import io as _io
-from pathlib import Path
+from pathlib import Path as _Path
 import tempfile as _tempfile
 import cachetools as _cachetools
 from dataclasses import dataclass
@@ -28,11 +28,10 @@ import emlib.dialogs
 import numpy as np
 import ctcsound
 
-
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Callable, Tuple, Union, Dict, List, Optional, \
-        Sequence, Generator, Any, IO, Set
+        Sequence, Generator, Any, Set
     Curve = Callable[[float], float]
 
 
@@ -1502,8 +1501,9 @@ class Csd:
         sr: the sample rate of the generated audio
         ksmps: the samples per cycle to use
         nchnls: the number of output channels
+        nchnls_i: if given, the number of input channels
         a4: the reference frequency
-        optiosn (list[str]): any number of extra options passed to csound
+        options (list[str]): any number of command-line options passed to csound
         nodisplay: if True, avoid outputting debug information
         carry: should carry be enabled in the score?
 
@@ -1525,7 +1525,7 @@ class Csd:
     """
 
     def __init__(self, sr=44100, ksmps=64, nchnls=2, a4=442., options:List[str]=None,
-                 nodisplay=False, carry=False):
+                 nodisplay=False, carry=False, nchnls_i: int = None):
         self._strLastIndex = 20
         self._str2index: Dict[str, int] = {}
         self.score: List[Union[list, tuple]] = []
@@ -1537,6 +1537,7 @@ class Csd:
         self.sr = sr
         self.ksmps = ksmps
         self.nchnls = nchnls
+        self.nchnls_i = nchnls_i
         self.a4 = a4
         self._sampleFormat: Optional[str] = None
         self._definedTables: Set[int] = set()
@@ -1552,7 +1553,7 @@ class Csd:
                  instr: Union[int, float, str],
                  start: float,
                  dur: float,
-                 args: List[float] = None) -> None:
+                 args: List[Union[float, str]] = None) -> None:
         """
         Add an instrument ("i") event to the score
 
@@ -1639,9 +1640,9 @@ class Csd:
 
         .. note::
 
-            The data is either included in the table definition or saved as an
-            external file. All external files are saved relative to the generated
-            .csd file when writing
+            The data is either included in the table definition (if it is
+            small enough) or saved as an external file. All external files are
+            saved relative to the generated .csd file when writing
         """
         sizeThreshold = config['offline_score_table_size_limit']
 
@@ -1675,12 +1676,14 @@ class Csd:
                       numchannels=1
                       ) -> int:
         """
+        Add an empty table to this Csd
 
         Args:
             tabnum: use 0 to autoassign an index
             size: the size of the empty table
             sr: if given, set the sr of the empty table to the given sr
             numchannels: the number of channels in the table
+
         Returns:
             The index of the created table
         """
@@ -1696,7 +1699,8 @@ class Csd:
 
     def addSndfile(self, sndfile:str, tabnum=0, start=0., skiptime=0, chan=0,
                    asProjectFile=False) -> int:
-        """ Add a table which will load this sndfile
+        """
+        Add a table which will load this sndfile
 
         Args:
             sndfile: the output to load
@@ -1725,8 +1729,7 @@ class Csd:
 
     def destroyTable(self, tabnum:int, time:float) -> None:
         """
-        Schedule ftable with index `source` to be destroyed
-        at time `time`
+        Schedule ftable with index `source` to be destroyed at time `time`
 
         Args:
             tabnum: the index of the table to be destroyed
@@ -1779,7 +1782,7 @@ class Csd:
             outfilebase = f'table-{tabnum:04d}.{datafile.fmt}'
             if dataprefix:
                 outfilebase = f'{dataprefix}-{outfilebase}'
-            datadirpath = Path(datadir)
+            datadirpath = _Path(datadir)
             outfile = datadirpath / outfilebase
             datafile.write(outfile.as_posix())
             relpath = outfile.relative_to(datadirpath.parent)
@@ -1794,6 +1797,10 @@ class Csd:
             instr: the instrument number of name
             body: the body of the instrument (the part between 'instr' / 'endin')
         """
+        if _re.search(r"^\s*instr", body):
+            raise ValueError("The body should include the instrument definition, the part between"
+                             "'instr' / 'endin', got: {body}")
+
         self.instrs[instr] = body
 
     def addGlobalCode(self, code: str, acceptDuplicates=True) -> None:
@@ -1835,6 +1842,24 @@ class Csd:
         self.addEvent('_playgen1', start=start, dur=dur, args=args)
 
     def write(self, csdfile: str) -> None:
+        """
+        Write this as a .csd
+
+        Any data files added are written to a folder <csdfile>.assets besides the
+        generated .csd file.
+
+        Example
+        -------
+
+        >>> from csoundengine.csoundlib import Csd
+        >>> csd = Csd(...)
+        >>> csd.write("myscript.csd")
+
+        This will generate a `m̀yscript.csd`` file and a folder `m̀yscript.assets`` holding
+        any data file needed. If no data files are used, no ``.assets`` folder is created
+
+
+        """
         base = _os.path.splitext(csdfile)[0]
         stream = open(csdfile, "w")
         if self.datafiles:
@@ -1844,7 +1869,7 @@ class Csd:
             datadir = ''
         self._writeCsd(stream, datadir=datadir)
 
-    def _writeCsd(self, stream: Union[str, IO], datadir='') -> None:
+    def _writeCsd(self, stream, datadir='') -> None:
         """
         Write this as a csd
 
@@ -1881,12 +1906,13 @@ class Csd:
             {srstr}
             ksmps  = {self.ksmps}
             0dbfs  = 1
-            nchnls = {self.nchnls}
             A4     = {self.a4}
-
+            nchnls = {self.nchnls}
             """
         txt = _textwrap.dedent(txt)
         write(txt)
+        if self.nchnls_i is not None:
+            write(f'nchnls_i = {self.nchnls_i}\n')
         tab = "  "
 
         if self._str2index:
@@ -2403,7 +2429,9 @@ def instrNames(instrdef: str) -> List[Union[int, str]]:
 @dataclass
 class ParsedBlock:
     """
-    A ParsedBlock represents a block (am instr, opcode, etc) in an orchestra
+    A ParsedBlock represents a block (an instr, an opcode, etc) in an orchestra
+
+    Used by :func:`parseOrc` to split an orchestra in individual blocks
 
     Attributes:
         kind: the kind of block ('instr', 'opcode', 'header')
@@ -2442,6 +2470,65 @@ def parseOrc(code: str, keepComments=True) -> List[ParsedBlock]:
 
     Each block is either an instr, an opcode, a header line, a comment
     or an instr0 line
+
+    Example
+    -------
+
+    .. code-block:: python
+
+        >>> from csoundengine import csoundlib
+        >>> orc = r'''
+        ... sr = 44100
+        ... nchnls = 2
+        ... ksmps = 32
+        ... 0dbfs = 1
+        ... seed 0
+        ...
+        ... opcode AddSynth,a,i[]i[]iooo
+        ...  /* iFqs[], iAmps[]: arrays with frequency ratios and amplitude multipliers
+        ...  iBasFreq: base frequency (hz)
+        ...  iPtlIndex: partial index (first partial = index 0)
+        ...  iFreqDev, iAmpDev: maximum frequency (cent) and amplitude (db) deviation */
+        ...  iFqs[], iAmps[], iBasFreq, iPtlIndx, iFreqDev, iAmpDev xin
+        ...  iFreq = iBasFreq * iFqs[iPtlIndx] * cent(rnd31:i(iFreqDev,0))
+        ...  iAmp = iAmps[iPtlIndx] * ampdb(rnd31:i(iAmpDev,0))
+        ...  aPartial poscil iAmp, iFreq
+        ...  if iPtlIndx < lenarray(iFqs)-1 then
+        ...   aPartial += AddSynth(iFqs,iAmps,iBasFreq,iPtlIndx+1,iFreqDev,iAmpDev)
+        ...  endif
+        ...  xout aPartial
+        ... endop
+        ...
+        ... ;frequency and amplitude multipliers for 11 partials of Risset's bell
+        ... giFqs[] fillarray  .56, .563, .92, .923, 1.19, 1.7, 2, 2.74, 3, 3.74, 4.07
+        ... giAmps[] fillarray 1, 2/3, 1, 1.8, 8/3, 5/3, 1.46, 4/3, 4/3, 1, 4/3
+        ...
+        ... instr Risset_Bell
+        ...  ibasfreq = p4
+        ...  iamp = ampdb(p5)
+        ...  ifqdev = p6 ;maximum freq deviation in cents
+        ...  iampdev = p7 ;maximum amp deviation in dB
+        ...  aRisset AddSynth giFqs, giAmps, ibasfreq, 0, ifqdev, iampdev
+        ...  aRisset *= transeg:a(0, .01, 0, iamp/10, p3-.01, -10, 0)
+        ...  out aRisset, aRisset
+        ... endin
+        ... ''')
+        >>> csoundlib.parseOrc(orc)
+        [ParsedBlock(kind='header'P, text='sr = 44100', startLine=1, endLine=1, name='sr',
+                     attrs={'value': '44100'}),
+         ParsedBlock(kind='header', text='ksmps = 32', startLine=2, endLine=2, name='ksmps', attrs={'value': '32'}),
+         ParsedBlock(kind='header', text='nchnls = 2', startLine=3, endLine=3, name='nchnls', attrs={'value': '2'}),
+         ParsedBlock(kind='header', text='0dbfs = 1', startLine=4, endLine=4, name='0dbfs', attrs={'value': '1'}),
+         ParsedBlock(kind='instr0', text='seed 0', startLine=6, endLine=6, name='', attrs=None),
+         ParsedBlock(kind='opcode', text='opcode AddSynth,a,i[]i[]iooo\\n iFqs[], iAmps[], iBasFreq, iPtlIndx, <...>',
+                     name='AddSynth', attrs={'outargs': 'a', 'inargs': 'i[]i[]iooo'}),
+         ParsedBlock(kind='comment', text=";frequency and amplitude multipliers for 11 partials of Risset's bell",
+                     startLine=19, endLine=19, name='', attrs=None),
+         ParsedBlock(kind='instr0', text='giFqs[] fillarray  .56, .563, .92, .923, 1.19, 1.7, 2, 2.74, 3, 3.74, 4.07', startLine=20, endLine=20, name='', attrs=None),
+         ParsedBlock(kind='instr0', text='giAmps[] fillarray 1, 2/3, 1, 1.8, 8/3, 5/3, 1.46, 4/3, 4/3, 1, 4/3', startLine=21, endLine=21, name='', attrs=None),
+         ParsedBlock(kind='instr', text='instr Risset_Bell\\n ibasfreq = p4\\n iamp = ampdb(p5)\\n <...>'
+                     startLine=23, endLine=31, name='Risset_Bell', attrs=None)]
+
     """
     context = []
     blocks: List[ParsedBlock] = []
@@ -2511,6 +2598,8 @@ class ParsedInstrBody:
     """
     This class holds the result of parsing the body of an instrument
 
+    This is used by :func:`instrParseBody`
+
     Attributes:
         pfieldsIndexToName: maps p index to name
         pfieldsText: a (multiline) string collecting all lines
@@ -2550,6 +2639,27 @@ def instrParseBody(body: str) -> ParsedInstrBody:
 
     Returns:
         a ParsedInstrBody
+
+    Example
+    -------
+
+        >>> from csoundengine import csoundlib
+        >>> body = r'''
+        ... pset 0, 0, 0, 1, 1000
+        ... ibus = p4
+        ... kfreq = p5
+        ... a0 = busin(ibus)
+        ... a1 = oscili:a(0.5, kfreq) * a0
+        ... outch 1, a1
+        ... '''
+        >>> csoundlib.instrParseBody(body)
+        ParsedInstrBody(pfieldsIndexToName={4: 'ibus', 5: 'kfreq'},
+                        pfieldsText='ibus = p4\\nkfreq = p5', body='\\na0 = busin(ibus)\\n
+                          a1 = oscili:a(0.5, kfreq) * a0\\noutch 1, a1',
+                        pfieldsDefaults={1: 0.0, 2: 0.0, 3: 0.0, 4: 1.0, 5: 1000.0},
+                        pfieldsUsed={4, 5},
+                        outChannels={1},
+                        pfieldsNameToIndex={'ibus': 4, 'kfreq': 5})
     """
     pfield_lines = []
     rest_lines = []

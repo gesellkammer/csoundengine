@@ -39,9 +39,30 @@ def arrayNumChannels(a: np.ndarray) -> int:
     return 1 if len(a.shape) == 1 else a.shape[1]
 
 
+def unflattenArray(a: np.ndarray, numchannels: int) -> None:
+    """
+    Unflatten array in place
+
+    Args:
+        a: the array to unflatten
+        numchannels: the number of audio channels in the data
+    """
+    if len(a.shape) > 1:
+        if a.shape[1] != numchannels:
+           raise ValueError("Array is not flat but the number of channels"
+                            f"diverge (given numchannels={numchannels}, "
+                            f"array number of channels: {a.shape[1]}")
+        return a
+    numrows = len(a) / numchannels
+    if numrows != int(numrows):
+        raise ValueError("The array does not have an integral number of frames. "
+                         f"(length: {len(a)} / {numchannels} = {numrows}")
+    a.shape = (numrows, numchannels)
+
+
 def getChannel(samples: np.ndarray, channel: int) -> np.ndarray:
-    """ Get a channel of a numpy array holding possibly multichannel
-    audio data
+    """
+    Get a channel of a numpy array holding possibly multichannel audio data
 
     Args:
         samples: the (multichannel) audio data
@@ -257,3 +278,5 @@ def resolvePfieldIndex(pfield: Union[int, str], pfieldNameToIndex: Dict[str, int
 
 def isAscii(s: str) -> bool:
     return all(ord(c)<128 for c in s)
+
+

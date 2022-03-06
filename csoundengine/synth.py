@@ -92,10 +92,10 @@ class AbstrSynth:
             from csoundengine import *
             session = Engine().session()
             session.defInstr('sine', r'''
-                {amp=0.1, freq=1000}
+                {kamp=0.1, kfreq=1000}
                 outch 1, oscili:a(kamp, kfreq)
             ''')
-            synth = session.sched('sine', kfreq=440)
+            synth = session.sched('sine', tabargs={'kfreq': 440})
             synth.set('kfreq', 2000, delay=3)
         """
         raise NotImplementedError()
@@ -264,7 +264,7 @@ class Synth(AbstrSynth):
     .. code::
 
         from csoundengine import *
-        from pitchtools import ntom
+        from pitchtools import n2m
         session = Engine().session()
         session.defInstr('vco', r'''
             |kamp=0.1, kmidi=60, ktransp=0|
@@ -272,11 +272,12 @@ class Synth(AbstrSynth):
             asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
             outch 1, asig
         ''')
-        notes = ['4C', '4D', '4E']
-        synths = [session.sched('vco', kamp=0.2, kmidi=ntom(n)) for n in notes]
+        notes = ['4C', '4E', '4G']
+        synths = [session.sched('vco', kamp=0.2, kmidi=n2m(n)) for n in notes]
         # synths is a list of Synth
         # automate ktransp in synth 1 to produce 10 second gliss of 1 semitone downwards
         synths[1].automatep('ktransp', [0, 0, 10, -1])
+
     """
 
     def __init__(self,

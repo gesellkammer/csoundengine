@@ -3,7 +3,7 @@
 
 from setuptools import setup
 
-version = (1, 8, 3)
+version = (1, 8, 4)
 
 from os import path
 this_directory = path.abspath(path.dirname(__file__))
@@ -41,7 +41,8 @@ setup(
         "sf2utils",
         "jupyter",
         "ipywidgets",
-        "risset"
+        "risset",
+        "progressbar2"
     ],
     license="BSD",
     classifiers=[

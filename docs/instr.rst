@@ -1,5 +1,5 @@
-Instr
-=====
+Instr – Instrument Templates
+============================
 
 An Instr is a template used to schedule a concrete instrument at a :class:`~csoundengine.session.Session` 
 or a :class:`~csoundengine.offline.Renderer`.
@@ -21,4 +21,7 @@ Example
     ...
     synth.stop()
 
+
 .. autoclass:: csoundengine.instr.Instr
+    :members:
+
