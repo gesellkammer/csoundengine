@@ -7,8 +7,7 @@ from .errors import CsoundError
 from . import csoundlib
 from . import jupytertools
 
-
-from typing import Dict, Optional as Opt, List, Union as U, Sequence as Seq, Tuple
+from typing import Dict, Optional, List, Union, Sequence as Seq, Tuple
 
 
 class Instr:
@@ -54,6 +53,8 @@ class Instr:
         freetable: if True, the Instr generates code to free the parameters table
         doc: some text documenting the use/purpose of this Instr
         originalBody: the body before any code-generation.
+        id: an int identifying this Instr. This is actually a hash and can be used
+            to check if too Instrs are equal
 
 
     Example
@@ -190,7 +191,7 @@ class Instr:
     """
 
     __slots__ = (
-        'body', 'name', 'args', 'init', '_tableDefaultValues', '_tableNameToIndex',
+        'body', 'name', 'args', 'init', 'id', '_tableDefaultValues', '_tableNameToIndex',
         'tabledef', 'numchans', 'instrFreesParamTable', 'doc',
         'pargsIndexToName', 'pargsNameToIndex', 'pargsIndexToDefaultValue',
         '_numpargs', '_recproc', '_check', '_preschedCallback',
@@ -208,7 +209,6 @@ class Instr:
                  freetable=True,
                  doc: str = '',
                  userPargsStart=5,
-                 exitlabel = '__exit'
                  ) -> None:
 
         assert isinstance(name, str)
@@ -218,8 +218,8 @@ class Instr:
 
         self.originalBody = body
 
-        self._tableDefaultValues: Opt[List[float]] = None
-        self._tableNameToIndex: Opt[Dict[str, int]] = None
+        self._tableDefaultValues: Optional[List[float]] = None
+        self._tableNameToIndex: Optional[Dict[str, int]] = None
 
         delimiters, inline_args, body = parseInlineArgs(body)
 
@@ -242,8 +242,10 @@ class Instr:
             self._tableDefaultValues = defaultvals
             tabcode = _tabledefGenerateCode(tabledef, freetable=freetable)
             body = textlib.joinPreservingIndentation((tabcode, body))
+            needsExitLabel = True
         else:
             freetable = False
+            needsExitLabel = False
 
         if args:
             pfields = _pfieldsMergeDeclaration(args, body, startidx=userPargsStart)
@@ -255,40 +257,55 @@ class Instr:
             pargsIndexToName = parsed.pfieldsIndexToName
             pargsDefaultValues = parsed.pfieldsDefaults or {}
 
-        if exitlabel:
-            if exitlabel[-1] != ":":
-                exitlabel += ":"
-            body = textlib.joinPreservingIndentation((body, exitlabel))
+        if needsExitLabel:
+            body = textlib.joinPreservingIndentation((body, "__exit:"))
 
         self.tabledef = tabledef
+
         self.name = name
+        "The name of this instr"
+
         self.body = body
+        "The body of this instr (the part between instr/endin)"
+
         self.args = args
+        "Named arguments of this instr, with defaults"
+
         self.init = init if init else None
+        "Init code needed by this instr"
+
         self.numchans = numchans
+        "Number of channels of output"
+
         self.doc = doc
-        self._numpargs: Opt[int] = None
-        self._recproc = None
-        self._check = config['check_pargs']
-        self._preschedCallback = preschedCallback
+        "Doc for this instr"
+
+        self.id: int = self._id()
+        "an int identifying this Instr"
+
         self.pargsIndexToName: dict[int, str] = pargsIndexToName
         self.pargsNameToIndex: dict[str, int] = {n:i for i, n in pargsIndexToName.items()}
         self.pargsIndexToDefaultValue: dict[int, float] = pargsDefaultValues
         self.instrFreesParamTable = freetable
 
+        self._numpargs: Optional[int] = None
+        self._recproc = None
+        self._check = config['check_pargs']
+        self._preschedCallback = preschedCallback
+
+    def _id(self) -> int:
+        argshash = hash(frozenset(self.args.items())) if self.args else 0
+        tabhash = hash(frozenset(self.tabledef.items())) if self.tabledef else 0
+        return hash((self.name, self.body, self.init, self.doc, self.numchans,
+                     argshash, tabhash))
+
+    def __hash__(self) -> int:
+        return self.id
+
     def __eq__(self, other: Instr) -> bool:
         if not isinstance(other, Instr):
             return NotImplemented
-        return (self.name == other.name and
-                self.body == other.body and
-                self.init == other.init and
-                self.tabledef == other.tabledef and
-                self.pargsIndexToName == other.pargsIndexToName and
-                self.pargsIndexToDefaultValue == other.pargsIndexToDefaultValue and
-                self.numchans == other.numchans and
-                self.doc == other.doc and
-                self.instrFreesParamTable == other.instrFreesParamTable
-                )
+        return self.id == other.id
 
     def __repr__(self) -> str:
         parts = [self.name]
@@ -334,6 +351,15 @@ class Instr:
             parts.append(csoundlib.highlightCsoundOrc(self.body))
         return "\n".join(parts)
 
+    def paramMode(self) -> Optional[str]:
+        """
+        Returns the dynamic parameter mode, or None
+
+        Returns one of 'parg', 'table' or None if this object does not
+        define any dynamic parameters
+        """
+        hasDynamicPargs = any(name.startswith('k') for name in self.pargsNameToIndex.keys())
+        return 'table' if self.hasParamTable() else 'parg' if hasDynamicPargs else None
 
     def dump(self) -> str:
         """
@@ -355,6 +381,26 @@ class Instr:
         sections.append("> body")
         sections.append(self.body)
         return "\n".join(sections)
+
+    def namedParams(self) -> Dict[str, float]:
+        """
+        Returns named dynamic parameters and their defaults
+
+        This method is independent of the parameter mode used (whether a param table or
+        named pargs).
+
+        Returns:
+            a list of named dynamic parameters to this instr, together with its associated
+            default values
+        """
+        paramMode = self.paramMode()
+        if paramMode is None:
+            return {}
+        elif paramMode == 'table':
+            return self.tabledef
+        else:
+            return {key: self.pargsIndexToDefaultValue.get(idx)
+                    for key, idx in self.pargsNameToIndex.items()}
 
     def register(self, renderer) -> Instr:
         """
@@ -396,7 +442,7 @@ class Instr:
             renderer.registerInstr(self)
         return self
 
-    def pargIndex(self, parg: U[int, str]) -> int:
+    def pargIndex(self, parg: Union[int, str]) -> int:
         """
         Helper function, returns the index corresponding to the given parg.
 
@@ -410,7 +456,7 @@ class Instr:
         return parg if isinstance(parg, int) else \
             _pargIndex(parg, self.pargsNameToIndex)
 
-    def pargsTranslate(self, args: Seq[float] = (), kws: Dict[U[str, int], float] = None
+    def pargsTranslate(self, args: Seq[float] = (), kws: Dict[Union[str, int], float] = None
                        ) -> List[float]:
         """
         Given pargs as values and keyword arguments, generate a list of
@@ -418,8 +464,8 @@ class Instr:
         (p4 is reserved)
 
         Args:
-            *args: parg values, starting with p5
-            **kws: named pargs (a name can also be 'p8' for example)
+            args: parg values, starting with p5
+            kws: named pargs (a name can also be 'p8' for example)
 
         Returns:
             a list of float values with 0 representing absent pargs
@@ -434,7 +480,7 @@ class Instr:
             for i, v in self.pargsIndexToDefaultValue.items():
                 pargs[i-firstp-1] = v
         if args:
-            pargs[:len(pargs)] = args
+            pargs[:len(args)] = args
         if kws:
             for pname, value in kws.items():
                 idx = pname if isinstance(pname, int) else _pargIndex(pname, n2i)
@@ -456,7 +502,7 @@ class Instr:
         Returns:
             The generated csound orchestra
         """
-        sr = sr or config['rec.sr']
+        sr = sr or config['rec_sr']
         ksmps = ksmps or config['ksmps']
         a4 = a4 if a4 is not None else config['A4']
         if self.init is None:
@@ -507,9 +553,9 @@ class Instr:
                 If not given, a temporary file will be generated.
             args: the data. of pargs passed to the instrument (if any),
                 beginning with p4
-            sr: the sample rate -> config['rec.sr']
-            ksmps: the number of samples per cycle -> config['rec.ksmps']
-            samplefmt: one of 16, 24, 32, or 'float' -> config['rec.sample_format']
+            sr: the sample rate -> config['rec_sr']
+            ksmps: the number of samples per cycle -> config['rec_ksmps']
+            samplefmt: one of 16, 24, 32, or 'float' -> config['rec_sample_format']
             nchnls: the number of channels of the generated output.
             block: if True, the function blocks until done, otherwise rendering
                 is asynchronous
@@ -538,9 +584,9 @@ class Instr:
                 (p1 is omitted)
             outfile: if given, the path to the generated output. If not
                 given, a temporary file will be generated.
-            sr: the sample rate -> config['rec.sr']
-            ksmps: the number of samples per cycle -> config['rec.ksmps']
-            samplefmt: one of 16, 24, 32, or 'float' -> config['rec.sample_format']
+            sr: the sample rate -> config['rec_sr']
+            ksmps: the number of samples per cycle -> config['rec_ksmps']
+            samplefmt: one of 16, 24, 32, or 'float' -> config['rec_sample_format']
             nchnls: the number of channels of the generated output.
             a4: the frequency of A4 (see config['A4']
             block: if True, the function blocks until done, otherwise rendering
@@ -554,9 +600,9 @@ class Instr:
             :meth:`~Instr.rec`
         """
         a4 = a4 or config['A4']
-        sr = sr or config['rec.sr']
-        ksmps = ksmps or config['rec.ksmps']
-        samplefmt = samplefmt or config['rec.sample_format']
+        sr = sr or config['rec_sr']
+        ksmps = ksmps or config['rec_ksmps']
+        samplefmt = samplefmt or config['rec_sample_format']
         initstr = self.init or ""
         a4 = a4 or config['A4']
         outfile, popen = csoundlib.recInstr(body=self.body,
@@ -650,8 +696,8 @@ def _checkInstr(instr: str) -> str:
     return errmsg
 
 
-def parseInlineArgs(body: U[str, list[str]]
-                    ) -> tuple[str, Opt[dict[str, float]], str]:
+def parseInlineArgs(body: Union[str, list[str]]
+                    ) -> tuple[str, Optional[dict[str, float]], str]:
     """
     Parse an instr body with a possible args declaration (see below).
 
@@ -818,7 +864,7 @@ def _pargIndex(parg: str, pargMapping:Dict[str, int]) -> int:
     assert idx > 0
     return idx
 
-def _detect_inline_args(lines: List[str]) -> Tuple[str, Opt[int]]:
+def _detect_inline_args(lines: List[str]) -> Tuple[str, Optional[int]]:
     """
     Given a list of lines of an instrument's body, detect
     if the instrument has inline args defined, and which kind

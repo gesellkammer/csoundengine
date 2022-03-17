@@ -322,20 +322,26 @@ class Session:
         ''')
     """
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, maxpriorities=10) -> None:
         """
 
         Args:
             name (str): the name of the Session, which corresponds to an existing
                 Engine with the same name
+            maxpriorities: the max. number of priorities for this Session. This
+                determines how deep a chain of effects can effectively be.
         """
         assert name in Engine.activeEngines, f"Engine {name} does not exist!"
 
         self.name: str = name
+
         self.instrs: Dict[str, Instr] = {}
+        "maps instr name to Instr"
+
+        self._instrIndex: Dict[int, Instr] = {}
 
         self._bucketsize: int = 1000
-        self._numbuckets: int = 10
+        self._numbuckets: int = maxpriorities
         self._buckets: List[Dict[str, int]] = [{} for _ in range(self._numbuckets)]
 
         # A dict of the form: {instrname: {priority: reifiedInstr }}
@@ -537,7 +543,10 @@ class Session:
         """
         return self.instrs
 
-    def registerInstr(self, instr: Instr) -> None:
+    def isInstrRegistered(self, instr: Instr) -> bool:
+        return instr.id in self._instrIndex
+
+    def registerInstr(self, instr: Instr) -> bool:
         """
         Register the given Instr in this session.
 
@@ -546,16 +555,25 @@ class Session:
         Args:
             instr: the Instr to register
 
+        Returns:
+            False if this instr was already defined in its current form
+
         See Also
         ~~~~~~~~
 
         :meth:`~Session.defInstr`
 
         """
-        oldinstr = self.instrs.get(instr.name)
-        if instr == oldinstr:
-            return
-        if instr.init and (oldinstr is None or instr.init != oldinstr.init):
+        if instr.id in self._instrIndex:
+            return False
+
+        if instr.name in self.instrs:
+            logger.info(f"Redefining instr {instr.name}")
+            oldinstr = self.instrs[instr.name]
+            del self._instrIndex[oldinstr.id]
+
+        if instr.init and instr.init not in self._initCodes:
+            # compile init code if we haven't already
             try:
                 self.engine.compile(instr.init)
                 self._initCodes.append(instr.init)
@@ -563,6 +581,8 @@ class Session:
                 raise CsoundError(f"Could not compile init code for instr {instr.name}")
         self._clearCacheForInstr(instr.name)
         self.instrs[instr.name] = instr
+        self._instrIndex[instr.id] = instr
+        return True
 
     def _clearCacheForInstr(self, instrname: str) -> None:
         if instrname in self._reifiedInstrDefs:

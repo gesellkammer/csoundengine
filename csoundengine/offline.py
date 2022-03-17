@@ -201,11 +201,10 @@ endin
 
 opcode sfloadonce, i, S
   Spath xin
-  Skey_ strcat "SFLOAD:", Spath
-  iidx dict_get gi__soundfontIndexes, Skey_, -1
+  iidx dict_get gi__soundfontIndexes, Spath, -1
   if (iidx == -1) then
       iidx sfload Spath
-      dict_set gi__soundfontIndexes, Skey_, iidx
+      dict_set gi__soundfontIndexes, Spath, iidx
   endif
   xout iidx
 endop
@@ -285,8 +284,8 @@ class Renderer:
         self.scheduledEvents: Dict[int, ScoreEvent] = {}
         self._idCounter = 0
         a4 = a4 or config['A4']
-        sr = sr or config['rec.sr']
-        ksmps = ksmps or config['rec.ksmps']
+        sr = sr or config['rec_sr']
+        ksmps = ksmps or config['rec_ksmps']
         self.csd = csoundlib.Csd(sr=sr, nchnls=nchnls, ksmps=ksmps, a4=a4)
         self._nameAndPriorityToInstrnum: Dict[Tuple[str, int], int] = {}
         self._instrnumToNameAndPriority: Dict[int, Tuple[str, int]] = {}
@@ -649,6 +648,15 @@ class Renderer:
         ``'myproj.assets/mysnd.wav'``
         """
         self.csd.write(outfile)
+
+    def generateCsdString(self) -> str:
+        """
+        Returns the csd as a string
+
+        Returns:
+            the csd as str
+        """
+        return self.csd.dump()
 
     def getEventById(self, eventid: int) -> Optional[ScoreEvent]:
         """

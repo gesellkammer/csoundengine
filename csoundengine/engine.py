@@ -327,6 +327,9 @@ class Engine:
     #    _reservedInstrnums.add(instrnum)
     #_builtinInstrs = engineorc.BUILTIN_INSTRS
     _builtinTables = engineorc.BUILTIN_TABLES
+    _channelMode = {'r': ctcsound.CSOUND_INPUT_CHANNEL,
+                    'w': ctcsound.CSOUND_INPUT_CHANNEL,
+                    'rw': ctcsound.CSOUND_INPUT_CHANNEL | ctcsound.CSOUND_OUTPUT_CHANNEL}
 
     def __init__(self,
                  name:str = None,
@@ -593,6 +596,8 @@ class Engine:
 
         self._tableCache: Dict[int, np.ndarray] = {}
         self._tableInfo: Dict[int, TableInfo] = {}
+
+        self._channelPointers: Dict[str, np.ndarray] = {}
 
         self._instrNumCache: Dict[str, int] = {}
 
@@ -1380,7 +1385,7 @@ class Engine:
             pargsnp[1] = delay
             pargsnp[2] = dur
             pargsnp[3:] = args
-            # 0: we use always absolute time
+            # 1: we use always absolute time
             self._perfThread.scoreEvent(1, "i", pargsnp)
         else:
             pargs = [instrfrac, delay, dur]
@@ -2130,6 +2135,36 @@ class Engine:
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         return tabnum
 
+    def channelPointer(self, channel: str, kind='control', mode='rw') -> np.ndarray:
+        """
+        Returns a numpy array aliasing the memory of a control or audio channel
+
+        If the channel does not exist, it will be created with the given `kind` and set to
+        the given mode.
+        The returned numpy arrays are internally cached and are valid as long as this Engine is active.
+        Accessing the channel through the pointer is not thread-safe.
+
+        Args:
+            channel: the name of the channel
+            kind: one of 'control' or 'audio' (string channels are not supported yet)
+
+        Returns:
+            a numpy array of either 1 or ksmps size
+
+        .. seealso:: :meth:`Engine.setChannel`
+        """
+        if kind == 'string':
+            raise NotImplementedError("Only kind 'control' and 'audio' are implemented at the moment")
+        ptr = self._channelPointers.get(channel)
+        if ptr is None:
+            kindint = ctcsound.CSOUND_CONTROL_CHANNEL if kind == 'control' else ctcsound.CSOUND_AUDIO_CHANNEL
+            ptr, err = self.csound.channelPtr(channel, kindint | self._channelMode[mode])
+            if err:
+                raise RuntimeError(f"Error while trying to retrieve/create a channel pointer: {err}")
+            self._channelPointers[channel] = ptr
+        assert ptr is not None
+        return ptr
+
     def setChannel(self, channel:str, value:Union[float, str, np.ndarray],
                    method:str=None, delay=0.) -> None:
         """
@@ -2193,6 +2228,15 @@ class Engine:
                 raise RuntimeError("This server has been started without udp support")
             assert isinstance(value, (float, str))
             self.udpSetChannel(channel, value)
+        elif method == 'pointer':
+            if isinstance(value, str):
+                raise ValueError("Method 'pointer' not available for string channels")
+            ptr = self.channelPointer(channel)
+            if isinstance(value, float):
+                ptr[0] = value
+            elif isinstance(value, np.ndarray):
+                assert len(value) == self.ksmps
+                ptr[:] = value
         else:
             raise ValueError(f"method {method} not supported "
                              f"(choices: 'api', 'score', 'udp'")
@@ -2750,6 +2794,12 @@ class Engine:
         """
         Get the current pfield value of an active synth.
 
+        .. note::
+
+            This action has always a certain latency, since it implies
+            scheduling an internal event to read the value and send it
+            back to python. The action is blocking
+
         Args:
             eventid: the (fractional) id (a.k.a p1) of the event
             idx: the index of the p-field, starting with 1 (4=p4)
@@ -2831,6 +2881,9 @@ class Engine:
         """
         Automate a pfield of a running event
 
+        The automation is done by another csound event, so it happens within the
+        "csound" realm and thus is assured to stay in sync
+
         Args:
             p1: the fractional instr number of a running event, or an int number
                 to modify all running instances of that instr
@@ -2867,12 +2920,21 @@ class Engine:
         :meth:`~Engine.automateTable`
         """
         # table will be freed by the instr itself
-        tabnum = self.makeTable(pairs, tabnum=0, block=False)
-        args = [p1, pidx, tabnum, self.strSet(mode), int(overtake)]
-        dur = pairs[-2]+self.ksmps/self.sr
-        assert isinstance(dur, float)
-        return self.sched(self.builtinInstrs['automatePargViaTable'], delay=delay,
-                          dur=dur, args=args)
+        if len(pairs) < 1900:
+            args = [p1, pidx, self.strSet(mode), int(overtake), len(pairs)]
+            args.extend(pairs)
+            dur = pairs[-2] + self.ksmps / self.sr
+            assert isinstance(dur, float)
+            return self.sched(self.builtinInstrs['automatePargViaPargs'], delay=delay,
+                              dur=dur, args=args)
+
+        else:
+            tabnum = self.makeTable(pairs, tabnum=0, block=False)
+            args = [p1, pidx, tabnum, self.strSet(mode), int(overtake)]
+            dur = pairs[-2]+self.ksmps/self.sr
+            assert isinstance(dur, float)
+            return self.sched(self.builtinInstrs['automatePargViaTable'], delay=delay,
+                              dur=dur, args=args)
 
     def strSet(self, s:str, sync=False) -> int:
         """

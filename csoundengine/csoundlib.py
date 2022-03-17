@@ -1867,6 +1867,7 @@ class Csd:
 
 
         """
+        csdfile = _os.path.expanduser(csdfile)
         base = _os.path.splitext(csdfile)[0]
         stream = open(csdfile, "w")
         if self.datafiles:
@@ -1947,7 +1948,7 @@ class Csd:
         self._writeScore(stream, datadir=datadir)
         
         write("\n</CsScore>\n")
-        write("</CsoundSynthesizer")
+        write("</CsoundSynthesizer>")
 
     def run(self,
             output: str,

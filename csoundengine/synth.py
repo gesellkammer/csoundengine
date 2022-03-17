@@ -73,7 +73,21 @@ class AbstrSynth:
 
     def set(self, *args, **kws) -> None:
         """
-        Set a value of a param table.
+        Set a value of a named parameter
+
+        This method works indistinctly for instrs with named pargs or a param table.
+        """
+        mode = self.paramMode()
+        if self.paramMode() == 'parg':
+            return self.setp(*args, **kws)
+        elif mode == 'table':
+            return self.setTable(*args, **kws)
+        else:
+            logger.error(f"This {type(self)} does not have any dynamic parameters")
+
+    def setTable(self, *args, **kws) -> None:
+        """
+        Set a value of a param table
 
         Multiple syntaxes are possible::
 
@@ -82,7 +96,7 @@ class AbstrSynth:
 
         .. seealso::
 
-            * :meth:`~AbstractSynth.setp`
+            * :meth:`~AbstractSynth.set`
 
         Example
         =======
@@ -96,7 +110,7 @@ class AbstrSynth:
                 outch 1, oscili:a(kamp, kfreq)
             ''')
             synth = session.sched('sine', tabargs={'kfreq': 440})
-            synth.set('kfreq', 2000, delay=3)
+            synth.setTable('kfreq', 2000, delay=3)
         """
         raise NotImplementedError()
 
@@ -110,12 +124,10 @@ class AbstrSynth:
                 does not exist
 
         Returns:
-            the current value of the given slot, or default if a slot with
-            the given key does not exist
+            the current value of the given table slot / named pfield, or default
+            if the key does not match any named parameter
 
-        .. seealso::
-
-            * :meth:`~Synth.getp`
+        .. seealso:: :meth:`~Synth.getp`, :meth:`~Synth.set`
 
         """
         raise NotImplementedError()
@@ -138,7 +150,7 @@ class AbstrSynth:
 
     def tableState(self) -> Dict[str, float]:
         """
-        Get the state of all named parameters
+        Get the state of all named parameters defined through a param table
 
         Returns:
             a dict mapping parameter name to its current value
@@ -148,6 +160,15 @@ class AbstrSynth:
     def hasParamTable(self) -> bool:
         """ Does this synth/group have an associated parameter table?"""
         raise NotImplementedError()
+
+    def paramMode(self) -> Optional[str]:
+        """
+        Returns the dynamic parameter mode, or None
+
+        Returns one of 'parg', 'table' or None if this object does not
+        define any dynamic parameters
+        """
+        return None
 
     def automateTable(self, param: str, pairs: Union[List[float], np.ndarray],
                       mode="linear", delay=0., overtake=False) -> None:
@@ -179,6 +200,20 @@ class AbstrSynth:
         """
         raise NotImplementedError()
 
+    def namedParams(self) -> Optional[Set[str]]:
+        """
+        Returns a set of named parameters, or None if this Synth has no named parameters
+
+        These parameters can be modified via :meth:`~AbstractSynth.set` or :meth:`~AbstractSynth.automate`
+        """
+        mode = self.paramMode()
+        if mode == 'parg':
+            return self.namedPfields()
+        elif mode == 'table':
+            return self.tableParams()
+        else:
+            return None
+
     def automatep(self,
                   param: Union[int, str],
                   pairs: Union[List[float], np.ndarray],
@@ -205,7 +240,7 @@ class AbstrSynth:
         Returns:
             a Synth representing the automation routine
 
-        See also: pwrite
+        .. seealso:: :meth:`~AbstractSynth.setp`, :meth:`~AbstractSynth.automate`
         """
         raise NotImplementedError()
 
@@ -213,7 +248,7 @@ class AbstrSynth:
         """
         Modify the value of a pfield.
 
-        See also automateParg
+        .. seealso:: :meth:`~AbstractSynth.automatep`
         """
         raise NotImplementedError()
 
@@ -423,7 +458,7 @@ class Synth(AbstrSynth):
             return None
         return set(self.table.mapping.keys())
 
-    def set(self, *args, delay=0., **kws) -> None:
+    def setTable(self, *args, delay=0., **kws) -> None:
         if not self._playing:
             logger.info("synth not playing")
 
@@ -455,11 +490,15 @@ class Synth(AbstrSynth):
             logger.error("Synth not playing")
             return
 
-        if not self.table:
-            logger.error("This synth has no associated table, skipping")
-            return
-
-        return self.table.get(slot, default)
+        if self.paramMode() is None:
+            logger.info("This synth has no dynamic parameters")
+            return default
+        if self.table:
+            return self.table.get(slot, default)
+        elif slot in self.namedPfields():
+            return self.getp(slot)
+        else:
+            return default
 
     def namedPfields(self) -> Optional[Set[str]]:
         name2idx = self.instr.pargsNameToIndex
@@ -495,6 +534,8 @@ class Synth(AbstrSynth):
 
         .. seealso::
 
+            - :meth:`Synth.set`
+            - :meth:`Synth.automate`
             - :meth:`Synth.getp`
             - :meth:`Synth.automatep`
 
@@ -635,8 +676,7 @@ class Synth(AbstrSynth):
 
         """
         if not self.table:
-            raise RuntimeError(
-                f"{self.instr.name} (id={self.synthid}) has no parameter table")
+            raise RuntimeError(f"{self.instr.name} (id={self.synthid}) has no parameter table")
         paramidx = self.table.paramIndex(param)
         if paramidx is None:
             raise KeyError(f"Unknown param {param} for synth {self.synthid}")
@@ -645,8 +685,40 @@ class Synth(AbstrSynth):
         return self.engine.automateTable(self.table.tableIndex, paramidx, pairs,
                                          mode=mode, delay=delay, overtake=overtake)
 
+    def paramMode(self) -> Optional[str]:
+        return self.instr.paramMode()
+
+    def automate(self, param: str, pairs: Union[List[float, np.ndarray]], mode='linear',
+                 delay=0., overtake=False) -> float:
+        """
+        Automate any named parameter of this Synth
+
+        This method will automate this synth's pargs / param table, depending of
+        how the instrument was defined.
+
+        Args:
+            param: the name of the parameter to automate
+            pairs: automation data as a flat array with the form [time0, value0, time1, value1, ...]
+            mode: one of 'linear', 'cos'. Determines the curve between values
+            delay: when to start the automation
+            overtake: if True, do not use the first value in pairs but overtake the current value
+
+        Returns:
+            the eventid of the automation event
+        """
+        paramMode = self.instr.paramMode()
+        if paramMode == 'table':
+            return self.automateTable(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
+        elif paramMode == 'parg':
+            return self.automatep(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
+        else:
+            raise RuntimeError("This Synth does not define any dynamic parameters")
+
     def automatep(self, param: Union[int, str], pairs: Union[List[float], np.ndarray],
                   mode="linear", delay=0., overtake=False) -> float:
+        if self.playStatus() == 'stopped':
+            raise RuntimeError("This synth has already stopped, cannot automate")
+
         if isinstance(param, str):
             pidx = self.instr.pargIndex(param)
             if not pidx:
@@ -769,21 +841,36 @@ class SynthGroup(AbstrSynth):
                 out.update(namedPargs)
         return out
 
+    def automate(self,
+                 param: Union[int, str],
+                 pairs: Union[List[float], np.ndarray],
+                 mode="linear",
+                 delay=0.,
+                 overtake=False) -> List[float]:
+        return [synth.automate(param, pairs, mode=mode, delay=delay, overtake=overtake)
+                for synth in self.synths]
+
     def automatep(self,
                   param: Union[int, str],
                   pairs: Union[List[float], np.ndarray],
                   mode="linear",
                   delay=0.,
                   overtake=False) -> List[float]:
-        eventids = []
-        for synth in self.synths:
-            if synth.table and param in synth.tableParams():
-                eventids.append(synth.automatep(param, pairs, mode=mode, delay=delay,
-                                                overtake=overtake))
-        return eventids
+        return [synth.automatep(param, pairs, mode=mode, delay=delay, overtake=overtake)
+                for synth in self.synths if synth.paramMode() == 'parg']
 
     def hasParamTable(self) -> bool:
         return any(s.hasParamTable() is not None for s in self.synths)
+
+    def paramMode(self) -> Optional[str]:
+        modes = set(mode for synth in self.synths
+                    if (mode:=synth.paramMode()) is not None)
+        if len(modes) == 0:
+            return None
+        elif len(modes) == 1:
+            return modes.pop()
+        else:
+            raise ValueError("This group has multiple param modes")
 
     def tableState(self) -> Optional[Dict[str, float]]:
         dicts = [d for s in self.synths if (d:=s.tableState())]
@@ -831,13 +918,13 @@ class SynthGroup(AbstrSynth):
     def __iter__(self):
         return iter(self.synths)
 
-    def set(self, *args, delay=0, **kws) -> None:
+    def setTable(self, *args, delay=0, **kws) -> None:
         for synth in self.synths:
-            synth.set(*args, delay=delay, **kws)
+            synth.setTable(*args, delay=delay, **kws)
 
     def get(self, idx: Union[int, str], default=None) -> List[Optional[float]]:
         """
-        Get the value of a tabarg
+        Get the value of a named parameter
 
         If a synth in this group is not playing or hasn't a tabarg
         with the given name/idx, `default` is returned for that
@@ -853,7 +940,7 @@ class SynthGroup(AbstrSynth):
 
     def tableParams(self) -> Set[str]:
         """
-        Returns a set of available named parameters for this group
+        Returns a set of available table named parameters for this group
         """
         allparams = set()
         for synth in self.synths:

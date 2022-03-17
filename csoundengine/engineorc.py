@@ -41,23 +41,19 @@ endop
 
 opcode sfloadonce, i, S
     Spath xin
-    Skey_ strcat "SFLOAD:", Spath
-    iidx dict_get gi__soundfontIndexes, Skey_, -1
+    iidx dict_get gi__soundfontIndexes, Spath, -1
     if (iidx == -1) then
         iidx sfload Spath
-        dict_set gi__soundfontIndexes, Skey_, iidx
+        dict_set gi__soundfontIndexes, Spath, iidx
     endif
     xout iidx
 endop
 
 opcode sfPresetIndex, i, Sii
-    
     Spath, ibank, ipresetnum xin
     isf sfloadonce Spath
     Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum
-    
     iidx dict_get gi__soundfontIndexes, Skey, -1
-        
     if iidx == -1 then
         iidx chnget "_soundfontPresetCount"
         chnset iidx+1, "_soundfontPresetCount"
@@ -149,6 +145,28 @@ instr ${maketable}
         tabw_i itabnum, itoken, gi__responses
         outvalue "__sync__", itoken
     endif
+endin
+
+instr ${automatePargViaPargs}
+    ip1 = p4
+    ipindex = p5
+    imode = p6;  interpolation method
+    iovertake = p7
+    ilenpairs = p8
+    ipairs[] passign 9, 9+ilenpairs
+    iXs[] slicearray ipairs, 0, ilenpairs-1, 2
+    iYs[] slicearray ipairs, 1, ilenpairs-1, 2
+    Sinterpmethod = strget(imode)
+    
+    if iovertake == 1 then
+        icurrval pread ip1, ipindex, -1
+        iYs[0] = icurrval
+    endif
+
+    kt timeinsts
+    kidx bisect kt, iXs
+    ky interp1d kidx, iYs, Sinterpmethod
+    pwrite ip1, ipindex, ky
 endin
 
 instr ${automatePargViaTable}
