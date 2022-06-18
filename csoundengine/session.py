@@ -172,7 +172,7 @@ from .synth import AbstrSynth, Synth, SynthGroup
 from .tableproxy import TableProxy
 from .paramtable import ParamTable
 from .config import config, logger
-from . import internalTools as tools
+from . import internalTools as _tools
 from .sessioninstrs import builtinInstrs
 from . import state as _state
 from . import jupytertools
@@ -335,24 +335,25 @@ class Session:
 
         self.name: str = name
 
-        self.instrs: Dict[str, Instr] = {}
+        self.instrs: dict[str, Instr] = {}
         "maps instr name to Instr"
 
-        self._instrIndex: Dict[int, Instr] = {}
+        self._instrIndex: dict[int, Instr] = {}
 
         self._bucketsize: int = 1000
         self._numbuckets: int = maxpriorities
-        self._buckets: List[Dict[str, int]] = [{} for _ in range(self._numbuckets)]
+        self._buckets: list[dict[str, int]] = [{} for _ in range(self._numbuckets)]
 
         # A dict of the form: {instrname: {priority: reifiedInstr }}
-        self._reifiedInstrDefs: Dict[str, Dict[int, _ReifiedInstr]] = {}
+        self._reifiedInstrDefs: dict[str, dict[int, _ReifiedInstr]] = {}
 
-        self._synths: Dict[float, Synth] = {}
+        self._synths: dict[float, Synth] = {}
         self._isDeallocCallbackSet = False
-        self._whenfinished: Dict[float, Callable] = {}
-        self._initCodes: List[str] = []
-        self._tabnumToTable: Dict[int, TableProxy] = {}
-        self._pathToTable: Dict[str, TableProxy] = {}
+        self._whenfinished: dict[float, Callable] = {}
+        self._initCodes: list[str] = []
+        self._tabnumToTabproxy: dict[int, TableProxy] = {}
+        self._pathToTabproxy: dict[str, TableProxy] = {}
+        self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
         self.engine = self._getEngine()
 
         if config['define_builtin_instrs']:
@@ -432,7 +433,7 @@ class Session:
 
     def _makeInstrTable(self,
                         instr: Instr,
-                        overrides: Dict[str, float] = None,
+                        overrides: dict[str, float] = None,
                         wait=True) -> int:
         """
         Create and init the table associated with instr, returns the index
@@ -452,16 +453,15 @@ class Session:
         assert values is not None
         if len(values)<1:
             logger.warning(f"instr table with no init values (instr={instr})")
-            return self.engine.makeTable(size=config['associated_table_min_size'],
-                                         block=wait)
+            return self.engine.makeEmptyTable(size=config['associated_table_min_size'])
         else:
             logger.debug(f"Making table with init values: {values} ({overrides})")
             return self.engine.makeTable(data=values, block=wait)
 
     def defInstr(self, name: str, body: str,
-                 args: Dict[str, float] = None,
+                 args: dict[str, float] = None,
                  init: str = None,
-                 tabledef: Dict[str, float] = None,
+                 tabledef: dict[str, float] = None,
                  **kws) -> Instr:
         """
         Create an :class:`~csoundengine.instr.Instr` and register it at this session
@@ -537,7 +537,7 @@ class Session:
         self.registerInstr(instr)
         return instr
 
-    def registeredInstrs(self) -> Dict[str, Instr]:
+    def registeredInstrs(self) -> dict[str, Instr]:
         """
         Returns a dict (instrname: Instr) with all registered Instrs
         """
@@ -556,7 +556,8 @@ class Session:
             instr: the Instr to register
 
         Returns:
-            False if this instr was already defined in its current form
+            True if the action was performed, False if this instr was already
+            defined in its current form
 
         See Also
         ~~~~~~~~
@@ -610,8 +611,8 @@ class Session:
         if instrdef is None:
             raise ValueError(f"instrument {name} not registered")
         instrnum = self._registerInstrAtPriority(name, priority)
-        instrtxt = tools.instrWrapBody(instrdef.body, instrnum,
-                                       notifyDeallocInstrnum=self.engine.builtinInstrs['notifyDealloc'])
+        instrtxt = _tools.instrWrapBody(instrdef.body, instrnum,
+                                        notifyDeallocInstrnum=self.engine.builtinInstrs['notifyDealloc'])
         try:
             self.engine.compile(instrtxt)
         except CsoundError as e:
@@ -747,8 +748,8 @@ class Session:
               delay=0.,
               dur=-1.,
               priority: int = 1,
-              pargs: Union[List[float], Dict[str, float]] = [],
-              tabargs: Dict[str, float] = None,
+              pargs: Union[list[float], dict[str, float]] = [],
+              tabargs: dict[str, float] = None,
               whenfinished=None,
               relative=True,
               **pkws
@@ -817,24 +818,24 @@ class Session:
             tableidx = 0
             table = None
         # tableidx is always p4
-        allargs = tools.instrResolveArgs(instr, tableidx, pargs, pkws)
+        p4args = _tools.instrResolveArgs(instr, tableidx, pargs, pkws)
         rinstr = self.prepareSched(instrname, priority, block=True)
-        synthid = self.engine.sched(rinstr.instrnum, delay=delay, dur=dur, args=allargs,
+        synthid = self.engine.sched(rinstr.instrnum, delay=delay, dur=dur, args=p4args,
                                     relative=False)
         if whenfinished is not None:
             self._whenfinished[synthid] = whenfinished
         synth = Synth(engine=self.engine,
-                      synthid=synthid,
+                      p1=synthid,
                       instr=instr,
-                      starttime=delay,
+                      start=delay,
                       dur=dur,
                       table=table,
-                      pargs=allargs,
+                      pargs=p4args,
                       priority=priority)
         self._synths[synthid] = synth
         return synth
 
-    def activeSynths(self, sortby="start") -> List[Synth]:
+    def activeSynths(self, sortby="start") -> list[Synth]:
         """
         Returns a list of playing synths
 
@@ -846,10 +847,10 @@ class Session:
         """
         synths = [synth for synth in self._synths.values() if synth.playing()]
         if sortby == "start":
-            synths.sort(key=lambda synth:synth.startTime)
+            synths.sort(key=lambda synth:synth.start)
         return synths
 
-    def scheduledSynths(self) -> List[Synth]:
+    def scheduledSynths(self) -> list[Synth]:
         """
         Returns all scheduled synths (both active and future)
         """
@@ -872,7 +873,7 @@ class Session:
 
             if not synth or synth.finished():
                 continue
-            if synth.startTime > now:
+            if synth.start > now:
                 self.engine.unschedFuture(synth.p1)
                 self._deallocSynthResources(synthid, delay)
             elif synth.playing():
@@ -888,7 +889,7 @@ class Session:
         """
         synths = self.findSynthsByName(instrname)
         for synth in synths:
-            self.unsched(synth.synthid)
+            self.unsched(synth.p1)
 
     def unschedAll(self, future=False) -> None:
         """
@@ -898,7 +899,7 @@ class Session:
             future: if True, cancel also synths which are already scheduled
                 but have not started playing yet
         """
-        synthids = [synth.synthid for synth in self._synths.values()]
+        synthids = [synth.p1 for synth in self._synths.values()]
         futureSynths = [synth for synth in self._synths.values() if not synth.playing()]
         for synthid in synthids:
             self.unsched(synthid, delay=0)
@@ -907,7 +908,7 @@ class Session:
             self.engine.unschedAll()
             self._synths.clear()
 
-    def findSynthsByName(self, instrname: str) -> List[Synth]:
+    def findSynthsByName(self, instrname: str) -> list[Synth]:
         """
         Return a list of active Synths created from the given instr
         """
@@ -945,7 +946,7 @@ class Session:
         """
         if path == "?":
             path = _state.openSoundfile()
-        table = self._pathToTable.get(path)
+        table = self._pathToTabproxy.get(path)
         if table:
             return table
         tabnum = self.engine.readSoundfile(path=path, chan=chan)
@@ -963,11 +964,11 @@ class Session:
         return table
 
     def _registerTable(self, tabproxy: TableProxy) -> None:
-        self._tabnumToTable[tabproxy.tabnum] = tabproxy
+        self._tabnumToTabproxy[tabproxy.tabnum] = tabproxy
         if tabproxy.path:
-            self._pathToTable[tabproxy.path] = tabproxy
+            self._pathToTabproxy[tabproxy.path] = tabproxy
 
-    def makeTable(self, data: Union[np.ndarray, List[float]] = None,
+    def makeTable(self, data: Union[np.ndarray, list[float]] = None,
                   size: int = 0, tabnum: int = 0,
                   block=True, callback=None, sr: int = 0,
                   freeself=True,
@@ -977,7 +978,7 @@ class Session:
         Create a table with given data or an empty table of the given size
 
         Args:
-            data (np.ndarray | List[float]): the data of the table. Use None
+            data (np.ndarray | list[float]): the data of the table. Use None
                 if the table should be empty
             size (int): if not data is given, sets the size of the empty table created
             tabnum (int): 0 to let csound determine a table number, -1 to self assign
@@ -1000,32 +1001,38 @@ class Session:
             tabnum = self.engine.makeEmptyTable(size=size, numchannels=1, sr=sr)
             nchnls = 1
             numframes = size
+            tabproxy = TableProxy(tabnum=tabnum, sr=sr, nchnls=nchnls, numframes=numframes,
+                                  engine=self.engine, freeself=freeself)
+        elif data is None:
+            raise ValueError("Either data or a size must be given")
         else:
+            if isinstance(data, list):
+                nchnls = 1
+                data = np.asarray(data, dtype=float)
+            else:
+                assert isinstance(data, np.ndarray)
+                nchnls = _tools.arrayNumChannels(data)
+            datahash = _tools.ndarrayhash(data)
+            if (tabproxy := self._ndarrayHashToTabproxy.get(datahash)) is not None:
+                return tabproxy
+            numframes = len(data)
             tabnum = self.engine.makeTable(data=data, tabnum=tabnum,
                                            _instrnum=_instrnum, block=block,
                                            callback=callback, sr=sr)
-            if data is not None:
-                if isinstance(data, np.ndarray):
-                    nchnls = tools.arrayNumChannels(data)
-                elif isinstance(data, list):
-                    nchnls = 1
-                    assert isinstance(data[0], float)
-                else:
-                    raise TypeError(f"data should be np.ndarray or list[float], got "
-                                    f"{type(data)} = {data=}")
-                numframes = len(data)
-            else:
-                numframes = size
-                nchnls = 1
+            tabproxy = TableProxy(tabnum=tabnum, sr=sr, nchnls=nchnls, numframes=numframes,
+                                  engine=self.engine, freeself=freeself)
+            self._ndarrayHashToTabproxy[datahash] = tabproxy
 
-        return TableProxy(tabnum=tabnum, sr=sr, nchnls=nchnls, numframes=numframes,
-                          engine=self.engine, freeself=freeself)
+        self._registerTable(tabproxy)
+        return tabproxy
 
-    def playSample(self, sample: Union[int, TableProxy, str],
+    def playSample(self, source: Union[int, TableProxy, str, tuple[np.ndarray, int]],
+                   delay=0., dur=-1.,
                    chan=1, gain=1.,
-                   dur=-1., speed=1., loop=False, delay=0., pan=-1.,
-                   start=0., fade: float = None, gaingroup=0,
-                   compensateSamplerate=True) -> Synth:
+                   speed=1., loop=False, pan=-1.,
+                   skip=0., fade: float = None, gaingroup=0,
+                   compensateSamplerate=True,
+                   crossfade=0.02) -> Synth:
         """
         Play a sample.
 
@@ -1034,7 +1041,8 @@ class Session:
         a soundfile or a :class:`~csoundengine.tableproxy.TableProxy`
 
         Args:
-            sample: table number, a path to a sample or a TableProxy
+            source: table number, a path to a sample or a TableProxy, or a tuple
+                (numpy array, samplerate)
             dur: the duration of playback (-1 to play the whole sample)
             chan: the channel to play the sample to. In the case of multichannel
                   samples, this is the first channel
@@ -1046,7 +1054,7 @@ class Session:
             loop: True/False or -1 to loop as defined in the file itself (not all
                 file formats define loop points)
             delay: time to wait before playback starts
-            start: the starting playback time (0=play from beginning)
+            skip: the starting playback time (0=play from beginning)
             fade: fade in/out in secods. None=default
             gaingroup: the idx of a gain group. The gain of all samples routed to the
                 same group are scaled by the same value and can be altered as a group
@@ -1054,30 +1062,37 @@ class Session:
             compensateSamplerate: if True, adjust playback rate in order to preserve
                 the sample's original pitch if there is a sr mismatch between the
                 sample and the engine.
+            crossfade: if looping, this indicates the length of the crossfade
 
         Returns:
             A Synth with the following mutable parameters: gain, speed, chan, pan
 
         """
-        if isinstance(sample, int):
-            tabnum = sample
-        elif isinstance(sample, TableProxy):
-            tabnum = sample.tabnum
-        elif isinstance(sample, str):
-            table = self.readSoundfile(sample, free=False)
+        if isinstance(source, int):
+            tabnum = source
+        elif isinstance(source, TableProxy):
+            tabnum = source.tabnum
+        elif isinstance(source, str):
+            table = self.readSoundfile(source, free=False)
             tabnum = table.tabnum
+        elif isinstance(source, tuple) and isinstance(source[0], np.ndarray):
+            table = self.makeTable(source[0], sr=source[1])
+            tabnum =table.tabnum
         else:
-            raise TypeError(f"Expected int, TableProxy or str, got {sample}")
+            raise TypeError(f"Expected int, TableProxy or str, got {source}")
         # isndtab, iloop, istart, ifade
         if fade is None:
             fade = config['sample_fade_time']
+        if not loop:
+            crossfade = -1
         return self.sched('.playSample',
                           delay=delay,
                           dur=dur,
-                          pargs=dict(isndtab=tabnum, iloop=int(loop), istart=start,
+                          pargs=dict(isndtab=tabnum, istart=skip,
                                      ifade=fade, igaingroup=gaingroup,
                                      icompensatesr=int(compensateSamplerate),
-                                     kchan=chan, kspeed=speed, kpan=pan, kgain=gain))
+                                     kchan=chan, kspeed=speed, kpan=pan, kgain=gain,
+                                     ixfade=crossfade))
 
     def makeRenderer(self, sr: int = None, nchnls: int = None, ksmps: int = None
                      ) -> Renderer:
@@ -1182,39 +1197,3 @@ def getSession(name="default", createIfNeeded=True) -> Optional[Session]:
                     f"default values")
         engine = Engine(name)
     return engine.session()
-
-
-def groupSynths(synths: List[AbstrSynth]) -> SynthGroup:
-    """
-    Groups synths together to form a SynthGroup
-
-    Example
-    =======
-
-    >>> from csoundengine import *
-    >>> s = Engine().session()
-    >>> s.defInstr('sender', r'''
-    ... ibus = p5
-    ... kfreq = p6
-    ... asig vco2 0.1, 1000
-    ... busout(ibus, asig)
-    ... ''')
-    >>> s.defInstr('receiver', r'''
-    ... ibus = p5
-    ... asig = busin:a(ibus)
-    ... asig *= 0.5
-    ... outch 1, asig
-    ... ''')
-    >>> bus = s.assignBus()
-    >>> chain = groupSynths([s.sched('sender', ibus=bus.busnum),
-    ...                    s.sched('reveiver', ibus=bus.busnum)])
-    >>> chain[0].setp('kfreq', 440)
-    >>> chain.stop()
-    """
-    realsynths: List[Synth] = []
-    for synth in synths:
-        if isinstance(synth, Synth):
-            realsynths.append(synth)
-        elif isinstance(synth, SynthGroup):
-            realsynths.extend(synth)
-    return SynthGroup(synths=realsynths)

@@ -33,7 +33,7 @@ ${globalcode}
 ; ---------------------------------
 
 opcode _panweights, kk, k
-    kpos xin    
+    kpos xin   
     kampL = bpf:k(kpos, 0, 1.4142, 0.5, 1, 1, 0)
     kampR = bpf:k(kpos, 0, 0,      0.5, 1, 1, 1.4142)
     xout kampL, kampR
@@ -413,7 +413,7 @@ instr ${testaudio}
     kchan = (kchan + kswitch) % nchnls
     outch kchan+1, a0
     if kswitch == 1 then
-        println "Channel: %d", kchan
+        println "Channel: %d / %d", kchan+1, nchnls
     endif
 endin
 

@@ -8,7 +8,6 @@ from .state import state
 from pathlib import Path
 import tempfile
 import shutil
-import subprocess
 import logging
 from datetime import datetime
 import json
@@ -268,7 +267,6 @@ def installPlugins() -> bool:
     else:
         logger.error("Plugins are not installed correctly")
     return ok
-
 
 
 def _checkDependencies(fix=False, updateState=True) -> Optional[str]:

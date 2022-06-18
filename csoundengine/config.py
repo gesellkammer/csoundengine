@@ -20,10 +20,6 @@ def setLoggingLevel(level: str) -> None:
 #                  CONFIG                   #
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
-config = ConfigDict(modulename)
-_ = config.addKey
-
-
 _audioBackendsByPlatform = {
     'linux': ('jack', 'alsa', 'pa_cb', 'pa_bl', 'pulse'),
     'macos': ('auhal', 'pa_cb', 'pa_bl', 'jack'),
@@ -55,6 +51,8 @@ def _validateFigsize(cfg: dict, key: str, val) -> bool:
     parts = val.split(":")
     return len(parts) == 2 and all(p.isnumeric() for p in parts)
 
+config = ConfigDict(modulename, persistent=False)
+_ = config.addKey
 
 _('sr', 0,
   choices=(0, 22050, 44100, 48000, 88200, 96000),
@@ -130,8 +128,8 @@ _('html_args_fontsize', '12px',
   doc="Font size used for args when outputing html (in jupyter)")
 _('synth_repr_max_args', 12,
   doc="Max. number of pfields shown when in a synth's repr")
-_('synthgroup_repr_max_rows', 16,
-  doc='Max. number of rows for a SynthGroup repr')
+_('synthgroup_repr_max_rows', 4,
+  doc='Max. number of rows for a SynthGroup repr. Use 0 to disable')
 _('jupyter_synth_repr_stopbutton', True,
   doc='When running inside a jupyter notebook, display a stop button'
       'for Synths and SynthGroups')
@@ -166,6 +164,6 @@ _('spectrogram_maxfreq', 12000,
   doc="Highest freq. in a spectrogram")
 _('spectrogram_window', 'hamming', choices={'hamming', 'hanning'})
 
-
-assert 'num_control_buses' in config.default
 config.load()
+
+

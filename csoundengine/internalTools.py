@@ -18,6 +18,17 @@ if TYPE_CHECKING:
 _registry: Dict[str, Any] = {}
 
 
+try:
+    import xxhash
+    def ndarrayhash(a: np.ndarray) -> str:
+        return xxhash.xxh128_hexdigest(a)
+
+except ImportError:
+    import hashlib
+    def ndarrayhash(a: np.ndarray) -> str:
+        return hashlib.sha1(a).hexdigest()
+
+
 def isrunning(prog: str) -> bool:
     "True if prog is running"
     failed = subprocess.call(['pgrep', '-f', prog],
@@ -119,6 +130,18 @@ def instrResolveArgs(instr: Instr,
                      pargs: Union[List[float], Dict[str, float]]=None,
                      pkws: Dict[str, float]=None
                      ) -> List[float]:
+    """
+    Resolves pargs, returns pargs starting from p4
+
+    Args:
+        instr: the Instr instance
+        p4: the value for p4
+        pargs: pargs passed to the instr, starting with p5
+        pkws: named pargs
+
+    Returns:
+        pargs passed to csound, **starting with p4**
+    """
     allargs: List[float] = [float(p4)]
     if not pargs and not instr.pargsIndexToDefaultValue and not pkws:
         return allargs

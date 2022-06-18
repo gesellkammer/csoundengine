@@ -3,6 +3,7 @@ This module provides many utilities based on the csound binary
 
 """
 from __future__ import annotations
+
 import math as _math
 import os as _os
 import sys
@@ -21,10 +22,11 @@ from . import linuxaudio
 from . import state as _state
 from .config import config
 from .internalTools import normalizePlatform
-from functools import lru_cache as _lru_cache
+import functools as _functools
 import emlib.misc
 import emlib.textlib
 import emlib.dialogs
+import emlib.mathlib
 import numpy as np
 
 from typing import TYPE_CHECKING
@@ -62,7 +64,7 @@ def _isPulseaudioRunning() -> bool:
 _audioDeviceRegex = r"(\d+):\s((?:adc|dac)\d+)\s*\((.*)\)(?:\s+\[ch:(\d+)\])?"
 
 
-def midiDevices(backend='portmidi') -> Tuple[List[MidiDevice], List[MidiDevice]]:
+def midiDevices(backend='portmidi') -> tuple[list[MidiDevice], list[MidiDevice]]:
     """
     Returns input and output midi devices for the given backend
 
@@ -120,7 +122,7 @@ class AudioBackend:
     name: str
     alwaysAvailable: bool = False
     needsRealtime: bool = False
-    platforms: Tuple[str, ...] = ('linux', 'darwin', 'win32')
+    platforms: tuple[str, ...] = ('linux', 'darwin', 'win32')
     hasSystemSr: bool = False
     longname: str = ""
     defaultBufferSize: int = 1024
@@ -184,14 +186,14 @@ class AudioBackend:
         logger.error(f"Failed to get sr with backend {self.name}")
         return None
 
-    def bufferSizeAndNum(self) -> Tuple[int, int]:
+    def bufferSizeAndNum(self) -> tuple[int, int]:
         """
         The buffer size and number of buffers needed for this backend
         """
         return (self.defaultBufferSize, self.defaultNumBuffers)
 
 
-    def audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+    def audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
         cs = ctcsound.Csound()
         for opt in ['-+rtaudio='+self.name, "-m16", "-odac"]:
             cs.setOption(opt)
@@ -213,7 +215,7 @@ class AudioBackend:
         cs.stop()
         return indevs, outdevs
 
-    def _audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+    def _audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
         """
         Returns a tuple (input devices, output devices)
         """
@@ -239,7 +241,7 @@ class AudioBackend:
             (indevices if kind == 'input' else outdevices).append(dev)
         return indevices, outdevices
 
-    def defaultAudioDevices(self) -> Tuple[AudioDevice, AudioDevice]:
+    def defaultAudioDevices(self) -> tuple[AudioDevice, AudioDevice]:
         """
         Returns a tuple (default input device, default output device) for this backend
         """
@@ -257,14 +259,14 @@ class _JackAudioBackend(AudioBackend):
     def getSystemSr(self) -> int:
         return jacktools.getInfo().samplerate
 
-    def bufferSizeAndNum(self) -> Tuple[int, int]:
+    def bufferSizeAndNum(self) -> tuple[int, int]:
         info = jacktools.getInfo()
         return info.blocksize, 2
 
     def isAvailable(self) -> bool:
         return jacktools.isJackRunning()
 
-    def audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+    def audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
         clients = jacktools.getClients()
         indevs = [AudioDevice(id=f'adc:{c.regex}', name=c.name, kind='input',
                               numchannels=len(c.ports))
@@ -274,7 +276,7 @@ class _JackAudioBackend(AudioBackend):
                    for c in clients if c.kind == 'input']
         return indevs, outdevs
 
-    def defaultAudioDevices(self) -> Tuple[AudioDevice, AudioDevice]:
+    def defaultAudioDevices(self) -> tuple[AudioDevice, AudioDevice]:
         outclient, inclient = jacktools.getSystemClients()
         # notice the inversion: a jack 'output' client is an input for csound
         indev = AudioDevice(id=f"adc:{inclient.regex}", name=inclient.name,
@@ -299,7 +301,7 @@ class _PulseAudioBackend(AudioBackend):
         return linuxaudio.isPulseaudioRunning() or (linuxaudio.isPipewireRunning() and
                                                     linuxaudio.pipewireInfo().isPulseServer)
 
-    def audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+    def audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
         pulseinfo = linuxaudio.pulseaudioInfo()
         indevs = [AudioDevice(id="adc", name="adc", kind='input', index=0,
                               numchannels=pulseinfo.numchannels)]
@@ -326,7 +328,7 @@ class _PortaudioBackend(AudioBackend):
             return linuxaudio.pipewireInfo().sr
         return super().getSystemSr()
 
-    def defaultAudioDevices(self) -> Tuple[AudioDevice, AudioDevice]:
+    def defaultAudioDevices(self) -> tuple[AudioDevice, AudioDevice]:
         indevs, outdevs = getAudioDevices(self.name)
         indev = next((d for d in indevs if _re.search(r"\bdefault\b", d.name)), None)
         outdev = next((d for d in outdevs if _re.search(r"\bdefault\b", d.name)), None)
@@ -342,7 +344,7 @@ class _PortaudioBackend(AudioBackend):
                 outdev = outdevs[0]
         return indev, outdev
 
-    def _audioDevices(self) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+    def _audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
         indevices, outdevices = [], []
         proc = csoundSubproc(['-+rtaudio=pa_cb', '-odac', '--devices'], wait=True)
         if sys.platform == 'win32':
@@ -401,7 +403,7 @@ _backendCoreaudio = AudioBackend('auhal',
                                  platforms=('darwin',))
 
 
-_allAudioBackends: Dict[str, AudioBackend] = {
+_allAudioBackends: dict[str, AudioBackend] = {
     'jack' : _backendJack,
     'auhal': _backendCoreaudio,
     'coreaudio': _backendCoreaudio,
@@ -414,7 +416,7 @@ _allAudioBackends: Dict[str, AudioBackend] = {
 }
 
 
-_backendsByPlatform: Dict[str, List[AudioBackend]] = {
+_backendsByPlatform: dict[str, list[AudioBackend]] = {
     'linux': [_backendJack, _backendPortaudioCallback, _backendAlsa,
               _backendPortaudioBlocking, _backendPulseaudio],
     'darwin': [_backendJack, _backendCoreaudio, _backendPortaudioCallback],
@@ -444,7 +446,7 @@ def findCsound() -> Optional[str]:
     return csound
 
 
-def _getVersionViaApi() -> Tuple[int, int, int]:
+def _getVersionViaApi() -> tuple[int, int, int]:
     """
     Returns the csound version as tuple (major, minor, patch)
     """
@@ -454,7 +456,7 @@ def _getVersionViaApi() -> Tuple[int, int, int]:
     return info['versionTriplet']
 
 
-def getVersion(useApi=True) -> Tuple[int, int, int]:
+def getVersion(useApi=True) -> tuple[int, int, int]:
     """
     Returns the csound version as tuple (major, minor, patch)
 
@@ -501,7 +503,7 @@ def getVersion(useApi=True) -> Tuple[int, int, int]:
         raise RuntimeError("Did not found a csound version")
 
 
-def csoundSubproc(args: List[str], piped=True, wait=False) -> _subprocess.Popen:
+def csoundSubproc(args: list[str], piped=True, wait=False) -> _subprocess.Popen:
     """
     Calls csound with given args in a subprocess, returns a subprocess.Popen object.
 
@@ -660,7 +662,7 @@ def runCsd(csdfile:str,
            nomessages = False,
            comment:str = None,
            piped = False,
-           extra:List[str] = None) -> _subprocess.Popen:
+           extra:list[str] = None) -> _subprocess.Popen:
     """
     Run the given .csd as a csound subprocess
 
@@ -715,7 +717,7 @@ def runCsd(csdfile:str,
     return csoundSubproc(args, piped=piped)
     
 
-def joinCsd(orc: str, sco="", options:List[str] = None) -> str:
+def joinCsd(orc: str, sco="", options:list[str] = None) -> str:
     """
     Joins an orc and a score (both as str), returns a csd as string
 
@@ -820,7 +822,7 @@ class ScoreEvent:
     p1: Union[str, int, float]
     start: float
     dur: float
-    args: List[Union[float, str]]
+    args: list[Union[float, str]]
 
 
 @dataclass
@@ -907,7 +909,7 @@ def parseScore(sco: str) -> Generator[ScoreEvent, None, None]:
             rest = words[3:]
         else:
             continue
-        args: List[Union[float, str]] = []
+        args: list[Union[float, str]] = []
         for w in rest:
             if w.startswith('"'):
                 args.append(w)
@@ -918,7 +920,7 @@ def parseScore(sco: str) -> Generator[ScoreEvent, None, None]:
         yield ScoreEvent(kind, p1, t0, dur, args)
 
 
-def opcodesList(cached=True, opcodedir: str = None) -> List[str]:
+def opcodesList(cached=True, opcodedir: str = None) -> list[str]:
     """
     Return a list of the opcodes present
 
@@ -959,7 +961,7 @@ def _csoundGetInfoViaAPI(opcodedir:str=None) -> dict:
             'versionTriplet': versionTriplet}
 
 
-def _opcodesList(opcodedir=None) -> List[str]:
+def _opcodesList(opcodedir=None) -> list[str]:
     options = ["-z"]
     if opcodedir:
         options.append(f'--opcode-dir={opcodedir}')
@@ -1021,7 +1023,7 @@ def saveAsGen23(data: Sequence[float], outfile:str, fmt="%.12f", header=""
         np.savetxt(outfile, data, fmt=fmt)
 
 
-def _metadataAsComment(d: Dict[str, Any], maxSignificantDigits=10,
+def _metadataAsComment(d: dict[str, Any], maxSignificantDigits=10,
                        sep=", ") -> str:
     fmt = f"%.{maxSignificantDigits}g"
     parts = []
@@ -1039,7 +1041,7 @@ def _metadataAsComment(d: Dict[str, Any], maxSignificantDigits=10,
 
 
 def saveMatrixAsMtx(outfile: str, data: np.ndarray,
-                    metadata:Dict[str, Union[str, float]]=None,
+                    metadata:dict[str, Union[str, float]]=None,
                     encoding="float32",
                     title:str='',
                     sr:int=44100) -> None:
@@ -1135,7 +1137,7 @@ def saveMatrixAsMtx(outfile: str, data: np.ndarray,
     sndwriter.close()
 
 
-def saveMatrixAsGen23(outfile: str, mtx: np.ndarray, extradata:List[float]=None,
+def saveMatrixAsGen23(outfile: str, mtx: np.ndarray, extradata:list[float]=None,
                       include_header=True
                       ) -> None:
     """
@@ -1216,7 +1218,7 @@ class AudioDevice:
 
 
 @_cachetools.cached(cache=_cachetools.TTLCache(10, 20))
-def getDefaultAudioDevices(backend:str=None) -> Tuple[AudioDevice, AudioDevice]:
+def getDefaultAudioDevices(backend:str=None) -> tuple[AudioDevice, AudioDevice]:
     """
     Returns the default audio devices for a given backend
 
@@ -1227,7 +1229,7 @@ def getDefaultAudioDevices(backend:str=None) -> Tuple[AudioDevice, AudioDevice]:
 
 
 @_cachetools.cached(cache=_cachetools.TTLCache(10, 20))
-def getAudioDevices(backend:str=None) -> Tuple[List[AudioDevice], List[AudioDevice]]:
+def getAudioDevices(backend:str=None) -> tuple[list[AudioDevice], list[AudioDevice]]:
     """
     Returns (indevices, outdevices), where each of these lists is an AudioDevice.
 
@@ -1286,7 +1288,7 @@ def _csoundTestJackRunning():
     return b'could not connect to JACK server' not in proc.stderr.read()
 
 
-def audioBackends(available=False, platform:str=None) -> List[AudioBackend]:
+def audioBackends(available=False, platform:str=None) -> list[AudioBackend]:
     """
     Return a list of audio backends for the given platform
     
@@ -1366,7 +1368,7 @@ def getAudioBackend(name:str=None) -> Optional[AudioBackend]:
     return _allAudioBackends.get(name)
 
 
-def getAudioBackendNames(available=False, platform:str=None) -> List[str]:
+def getAudioBackendNames(available=False, platform:str=None) -> list[str]:
     """
     Returns a list with the names of the audio backends for a given platform
 
@@ -1513,6 +1515,8 @@ class Csd:
         options (list[str]): any number of command-line options passed to csound
         nodisplay: if True, avoid outputting debug information
         carry: should carry be enabled in the score?
+        reservedTables: when creating tables, table numbers are autoassigned from
+            python. There can be conflicts of any code uses ``ftgen``
 
     Example
     =======
@@ -1528,17 +1532,18 @@ class Csd:
         >>> source = csd.addSndfile("sounds/sound1.wav")
         >>> csd.playTable(source)
         >>> csd.addEvent('sine', 0, 2, [1000])
-        >>> csd._writeCsd('out.csd')
+        >>> csd.write('out.csd')
     """
 
-    def __init__(self, sr=44100, ksmps=64, nchnls=2, a4=442., options:List[str]=None,
-                 nodisplay=False, carry=False, nchnls_i: int = None):
+    def __init__(self, sr=44100, ksmps=64, nchnls=2, a4=442., options:list[str]=None,
+                 nodisplay=False, carry=False, nchnls_i: int = None,
+                 reservedTables=0):
         self._strLastIndex = 20
-        self._str2index: Dict[str, int] = {}
-        self.score: List[Union[list, tuple]] = []
-        self.instrs: Dict[Union[str, int], str] = {}
-        self.globalcodes: List[str] = []
-        self.options: List[str] = []
+        self._str2index: dict[str, int] = {}
+        self.score: list[Union[list, tuple]] = []
+        self.instrs: dict[Union[str, int], str] = {}
+        self.globalcodes: list[str] = []
+        self.options: list[str] = []
         if options:
             self.setOptions(*options)
         self.sr = sr
@@ -1551,16 +1556,39 @@ class Csd:
         self._minTableIndex = 1
         self.nodisplay = nodisplay
         self.enableCarry = carry
-        self.datafiles: Dict[int, TableDataFile] = {}
-        self._maxTableNumber = 0
+        self.datafiles: dict[int, TableDataFile] = {}
+        self._endMarker: float = 0
+        self._numReservedTables = reservedTables
+        self._maxTableNumber = reservedTables
         if not carry:
             self.score.append(("C", 0))
+            
+    def copy(self) -> Csd:
+        out = Csd(sr=self.sr,
+                  ksmps=self.ksmps,
+                  nchnls=self.nchnls,
+                  a4=self.a4,
+                  options=self.options.copy(),
+                  nodisplay=self.nodisplay,
+                  carry=self.enableCarry,
+                  nchnls_i=self.nchnls_i)
+        out.score = self.score.copy()
+        out._sampleFormat = self._sampleFormat
+        out._definedTables = self._definedTables
+        out._minTableIndex = self._minTableIndex
+        out._maxTableNumber = self._maxTableNumber
+        out.datafiles = self.datafiles.copy()
+        return out
+
+    def cropScore(self, start=0., end=0.) -> None:
+        score = _cropScore(self.score, start, end)
+        self.score = score
 
     def addEvent(self,
                  instr: Union[int, float, str],
                  start: float,
                  dur: float,
-                 args: List[Union[float, str]] = None) -> None:
+                 args: list[Union[float, str]] = None) -> None:
         """
         Add an instrument ("i") event to the score
 
@@ -1649,7 +1677,9 @@ class Csd:
 
             The data is either included in the table definition (if it is
             small enough) or saved as an external file. All external files are
-            saved relative to the generated .csd file when writing
+            saved relative to the generated .csd file when writing. Table data
+            is saved as 32 bit floats, so it might loose some precission from
+            the original.
         """
         sizeThreshold = config['offline_score_table_size_limit']
 
@@ -1745,14 +1775,31 @@ class Csd:
         pargs = ("f", -tabnum, time)
         self.score.append(pargs)
 
-    def setEndMarker(self, dur: float) -> None:
+    def setEndMarker(self, time: float) -> None:
         """
         Add an end marker to the score
+
+        This is needed if, for example, all events are endless
+        events (with dur == -1).
+
+        If an end marker has been already set, setting it later will remove
+        the previous endmarker (there can be only one)
         """
-        self.score.append(("e", dur))
+        if time == 0 or self._endMarker > 0:
+            self.removeEndMarker()
+        self._endMarker = time
+        # We don't add the marker to the score because this needs to go at the end
+        # of the score. Any score line after the end marker will not be read
+
+    def removeEndMarker(self) -> None:
+        """
+        Remove the end-of-score marker
+        """
+        self._endMarker = 0
+
 
     def setComment(self, comment:str) -> None:
-        """ Add a comment to the renderer output """
+        """ Add a comment to the renderer output soundfile"""
         self.setOptions(f'-+id_comment="{comment}"')
 
     def setSampleFormat(self, fmt: str) -> None:
@@ -1795,6 +1842,8 @@ class Csd:
             relpath = outfile.relative_to(datadirpath.parent)
             stream.write(datafile.scoreLine(relpath.as_posix()))
             stream.write('\n')
+        if self._endMarker:
+            stream.write(f'e {self._endMarker}')
 
     def addInstr(self, instr: Union[int, str], body: str) -> None:
         """
@@ -1832,7 +1881,17 @@ class Csd:
     def playTable(self, tabnum:int, start:float, dur:float=-1,
                   gain=1., speed=1., chan=1, fade=0.05,
                   skip=0.) -> None:
-        """ Add an event to play the given table
+        """
+        Add an event to play the given table
+
+        Args:
+            tabnum: the table number to play
+            start: schedule time (p2)
+            dur: duration of the event (leave -1 to play until the end)
+            gain: a gain factor applied to the table samples
+            chan: ??
+            fade: fade time (both fade-in and fade-out
+            skip: time to skip from playback (enables playback to crop a fragment at the beginning)
 
         Example
         =======
@@ -1958,7 +2017,7 @@ class Csd:
             suppressdisplay = True,
             nomessages = False,
             piped = False,
-            extraOptions: List[str] = None) -> _subprocess.Popen:
+            extraOptions: list[str] = None) -> _subprocess.Popen:
         """
         Run this csd. 
         
@@ -2161,7 +2220,7 @@ endin
 def recInstr(body:str, events:list, init="", outfile:str=None,
              sr=44100, ksmps=64, nchnls=2, a4=442, samplefmt='float',
              dur=None
-             ) -> Tuple[str, _subprocess.Popen]:
+             ) -> tuple[str, _subprocess.Popen]:
     """
     Record one instrument for a given duration
 
@@ -2212,7 +2271,7 @@ def recInstr(body:str, events:list, init="", outfile:str=None,
     return outfile, proc
 
 
-def _ftsaveReadText(path: str) -> List[np.ndarray]:
+def _ftsaveReadText(path: str) -> list[np.ndarray]:
     # a file can have multiple tables saved
     lines = iter(open(path))
     tables = []
@@ -2243,7 +2302,7 @@ def _ftsaveReadText(path: str) -> List[np.ndarray]:
     return tables
  
 
-def ftsaveRead(path, mode="text") -> List[np.ndarray]:
+def ftsaveRead(path, mode="text") -> list[np.ndarray]:
     """
     Read a file saved by ftsave, returns a list of tables
     """
@@ -2255,7 +2314,7 @@ def ftsaveRead(path, mode="text") -> List[np.ndarray]:
 
 def getNchnls(backend: str=None, outpattern:str=None, inpattern:str=None,
               defaultin:int=2, defaultout:int=2
-              ) -> Tuple[int, int]:
+              ) -> tuple[int, int]:
     """
     Get the default number of channels for a given device
 
@@ -2297,7 +2356,7 @@ def getNchnls(backend: str=None, outpattern:str=None, inpattern:str=None,
 
 
 def _getNchnlsJackViaJackclient(indevice:str, outdevice:str
-                                ) -> Tuple[int, int]:
+                                ) -> tuple[int, int]:
     """
     Get the number of ports for the given clients using JACK-Client
     This is faster than csound and should give the same results
@@ -2324,7 +2383,7 @@ def _getNchnlsJackViaJackclient(indevice:str, outdevice:str
     return len(inports), len(outports)
 
 
-def _parsePortaudioDeviceName(name:str) -> Tuple[str, str, int, int]:
+def _parsePortaudioDeviceName(name:str) -> tuple[str, str, int, int]:
     """
     Parses a string like "HDA Intel PCH: CX20590 Analog (hw:0,0) [ALSA, 2 in, 4 out]"
 
@@ -2348,7 +2407,7 @@ def _parsePortaudioDeviceName(name:str) -> Tuple[str, str, int, int]:
 
 
 def _getNchnlsPortaudio(indevice:Optional[str], outdevice:Optional[str]
-                        ) -> Tuple[int, int]:
+                        ) -> tuple[int, int]:
     indevs, outdevs = getAudioDevices(backend="portaudio")
     assert indevice != "dac" and outdevice != "adc"
     if indevice is None or indevice == "adc":
@@ -2391,7 +2450,7 @@ def dumpAudioDevices(backend:str=None):
         print("  ", dev)
 
 
-def instrNames(instrdef: str) -> List[Union[int, str]]:
+def instrNames(instrdef: str) -> list[Union[int, str]]:
     """
     Returns the list of names/instrument numbers in the instrument definition.
 
@@ -2422,7 +2481,7 @@ def instrNames(instrdef: str) -> List[Union[int, str]]:
         if not line.startswith("instr "):
             continue
         names = line[6:].split(",")
-        out: List[Union[str, int]] = []
+        out: list[Union[str, int]] = []
         for n in names:
             asnum = emlib.misc.asnumber(n)
             if asnum is None:
@@ -2456,7 +2515,7 @@ class ParsedBlock:
     startLine: int
     endLine: int = -1
     name: str = ''
-    attrs: Optional[Dict[str, str]] = None
+    attrs: Optional[dict[str, str]] = None
 
     def __post_init__(self):
         if self.endLine == -1:
@@ -2467,12 +2526,12 @@ class ParsedBlock:
 class _OrcBlock:
     name: str
     startLine: int
-    lines: List[str]
+    lines: list[str]
     endLine: int = 0
     outargs: str = ""
     inargs: str = ""
 
-def parseOrc(code: str, keepComments=True) -> List[ParsedBlock]:
+def parseOrc(code: str, keepComments=True) -> list[ParsedBlock]:
     """
     Parse orchestra code into blocks
 
@@ -2539,7 +2598,7 @@ def parseOrc(code: str, keepComments=True) -> List[ParsedBlock]:
 
     """
     context = []
-    blocks: List[ParsedBlock] = []
+    blocks: list[ParsedBlock] = []
     block = _OrcBlock("", 0, [])
     for i, line in enumerate(code.splitlines()):
         strippedline = line.strip()
@@ -2637,7 +2696,7 @@ class ParsedInstrBody:
 
 
 
-@_lru_cache(maxsize=1000)
+@_functools.lru_cache(maxsize=1000)
 def instrParseBody(body: str) -> ParsedInstrBody:
     """
     Parses the body of an instrument, returns pfields used, output channels, etc.
@@ -2755,7 +2814,7 @@ def bestSampleFormatForExtension(ext: str) -> str:
         raise ValueError("Format {ext} not supported")
 
 
-def _parsePresetSflistprograms(line:str) -> Optional[Tuple[str, int, int]]:
+def _parsePresetSflistprograms(line:str) -> Optional[tuple[str, int, int]]:
     # 012345678
     # xxx:yyy zzzzzzzzzz
     bank = int(line[:3])
@@ -2764,7 +2823,7 @@ def _parsePresetSflistprograms(line:str) -> Optional[Tuple[str, int, int]]:
     return (name, bank, num)
 
 
-def _parsePreset(line: str) -> Optional[Tuple[str, int, int]]:
+def _parsePreset(line: str) -> Optional[tuple[str, int, int]]:
     match = _re.search(r">> Bank: (\d+)\s+Preset:\s+(\d+)\s+Name:\s*(.+)", line)
     if not match:
         return
@@ -2774,34 +2833,60 @@ def _parsePreset(line: str) -> Optional[Tuple[str, int, int]]:
     return (name, bank, presetnum)
 
 
-@_lru_cache(maxsize=0)
-def soundfontIndex(sfpath: str) -> SoundFontIndex:
-    """
-    Make a SoundFontIndex for the given soundfont
-    """
-    return SoundFontIndex(sfpath)
-
-
 class SoundFontIndex:
     """
     Creates an index of presets for a given soundfont
+
+    Attributes:
+        instrs: a list of instruments, where each instrument is a tuple (instr. index, name)
+        presets: a list of presets, where each preset is a tuple (bank, num, name)
+        nameToIndex: a dict mapping instr name to index
+        indexToName: a dict mapping instr idx to name
+        nameToPreset: a dict mapping preset name to (bank, num)
+        presetToName: a dict mapping (bank, num) to preset name
     """
     def __init__(self, soundfont: str):
         assert _os.path.exists(soundfont)
         self.soundfont = soundfont
         instrs, presets = _soundfontGetInstrumentsAndPresets(soundfont)
-        self.instrs = instrs
-        self.presets = presets
-        self.nameToIndex = {name:idx for idx, name in self.instrs}
-        self.indexToName = {idx:name for idx, name in self.instrs}
-        self.nameToPreset = {name: (bank, num) for bank, num, name in self.presets}
-        self.presetToName = {(bank, num): name for bank, num, name in self.presets}
+        self.instrs: list[tuple[int, str]] = instrs
+        self.presets: list[tuple[int, int, str]] = presets
+        self.nameToIndex: dict[str, int] = {name:idx for idx, name in self.instrs}
+        self.indexToName: dict[int, str] = {idx:name for idx, name in self.instrs}
+        self.nameToPreset: dict[str, tuple[int, int]] = {name: (bank, num)
+                                                         for bank, num, name in self.presets}
+        self.presetToName: dict[tuple[int, int], str] = {(bank, num): name
+                                                         for bank, num, name in self.presets}
 
 
-@_lru_cache(maxsize=0)
+@_functools.cache
+def soundfontIndex(sfpath: str) -> SoundFontIndex:
+    """
+    Make a SoundFontIndex for the given soundfont
+
+    Args:
+        sfpath: the path to a soundfont (.sf2) file
+
+    Returns:
+        a SoundFontIndex
+
+    Example
+    ~~~~~~~
+
+        >>> from csoundengine import csoundlib
+        >>> idx = csoundlib.soundfontIndex("/path/to/piano.sf2")
+        >>> idx.nameToPreset
+        {'piano': (0, 0)}
+        >>> idx.nameToIndex
+        {'piano': 0}
+    """
+    return SoundFontIndex(sfpath)
+
+
+@_functools.cache
 def _soundfontGetInstrumentsAndPresets(sfpath: str
-                                       ) -> Tuple[List[Tuple[int, str]],
-                                                  List[Tuple[int, int, str]]]:
+                                       ) -> tuple[list[tuple[int, str]],
+                                                  list[tuple[int, int, str]]]:
     """
     Returns a tuple (instruments, presets)
 
@@ -2811,18 +2896,18 @@ def _soundfontGetInstrumentsAndPresets(sfpath: str
     from sf2utils.sf2parse import Sf2File
     f = open(sfpath, 'rb')
     sf = Sf2File(f)
-    instruments: List[Tuple[int, str]]
-    instruments = [(num, instr.name) for num, instr in enumerate(sf.instruments)
+    instruments: list[tuple[int, str]]
+    instruments = [(num, instr.name.strip()) for num, instr in enumerate(sf.instruments)
                    if instr.name != 'EOI']
-    presets: List[Tuple[int, int, str]]
-    presets = [(p.bank, p.preset, p.name)
+    presets: list[tuple[int, int, str]]
+    presets: list[tuple[int, int, str]] = [(p.bank, p.preset, p.name.strip())
                for p in sf.presets
                if p.name != 'EOP']
     presets.sort()
     return instruments, presets
 
 
-def soundfontGetInstruments(sfpath: str) -> List[Tuple[int, str]]:
+def soundfontGetInstruments(sfpath: str) -> list[tuple[int, str]]:
     """
     Get instruments for a soundfont
 
@@ -2834,7 +2919,7 @@ def soundfontGetInstruments(sfpath: str) -> List[Tuple[int, str]]:
         sfpath: the path to the soundfont. "?" to open a file-browser dialog
 
     Returns:
-        List[Tuple[int,str]] - a list of tuples, where each tuple has the form
+        list[tuple[int,str]] - a list of tuples, where each tuple has the form
         (index: int, instrname: str)
     """
     if sfpath == "?":
@@ -2843,7 +2928,7 @@ def soundfontGetInstruments(sfpath: str) -> List[Tuple[int, str]]:
     return instrs
 
 
-def soundfontGetPresets(sfpath: str) -> List[Tuple[int, int, str]]:
+def soundfontGetPresets(sfpath: str) -> list[tuple[int, int, str]]:
     """
     Get presets from a soundfont
 
@@ -2851,7 +2936,7 @@ def soundfontGetPresets(sfpath: str) -> List[Tuple[int, int, str]]:
         sfpath: the path to the soundfont. "?" to open a file-browser dialog
 
     Returns:
-        a list of tuples (bank:int, presetnum:int, name:str)
+        a list of tuples ``(bank:int, presetnum:int, name:str)``
     """
     if sfpath == "?":
         sfpath = _state.openSoundfont(ensureSelection=True)
@@ -2860,7 +2945,7 @@ def soundfontGetPresets(sfpath: str) -> List[Tuple[int, int, str]]:
 
 
 def soundfontSelectPreset(sfpath: str
-                          ) -> Tuple[str, int, int]:
+                          ) -> tuple[str, int, int]:
     """
     Select a preset from a soundfont interactively
 
@@ -2923,6 +3008,55 @@ def highlightCsoundOrc(code: str, theme:str=None) -> str:
     csndlex = pygments.lexers.csound.CsoundOrchestraLexer()
     html = pygments.highlight(code, lexer=csndlex, formatter=htmlfmt)
     return html
+
+
+def _eventEnd(event) -> float:
+    start = event[1]
+    dur = event[2]
+    if dur == -1:
+        return float('inf')
+    return start + dur
+
+
+def _cropScore(events: list, start=0., end=0.) -> list:
+    """
+    Crop the score so that no event exceeds the given limits
+
+    Args:
+        events: a list of events, where each event is a sequence
+            representing the pargs [p1, p2, p3, ...]
+        start: the min. start time for any event
+        end: the max. end time for any event
+    """
+    scoreend = max(_eventEnd(ev) for ev in events)
+    if end == 0:
+        end = scoreend
+    cropped = []
+    for ev in events:
+        kind = ev[0]
+        if kind == 'e':
+            continue
+        if kind != "i":
+            cropped.append(ev)
+            continue
+        evstart = ev[1]
+        evend = _eventEnd(ev)
+        if evend < start or evstart > end:
+            continue
+
+        if start <= evstart <= evend:
+            cropped.append(ev)
+        else:
+            xstart, xend = emlib.mathlib.intersection(start, end, evstart, evend)
+            if xend == float('inf'):
+                dur = -1
+            else:
+                dur = xend - xstart
+            ev = list(ev)
+            ev[1] = xstart
+            ev[2] = dur
+            cropped.append(ev)
+    return cropped
 
 
 del dataclass

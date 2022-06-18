@@ -4,8 +4,8 @@ import sys
 import os
 import tempfile
 import emlib.misc
+import numpy as np
 from .config import logger
-
 
 def makeUniqueFilename(ext:str, prefix='', folder:str='.') -> str:
     """
@@ -54,4 +54,3 @@ def showSoundfontPrograms(sfpath: str, glob="") -> None:
         progs = [p for p in progs
                  if fnmatch.fnmatch(p[2], glob)]
     emlib.misc.print_table(progs, headers=('bank', 'num', 'name'), showindex=False)
-

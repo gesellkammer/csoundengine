@@ -18,10 +18,11 @@ _defaultState = {
     'last_run': datetime(1900, 1, 1).isoformat(),
     'soundfont_last_dir': _home,
     'soundfile_last_dir': _home,
+    'soundfile_save_last_dir': _home,
 }
 
 
-state = ConfigDict("csoundengine.state", _defaultState)
+state = ConfigDict("csoundengine.state", _defaultState, persistent=True)
 
 
 def openFile(key, filter="All (*.*)", title="Open File"):
@@ -40,6 +41,15 @@ def saveFile(key, filter="All (*.*)", title="Save File"):
         folder = os.path.split(f)[0]
         state[key] = folder
     return f
+
+
+def saveSoundfile(filter="Soundfiles (*.wav, *.flac, *.aif, *.aiff)",
+                  title="Save Soundfile",
+                  ensureSelection=False):
+    out = saveFile(key="soundfile_save_last_dir", filter=filter, title=title)
+    if not out and ensureSelection:
+        raise ValueError("No file was selected for saving")
+    return out
 
 
 def openSoundfile(filter="Soundfiles (*.wav, *.flac, *.aif, *.aiff)",

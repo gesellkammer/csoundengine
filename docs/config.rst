@@ -6,9 +6,13 @@ Configuration
 =============
 
 Many defaults can be configured via :py:obj:`csoundengine.config.config` (an instance 
-of :class:`configdict.ConfigDict`, see https://configdict.readthedocs.io). 
-This is a persistent dictionary: any modification will
-be automatically saved and loaded the next time this module is imported
+of :class:`configdict.ConfigDict`, see https://configdict.readthedocs.io).
+
+.. note::
+
+    To modify defaults in a persistent manner, call :meth:`ConfigDict.save`
+    to save the current version. The changes will be loaded the next time this
+    module is imported
 
 .. image:: assets/jupyter-config.png
 
@@ -27,6 +31,13 @@ Example
     # Larger number of audio buses
     ce.config['num_audio_buses'] = 200
 
+    # If you would like to set these as defaults, call save. The next time using
+    # csoundengine, these settings will be the default.
+    ce.config.save()
+
+    # To revert the changes to the default, use reset:
+    ce.config.reset()
+
     
 Any :class:`~csoundengine.engine.Engine` created after this will pick up these
 new defaults::
@@ -42,7 +53,6 @@ new defaults::
 
 Edit the config interactively
 -----------------------------
-
 
 .. code::
 

@@ -75,6 +75,12 @@ class TableProxy:
                 f" numframes={self.numframes}, path={self.path},"
                 f" freeself={self.freeself})")
 
+    def __int__(self):
+        return self.tabnum
+
+    def __float__(self):
+        return float(self.tabnum)
+
     def getData(self) -> np.ndarray:
         """
         Get the table data as a numpy array. The returned array is a pointer

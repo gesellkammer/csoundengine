@@ -94,15 +94,20 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
         # Automate the cutoff freq. of the filter
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
 """
+# sndfileio sets numpy's denormal behaviour. If it happens later numpy spits
+# multiple warnings about it
+import sndfileio
+
 from .dependencies import checkDependencies
 ok = checkDependencies(force=False, fix=True)
 if not ok:
     raise RuntimeError("Depencencies not fullfilled")
 
+
 from .config import config, setLoggingLevel
 from .engine import *
 from .config import config, setLoggingLevel
-from .session import Session, getSession, groupSynths
+from .session import Session, getSession
 from .instr import Instr
 from .offline import Renderer
 from . import synth

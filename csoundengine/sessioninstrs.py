@@ -11,18 +11,23 @@ builtinInstrs = [
         """),
     Instr('.playSample',
           body=r"""
-        |isndtab=0, iloop=0, istart=0, ifade=0, igaingroup=0, icompensatesr=1, kchan=1, kspeed=1, kgain=1, kpan=-1|
+        |isndtab=0, istart=0, ifade=0, igaingroup=0, icompensatesr=1, kchan=1, kspeed=1, kgain=1, kpan=-1, ixfade=-1|
+        ; ixfade: crossfade time, if negative no looping
+        iloop = ixfade >= 0 ? 1 : 0
+        ionecycle = ksmps/sr
         ifade = ifade < 0 ? 0.05 : ifade
+        ifade = max(ifade, ionecycle)
         igaingroup = limit(igaingroup, 0, 100)
         inumouts = ftchnls(isndtab)
         inumsamples = nsamp(isndtab)
         isr = ftsr(isndtab)
+        
         if isr <= 0 then
             initerror sprintf("Could not determine sr of table %d", isndtab)
         endif
         idur = inumsamples / isr
+        
         ispeed = icompensatesr==1 ? isr/sr : 1
-        ixfade = 0.005
         know init istart
         ksubgain = table:k(igaingroup, gi__subgains)
         if inumouts == 0 then
@@ -32,31 +37,42 @@ builtinInstrs = [
 
         kidx init 0
         aenv = linsegr:a(0, ifade, 1, ifade, 0)
-        aenv *= a(ksubgain*kgain)
+        kgain2 = kgain*ksubgain
+        if kgain2 != 1 then
+            aenv *= a(ksubgain*kgain)
+        endif
+        
         if inumouts == 1 then
+            ; a1 flooper2 1, ispeed*kspeed, istart, idur, ixfade, isndtab, istart
             a1 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart
             a1 *= aenv
             kpan = kpan == -1 ? 0 : kpan
             aL, aR pan2 a1, kpan
             outch kchan, aL, kchan+1, aR
         elseif inumouts == 2 then
-            a1, a2 loscil3 1, ispeed*kspeed, isndtab, 1, iloop
+            a1, a2 flooper2 1, ispeed*kspeed, istart, idur, ixfade, isndtab, istart
+            ; a1, a2 loscil3 1, ispeed*kspeed, isndtab, 1, iloop
             a1 *= aenv
             a2 *= aenv
             kpan = kpan < 0 ? 0.5 : kpan
             kL, kR _panweights kpan
-            a1 *= kL
-            a2 *= kR
+            if kL != 1 then
+                a1 *= kL
+                a2 *= kR
+            endif
             outch kchan, a1, kchan+1, a2
         else
             ; 4: cubic interpolation
-            aouts[] loscilx 1, kspeed, isndtab, 4, 0, iloop
+            ; 1: ibas, base frequency
+            ; NB: loscilx has no crossfade
+            aouts[] loscilx 1, kspeed, isndtab, 4, 1, iloop
             aouts *= aenv
-            ichan = p(10)
-            ichans[] genarray ichan, ichan+inumouts-1
-            poly0 inumouts, "outch", ichans, aouts
+            kidx = 0
+            while kidx < inumouts do
+                outch kchan+kidx, aouts[kidx]
+                kchan += 1
+            od
         endif   
-        ionecycle = ksmps/sr
         know += ionecycle * kspeed
         imaxtime = idur - ifade - ionecycle
         if iloop == 0 && know >= imaxtime then
@@ -87,3 +103,5 @@ builtinInstrs = [
         endif
         """)
 ]
+
+builtinInstrIndex = {instr.name: instr for instr in builtinInstrs}

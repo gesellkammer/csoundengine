@@ -204,12 +204,17 @@ def _getSoundfileInfo(path) -> TableInfo:
 class _RefTimeContext:
     def __init__(self, engine: Engine):
         self.engine = engine
+        self.clockWasLocked = False
 
     def __enter__(self):
-        self.engine.lockClock()
+        self.clockWasLocked = self.engine.isClockLocked()
+        if not self.clockWasLocked:
+            self.engine.lockClock()
 
     def __exit__(self, *args, **kws):
-        self.engine.lockClock(False)
+        # restore previous state
+        if not self.clockWasLocked and self.engine.isClockLocked():
+            self.engine.lockClock(False)
 
 
 class Engine:
@@ -611,6 +616,8 @@ class Engine:
         self._history: List[str] = []
         self._startTime = 0.
         self._lockedElapsedTime = 0.
+        # A stack holding locked states
+        self._clockStatesStack: list[bool] = []
 
         self.started = False
         self.commandlineOptions: List[str] = []
@@ -978,9 +985,15 @@ class Engine:
         """
         return self.ksmps/self.sr * 2
 
-    def sync(self) -> None:
+    def sync(self, timeout: float = None) -> None:
         """
         Block until csound has processed its immediate events
+
+        Args:
+            timeout: a timeout in seconds; None = use default timeout as defined
+                in the configuration (TODO: add link to configuration docs)
+
+        Raises TimeoutError if the sync operation takes too long
 
         Example
         =======
@@ -995,7 +1008,7 @@ class Engine:
         self._perfThread.flushMessageQueue()
         token = self._getSyncToken()
         pargs = [self.builtinInstrs['pingback'], 0, 0, token]
-        self._eventWait(token, pargs)
+        self._eventWait(token, pargs, timeout=timeout)
 
     def compile(self, code:str, block=False) -> None:
         """
@@ -1250,12 +1263,30 @@ class Engine:
 
         """
         if lock:
-            assert not self._lockedElapsedTime, "The elapsed time clock is already locked"
-            self._lockedElapsedTime = self.csound.currentTimeSamples()/self.sr
+            if self.isClockLocked():
+                logger.debug("The elapsed time clock is already locked")
+            else:
+                self._lockedElapsedTime = self.csound.currentTimeSamples()/self.sr
         else:
             if not self._lockedElapsedTime:
                 logger.info("Asked to unlock the elapsed time clock, but it was not locked")
             self._lockedElapsedTime = 0
+
+    def isClockLocked(self) -> bool:
+        """Returns True if the clock is locked"""
+        return self._lockedElapsedTime > 0
+
+    def __enter__(self):
+        islocked = self.isClockLocked()
+        self._clockStatesStack.append(islocked)
+        if not islocked:
+            self.lockClock(True)
+
+    def __exit__(self, *args, **kws):
+        waslocked = self._clockStatesStack.pop()
+        if not waslocked:
+            self.lockClock(False)
+
 
     def lockedClock(self) -> _RefTimeContext:
         """
@@ -1264,6 +1295,16 @@ class Engine:
         By locking the reference time it is possible to ensure that
         events which are supposed to be in sync are scheduled correctly
         into the future.
+
+        .. note::
+
+            A shortcut for this is to just use the engine as context manager::
+
+                with engine:
+                    engine.sched(...)
+                    engine.sched(...)
+                    engine.session().sched(...)
+                    ...
 
         Example
         ~~~~~~~
@@ -1793,10 +1834,11 @@ class Engine:
         pargs = [self.builtinInstrs['pingback'], delay, 0.01, token]
         self._eventWithCallback(token, pargs, lambda token: callback())
 
-    def _eventWait(self, token:int, pargs:Sequence[float], timeout:float=None
+    def _eventWait(self, token:int, pargs:Sequence[float], timeout: float = None
                    ) -> Optional[float]:
         if timeout is None:
             timeout = config['timeout']
+        assert timeout > 0
         q = self._registerSync(token)
         self._perfThread.scoreEvent(0, "i", pargs)
         try:
@@ -2130,7 +2172,7 @@ class Engine:
         if callback:
             self._eventWithCallback(token, pargs, callback)
         else:
-            tabnum = self._eventWait(token, pargs)
+            tabnum = int(self._eventWait(token, pargs))
             assert tabnum is not None and tabnum > 0
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         return tabnum

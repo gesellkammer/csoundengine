@@ -42,7 +42,8 @@ setup(
         "jupyter",
         "ipywidgets",
         "risset",
-        "progressbar2"
+        "progressbar2",
+        "xxhash"
     ],
     license="BSD",
     classifiers=[

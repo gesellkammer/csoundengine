@@ -387,20 +387,19 @@ class Instr:
         Returns named dynamic parameters and their defaults
 
         This method is independent of the parameter mode used (whether a param table or
-        named pargs).
+        named pargs)
 
         Returns:
-            a list of named dynamic parameters to this instr, together with its associated
+            a dict of named dynamic parameters to this instr and their associated
             default values
         """
         paramMode = self.paramMode()
-        if paramMode is None:
-            return {}
-        elif paramMode == 'table':
+        if paramMode == 'table':
             return self.tabledef
-        else:
+        elif paramMode == 'parg':
             return {key: self.pargsIndexToDefaultValue.get(idx)
                     for key, idx in self.pargsNameToIndex.items()}
+        return {}
 
     def register(self, renderer) -> Instr:
         """
@@ -442,19 +441,20 @@ class Instr:
             renderer.registerInstr(self)
         return self
 
-    def pargIndex(self, parg: Union[int, str]) -> int:
+    def pargIndex(self, parg: str) -> int:
         """
         Helper function, returns the index corresponding to the given parg.
 
         Args:
-            parg (int|str): the index or the name of the p-field. If the
-                index is given (as int), it is returned as is
+            parg: the index or the name of the p-field.
 
         Returns:
             the index of the parg
         """
-        return parg if isinstance(parg, int) else \
-            _pargIndex(parg, self.pargsNameToIndex)
+        assert isinstance(parg, str)
+        if (idx := self.pargsNameToIndex.get(parg)) is None:
+            raise KeyError(f"parg {parg} not known. Defined named pargs: {self.pargsNameToIndex.keys()}")
+        return idx
 
     def pargsTranslate(self, args: Seq[float] = (), kws: Dict[Union[str, int], float] = None
                        ) -> List[float]:
@@ -484,7 +484,7 @@ class Instr:
         if kws:
             for pname, value in kws.items():
                 idx = pname if isinstance(pname, int) else _pargIndex(pname, n2i)
-                pargs[idx-5] = value
+                pargs[idx-5] = float(value)
         return pargs
 
     def asOrc(self, instrid, sr: int = None, ksmps: int = None, nchnls=2,
@@ -756,7 +756,7 @@ def parseInlineArgs(body: Union[str, list[str]]
             varname, defaultval = part.split("=")
             pfields[varname.strip()] = float(defaultval)
         else:
-            pfields[part] = 0
+            pfields[part.strip()] = 0
     body2 = "\n".join(lines[linenum+1:])
     return delimiters, pfields, body2
 
@@ -860,7 +860,7 @@ def _pargIndex(parg: str, pargMapping:Dict[str, int]) -> int:
                 return idx
         keys = [k for k in pargMapping.keys() if not k[0]=="p"]
         raise KeyError(f"parg '{parg}' not found. "
-                       f"Possible pargs: {keys}")
+                       f"Possible pargs: {keys} (mapping: {pargMapping})")
     assert idx > 0
     return idx
 
