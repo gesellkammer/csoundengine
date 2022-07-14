@@ -397,19 +397,23 @@ instr ${preadmany}
 endin
 
 instr ${testaudio}
-    pset 0, 0, 0, 0
-    imode passign 4
+    pset 0, 0, 0, 0, 1, 1
+    imode = p4
+    iperiod = p5
+    igain = p6
+    
     kchan init -1
     if imode == 0 then
         prints "\nTestaudio: pink noise mode\n"
         a0 pinker
+        a0 *= igain
     elseif imode == 1 then
         prints "\nTestaudio: sine tone mode\n"
-        a0 oscili 0.1, 1000
+        a0 oscili igain, 1000
     else
         initerror sprintf("testaudio: imode %d unknown", imode)
     endif
-    kswitch metro 1
+    kswitch metro 1/iperiod
     kchan = (kchan + kswitch) % nchnls
     outch kchan+1, a0
     if kswitch == 1 then

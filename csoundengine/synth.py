@@ -808,7 +808,7 @@ class SynthGroup(AbstrSynth):
     __slots__ = ('synths', '__weakref__')
 
     def __init__(self, synths: list[Synth], autostop=False) -> None:
-        assert isinstance(synths, list) and len(synths)>0
+        assert isinstance(synths, list)
         priority = max(synth.priority for synth in synths)
         start = min(synth.start for synth in synths)
         end = max(synth.end for synth in synths)

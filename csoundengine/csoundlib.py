@@ -103,6 +103,55 @@ def midiDevices(backend='portmidi') -> tuple[list[MidiDevice], list[MidiDevice]]
     return midiins, midiouts
 
 
+def compressionBitrateToQuality(bitrate: int, format='ogg') -> float:
+    """
+    Convert a bitrate to a compression quality between 0-1, as passed to --vbr-quality
+
+    Args:
+        bitrate: the bitrate in kb/s, oneof 64, 80, 96, 128, 160, 192, 224, 256, 320, 500
+        format: the encoding format (ogg at the moment)
+    """
+    if format == 'ogg':
+        bitrates = [64, 80, 96, 128, 128, 160, 192, 224, 256, 320, 500]
+        idx = emlib.misc.nearest_index(bitrate, bitrates)
+        return idx / 10
+    else:
+        raise ValueError(f"Format {format} not supported")
+
+
+def compressionQualityToBitrate(quality: float, format='ogg') -> int:
+    """
+    Convert compression quality to bitrate
+
+    Args:
+        quality: the compression quality (0-1) as passed to --vbr-quality
+        format: the encoding format (ogg at the moment)
+
+    =======   =======
+    quality   bitrate
+    =======   =======
+    0.0       64
+    0.1       80
+    0.2       96
+    0.3       112
+    0.4       128
+    0.5       160
+    0.6       192
+    0.7       224
+    0.8       256
+    0.9       320
+    1.0       500
+    =======   =======
+    """
+    if format == 'ogg':
+        idx = int(quality * 10 + 0.5)
+        if idx > 10:
+            idx = 10
+        return (64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 500)[idx]
+    else:
+        raise ValueError(f"Format {format} not supported")
+
+
 @dataclass(unsafe_hash=True)
 class AudioBackend:
     """
@@ -1426,7 +1475,17 @@ _fmtoptions = {
     'pcm16'    : '',
     'pcm24'    : '--format=24bit',
     'float32'  : '--format=float',  # also -f
-    'float64'  : '--format=double'
+    'float64'  : '--format=double',
+    'vorbis'   : '--format=vorbis'
+}
+
+
+_optionForSampleFormat = {
+    'wav': '--format=wav',   # could also be --wave
+    'aif': '--format=aiff',
+    'aiff': '--format=aiff',
+    'flac': '--format=flac',
+    'ogg': '--format=ogg'
 }
 
 
@@ -1435,16 +1494,63 @@ _csoundFormatOptions = {'-3', '-f', '--format=24bit', '--format=float',
                           '--format=short'}
 
 
-def csoundOptionForSampleFormat(fmt:str) -> str:
-    """
-    Returns the command-line option for the given sample format.
+_defaultEncodingForFormat = {
+    'wav': 'float32',
+    'flac': 'pcm24',
+    'aif': 'float32',
+    'aiff': 'float32',
+    'ogg': 'vorbis'
+}
 
-    Given a sample format of the form pcmXX or floatXX, where
+
+def csoundOptionsForOutputFormat(fmt='wav', encoding: str = None
+                                 ) -> list[str]:
+    """
+    Returns the command-line options for the given format+encoding
+
+    Args:
+        fmt: the format of the output file ('wav', 'flac', 'aif', etc)
+        encoding: the encoding ('pcm16', 'pcm24', 'float32', etc). If not given,
+            the best encoding for the given format is chosen
+
+    Returns:
+        a tuple of two strings holding the command-line options for the given
+        sample format/encoding
+
+    Example
+    ~~~~~~~
+
+        >>> csoundOptionsForOutputFormat('flac')
+        ('--format=flac', '--format=24bit')
+        >>> csoundOptionsForOutputFormat('wav', 'float32')
+        ('--format=wav', '--format=float')
+        >>> csoundOptionsForOutputFormat('aif', 'pcm16')
+        ('--format=aiff', '--format=short')
+
+    .. seealso:: :func:`csoundOptionForSampleEncoding`
+    """
+    assert fmt in _defaultEncodingForFormat, f"Unknown format: {fmt}, possible formats are: " \
+                                             f"{_defaultEncodingForFormat.keys()}"
+    if encoding is None:
+        encoding = _defaultEncodingForFormat.get(fmt)
+    encodingOption = csoundOptionForSampleEncoding(encoding)
+    fmtOption = _optionForSampleFormat[fmt]
+    options = [fmtOption]
+    if encodingOption:
+        options.append(encodingOption)
+    return options
+
+
+def csoundOptionForSampleEncoding(encoding: str) -> str:
+    """
+    Returns the command-line option for the given sample encoding.
+
+    Given a sample encoding of the form pcmXX or floatXX, where
     XX is the bit-rate, returns the corresponding command-line option
     for csound
 
     Args:
-        fmt (str): the desired sample format. Either pcmXX of floatXX
+        fmt (str): the desired sample format. Either pcmXX, floatXX, vorbis
           where XX stands for the number of bits per sample (pcm24,
           float32, etc)
 
@@ -1454,16 +1560,18 @@ def csoundOptionForSampleFormat(fmt:str) -> str:
     Example
     =======
 
-        >>> csoundOptionForSampleFormat("pcm24")
+        >>> csoundOptionForSampleEncoding("pcm24")
         --format=24bit
-        >>> csoundOptionForSampleFormat("float64")
+        >>> csoundOptionForSampleEncoding("float64")
         --format=double
 
+    .. seealso:: :func:`csoundOptionsForOutputFormat`
+
     """
-    if fmt not in _fmtoptions:
-        raise ValueError(f'format {fmt} not known. Possible values: '
+    if encoding not in _fmtoptions:
+        raise ValueError(f'format {encoding} not known. Possible values: '
                          f'{_fmtoptions.keys()}')
-    return _fmtoptions[fmt]
+    return _fmtoptions[encoding]
 
 _builtinInstrs = {
     '_playgen1': r'''
@@ -1551,7 +1659,11 @@ class Csd:
         self.nchnls = nchnls
         self.nchnls_i = nchnls_i
         self.a4 = a4
-        self._sampleFormat: Optional[str] = None
+
+        self._outfileFormat = ''
+        self._outfileEncoding = ''
+        self._compressionQuality = ''
+
         self._definedTables: Set[int] = set()
         self._minTableIndex = 1
         self.nodisplay = nodisplay
@@ -1573,7 +1685,7 @@ class Csd:
                   carry=self.enableCarry,
                   nchnls_i=self.nchnls_i)
         out.score = self.score.copy()
-        out._sampleFormat = self._sampleFormat
+        out._encodingFormat = self._encodingFormat
         out._definedTables = self._definedTables
         out._minTableIndex = self._minTableIndex
         out._maxTableNumber = self._maxTableNumber
@@ -1802,21 +1914,39 @@ class Csd:
         """ Add a comment to the renderer output soundfile"""
         self.setOptions(f'-+id_comment="{comment}"')
 
-    def setSampleFormat(self, fmt: str) -> None:
+    def setOutfileFormat(self, fmt: str) -> None:
         """
-        Set the sample format for recording
+        Sets the format for the output soundfile
+
+        If this is not explicitely set it will be induced from
+        the output soundfile set when running the csd
 
         Args:
-            fmt: one of 'pcm16', 'pcm24', 'pcm32', 'float32', 'float64'
+            fmt: the format to use ('wav', 'aif', 'flac', etc)
+        """
+        assert fmt in {'wav', 'aif', 'aiff', 'flac', 'ogg'}
+        self._outfileFormat = fmt
+
+    def setSampleEncoding(self, encoding: str) -> None:
+        """
+        Set the sample encoding for recording
+
+        If not set, csound's own default for encoding will be used
+
+        Args:
+            encoding: one of 'pcm16', 'pcm24', 'pcm32', 'float32', 'float64'
 
         """
-        option = csoundOptionForSampleFormat(fmt)
-        if option is None:
-            fmts = ", ".join(_fmtoptions.keys())
-            raise KeyError(f"fmt unknown, should be one of {fmts}")
-        if option:
-            self.setOptions(option)
-            self._sampleFormat = fmt
+        assert encoding in {'pcm16', 'pcm24', 'pcm32', 'float32', 'float64', 'vorbis'}
+        self._outfileEncoding = encoding
+
+    def setCompressionQuality(self, quality=0.4) -> None:
+        self._compressionQuality = quality
+
+
+    def setCompressionBitrate(self, bitrate=128, format='ogg') -> None:
+        self.setCompressionQuality(compressionBitrateToQuality(bitrate, format))
+
 
     def _writeScore(self, stream, datadir='.', dataprefix='') -> None:
         """
@@ -1854,8 +1984,8 @@ class Csd:
             body: the body of the instrument (the part between 'instr' / 'endin')
         """
         if _re.search(r"^\s*instr", body):
-            raise ValueError("The body should include the instrument definition, the part between"
-                             "'instr' / 'endin', got: {body}")
+            raise ValueError(f"The body should include the instrument definition, the part between"
+                             f"'instr' / 'endin', got: {body}")
 
         self.instrs[instr] = body
 
@@ -1867,10 +1997,7 @@ class Csd:
 
     def setOptions(self, *options: str) -> None:
         """ Adds options to this csd """
-        for opt in options:
-            if opt in _csoundFormatOptions:
-                self._sampleFormat = opt
-            self.options.append(opt)
+        self.options.extend(options)
 
     def dump(self) -> str:
         """ Returns a string with the .csd """
@@ -1921,9 +2048,8 @@ class Csd:
         >>> csd = Csd(...)
         >>> csd.write("myscript.csd")
 
-        This will generate a `m̀yscript.csd`` file and a folder `m̀yscript.assets`` holding
+        This will generate a ``myscript.csd`` file and a folder ``myscript.assets`` holding
         any data file needed. If no data files are used, no ``.assets`` folder is created
-
 
         """
         csdfile = _os.path.expanduser(csdfile)
@@ -1956,11 +2082,12 @@ class Csd:
         if self.nodisplay:
             options.append("-m0")
 
-        if self._sampleFormat and not any(opt.startswith("--format")
-                                          for opt in options):
-            options.append(csoundOptionForSampleFormat(self._sampleFormat))
+        if self._outfileFormat:
+            options.extend(csoundOptionsForOutputFormat(self._outfileFormat, self._outfileEncoding))
+        elif self._outfileEncoding:
+            options.append(csoundOptionForSampleEncoding(self._outfileEncoding))
 
-        for option in self.options:
+        for option in options:
             write(option)
             write("\n")
         write("</CsOptions>\n")
@@ -2040,23 +2167,35 @@ class Csd:
             the _subprocess.Popen object
 
         """
+        options = self.options.copy()
+        outfileFormat = ''
+        outfileEncoding = ''
         if not output:
-            if extraOptions:
-                extraOptions.append('--nosound')
-            else:
-                extraOptions = ['--nosound']
-        elif self._sampleFormat is None and not output.startswith('dac'):
-            self.setSampleFormat(bestSampleFormatForExtension(_os.path.splitext(output)[1]))
+            options.append('--nosound')
+        elif not output.startswith('dac'):
+            outfileFormat = self._outfileFormat or _os.path.splitext(output)[1][1:]
+            outfileEncoding = self._outfileEncoding or bestSampleEncodingForExtension(outfileFormat)
+            if self._compressionQuality:
+                options.append(f'--vbr-quality={self._compressionQuality}')
 
         if not csdfile:
             csdfile = _tempfile.mktemp(suffix=".csd")
             logger.debug(f"Runnings Csd from tempfile {csdfile}")
 
+        if outfileFormat:
+            options.extend(csoundOptionsForOutputFormat(outfileFormat, outfileEncoding))
+
+
+        if extraOptions:
+            options.extend(extraOptions)
+
+        options = emlib.misc.remove_duplicates(options)
+
         self.write(csdfile)
         return runCsd(csdfile, outdev=output, indev=inputdev,
                       backend=backend, nodisplay=suppressdisplay,
                       nomessages=nomessages,
-                      piped=piped, extra=extraOptions)
+                      piped=piped, extra=options)
 
 
 def mincer(sndfile:str,
@@ -2779,9 +2918,9 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                            body="\n".join(rest_lines))
 
 
-def bestSampleFormatForExtension(ext: str) -> str:
+def bestSampleEncodingForExtension(ext: str) -> Optional[str]:
     """
-    Given an extension, return the best sample format.
+    Given an extension, return the best sample encoding.
 
     .. note::
 
@@ -2802,6 +2941,8 @@ def bestSampleFormatForExtension(ext: str) -> str:
     flac       pcm24
     ========== ================
 
+    .. seealso:: :func:`
+
     """
     if ext[0] == ".":
         ext = ext[1:]
@@ -2810,8 +2951,10 @@ def bestSampleFormatForExtension(ext: str) -> str:
         return "float32"
     elif ext == "flac":
         return "pcm24"
+    elif ext == 'ogg':
+        return 'vorbis'
     else:
-        raise ValueError("Format {ext} not supported")
+        raise ValueError(f"Format {ext} not supported")
 
 
 def _parsePresetSflistprograms(line:str) -> Optional[tuple[str, int, int]]:

@@ -321,19 +321,19 @@ class Renderer:
         self.ksmps = ksmps
         self.a4 = a4
         # maps eventid -> ScoreEvent.
-        self.scheduledEvents: Dict[int, ScoreEvent] = {}
+        self.scheduledEvents: dict[int, ScoreEvent] = {}
         self._idCounter = 0
         a4 = a4 or config['A4']
         sr = sr or config['rec_sr']
         ksmps = ksmps or config['rec_ksmps']
         self.csd = csoundlib.Csd(sr=sr, nchnls=nchnls, ksmps=ksmps, a4=a4)
-        self._nameAndPriorityToInstrnum: Dict[Tuple[str, int], int] = {}
-        self._instrnumToNameAndPriority: Dict[int, Tuple[str, int]] = {}
+        self._nameAndPriorityToInstrnum: dict[tuple[str, int], int] = {}
+        self._instrnumToNameAndPriority: dict[int, tuple[str, int]] = {}
         self._numbuckets = maxpriorities
         self._bucketCounters = [0]*maxpriorities
         self._bucketsize = bucketsize
-        self._instrdefs: Dict[str, Instr] = {}
-        self._instanceCounters: Dict[int, int] = {}
+        self._instrdefs: dict[str, Instr] = {}
+        self._instanceCounters: dict[int, int] = {}
         self._numInstancesPerInstr = 10000
         self._numAudioBuses = numAudioBuses
         self._numControlBuses = 10000
@@ -468,7 +468,7 @@ class Renderer:
         self.registerInstr(instr)
         return instr
 
-    def registeredInstrs(self) -> Dict[str, Instr]:
+    def registeredInstrs(self) -> dict[str, Instr]:
         """
         Returns a dict (instrname: Instr) with all registered Instrs
         """
@@ -507,8 +507,8 @@ class Renderer:
               delay=0.,
               dur=-1.,
               priority=1,
-              pargs: Union[list[float], Dict[str, float]] = None,
-              tabargs: Dict[str, float] = None,
+              pargs: Union[list[float], dict[str, float]] = None,
+              tabargs: dict[str, float] = None,
               **pkws) -> ScoreEvent:
         """
         Schedule an event
@@ -671,8 +671,9 @@ class Renderer:
         self._endMarker = time
         self.csd.setEndMarker(time)
 
-    def render(self, outfile: str = None, endtime: float = 0, samplefmt: str = None,
-               wait=True, quiet:bool=None, openWhenDone=False, starttime: float=0
+    def render(self, outfile: str = None, endtime: float = 0, encoding: str = None,
+               wait=True, quiet:bool=None, openWhenDone=False, starttime: float=0,
+               compressionBitrate: int = None
                ) -> tuple[str, subprocess.Popen]:
         """
         Render to a soundfile
@@ -684,10 +685,12 @@ class Renderer:
         the sample format is set to float32 (csound defaults to 16 bit pcm)
 
         Args:
-            outfile: the output file to render to. None will render to a temp file
-            samplefmt: the sample format of the rendered file, given as
+            outfile: the output file to render to. The extension will determine
+                the format (wav, flac, etc). None will render to a temp wav file.
+            encoding: the sample encoding of the rendered file, given as
                 'pcmXX' or 'floatXX', where XX represent the bit-depth
-                ('pcm16', 'float32', etc)
+                ('pcm16', 'float32', etc). If no encoding is given a suitable default for
+                the sample format is chosen
             wait: if True this method will block until the underlying process exits
             quiet: if True, all output from the csound subprocess is supressed
             endtime: stop rendering at the given time. This will either extend or crop
@@ -695,6 +698,7 @@ class Renderer:
             starttime: start rendering at the given time. Any event ending previous to
                 this time will not be rendered and any event between starttime and
                 endtime will be cropped
+            compressionBitrate: used when rendering to ogg
             openWhenDone: open the file in the default application after rendering. At
                 the moment this will force the operation to be blocking, waiting for
                 the render to finish.
@@ -736,10 +740,16 @@ class Renderer:
             run_suppressdisplay = False
             run_piped = False
 
-        if samplefmt is None:
+        if encoding is None:
             ext = os.path.splitext(outfile)[1]
-            samplefmt = csoundlib.bestSampleFormatForExtension(ext)
-        self.csd.setSampleFormat(samplefmt)
+            encoding = csoundlib.bestSampleEncodingForExtension(ext[1:])
+
+        if encoding:
+            self.csd.setSampleEncoding(encoding)
+
+        if compressionBitrate:
+            self.csd.setCompressionBitrate(compressionBitrate)
+
         proc = self.csd.run(output=outfile,
                             suppressdisplay=run_suppressdisplay,
                             nomessages=run_suppressdisplay,

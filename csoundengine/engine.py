@@ -105,6 +105,7 @@ import time
 
 import emlib.textlib
 import numpy as np
+import pitchtools as pt
 
 from emlib import iterlib, net
 from emlib.containers import IntPool
@@ -902,6 +903,7 @@ class Engine:
         strsets = ["cos", "linear", "smooth", "smoother"]
         for s in strsets:
             self.strSet(s)
+        self.sync()
 
     def restart(self) -> None:
         """ Restart this engine. All defined instrs / tables are removed"""
@@ -3065,12 +3067,32 @@ class Engine:
         pargs = [self.builtinInstrs['freetable'], delay, 0., tableindex]
         self._perfThread.scoreEvent(0, "i", pargs)
 
-    def testAudio(self, dur=4.) -> float:
+    def testAudio(self, dur=4., delay=0.5, period=1, mode='pink',
+                  gaindb=-6) -> float:
         """
         Test this engine's output
+
+        Args:
+            dur: the duration of the test
+            delay: when to start the test
+            period: the duration of sound output on each channel
+            mode: the test mode, one of 'pink', 'sine'
+            gaindb: the gain of the output, in dB
+
+        Returns:
+            the p1 of the scheduled event
         """
         assert self.started
-        return self.sched(self.builtinInstrs['testaudio'], dur=dur)
+        modeid = {
+            'pink': 0,
+            'sine': 1
+        }.get(mode)
+
+        if modeid is None:
+            raise ValueError(f"mode must be one of 'pink', 'sine', got {mode}")
+
+        return self.sched(self.builtinInstrs['testaudio'], dur=dur, delay=delay,
+                          args=[modeid, period, pt.db2amp(gaindb)])
 
 
     # ~~~~~~~~~~~~~~~ UDP ~~~~~~~~~~~~~~~~~~

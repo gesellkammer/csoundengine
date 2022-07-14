@@ -685,6 +685,9 @@ def _checkInstr(instr: str) -> str:
     """
     lines = [line for line in (line.strip() for line in instr.splitlines()) if line]
     errmsg = ""
+    if not lines:
+        return errmsg
+
     if "instr" in lines[0] or "endin" in lines[-1]:
         errmsg = ("instr should be the body of the instrument,"
                   " without 'instr' and 'endin")

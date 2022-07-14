@@ -101,7 +101,8 @@ builtinInstrs = [
                 turnoff
             endif
         endif
-        """)
+        """),
+    Instr('.dummy', body="")
 ]
 
 builtinInstrIndex = {instr.name: instr for instr in builtinInstrs}
