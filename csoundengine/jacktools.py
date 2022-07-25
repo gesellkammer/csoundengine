@@ -48,13 +48,13 @@ def getInfo() -> Optional[JackInfo]:
     if not JACK_INSTALLED:
         return None
     try:
-        c = jack.Client("jacktools.getInfo", no_start_server=True)
+        c = jack.Client("jacktools-getinfo", no_start_server=True)
     except jack.JackOpenError:
         return None
     inports = c.get_ports(is_audio=True, is_physical=True, is_input=True)
     outports = c.get_ports(is_audio=True, is_physical=True, is_output=True)
     systemOutput = _buildClients(inports)[0]
-    systemInput = _buildClients(outports)[0]
+    systemInput = _buildClients(outports)[0] if outports else None
     onPipewire = linuxaudio.isPipewireRunning()
     return JackInfo(running=True,
                     samplerate=c.samplerate,

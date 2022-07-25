@@ -3,7 +3,7 @@
 
 from setuptools import setup
 
-version = (1, 11, 0)
+version = (1, 12, 0)
 
 from os import path
 this_directory = path.abspath(path.dirname(__file__))

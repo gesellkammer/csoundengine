@@ -359,7 +359,6 @@ class Engine:
                  commandlineOptions:List[str]=None,
                  includes:List[str]=None,
                  midibackend:str = 'default',
-                 midiout:str = None,
                  midiin:str = None,
                  latency:float=None):
         if name is None:

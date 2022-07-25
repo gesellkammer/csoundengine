@@ -243,6 +243,7 @@ class AudioBackend:
 
 
     def audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
+        logger.info(f"Querying csound's audio devices for backend {self.name}")
         cs = ctcsound.Csound()
         for opt in ['-+rtaudio='+self.name, "-m16", "-odac"]:
             cs.setOption(opt)
