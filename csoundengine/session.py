@@ -163,7 +163,7 @@ UI generated when using the terminal:
 
 from __future__ import annotations
 import sys
-import dataclasses
+from dataclasses import dataclass
 import emlib.misc
 import emlib.dialogs
 from .engine import Engine, getEngine, CsoundError
@@ -186,12 +186,14 @@ if TYPE_CHECKING:
 elif 'sphinx' in sys.modules:
     from typing import *
 
+
 __all__ = [
     'Session',
     'getSession',
+    'SessionEvent'
 ]
 
-@dataclasses.dataclass
+@dataclass
 class _ReifiedInstr:
     """
     A _ReifiedInstr is just a marker of a concrete instr sent to the
@@ -211,6 +213,19 @@ class _ReifiedInstr:
     qname: str
     instrnum: int
     priority: int
+
+
+@dataclass
+class SessionEvent:
+    instrname: str
+    delay: float = 0
+    dur: float = -1
+    priority: int = 1
+    pargs: list[float] | dict[str, float] | None = None
+    tabargs: dict[str, float] | None = None
+    whenfinished: Callable = None
+    relative: bool = True
+    kws: dict[str, float] | None = None
 
 
 class Session:
@@ -742,6 +757,18 @@ class Session:
 
         """
         return self.engine.assignBus()
+
+    def schedEvent(self, event: SessionEvent) -> Synth:
+        kws = event.kws or {}
+        return self.sched(instrname=event.instrname,
+                          delay=event.delay,
+                          dur=event.dur,
+                          priority=event.priority,
+                          pargs=event.pargs,
+                          tabargs=event.tabargs,
+                          whenfinished=event.whenfinished,
+                          relative=event.relative,
+                          **kws)
 
     def sched(self,
               instrname: str,

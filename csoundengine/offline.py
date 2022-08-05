@@ -89,8 +89,14 @@ class ScoreEvent(BaseEvent):
     """
     __slots__ = ('uniqueId', 'paramTable', 'renderer')
 
-    def __init__(self, p1: Union[float, str], start: float, dur: float, pargs: list[float],
-                 uniqueId: int, paramTable: int = 0, renderer: Renderer = None):
+    def __init__(self,
+                 p1: Union[float, str],
+                 start: float,
+                 dur: float,
+                 pargs: list[float],
+                 uniqueId: int,
+                 paramTable: int = 0,
+                 renderer: Renderer = None):
         super().__init__(p1, start, dur, pargs)
         self.uniqueId = uniqueId
         self.paramTable = paramTable

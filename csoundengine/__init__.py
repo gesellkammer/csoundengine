@@ -101,7 +101,7 @@ import sndfileio
 from .dependencies import checkDependencies
 ok = checkDependencies(force=False, fix=True)
 if not ok:
-    raise RuntimeError("Depencencies not fullfilled")
+    raise RuntimeError("csoundengine: Depencencies not fullfilled")
 
 
 from .config import config, setLoggingLevel

@@ -319,6 +319,6 @@ def checkDependencies(force=True, fix=False) -> bool:
         logger.warning("Checking dependencies")
         errormsg = _checkDependencies(fix=fix)
         if errormsg:
-            logger.error(errormsg)
+            logger.error(f"*** checkDependencies: {errormsg}")
             return False
     return True

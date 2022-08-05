@@ -808,7 +808,7 @@ class SynthGroup(AbstrSynth):
     __slots__ = ('synths', '__weakref__')
 
     def __init__(self, synths: list[Synth], autostop=False) -> None:
-        assert isinstance(synths, list)
+        assert isinstance(synths, list) and len(synths) > 0
         priority = max(synth.priority for synth in synths)
         start = min(synth.start for synth in synths)
         end = max(synth.end for synth in synths)
@@ -826,6 +826,15 @@ class SynthGroup(AbstrSynth):
         for synth in flatsynths:
             synth.synthgroup = groupref
         self.synths: list[Synth] = flatsynths
+
+    def extend(self, synths: list[Synth]) -> None:
+        """
+        Add the given synths to the synths in this group
+        """
+        groupref = _weakref.ref(self)
+        for synth in synths:
+            synth.synthgroup = groupref
+        self.synths.extend(synths)
 
     def stop(self, delay=0, stopParent=False) -> None:
         for s in self.synths:
@@ -907,7 +916,7 @@ class SynthGroup(AbstrSynth):
         for instrname, synths in subgroups.items():
             lines.append(f'<p>instr: <strong style="color:{instrcol}">'
                          f'{instrname}'
-                         f'</strong> - <b>{len(self.synths)}</b> synths</p>')
+                         f'</strong> - <b>{len(synths)}</b> synths</p>')
             htmltable = _synthsCreateHtmlTable(synths)
             lines.append(htmltable)
         return '\n'.join(lines)
@@ -921,7 +930,7 @@ class SynthGroup(AbstrSynth):
         if any(s.dur < 0 for s in self.synths):
             end = float('inf')
         dur = end - start
-        lines = [f'<small>SynthGroup - start: {start:.3f}, dur: {dur:.3f}</small>']
+        lines = [f'<small>SynthGroup - start: {start:.3f}, dur: {dur:.3f}, synths: {len(self.synths)}</small>']
         numrows = config['synthgroup_repr_max_rows']
         if numrows > 0:
             lines.append(self._htmlTable())

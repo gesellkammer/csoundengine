@@ -205,17 +205,12 @@ def _getSoundfileInfo(path) -> TableInfo:
 class _RefTimeContext:
     def __init__(self, engine: Engine):
         self.engine = engine
-        self.clockWasLocked = False
 
     def __enter__(self):
-        self.clockWasLocked = self.engine.isClockLocked()
-        if not self.clockWasLocked:
-            self.engine.lockClock()
+        self.engine.pushLock()
 
     def __exit__(self, *args, **kws):
-        # restore previous state
-        if not self.clockWasLocked and self.engine.isClockLocked():
-            self.engine.lockClock(False)
+        self.engine.popLock()
 
 
 class Engine:
@@ -1277,17 +1272,35 @@ class Engine:
         """Returns True if the clock is locked"""
         return self._lockedElapsedTime > 0
 
-    def __enter__(self):
+    def pushLock(self):
+        """
+        Lock the clock of this engine
+
+        Allows for recursive locking, so users do not need to
+        see if what the current state of the lock is
+
+        .. seealso:: :meth:`Engine.popLock`
+        """
         islocked = self.isClockLocked()
         self._clockStatesStack.append(islocked)
         if not islocked:
             self.lockClock(True)
 
-    def __exit__(self, *args, **kws):
+    def popLock(self):
+        """
+        Reverts the action of pushLock, unlocking the clock
+
+        .. seealso:: :meth:`Engine.pushLock`
+        """
         waslocked = self._clockStatesStack.pop()
         if not waslocked:
             self.lockClock(False)
 
+    def __enter__(self):
+        self.pushLock()
+
+    def __exit__(self, *args, **kws):
+        self.popLock()
 
     def lockedClock(self) -> _RefTimeContext:
         """
