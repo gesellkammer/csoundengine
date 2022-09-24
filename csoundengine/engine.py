@@ -100,6 +100,7 @@ import queue as _queue
 import fnmatch as _fnmatch
 import math
 import re as _re
+import textwrap
 
 import time
 
@@ -608,7 +609,6 @@ class Engine:
         self._busIndexes: Dict[int, int] = {}
         self._soundfontPresets: Dict[Tuple[str, int, int], int] = {}
         self._soundfontPresetCount = 0
-        self._history: List[str] = []
         self._startTime = 0.
         self._lockedElapsedTime = 0.
         # A stack holding locked states
@@ -618,6 +618,7 @@ class Engine:
         self.commandlineOptions: List[str] = []
         self.builtinInstrs: Dict[str, int] = {}
         self._reservedInstrnums: Set[int] = set()
+        self._reservedInstrnumRanges: list[tuple[str, int, int]] = [('builtinorc', CONSTS['reservedInstrsStart'], CONSTS['userInstrsStart']-1)]
         self.start()
 
     @property
@@ -793,9 +794,9 @@ class Engine:
                                           numControlBuses=self.numControlBuses)
         self.builtinInstrs = instrmap
         self._reservedInstrnums = set(instrmap.values())
-        logger.debug("--------------------------------------------------------------")
-        logger.debug("  Starting performance thread. ")
-        logger.debug(f"     Csound Options: {options}")
+        logger.debug("--------------------------------------------------------------\n"
+                     "  Starting performance thread. \n"
+                     f"     Csound Options: {options}")
         logger.debug(orc)
         logger.debug("--------------------------------------------------------------")
         assert '\0' not in orc
@@ -846,7 +847,7 @@ class Engine:
 
     def _setupGlobalInstrs(self):
         if self.hasBusSupport():
-            self._perfThread.scoreEvent(0, "i", [self.builtinInstrs['clearbuses'], 0, -1])
+            self._perfThread.scoreEvent(0, "i", [self.builtinInstrs['clearbuses_post'], 0, -1])
 
     def stop(self):
         """
@@ -1001,60 +1002,12 @@ class Engine:
             >>> # do something with the tables
         """
         assert self._perfThread
-        self._perfThread.flushMessageQueue()
+        # self._perfThread.flushMessageQueue()
         token = self._getSyncToken()
         pargs = [self.builtinInstrs['pingback'], 0, 0, token]
         self._eventWait(token, pargs, timeout=timeout)
 
-    def compile(self, code:str, block=False) -> None:
-        """
-        Send orchestra code to the running csound instance.
-
-        The code sent can be any orchestra code
-
-        Args:
-            code (str): the code to compile
-            block (bool): if True, this method will block until the code
-                has been compiled
-
-        Raises :class:`CsoundError` if the compilation failed
-
-        .. note::
-
-            If this instance has been started with a UDP port and
-            the config option 'prefer_udp' is true, the code will be sent
-            via udp. Otherwise the API is used. This might have an impact in
-            the resulting latency of the operation, since using the API when
-            running a performance thread can cause delays under certain
-            circumstances
-
-        Example
-        =======
-
-            >>> e = Engine()
-            >>> e.compile("giMelody[] fillarray 60, 62, 64, 65, 67, 69, 71")
-            >>> code = open("myopcodes.udo").read()
-            >>> e.compile(code)
-
-        """
-        self._history.append(code)
-        codeblocks = csoundlib.parseOrc(code)
-        for block in codeblocks:
-            if block.kind == 'instr' and block.name[0].isdigit():
-                instrnum = int(block.name)
-                if instrnum in self._reservedInstrnums:
-                    raise ValueError("Cannot compile instrument with number "
-                                     f"{instrnum}: this is a reserved instr and "
-                                     f"cannot be redefined. Reserved instrs: "
-                                     f"{sorted(self._reservedInstrnums)}")
-        instrs = [b for b in codeblocks if b.kind == 'instr']
-        names = [b.name for b in instrs
-                 if b.name[0].isalpha()]
-
-        for instr in instrs:
-            body = "\n".join(emlib.textlib.splitAndStripLines(instr.text)[1:-1])
-            self._instrRegistry[instr.name] = body
-
+    def _compileCode(self, code: str, block=False) -> None:
         if self.udpPort and config['prefer_udp']:
             logger.debug("Sengind code via udp: ")
             logger.debug(code)
@@ -1078,6 +1031,78 @@ class Engine:
                     logger.error(internalTools.addLineNumbers(code))
                     raise CsoundError(f"Could not compile async")
 
+    def _compileInstr(self, instrname: str|int, code: str, block=False) -> None:
+        self._instrRegistry[instrname] = code
+        self._compileCode(code, block=block)
+        if isinstance(instrname, str):
+            # if named instrs are defined we sync in order to avoid assigning
+            # the same number to different instrs. This should be taken
+            # care by csound by locking but until this is in place, we
+            # need to sync
+            if not block and instrname not in self._instrNumCache:
+                self.sync()
+            self._queryNamedInstrs([instrname], timeout=0.1 if block else 0)
+
+    def compile(self, code: str, block=False) -> None:
+        """
+        Send orchestra code to the running csound instance.
+
+        The code sent can be any orchestra code
+
+        Args:
+            code (str): the code to compile
+            block (bool): if True, this method will block until the code
+                has been compiled
+            client: who is compiling this code. Some clients have access to
+
+
+        Raises :class:`CsoundError` if the compilation failed
+
+        .. note::
+
+            If this instance has been started with a UDP port and
+            the config option 'prefer_udp' is true, the code will be sent
+            via udp. Otherwise the API is used. This might have an impact in
+            the resulting latency of the operation, since using the API when
+            running a performance thread can cause delays under certain
+            circumstances
+
+        Example
+        =======
+
+            >>> e = Engine()
+            >>> e.compile("giMelody[] fillarray 60, 62, 64, 65, 67, 69, 71")
+            >>> code = open("myopcodes.udo").read()
+            >>> e.compile(code)
+
+        """
+        codeblocks = csoundlib.parseOrc(code)
+        for block in codeblocks:
+            if block.kind == 'instr' and block.name[0].isdigit():
+                instrnum = int(block.name)
+                for rangename, mininstr, maxinstr in self._reservedInstrnumRanges:
+                    if mininstr <= instrnum < maxinstr:
+                        logger.error(f"Instrument number {instrnum} is reserved. Code:")
+                        logger.error("\n" + textwrap.indent(block.text, "    "))
+                        raise ValueError(f"Cannot use instrument number {instrnum}, "
+                                         f"the range {mininstr} - {maxinstr} is reserved for {rangename}")
+
+                if instrnum in self._reservedInstrnums:
+                    raise ValueError("Cannot compile instrument with number "
+                                     f"{instrnum}: this is a reserved instr and "
+                                     f"cannot be redefined. Reserved instrs: "
+                                     f"{sorted(self._reservedInstrnums)}")
+
+        instrs = [b for b in codeblocks if b.kind == 'instr']
+
+        for instr in instrs:
+            body = "\n".join(emlib.textlib.splitAndStripLines(instr.text)[1:-1])
+            self._instrRegistry[instr.name] = body
+
+        self._compileCode(code)
+
+        names = [instr.name for instr in instrs
+                 if instr.name[0].isalpha()]
         if names:
             # if named instrs are defined we sync in order to avoid assigning
             # the same number to different instrs. This should be taken
@@ -1086,7 +1111,8 @@ class Engine:
             if not block and any(name not in self._instrNumCache for name in names):
                 self.sync()
             namesToRegister = [n for n in names if n not in self._instrNumCache]
-            self._queryNamedInstrs(namesToRegister, timeout=0.1 if block else 0)
+            if namesToRegister:
+                self._queryNamedInstrs(namesToRegister, timeout=0.1 if block else 0, delay=self.bufferLatency())
 
     def evalCode(self, code:str) -> float:
         """
@@ -1342,14 +1368,17 @@ class Engine:
 
     def sched(self, instr:Union[int, float, str], delay=0., dur=-1.,
               args:Union[np.ndarray, Sequence[Union[float, str]]] = None,
-              relative=True) -> float:
+              relative=True
+              ) -> float:
         """
         Schedule an instrument
 
         Args:
             instr : the instrument number/name. If it is a fractional number,
-                that value will be used as the instance number. Named instruments
-                with a fractional number can also be scheduled
+                that value will be used as the instance number. An integer or a string
+                will result in a unique instance assigned by csound. Named instruments
+                with a fractional number can also be scheduled (for example,
+                for an instrument named "myinstr" you canuse "myinstr.001")
             delay: time to wait before instrument is started. If relative is False,
                 this represents the time since start of the engine (see examples)
             dur: duration of the event
@@ -1430,7 +1459,8 @@ class Engine:
             else:
                 instrfrac = self._assignEventId(instr)
         else:
-            raise TypeError()
+            raise TypeError(f"Expected a float, an int or a str as instr, "
+                            f"got {instr} (type {type(instr)})")
         if not args:
             pargs = [instrfrac, delay, dur]
             self._perfThread.scoreEvent(0 if relative else 1, "i", pargs)
@@ -1443,13 +1473,15 @@ class Engine:
             # 1: we use always absolute time
             self._perfThread.scoreEvent(1, "i", pargsnp)
         else:
+            needsSync = any(isinstance(a, str) and not a in self._strToIndex for a in args)
             pargs = [instrfrac, delay, dur]
             pargs.extend(a if not isinstance(a, str) else self.strSet(a) for a in args)
-            # 1: we use always absolute time
+            if needsSync:
+                self.sync()
             self._perfThread.scoreEvent(1, "i", pargs)
         return instrfrac
 
-    def _queryNamedInstrs(self, names:List[str], timeout=0.1, callback=None) -> None:
+    def _queryNamedInstrs(self, names:List[str], timeout=0.1, callback=None, delay=0.) -> None:
         """
         Query assigned instr numbers
 
@@ -1470,7 +1502,7 @@ class Engine:
             # query async
             if not callback:
                 for name in names:
-                    self._queryNamedInstrAsync(name)
+                    self._queryNamedInstrAsync(name, delay=delay)
             else:
                 results = {}
                 def mycallback(name, instrnum, n=len(names), results=results, callback=callback):
@@ -1478,19 +1510,21 @@ class Engine:
                     if len(results) == n:
                         callback(results)
                 for name in names:
-                    self._queryNamedInstrAsync(name, callback=mycallback)
+                    self._queryNamedInstrAsync(name, delay=delay, callback=mycallback)
             return
 
         tokens = [self._getSyncToken() for _ in range(len(names))]
         instr = self.builtinInstrs['nstrnum']
         for name, token in zip(names, tokens):
-            msg = f'i {instr} 0 0 {token} "{name}"'
+            msg = f'i {instr} {delay} 0 {token} "{name}"'
             self._perfThread.inputMessage(msg)
         self.sync()
         token2name = dict(zip(tokens, names))
         # Active polling
         polltime = min(0.005, timeout*0.5)
         numtries = int(timeout / polltime)
+        if delay:
+            time.sleep(delay)
         for _ in range(numtries):
             if not token2name:
                 break
@@ -1539,9 +1573,11 @@ class Engine:
                 the form ``func(instrname:str, instrnum:int) -> None``
 
         Returns:
-            the instr number if called without callback, 0 otherwise
+            the instr number if called without callback, 0 otherwise. If the instrument was
+            not found (either because it was never compiled or the compilation is not ready yet)
+            -1 will be returned
         """
-        if cached and (instrnum := self._instrNumCache.get(instrname)) is not None:
+        if cached and (instrnum := self._instrNumCache.get(instrname)) > 0:
             if callback:
                 callback(instrname, instrnum)
             return instrnum
@@ -1553,7 +1589,7 @@ class Engine:
         out = self._inputMessageWait(token, msg)
         assert out is not None
         out = int(out)
-        if cached:
+        if out > 0:
             self._instrNumCache[instrname] = out
         return out
 
@@ -1656,8 +1692,13 @@ class Engine:
         """
         from .session import Session
         if self._session is None:
-            self._session = Session(self.name)
+            self._session = session = Session(self.name)
+            mininstr, maxinstr = session._reservedInstrRange()
+            self._reserveInstrRange('session', mininstr, maxinstr)
         return self._session
+
+    def _reserveInstrRange(self, name: str, mininstrnum: int, maxinstrnum: int):
+        self._reservedInstrnumRanges.append((name, mininstrnum, maxinstrnum))
 
     def makeEmptyTable(self, size, numchannels=1, sr=0, instrnum=-1) -> int:
         """
@@ -1693,10 +1734,15 @@ class Engine:
 
         """
         tabnum = self._assignTableNumber(p1=instrnum)
-        pargs = [tabnum, 0, size, -2, 0]
-        self._perfThread.scoreEvent(0, "f", pargs)
-        self._perfThread.flushMessageQueue()
-        self.setTableMetadata(tabnum, numchannels=numchannels, sr=sr)
+        token = 0
+        empty = 1
+        pargs = [self.builtinInstrs['maketable'], 0, 0., token, tabnum, size, empty, sr, numchannels]
+        # pargs = [self.builtinInstrs['ftnewmeta'], 0, 0., tabnum, size, numchannels, sr]
+        # pargs = [tabnum, 0, size, -2, 0]
+        # self._perfThread.scoreEvent(0, "f", pargs)
+        # self._perfThread.flushMessageQueue()
+        # self.setTableMetadata(tabnum, numchannels=numchannels, sr=sr)
+        self._perfThread.scoreEvent(0, "i", pargs)
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         return tabnum
 
@@ -1772,7 +1818,6 @@ class Engine:
         arr[0:4] = [tabnum, 0, size, -2]
         arr[4:] = data
         self._perfThread.scoreEvent(0, "f", arr)
-        self._perfThread.flushMessageQueue()
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         return int(tabnum)
 
@@ -1780,6 +1825,7 @@ class Engine:
         """
         Returns True if a table with the given number exists
         """
+
         try:
             tabinfo = self.tableInfo(tabnum)
         except TableNotFoundError:
@@ -2030,7 +2076,6 @@ class Engine:
             return outvalue if outvalue != _UNSET else None
         except _queue.Empty:
             raise TimeoutError(f"{token=}, {instr=}")
-        return instrfrac
 
 
     def _eventWithCallback(self, token:int, pargs, callback) -> None:
@@ -3011,16 +3056,17 @@ class Engine:
         :meth:`~Engine.strGet`
 
         """
-        assert self.started
+        assert self.started and s
         stringIndex = self._strToIndex.get(s)
         if stringIndex:
             return stringIndex
         stringIndex = self._getStrIndex()
+        self._strToIndex[s] = stringIndex
+        self._indexToStr[stringIndex] = s
+        # self.csound.compileOrcAsync(f'strset {stringIndex}, "{s}"\n')
         instrnum = self.builtinInstrs['strset']
         msg = f'i {instrnum} 0 0 "{s}" {stringIndex}'
         self._perfThread.inputMessage(msg)
-        self._strToIndex[s] = stringIndex
-        self._indexToStr[stringIndex] = s
         if sync:
             self.sync()
         return stringIndex
@@ -3281,27 +3327,46 @@ class Engine:
         self._busIndexes[bus] = index
         return index
 
-    def assignBus(self, addref=False) -> int:
+    def releaseBus(self, bus: int) -> None:
+        """
+        Release a persistent bus
+
+        The bus must have been created in python with the *persistent* flag
+
+        .. seealso:: :meth:`~Engine.assignBus`
+        """
+        # bus is the bustoken
+        if not self.hasBusSupport():
+            raise RuntimeError("This Engine was created without bus support")
+        pargs = [self.builtinInstrs['busrelease'], 0, 0, bus]
+        self._perfThread.scoreEvent(0, "i", pargs)
+
+
+    def assignBus(self, persistent=False) -> int:
         """
         Assign one audio/control bus, returns the bus number.
 
+        Audio buses are always mono.
+
         Args:
-            addref: add a reference to the used bus. This ensures that the bus
-                will not get collected even when all the clients are finished using it.
+            persistent: if True it ensures that the bus will not get collected even
+                when all the clients are finished using it. To release a
+                persistent bus :meth:`~Engine.releaseBus` needs to be called explicitely
                 (see below for more information)
 
-        This can be used together with the built-in opcodes `busout`, `busin`
-        and `busmix`. From csound a bus can also be assigned by calling `busassign`
+        A bus created in this manner be used together with the built-in opcodes `busout`, `busin`
+        and `busmix`. A bus can also be created directly in csound by calling `busassign`
 
-        Buses are reference counted and are collected when there are no more clients
+        A bus is reference counted and is collected when there are no more clients
         using it. At creation the bus is "parked", waiting to be used by any client.
         As long as no clients use it, the bus stays in this state and is ready to
         be used.
         Multiple clients can use a bus and the bus is kept alive as long as there
-        are clients using it. When each client starts using it, via the any of the
-        bus opcodes, like "busin", the reference count of the bus is increased.
-        After a client has finished using it the reference count is automatically
-        decreased and if it reaches 0 the bus is collected.
+        are clients using it or if the bus was created as *persistent*.
+        When each client starts using it, via any of the bus opcodes, like "busin",
+        the reference count of the bus is increased. After a client has finished
+        using it the reference count is automatically decreased and if it reaches
+        0 the bus is collected.
 
         Order of evaluation is important: **buses are cleared at the end of each
         performance cycle** (they can only be used to communicate from a low
@@ -3364,10 +3429,7 @@ class Engine:
         >>> e.writeBus(bus, 0)   # reset value
         >>> e.unschedAll()
 
-        .. seealso::
-
-            :meth:`~Engine.writeBus`
-            :meth:`~Engine.readBus`
+        .. seealso:: :meth:`~Engine.writeBus`, :meth:`~Engine.readBus`, :meth:`~Engine.releaseBus`
 
         """
         if not self.hasBusSupport():
@@ -3375,7 +3437,7 @@ class Engine:
         bustoken = int(self._busTokenCountPtr[0])
         assert isinstance(bustoken, int)
         self._busTokenCountPtr[0] = bustoken+1
-        if addref:
+        if persistent:
             pfields = [self.builtinInstrs['busaddref'], 0, 0, bustoken]
             self._perfThread.scoreEvent(0, "i", pfields)
 

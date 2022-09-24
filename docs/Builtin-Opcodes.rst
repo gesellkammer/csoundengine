@@ -72,7 +72,8 @@ busout
 ------
 
 Sends audio to a bus. Audio already in the bus is replaced. In order to allow
-multiple sends to a bus use ``busmix``
+multiple sends to a bus use ``busmix``. 
+
 
 **Syntax**
 
@@ -99,7 +100,30 @@ multiple sends to a bus use ``busmix``
       asig moogladder2 asig, kcutoff, 0.9
       outch 1, asig
     endin
-      
+
+Buses can also be used globally. **NB**: buses are cleared automatically at
+the end of a cycle, they do not need to be zeroed by the user. 
+
+.. code-block:: csound
+
+    gimasterL = busassign()
+    gimasterR = busassign()
+
+    instr mysynth
+      kfreq = p4
+      asig oscili 0.1, kfreq
+      busout gimasterL, asig
+    endin
+
+    instr 999
+      aL busin gimasterL
+      aR busin gimasterR
+      outch 1, aL, 2, aR
+    endin 
+
+    schedule(999, 0, -1)
+
+    
 -----
 
 .. _busassign:

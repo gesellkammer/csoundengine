@@ -9,6 +9,26 @@ builtinInstrs = [
         aL, aR pan2 a0, kpos
         outch ichan, aL, ichan+1, aR
         """),
+    Instr('.testAudio', body=r'''
+        |imode=0, iperiod=1, igain=0.1|
+        kchan init -1
+        if imode == 0 then
+            prints "\nTestaudio: pink noise mode\n"
+            a0 pinker
+            a0 *= igain
+        elseif imode == 1 then
+            prints "\nTestaudio: sine tone mode\n"
+            a0 oscili igain, 1000
+        else
+            initerror sprintf("testaudio: imode %d unknown", imode)
+        endif
+        kswitch metro 1/iperiod
+        kchan = (kchan + kswitch) % nchnls
+        outch kchan+1, a0
+        if kswitch == 1 then
+            println "Channel: %d / %d", kchan+1, nchnls
+        endif
+    '''),
     Instr('.playSample',
           body=r"""
         |isndtab=0, istart=0, ifade=0, igaingroup=0, icompensatesr=1, kchan=1, kspeed=1, kgain=1, kpan=-1, ixfade=-1|

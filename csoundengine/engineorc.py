@@ -1,6 +1,6 @@
 from __future__ import annotations
 from string import Template
-from functools import lru_cache
+from functools import cache
 from typing import List, Dict, Any, Tuple
 import re
 
@@ -88,7 +88,8 @@ endin
 instr ${nstrnumsync}
     itoken = p4
     Sname = p5
-    inum nstrnum Sname
+    ; inum nstrnum Sname
+    inum nametoinstrnum Sname
     if itoken > 0 then
         tabw_i inum, itoken, gi__responses
         outvalue "__sync__", itoken
@@ -98,7 +99,8 @@ endin
 instr ${nstrnum}
     itoken = p4
     Sname = p5
-    inum nstrnum Sname
+    ; inum nstrnum Sname
+    inum nametoinstrnum Sname
     tabw_i inum, itoken, gi__responses
 endin
 
@@ -132,7 +134,7 @@ instr ${maketable}
     isr = p8
     inumchannels = p9
     if (iempty == 1) then
-        itabnum ftgen itabnum, 0, ilen, -2, 0
+        i0 ftgen itabnum, 0, ilen, -2, 0
     else
         iValues[] passign 10, 10+ilen
         itabnum ftgen itabnum, 0, ilen, -2, iValues
@@ -140,8 +142,9 @@ instr ${maketable}
     if isr > 0 then
         ftsetparams itabnum, isr, inumchannels
     endif 
-    ; notify host that token is ready
+    ; notify host that token is ready (if asked to)
     if itoken > 0 then
+        prints "Sending notification!!\n"
         tabw_i itabnum, itoken, gi__responses
         outvalue "__sync__", itoken
     endif
@@ -464,6 +467,12 @@ instr ${soundfontPlay}
     endif
 endin
 
+instr ${dummy_post}
+    ; this instrument is only here to prevent a crash
+    ; when named instruments and numbered instruments
+    ; are mixed in separate calls to compile
+endin
+
 
 ftset gi__subgains, 1
 chnset 1, "_soundfontPresetCount"   
@@ -493,12 +502,6 @@ gi__bustoken2numk dict_new "int:float"
 
 chn_k "_busTokenCount", 3
 
-
-;instr __businit
-;    chnset 0, "_busTokenCount"
-;    ftset gi__bustable, $$_BUSUNSET
-;    turnoff
-;endin
 
 opcode busassign, i, io
     itoken, ikind xin
@@ -628,7 +631,7 @@ endop
 opcode busin, k, io
     itoken, idefault xin
     ibus = _bususek(itoken)
-    prints "busin: %d, ibus: %d\n", itoken, ibus
+    ; prints "busin: %d, ibus: %d\n", itoken, ibus
     ; init
     ival tab_i ibus, gi__bustable
     print ival
@@ -675,27 +678,20 @@ instr ${busoutk}
     tabw_i ivalue, ibus, gi__bustable
 endin
 
-instr ${clearbuses}
+instr ${clearbuses_post}
     zeroarray ga__buses
 endin
 
-; schedule "__businit", 0, ksmps/sr
 chnset 0, "_busTokenCount"
 ftset gi__bustable, $$_BUSUNSET
 
 '''
 
 
-def _extractInstrNames(s:str) -> List[str]:
-    names = []
-    for line in s.splitlines():
-        if match := re.search(r"\binstr\s+\$\{(\w+)\}", line):
-            instrname = match.group(1)
-            names.append(instrname)
-    return names
+def _extractInstrNames(s:str) -> list[str]:
+    return [match.group(1) for line in s.splitlines()
+            if (match:=re.search(r"\binstr\s+\$\{(\w+)\}", line))]
 
-
-_instrNames = _extractInstrNames(_orc + _busOrc)
 
 # Constants
 CONSTS = {
@@ -704,7 +700,9 @@ CONSTS = {
     'highestInstrnum': 11500,
     'postProcInstrnum': 11000,
     'reservedTablesStart': 300,
-    'reservedInstrsStart': 500,
+    'reservedInstrsStart': 1,
+    'userInstrsStart': 100,
+    'sessionInstrsStart': 500,
     'numReservedTables': 2000,
     'maxNumInstrs': 10000,
     'BUSUNSET': -999999999
@@ -712,21 +710,21 @@ CONSTS = {
 
 _tableNames = ['responses', 'subgains', 'tokenToInstrnum']
 
-BUILTIN_INSTRS = {k:i for i, k in enumerate(_instrNames, start=CONSTS['reservedInstrsStart'])}
-BUILTIN_INSTRS['clearbuses'] = CONSTS['postProcInstrnum']
 BUILTIN_TABLES = {name:i for i, name in enumerate(_tableNames, start=1)}
 
 
-@lru_cache(maxsize=0)
-def assignBuiltinInstrs(orc: str, startInstr:int=0) -> Dict[str, int]:
+@cache
+def assignBuiltinInstrs(orc: str, startInstr: int, postInstrNum: int) -> Dict[str, int]:
     """
     Given an orc with quotes instr. names, assign numbers to each instr
     """
-    if startInstr == 0:
-        startInstr = CONSTS['reservedInstrsStart']
     names = _extractInstrNames(orc)
-    instrs = {name: i for i, name in enumerate(names, start=startInstr)}
-    instrs['clearbuses'] = CONSTS['postProcInstrnum']
+    preInstrs = [name for name in names if not name.endswith('_post')]
+    postInstrs = [name for name in names if name.endswith('_post')]
+
+    instrs = {name: i for i, name in enumerate(preInstrs, start=startInstr)}
+    for i, name in enumerate(postInstrs):
+        instrs[name] = postInstrNum + i
     return instrs
 
 
@@ -738,7 +736,7 @@ def _joinOrc(busSupport=True) -> str:
     return orc
 
 
-@lru_cache(maxsize=0)
+@cache
 def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
             a4:float, globalcode:str="", includestr:str="",
             numAudioBuses:int=0, numControlBuses:int=0
@@ -754,7 +752,9 @@ def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
     withBusSupport = numAudioBuses > 0 or numControlBuses > 0
     orcproto = _joinOrc(busSupport=withBusSupport)
     template = Template(orcproto)
-    instrs = assignBuiltinInstrs(orcproto)
+    instrs = assignBuiltinInstrs(orcproto,
+                                 startInstr=CONSTS['reservedInstrsStart'],
+                                 postInstrNum=CONSTS['postProcInstrnum'])
     subs: Dict[str, Any] = {name:f"{num}  /* {name} */"
                             for name, num in instrs.items()}
     subs.update(BUILTIN_TABLES)

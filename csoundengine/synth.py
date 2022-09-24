@@ -352,7 +352,7 @@ class Synth(AbstrSynth):
     def _html(self) -> str:
         argsfontsize = config['html_args_fontsize']
         maxi = config['synth_repr_max_args']
-        style = jupytertools.defaultStyle
+        style = jupytertools.defaultPalette
         playstr = _synthStatusIcon[self.playStatus()]
         parts = [
             f'{playstr} <strong style="color:{style["name.color"]}">'
@@ -372,11 +372,13 @@ class Synth(AbstrSynth):
                     argsstrs.append("...")
                     break
                 name = i2n.get(i)
+                if not isinstance(parg, str):
+                    parg = f'{parg:.6g}'
                 if name:
-                    s = f"<b>{name}</b>:{i}=<code>{parg:.6g}</code>"
+                    s = f"<b>{name}</b>:{i}=<code>{parg}</code>"
                 else:
                     # s = f"<b>p{i + 4}</b>=<code>{parg:.6g}</code>"
-                    s = f"<b>{i}</b>=<code>{parg:.6g}</code>"
+                    s = f"<b>{i}</b>=<code>{parg}</code>"
                 argsstrs.append(s)
             argsstr = " ".join(argsstrs)
             argsstr = fr'<span style="font-size:{argsfontsize};">{argsstr}</span>'
@@ -410,11 +412,13 @@ class Synth(AbstrSynth):
                     argsstrs.append("...")
                     break
                 name = i2n.get(i+4)
+                if not isinstance(parg, str):
+                    parg = f'{parg:.6g}'
                 if name:
-                    s = f"{name}:{i+4}={parg:.6g}"
+                    s = f"{name}:{i+4}={parg}"
                     #s = f"p{i+4}:{name}={parg:.8g}"
                 else:
-                    s = f"p{i+4}={parg:.6g}"
+                    s = f"p{i+4}={parg}"
                 argsstrs.append(s)
             argsstr = " ".join(argsstrs)
             parts.append(argsstr)
@@ -781,6 +785,7 @@ def _synthsCreateHtmlTable(synths: list[Synth]) -> str:
         for i, parg in enumerate(synth0.pargs):
             if i > maxi:
                 colnames.append("...")
+                break
             name = i2n.get(i+4)
             if name:
                 colnames.append(f"{i+4}:{name}")
@@ -790,6 +795,7 @@ def _synthsCreateHtmlTable(synths: list[Synth]) -> str:
             row.extend("%.5g"%parg for parg in synth.pargs[:maxi])
             if len(synth.pargs) > maxi:
                 row.append("...")
+
     if limitSynths:
         rows.append(["..."])
     return emlib.misc.html_table(rows, headers=colnames)
@@ -912,7 +918,7 @@ class SynthGroup(AbstrSynth):
     def _htmlTable(self) -> Optional[str]:
         subgroups = iterlib.classify(self.synths, lambda synth: synth.instr.name)
         lines = []
-        instrcol = jupytertools.defaultStyle["name.color"]
+        instrcol = jupytertools.defaultPalette["name.color"]
         for instrname, synths in subgroups.items():
             lines.append(f'<p>instr: <strong style="color:{instrcol}">'
                          f'{instrname}'
@@ -937,7 +943,7 @@ class SynthGroup(AbstrSynth):
         else:
             subgroups = iterlib.classify(self.synths, lambda synth: synth.instr.name)
             instrline = []
-            instrcol = jupytertools.defaultStyle["name.color"]
+            instrcol = jupytertools.defaultPalette["name.color"]
             for instrname, synths in subgroups.items():
                 s = f'<strong style="color:{instrcol}">{instrname}</strong> - {len(synths)} synths'
                 namedparams = synths[0].namedPfields()

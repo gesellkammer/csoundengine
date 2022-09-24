@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from csoundlib import AudioDevice, MidiDevice
     
 
-_registry: Dict[str, Any] = {}
+_registry: dict[str, Any] = {}
 
 
 try:
@@ -127,9 +127,9 @@ def determineNumbuffers(backend:str, buffersize:int) -> int:
 
 def instrResolveArgs(instr: Instr,
                      p4: int,
-                     pargs: Union[List[float], Dict[str, float]]=None,
-                     pkws: Dict[str, float]=None
-                     ) -> List[float]:
+                     pargs: Union[list[float], dict[str, float]]=None,
+                     pkws: dict[str, float]=None,
+                     ) -> list[float]:
     """
     Resolves pargs, returns pargs starting from p4
 
@@ -142,7 +142,7 @@ def instrResolveArgs(instr: Instr,
     Returns:
         pargs passed to csound, **starting with p4**
     """
-    allargs: List[float] = [float(p4)]
+    allargs: list[float] = [float(p4)]
     if not pargs and not instr.pargsIndexToDefaultValue and not pkws:
         return allargs
     if isinstance(pargs, list):
@@ -233,7 +233,7 @@ def normalizePlatform(s:str) -> str:
     return out
 
 
-def resolveOption(prioritizedOptions:List[str], availableOptions:List[str]
+def resolveOption(prioritizedOptions:list[str], availableOptions:list[str]
                   ) -> Optional[str]:
     for opt in prioritizedOptions:
         if opt in availableOptions:
@@ -241,7 +241,7 @@ def resolveOption(prioritizedOptions:List[str], availableOptions:List[str]
     return None
 
 
-def selectAudioDevice(devices: List[AudioDevice], title='Select device'
+def selectAudioDevice(devices: list[AudioDevice], title='Select device'
                       ) -> Optional[AudioDevice]:
     if len(devices) == 1:
         return devices[0]
@@ -254,7 +254,7 @@ def selectAudioDevice(devices: List[AudioDevice], title='Select device'
     return outdev
 
 
-def selectMidiDevice(devices: List[MidiDevice], title='Select MIDI device'
+def selectMidiDevice(devices: list[MidiDevice], title='Select MIDI device'
                      ) -> Optional[MidiDevice]:
     """
     Select a midi device from the given devices
@@ -280,7 +280,7 @@ def selectMidiDevice(devices: List[MidiDevice], title='Select MIDI device'
 
 
 
-def selectItem(items: List[str], title="Select") -> Optional[str]:
+def selectItem(items: list[str], title="Select") -> Optional[str]:
     return emlib.dialogs.selectItem(items=items, title=title)
 
 
@@ -288,7 +288,7 @@ def instrNameFromP1(p1: Union[float, str]) -> Union[int, str]:
     return int(p1) if isinstance(p1, (int, float)) else p1.split(".")[0]
 
 
-def resolvePfieldIndex(pfield: Union[int, str], pfieldNameToIndex: Dict[str, int] = None
+def resolvePfieldIndex(pfield: Union[int, str], pfieldNameToIndex: dict[str, int] = None
                        ) -> int:
     if isinstance(pfield, int):
         return pfield

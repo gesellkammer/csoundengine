@@ -55,10 +55,10 @@ config = ConfigDict(modulename, persistent=False)
 _ = config.addKey
 
 _('sr', 0,
-  choices=(0, 22050, 44100, 48000, 88200, 96000),
+  choices=(0, 22050, 24000, 44100, 48000, 88200, 96000, 144000, 192000),
   doc='samplerate - 0=default sr for the backend')
 _('rec_sr', 44100,
-  choices=(44100, 48000, 88200, 96000, 192000),
+  choices=(0, 22050, 24000, 44100, 48000, 88200, 96000, 144000, 192000),
   doc='default samplerate when rendering')
 _('nchnls', 0,
   range=(0, 128),
@@ -67,10 +67,10 @@ _('nchnls_i', 0,
   range=(0, 128),
   doc='Number of input channels to use. 0 = default for used device')
 _('ksmps', 64,
-  choices=(16, 32, 64, 128, 256),
+  choices=(16, 32, 64, 128, 256, 512, 1024),
   doc="corresponds to csound's ksmps")
 _('rec_ksmps', 64,
-  choices=(16, 32, 64, 128, 256),
+  choices=(16, 32, 64, 128, 256, 512, 1024),
   doc="samples per cycle when rendering")
 _('rec_sample_format', 'float',
   choices=(16, 24, 32, 'float'),
@@ -141,7 +141,7 @@ _('jupyter_instr_repr_show_code', True,
 _('ipython_load_magics_at_startup', True,
   doc='Load csoundengine.magic at startup when inside ipython. If False, magics can '
       'still be loaded via `%load_ext csoundengine.magic`')
-_('magics_print_info', True,
+_('magics_print_info', False,
   doc='Print some informative information when the csounengine.magic extension is loaded')
 _('jupyter_slider_width', '80%',
   doc='CSS Width used by an interactive slider in jupyter')
@@ -163,7 +163,9 @@ _('spectrogram_figsize', "24:8", validatefunc=_validateFigsize,
 _('spectrogram_maxfreq', 12000,
   doc="Highest freq. in a spectrogram")
 _('spectrogram_window', 'hamming', choices={'hamming', 'hanning'})
+_('dependencies_check_timeout_days', 7,
+  doc="Elapsed time (in days) after which dependencies will be checked",
+  range=(1, 365))
 
 config.load()
-
 

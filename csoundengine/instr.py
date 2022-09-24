@@ -201,9 +201,9 @@ class Instr:
     def __init__(self,
                  name: str,
                  body: str,
-                 args: Dict[str, float] = None,
+                 args: dict[str, float] = None,
                  init: str = None,
-                 tabledef: Dict[str, float] = None,
+                 tabledef: dict[str, float] = None,
                  numchans: int = 1,
                  preschedCallback=None,
                  freetable=True,
@@ -218,8 +218,8 @@ class Instr:
 
         self.originalBody = body
 
-        self._tableDefaultValues: Optional[List[float]] = None
-        self._tableNameToIndex: Optional[Dict[str, int]] = None
+        self._tableDefaultValues: Optional[list[float]] = None
+        self._tableNameToIndex: Optional[dict[str, int]] = None
 
         delimiters, inline_args, body = parseInlineArgs(body)
 
@@ -237,8 +237,8 @@ class Instr:
                                       enumerate(tabledef.keys())}
             defaultvals = list(tabledef.values())
             minsize = config['associated_table_min_size']
-            if len(defaultvals)<minsize:
-                defaultvals += [0.]*(minsize-len(defaultvals))
+            if len(defaultvals) < minsize:
+                defaultvals += [0.] * (minsize - len(defaultvals))
             self._tableDefaultValues = defaultvals
             tabcode = _tabledefGenerateCode(tabledef, freetable=freetable)
             body = textlib.joinPreservingIndentation((tabcode, body))
@@ -249,8 +249,8 @@ class Instr:
 
         if args:
             pfields = _pfieldsMergeDeclaration(args, body, startidx=userPargsStart)
-            pargsIndexToName = {i:name for i, (name, default) in pfields.items()}
-            pargsDefaultValues = {i:default for i, (_, default) in pfields.items()}
+            pargsIndexToName = {i: name for i, (name, default) in pfields.items()}
+            pargsDefaultValues = {i: default for i, (_, default) in pfields.items()}
             body = _updatePfieldsCode(body, pargsIndexToName)
         else:
             parsed = csoundlib.instrParseBody(body)
@@ -328,7 +328,7 @@ class Instr:
                     f"{pname}:{i}" for i, pname in sorted(pargs.items()) if i != 4)
 
     def _repr_html_(self) -> str:
-        style = jupytertools.defaultStyle
+        style = jupytertools.defaultPalette
         parts = [f'Instr <strong style="color:{style["name.color"]}">{self.name}</strong><br>']
         if self.pargsIndexToName and len(self.pargsIndexToName) > 1:
             indexes = list(self.pargsIndexToName.keys())
@@ -382,7 +382,7 @@ class Instr:
         sections.append(self.body)
         return "\n".join(sections)
 
-    def namedParams(self) -> Dict[str, float]:
+    def namedParams(self) -> dict[str, float]:
         """
         Returns named dynamic parameters and their defaults
 
@@ -456,8 +456,10 @@ class Instr:
             raise KeyError(f"parg {parg} not known. Defined named pargs: {self.pargsNameToIndex.keys()}")
         return idx
 
-    def pargsTranslate(self, args: Seq[float] = (), kws: Dict[Union[str, int], float] = None
-                       ) -> List[float]:
+    def pargsTranslate(self, 
+                       args: Seq[float] = (), 
+                       kws: dict[Union[str, int], float] = None
+                       ) -> list[float]:
         """
         Given pargs as values and keyword arguments, generate a list of
         values which can be passed to sched, starting with p5
@@ -484,7 +486,7 @@ class Instr:
         if kws:
             for pname, value in kws.items():
                 idx = pname if isinstance(pname, int) else _pargIndex(pname, n2i)
-                pargs[idx-5] = float(value)
+                pargs[idx-5] = value
         return pargs
 
     def asOrc(self, instrid, sr: int = None, ksmps: int = None, nchnls=2,
@@ -541,7 +543,7 @@ class Instr:
             logger.error(msg)
         return ok
 
-    def rec(self, dur, outfile: str = None, args: List[float] = None,
+    def rec(self, dur, outfile: str = None, args: list[float] = None,
             sr: int = None, ksmps: int = None, samplefmt=None, nchnls: int = 2,
             block=True, a4: int = None) -> str:
         """
@@ -571,7 +573,7 @@ class Instr:
                               ksmps=ksmps, samplefmt=samplefmt, nchnls=nchnls,
                               block=block, a4=a4)
 
-    def recEvents(self, events: List[List[float]], outfile: str = None,
+    def recEvents(self, events: list[list[float]], outfile: str = None,
                   sr=44100, ksmps=64, samplefmt='float', nchnls=2,
                   block=True, a4=None
                   ) -> str:
@@ -640,7 +642,7 @@ class Instr:
             return -1
         return idx
 
-    def overrideTable(self, d: Dict[str, float]=None, **kws) -> List[float]:
+    def overrideTable(self, d: dict[str, float]=None, **kws) -> list[float]:
         """
         Overrides default values in the params table
         Returns the initial values
@@ -764,7 +766,7 @@ def parseInlineArgs(body: Union[str, list[str]]
     return delimiters, pfields, body2
 
 def _tabledefGenerateCode(tabledef: dict, freetable=True) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     idx = 0
     maxidx = len(tabledef)
     lines.append(fr'''
@@ -794,7 +796,7 @@ def _tabledefGenerateCode(tabledef: dict, freetable=True) -> str:
     out = textlib.stripLines(out)
     return out
 
-def _pfieldsMergeDeclaration(args: Dict[str, float], body: str, startidx=4
+def _pfieldsMergeDeclaration(args: dict[str, float], body: str, startidx=4
                              ) -> dict[int, tuple[str, float]]:
     """
     Given a dictionary declaring pfields and their defaults,
@@ -853,7 +855,7 @@ def _updatePfieldsCode(body: str, idx2name: dict[int, str]) -> str:
     # return "\n".join((newPfieldCode, "", parsedCode.body))
 
 
-def _pargIndex(parg: str, pargMapping:Dict[str, int]) -> int:
+def _pargIndex(parg: str, pargMapping:dict[str, int]) -> int:
     idx = pargMapping.get(parg)
     if idx is None:
         # try with a k-
@@ -867,7 +869,7 @@ def _pargIndex(parg: str, pargMapping:Dict[str, int]) -> int:
     assert idx > 0
     return idx
 
-def _detect_inline_args(lines: List[str]) -> Tuple[str, Optional[int]]:
+def _detect_inline_args(lines: list[str]) -> Tuple[str, Optional[int]]:
     """
     Given a list of lines of an instrument's body, detect
     if the instrument has inline args defined, and which kind
@@ -896,10 +898,12 @@ def _detect_inline_args(lines: List[str]) -> Tuple[str, Optional[int]]:
     return "", None
 
 
-def _pfieldsGenerateCode(pfields: dict[int, str]) -> str:
+def _pfieldsGenerateCode(pfields: dict[int, str], strmethod='strget') -> str:
     """
     Args:
         pfields: a dict mapping p-index to name
+        strmethod: if 'strget', string pargs are implemented as 'Sfoo = strget(p4)',
+            otherwise just 'Sfoo = p4' is generated
 
     Returns:
         the generated code
@@ -907,12 +911,21 @@ def _pfieldsGenerateCode(pfields: dict[int, str]) -> str:
     Example
     =======
 
-        >>> print(_pfieldsGenerateCode({4: 'ichan', 5:'kfreq'}))
+        >>> print(_pfieldsGenerateCode({4: 'ichan', 5:'kfreq', '6': 'Sname'}))
         ichan = p4
         kfreq = p5
+        Sname = strget(p6)
 
     """
     pairs = list(pfields.items())
     pairs.sort()
-    lines = [f"{name} = p{idx}" for idx, name in pairs]
+    lines = []
+    for idx, name in pairs:
+        if name[0] == 'S':
+            if strmethod == 'strget':
+                lines.append(f"{name} strget p{idx}")
+            else:
+                lines.append(f"{name} = p{idx}")
+        else:
+            lines.append(f"{name} = p{idx}")
     return "\n".join(lines)

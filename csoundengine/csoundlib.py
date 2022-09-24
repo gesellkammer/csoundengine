@@ -2836,7 +2836,7 @@ class ParsedInstrBody:
 
 
 
-@_functools.lru_cache(maxsize=1000)
+@_functools.lru_cache(maxsize=2000)
 def instrParseBody(body: str) -> ParsedInstrBody:
     """
     Parses the body of an instrument, returns pfields used, output channels, etc.

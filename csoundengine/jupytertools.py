@@ -1,25 +1,28 @@
-import emlib.misc
+from __future__ import annotations
+import emlib.misc as _misc
+from typing import Callable
 
-if emlib.misc.inside_jupyter():
+if _misc.inside_jupyter():
     import ipywidgets as _ipywidgets
     from IPython.display import display as _ipythonDisplay
 
 
-lightStyle = {
+lightPalette = {
     'name.color': 'MediumSeaGreen'
 }
 
-darkStyle = lightStyle.copy()
+darkPalette = lightPalette.copy()
 
-defaultStyle = lightStyle
+defaultPalette = lightPalette
 
-colorStyles = {
-    'light': lightStyle,
-    'dark': darkStyle
+palettes = {
+    'light': lightPalette,
+    'dark': darkPalette
 }
 
 
-def displayButton(buttonText: str, callback):
+def displayButton(buttonText: str, callback: Callable[[], None]
+                  ) -> None:
     """
     Create and display an html button inside a jupyter notebook
 
@@ -28,7 +31,8 @@ def displayButton(buttonText: str, callback):
         callback: the function to call when the button is pressed. This function
             takes no arguments and should not return anything
     """
-    assert emlib.misc.inside_jupyter()
+    assert _misc.inside_jupyter(), ("This function is only available when"
+                                         "running inside a jupyter notebook")
     button = _ipywidgets.Button(description=buttonText)
     output = _ipywidgets.Output()
 
@@ -40,10 +44,9 @@ def displayButton(buttonText: str, callback):
     _ipythonDisplay(button, output)
 
 
-
-def htmlName(text: str) -> str:
-    style = defaultStyle
-    return f'<strong style="color:{style["name.color"]}">{text}</strong>'
+def htmlName(text: str, palette='light') -> str:
+    colors = palettes.get(palette)
+    return f'<strong style="color:{colors["name.color"]}">{text}</strong>'
 
 
 

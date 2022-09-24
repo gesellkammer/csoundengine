@@ -167,6 +167,7 @@ from dataclasses import dataclass
 import emlib.misc
 import emlib.dialogs
 from .engine import Engine, getEngine, CsoundError
+from . import engineorc
 from .instr import Instr
 from .synth import AbstrSynth, Synth, SynthGroup
 from .tableproxy import TableProxy
@@ -177,6 +178,7 @@ from .sessioninstrs import builtinInstrs
 from . import state as _state
 from . import jupytertools
 from .offline import Renderer
+import bpf4
 
 import numpy as np
 
@@ -214,18 +216,41 @@ class _ReifiedInstr:
     instrnum: int
     priority: int
 
+    def __post_init__(self):
+        assert isinstance(self.instrnum, int)
+
 
 @dataclass
 class SessionEvent:
+    """
+    A class to store a Session event to be scheduled
+    """
     instrname: str
+    """The name of the instrument"""
+
     delay: float = 0
+    """The time offset to start the event"""
+
     dur: float = -1
+    """The duration of the event"""
+
     priority: int = 1
+    "The events priority (>1)"
+
     pargs: list[float] | dict[str, float] | None = None
+    "Numbered pargs or a dict of parg name: value"
+
     tabargs: dict[str, float] | None = None
+    "Named args passed to an associated table"
+
     whenfinished: Callable = None
+    "A callback to be fired when this event is finished"
+
     relative: bool = True
+    "Is the delay expressed in relative time?"
+
     kws: dict[str, float] | None = None
+    "Keywords passe to the instrument"
 
 
 class Session:
@@ -337,13 +362,13 @@ class Session:
         ''')
     """
 
-    def __init__(self, name: str, maxpriorities=10) -> None:
+    def __init__(self, name: str, numpriorities=10) -> None:
         """
 
         Args:
             name (str): the name of the Session, which corresponds to an existing
                 Engine with the same name
-            maxpriorities: the max. number of priorities for this Session. This
+            numpriorities: the max. number of priorities for this Session. This
                 determines how deep a chain of effects can effectively be.
         """
         assert name in Engine.activeEngines, f"Engine {name} does not exist!"
@@ -353,11 +378,19 @@ class Session:
         self.instrs: dict[str, Instr] = {}
         "maps instr name to Instr"
 
-        self._instrIndex: dict[int, Instr] = {}
+        self.numpriorities = numpriorities
+        "Number of priorities in this Session"
 
-        self._bucketsize: int = 1000
-        self._numbuckets: int = maxpriorities
-        self._buckets: list[dict[str, int]] = [{} for _ in range(self._numbuckets)]
+        self._instrIndex: dict[int, Instr] = {}
+        self._sessionInstrStart = engineorc.CONSTS['sessionInstrsStart']
+        bucketSizeCurve = bpf4.expon(0.7, 1, 500, numpriorities, 100)
+        bucketSizes = [int(size) for size in bucketSizeCurve.map(numpriorities)]
+        startInstr = engineorc.CONSTS['reservedInstrsStart']
+        bucketIndices = [self._sessionInstrStart + sum(bucketSizes[:i])
+                         for i in range(numpriorities)]
+        self._bucketSizes = bucketSizes       # The size of each bucket
+        self._bucketIndices = bucketIndices   # The start index of each bucket
+        self._buckets: list[dict[str, int]] = [{} for _ in range(numpriorities)]
 
         # A dict of the form: {instrname: {priority: reifiedInstr }}
         self._reifiedInstrDefs: dict[str, dict[int, _ReifiedInstr]] = {}
@@ -373,6 +406,10 @@ class Session:
 
         if config['define_builtin_instrs']:
             self._defBuiltinInstrs()
+
+    def _reservedInstrRange(self) -> tuple[int, int]:
+        lastinstrnum = self._bucketIndices[-1] + self._bucketSizes[-1]
+        return self._sessionInstrStart, lastinstrnum
 
     def __repr__(self):
         active = len(self.activeSynths())
@@ -436,13 +473,19 @@ class Session:
         Returns:
             the instrument number (an integer)
         """
-        assert 1<=priority<self._numbuckets-1
-        bucket = self._buckets[priority]
+        if not 1 <= priority <= self.numpriorities:
+            raise ValueError(f"Priority {priority} out of range (allowed range: 1 - "
+                             f"{self.numpriorities})")
+        bucketidx = priority - 1
+        bucket = self._buckets[bucketidx]
         instrnum = bucket.get(instrname)
         if instrnum is not None:
             return instrnum
-        idx = len(bucket)+1
-        instrnum = self._bucketsize*priority+idx
+        bucketstart = self._bucketIndices[bucketidx]
+        idx = len(bucket) + 1
+        if idx >= self._bucketSizes[bucketidx]:
+            raise RuntimeError(f"Too many instruments defined with priority {priority}")
+        instrnum = bucketstart + idx
         bucket[instrname] = instrnum
         return instrnum
 
@@ -477,6 +520,7 @@ class Session:
                  args: dict[str, float] = None,
                  init: str = None,
                  tabledef: dict[str, float] = None,
+                 priority: int = None,
                  **kws) -> Instr:
         """
         Create an :class:`~csoundengine.instr.Instr` and register it at this session
@@ -491,6 +535,8 @@ class Session:
             init: init (global) code needed by this instr (read soundfiles,
                 load soundfonts, etc)
             tabledef: param table definition (see example)
+            priority: if given, the instrument is prepared to be executed
+                at this priority
             kws: any keywords are passed on to the Instr constructor.
                 See the documentation of Instr for more information.
 
@@ -550,6 +596,8 @@ class Session:
         if oldinstr and oldinstr == instr:
             return oldinstr
         self.registerInstr(instr)
+        if priority:
+            self.prepareSched(name, priority, block=True)
         return instr
 
     def registeredInstrs(self) -> dict[str, Instr]:
@@ -616,7 +664,7 @@ class Session:
             registry = {priority:rinstr}
             self._reifiedInstrDefs[name] = registry
 
-    def _makeReifiedInstr(self, name: str, priority: int) -> _ReifiedInstr:
+    def _makeReifiedInstr(self, name: str, priority: int, block=True) -> _ReifiedInstr:
         """
         A ReifiedInstr is a version of an instrument with a given priority
         """
@@ -629,7 +677,9 @@ class Session:
         instrtxt = _tools.instrWrapBody(instrdef.body, instrnum,
                                         notifyDeallocInstrnum=self.engine.builtinInstrs['notifyDealloc'])
         try:
-            self.engine.compile(instrtxt)
+            self.engine._compileInstr(instrnum, instrtxt, block=block)
+            # self.engine.compile(instrtxt)
+
         except CsoundError as e:
             logger.error(str(e))
             raise CsoundError(f"Could not compile body for instr {name}")
@@ -679,7 +729,7 @@ class Session:
         """
         rinstr = self._getReifiedInstr(instrname, priority)
         if rinstr is None:
-            rinstr = self._makeReifiedInstr(instrname, priority)
+            rinstr = self._makeReifiedInstr(instrname, priority, block=block)
             if block:
                 self.engine.sync()
         return rinstr
@@ -1052,6 +1102,28 @@ class Session:
 
         self._registerTable(tabproxy)
         return tabproxy
+
+    def testAudio(self, dur=20, mode='noise', period=1, gain=0.1):
+        """
+        Schedule a test synth to test the engine/session
+
+        The test iterates over each channel outputing audio to the
+        channel for a specific time period
+
+        Args:
+            dur: the duration of the test synth
+            mode: the test mode, one of 'noise', 'sine'
+            period: the duration of each iteration
+            gain: the gain of the output
+        """
+        imode = {
+            'noise': 0,
+            'sine': 1
+        }.get(mode)
+        if imode is None:
+            raise ValueError(f"mode {mode} is invalid. Possible modes are 'noise', 'sine'")
+        return self.sched('.testAudio', dur=dur,
+                          pargs=dict(imode=imode, iperiod=period, igain=gain))
 
     def playSample(self, source: Union[int, TableProxy, str, tuple[np.ndarray, int]],
                    delay=0., dur=-1.,

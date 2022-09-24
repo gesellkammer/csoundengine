@@ -297,7 +297,7 @@ def _checkDependencies(fix=False, updateState=True) -> Optional[str]:
         state['last_run'] = datetime.now().isoformat()
 
 
-def checkDependencies(force=True, fix=False) -> bool:
+def checkDependencies(force=False, fix=False, timeoutDays=1) -> bool:
     """
     Check that all external dependencies are fullfilled.
 
@@ -315,7 +315,7 @@ def checkDependencies(force=True, fix=False) -> bool:
         return True
 
     timeSincelast_run = datetime.now() - datetime.fromisoformat(state['last_run'])
-    if force or timeSincelast_run.days > 1:
+    if force or timeSincelast_run.days > timeoutDays:
         logger.warning("Checking dependencies")
         errormsg = _checkDependencies(fix=fix)
         if errormsg:
