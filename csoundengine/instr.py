@@ -7,6 +7,7 @@ from .errors import CsoundError
 from . import csoundlib
 from . import jupytertools
 
+
 from typing import Dict, Optional, List, Union, Sequence as Seq, Tuple
 
 
@@ -25,10 +26,10 @@ class Instr:
         body: the body of the instr (the text **between** 'instr' end 'endin')
         args: if given, a dictionary defining default values for pfields
         init: code to be initialized at the instr0 level
-        tabledef: An instrument can have an associated table to be able to pass
+        tabargs: An instrument can have an associated table to be able to pass
             dynamic parameters which are specific to this note (for example,
             an instrument could define a filter with a dynamic cutoff freq.)
-            A tabledef is a dict of the form: {param_name: initial_value}.
+            *tabargs* is a dict of the form: {param_name: initial_value}.
             The order of appearence will correspond to the index in the table
         preschedCallback: a function ``f(synthid, args) -> args``, called before
             a note is scheduled with
@@ -47,7 +48,7 @@ class Instr:
             is done by order, starting with p5 (**NB**: an instr cannot use ``p4``, since
             ``p4`` is reserved for the parameter table)
         init: any global code needed
-        tabledef: similar to args, but not using pfields but a table. In this
+        tabargs: similar to args, but not using pfields but a table. In this
             case all variables are k-type and do not need the "k" prefix
         numchans: currently not used
         freetable: if True, the Instr generates code to free the parameters table
@@ -113,7 +114,7 @@ class Instr:
         Instr('sine', r'''
             a0 = oscili:a(kamp, kfreq)
             outch 1, a0
-        ''', tabledef=dict(amp=0.1, freq=1000
+        ''', tabargs=dict(amp=0.1, freq=1000
         ).register(s)
         synth = s.sched('sine', tabargs=dict(freq=440))
         synth.stop()
@@ -192,7 +193,7 @@ class Instr:
 
     __slots__ = (
         'body', 'name', 'args', 'init', 'id', '_tableDefaultValues', '_tableNameToIndex',
-        'tabledef', 'numchans', 'instrFreesParamTable', 'doc',
+        'tabargs', 'numchans', 'instrFreesParamTable', 'doc',
         'pargsIndexToName', 'pargsNameToIndex', 'pargsIndexToDefaultValue',
         '_numpargs', '_recproc', '_check', '_preschedCallback',
         'originalBody'
@@ -203,7 +204,7 @@ class Instr:
                  body: str,
                  args: dict[str, float] = None,
                  init: str = None,
-                 tabledef: dict[str, float] = None,
+                 tabargs: dict[str, float] = None,
                  numchans: int = 1,
                  preschedCallback=None,
                  freetable=True,
@@ -227,20 +228,20 @@ class Instr:
             assert not args
             args = inline_args
         elif delimiters == '{}':
-            assert not tabledef
-            tabledef = inline_args
+            assert not tabargs
+            tabargs = inline_args
 
-        if tabledef:
-            if any(name[0] not in 'ki' for name in tabledef.keys()):
+        if tabargs:
+            if any(name[0] not in 'ki' for name in tabargs.keys()):
                 raise ValueError("Named parameters must start with 'i' or 'k'")
             self._tableNameToIndex = {paramname:idx for idx, paramname in
-                                      enumerate(tabledef.keys())}
-            defaultvals = list(tabledef.values())
+                                      enumerate(tabargs.keys())}
+            defaultvals = list(tabargs.values())
             minsize = config['associated_table_min_size']
             if len(defaultvals) < minsize:
                 defaultvals += [0.] * (minsize - len(defaultvals))
             self._tableDefaultValues = defaultvals
-            tabcode = _tabledefGenerateCode(tabledef, freetable=freetable)
+            tabcode = _tabargsGenerateCode(tabargs, freetable=freetable)
             body = textlib.joinPreservingIndentation((tabcode, body))
             needsExitLabel = True
         else:
@@ -260,7 +261,8 @@ class Instr:
         if needsExitLabel:
             body = textlib.joinPreservingIndentation((body, "__exit:"))
 
-        self.tabledef = tabledef
+        self.tabargs = tabargs
+        "Associated table arguments and default values"
 
         self.name = name
         "The name of this instr"
@@ -295,7 +297,7 @@ class Instr:
 
     def _id(self) -> int:
         argshash = hash(frozenset(self.args.items())) if self.args else 0
-        tabhash = hash(frozenset(self.tabledef.items())) if self.tabledef else 0
+        tabhash = hash(frozenset(self.tabargs.items())) if self.tabargs else 0
         return hash((self.name, self.body, self.init, self.doc, self.numchans,
                      argshash, tabhash))
 
@@ -311,8 +313,8 @@ class Instr:
         parts = [self.name]
         if s := self._pargsRepr():
             parts.append(s)
-        if self.tabledef:
-            parts.append(f"tabargs={self.tabledef}")
+        if self.tabargs:
+            parts.append(f"tabargs={self.tabargs}")
 
         return f"Instr({', '.join(parts)})"
 
@@ -330,6 +332,7 @@ class Instr:
     def _repr_html_(self) -> str:
         style = jupytertools.defaultPalette
         parts = [f'Instr <strong style="color:{style["name.color"]}">{self.name}</strong><br>']
+        _ = jupytertools.htmlSpan
         if self.pargsIndexToName and len(self.pargsIndexToName) > 1:
             indexes = list(self.pargsIndexToName.keys())
             indexes.sort()
@@ -340,15 +343,20 @@ class Instr:
                 htmls = []
                 for idx in group:
                     pname = self.pargsIndexToName[idx]
-                    html = f"<b>{pname}</b>:<small>p{idx}</small>=" \
+                    # parg = _(f'p{idx}', fontsize='90%')
+                    parg = f'p{idx}'
+                    html = f"<b>{pname}</b>:{parg}=" \
                            f"<code>{self.pargsIndexToDefaultValue.get(idx, 0)}</code>"
+                    html = _(html, fontsize='90%')
                     htmls.append(html)
                 line = "&nbsp&nbsp&nbsp&nbsp" + ", ".join(htmls) + "<br>"
                 parts.append(line)
-        if self.tabledef:
-            parts.append(f'&nbsp&nbsp&nbsp&nbsptabargs = <code>{self.tabledef}</code>')
+        if self.tabargs:
+            parts.append(f'&nbsp&nbsp&nbsp&nbsptabargs = <code>{self.tabargs}</code>')
         if config['jupyter_instr_repr_show_code']:
-            parts.append(csoundlib.highlightCsoundOrc(self.body))
+            parts.append('<hr style="width:38%;text-align:left;margin-left:0">')
+            htmlorc = _(csoundlib.highlightCsoundOrc(self.body), fontsize='90%')
+            parts.append(htmlorc)
         return "\n".join(parts)
 
     def paramMode(self) -> Optional[str]:
@@ -377,7 +385,7 @@ class Instr:
             sections.append(str(self.init))
         if self._tableDefaultValues:
             sections.append("> table")
-            sections.append(f"    {self.tabledef}")
+            sections.append(f"    {self.tabargs}")
         sections.append("> body")
         sections.append(self.body)
         return "\n".join(sections)
@@ -395,7 +403,7 @@ class Instr:
         """
         paramMode = self.paramMode()
         if paramMode == 'table':
-            return self.tabledef
+            return self.tabargs
         elif paramMode == 'parg':
             return {key: self.pargsIndexToDefaultValue.get(idx)
                     for key, idx in self.pargsNameToIndex.items()}
@@ -651,7 +659,7 @@ class Instr:
             d: if given, a dictionary of the form {'argname': value}.
                 Alternatively key/value pairs can be passed as keywords
             **kws: each key must match a named parameter as defined in
-                the tabledef
+                the tabargs attribute
 
         Returns:
             A list of floats holding the new initial values of the
@@ -765,10 +773,10 @@ def parseInlineArgs(body: Union[str, list[str]]
     body2 = "\n".join(lines[linenum+1:])
     return delimiters, pfields, body2
 
-def _tabledefGenerateCode(tabledef: dict, freetable=True) -> str:
+def _tabargsGenerateCode(tabargs: dict, freetable=True) -> str:
     lines: list[str] = []
     idx = 0
-    maxidx = len(tabledef)
+    maxidx = len(tabargs)
     lines.append(fr'''
     ; --- start generated table code
     iparams_ = p4
@@ -781,7 +789,7 @@ def _tabledefGenerateCode(tabledef: dict, freetable=True) -> str:
         initerror sprintf("params table too small (size: %d, needed: {maxidx})", iparamslen_)
     endif''')
 
-    for key, value in tabledef.items():
+    for key, value in tabargs.items():
         if key[0] == 'k':
             lines.append(f"{key} tab {idx}, iparams_")
         elif key[0] == 'i':
@@ -864,7 +872,7 @@ def _pargIndex(parg: str, pargMapping:dict[str, int]) -> int:
             if idx:
                 return idx
         keys = [k for k in pargMapping.keys() if not k[0]=="p"]
-        raise KeyError(f"parg '{parg}' not found. "
+        raise KeyError(f"parg '{parg}' not found for instr. "
                        f"Possible pargs: {keys} (mapping: {pargMapping})")
     assert idx > 0
     return idx

@@ -20,7 +20,7 @@ Example
     score = [('saw', 0,   2, 60),
              ('saw', 1.5, 4, 67),
              ('saw', 1.5, 4, 67.1)]
-    events = [renderer.sched(ev[0], delay=ev[1], dur=ev[2], pargs=ev[3:])
+    events = [renderer.sched(ev[0], delay=ev[1], dur=ev[2], args=ev[3:])
               for ev in score]
 
     # offline events can be modified just like real-time events
@@ -79,7 +79,7 @@ class ScoreEvent(BaseEvent):
             csound
         start: start time of this event (p2)
         dur: duration of this event (p3)
-        pargs: rest of pargs, starting with p4
+        args: rest of the pfields, starting with p4
         uniqueId: a unique identifier for this event.
         paramTable: if the instrument of this event has a parameters table,
             this attribute points to the table index (0 if no parameters table).
@@ -93,11 +93,11 @@ class ScoreEvent(BaseEvent):
                  p1: Union[float, str],
                  start: float,
                  dur: float,
-                 pargs: list[float],
+                 args: list[float],
                  uniqueId: int,
                  paramTable: int = 0,
                  renderer: Renderer = None):
-        super().__init__(p1, start, dur, pargs)
+        super().__init__(p1, start, dur, args)
         self.uniqueId = uniqueId
         self.paramTable = paramTable
         self.renderer = renderer
@@ -112,7 +112,7 @@ class ScoreEvent(BaseEvent):
         """
         Modify a parg of this synth.
 
-        Multiple pargs can be modified simultaneously. It only makes sense
+        Multiple pfields can be modified simultaneously. It only makes sense
         to modify a parg if a k-rate variable was assigned to this parg
         (see Renderer.setp for an example). A parg can be referred to via an integer,
         corresponding to the p index (5 would refer to p5), or to the name
@@ -128,7 +128,7 @@ class ScoreEvent(BaseEvent):
             ... |kamp=0.1, kfreq=1000|
             ... outch 1, oscili:ar(kamp, freq)
             ... ''')
-            >>> event = r.sched('sine', 0, dur=4, pargs=[0.1, 440])
+            >>> event = r.sched('sine', 0, dur=4, args=[0.1, 440])
             >>> event.setp(2, kfreq=880)
             >>> event.setp(3, 'kfreq', 660, 'kamp', 0.5)
 
@@ -307,7 +307,7 @@ class Renderer:
         score = [('saw', 0,   2, 60),
                  ('saw', 1.5, 4, 67),
                  ('saw', 1.5, 4, 67.1)]
-        events = [renderer.sched(ev[0], delay=ev[1], dur=ev[2], pargs=ev[3:])
+        events = [renderer.sched(ev[0], delay=ev[1], dur=ev[2], args=ev[3:])
                   for ev in score]
 
         # offline events can be modified just like real-time events
@@ -513,7 +513,7 @@ class Renderer:
               delay=0.,
               dur=-1.,
               priority=1,
-              pargs: Union[list[float], dict[str, float]] = None,
+              args: list[float] | dict[str, float] = None,
               tabargs: dict[str, float] = None,
               **pkws) -> ScoreEvent:
         """
@@ -524,7 +524,7 @@ class Renderer:
             priority: determines the order of execution
             delay: time offset
             dur: duration of this event. -1: endless
-            pargs: pargs beginning with p5
+            args: pfields **beginning with p5**
                 (p1: instrnum, p2: delay, p3: duration, p4: reserved)
             tabargs: a dict of the form param: value, to initialize
                 values in the parameter table (if defined by the given
@@ -563,7 +563,7 @@ class Renderer:
         if instr.hasParamTable():
             tabnum = self.csd.addTableFromData(instr.overrideTable(tabargs),
                                                start=max(0., delay - 2.))
-        args = internalTools.instrResolveArgs(instr, tabnum, pargs, pkws)
+        args = internalTools.instrResolveArgs(instr, tabnum, args, pkws)
         p1 = self._getUniqueP1(instrnum)
         self.csd.addEvent(p1, start=delay, dur=dur, args=args)
         eventId = self._generateEventId()
@@ -870,7 +870,7 @@ class Renderer:
             ... outch 1, oscili:a(0.1, mtof:k(kmidi))
             ... ''')
             >>> renderer.registerInstr(instr)
-            >>> event = renderer.sched("sine", pargs={'kmidi': 62})
+            >>> event = renderer.sched("sine", args={'kmidi': 62})
             >>> renderer.setp(event, 10, kmidi=67)
             >>> renderer.render("outfile.wav")
         """
@@ -999,14 +999,11 @@ class Renderer:
         assert tabnum > 0
         if not loop:
             crossfade = -1
-        pargs = dict(isndtab=tabnum, istart=skip,
-                     ifade=fade, icompensatesr=int(compensateSamplerate),
-                     kchan=chan, kspeed=speed, kpan=pan, kgain=gain,
-                     ixfade=crossfade)
-        return self.sched('.playSample', delay=delay, dur=dur, pargs=pargs)
-        #self.csd.playTable(tabnum=source, start=delay, dur=dur,
-        #                   gain=gain, speed=speed, chan=chan, fade=fade,
-        #                   skip=skip)
+        args = dict(isndtab=tabnum, istart=skip,
+                    ifade=fade, icompensatesr=int(compensateSamplerate),
+                    kchan=chan, kspeed=speed, kpan=pan, kgain=gain,
+                    ixfade=crossfade)
+        return self.sched('.playSample', delay=delay, dur=dur, args=args)
 
     def automatep(self, event: ScoreEvent, param: str,
                   pairs: Union[list[float], np.ndarray],

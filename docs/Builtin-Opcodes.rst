@@ -12,12 +12,21 @@ are defined, which can be used from any code within this :class:`~csoundengine.e
 ==============
 
 These opcodes are present whenever a csound :class:`~csoundengine.engine.Engine` is created with
-``numAudioBuses > 0`` (enabled by default). They implement a pool of audio buses. The number of buses in 
-the pool is determined by the `numAudioBuses` argument. An audio bus contains audio from the same 
-performance cycle; all active buses are cleared at the end of the cycle so they cannot be used to 
-implement feedback or pass audio to instrument instances with a lower priority.
+``numAudioBuses > 0`` or ``numControlBuses > 0`` (enabled by default). They implement a pool
+of audio and control buses. The number of buses in the pool is determined by these variables and
+the default can be customized in the configuration (keys ``num_audio_buses`` and
+``num_control_buses``.
 
-A bus can be created in python via :meth:`csoundengine.engine.Engine.assignBus` or directly in csound via ``busassign``
+Buses are reference counted: they stay alive as long as there are events using them. As soon
+as the last event usign a bus ends the bus is freed and returned to the pool. In order to keep
+a bus alive it can be created at the orchestra's header (instr 0) or
+
+An audio bus contains audio from the same performance cycle; all active buses are cleared
+at the end of the cycle so they cannot be used to implement feedback or pass audio to
+instrument instances with a lower priority. Control buses behave like global k-variables
+
+A bus can be created in python via :meth:`csoundengine.engine.Engine.assignBus` or directly
+in csound via ``busassign``.
 
 These user-defined-opcodes are also present for offline rendering
 
@@ -29,7 +38,7 @@ These user-defined-opcodes are also present for offline rendering
 busin
 -----
 
-Receives audio from a bus
+Receives audio/control data from a bus
 
 **Syntax**
 
@@ -59,7 +68,7 @@ Receives audio from a bus
           outch 1, asig
         endin
     ''')
-    bus = engine.assignBus()
+    bus = engine.assignBus('audio')
     engine.sched('mysynth', dur=4, args=[bus, 220])
     engine.sched('filter', dur=4, args=[bus, 1000])
 
@@ -71,7 +80,8 @@ Receives audio from a bus
 busout
 ------
 
-Sends audio to a bus. Audio already in the bus is replaced. In order to allow
+Sends audio to a bus or sets a control bus to the given value.
+Audio already in the bus is replaced. In order to allow
 multiple sends to a bus use ``busmix``. 
 
 
@@ -86,7 +96,7 @@ multiple sends to a bus use ``busmix``.
 .. code-block:: csound
 
     instr mysynth
-      ibus = busassign()
+      ibus = busassign("a")   ; "a" = audio; "k" = control
       kfreq = p4
       asig oscili 0.1, kfreq
       busout ibus, asig
@@ -106,8 +116,8 @@ the end of a cycle, they do not need to be zeroed by the user.
 
 .. code-block:: csound
 
-    gimasterL = busassign()
-    gimasterR = busassign()
+    gimasterL = busassign("a")
+    gimasterR = busassign("a")
 
     instr mysynth
       kfreq = p4
@@ -137,7 +147,7 @@ Assigns an unused bus
 
 .. code::
 
-   ibus busassign
+   ibus busassign Skind
 
 -----
 
@@ -177,7 +187,7 @@ Send audio to a bus, mixing it with other sends
         outch 1, asig
       endin  
     ''')
-    bus = e.assignBus()
+    bus = e.assignBus("audio")
     freqs = [200, 210, 214]
     for freq in freqs:
         e.sched('vco', dur=4, args=[bus, freq])

@@ -77,7 +77,8 @@ endin
 
 instr ${turnoff}
     iwhich = p4
-    turnoff2_i iwhich, 4, 1
+    imode = p5
+    turnoff2_i iwhich, imode, 1
 endin
 
 instr ${turnoff_future}
@@ -144,7 +145,6 @@ instr ${maketable}
     endif 
     ; notify host that token is ready (if asked to)
     if itoken > 0 then
-        prints "Sending notification!!\n"
         tabw_i itabnum, itoken, gi__responses
         outvalue "__sync__", itoken
     endif
@@ -496,38 +496,138 @@ gi__busrefsk ftgen 0, 0, ${numControlBuses}, -2, 0
 gi__buspool pool_gen ${numAudioBuses}
 gi__buspoolk pool_gen ${numControlBuses} 
 
-; A dict mapping bustoken to bus number
+; A dict mapping bustoken to bus number, used for both audio and scalar buses
 gi__bustoken2num dict_new "int:float"
-gi__bustoken2numk dict_new "int:float"
 
 chn_k "_busTokenCount", 3
 
-
-opcode busassign, i, io
+opcode _busnew, i, ii
     itoken, ikind xin
-    if itoken == -1 then
+    if itoken < 0 then
         itoken chnget "_busTokenCount"
+        chnset itoken+1, "_busTokenCount"
     endif
-    if ikind == 0 then
-        ibus pool_pop gi__buspool, -1
-    else
-        ibus pool_pop gi__buspoolk, -1
-    endif
-    
+    ipool = ikind == 0 ? gi__buspool : gi__buspoolk
+    ibus pool_pop ipool, -1
     if ibus == -1 then
         initerror "busassign failed, out of buses"
-    endif
-    
+    endif    
     dict_set gi__bustoken2num, itoken, ibus
-    chnset itoken+1, "_busTokenCount"
     xout ibus
 endop
 
-;instr _busassign
-;    itoken = p4
-;    ikind = p5
-;    ibus busassign itoken, ikind
-;endin
+opcode _bususe, i, ii
+    itoken, ikind xin
+    ibus dict_get gi__bustoken2num, itoken, -1
+    if ibus < 0 then
+        initerror sprintf("Bus not found (token %d)\n", itoken)
+    else
+        itab = ikind == 0 ? gi__busrefs : gi__busrefsk
+        irefs tab_i ibus, itab
+        tabw_i irefs+1, ibus, itab
+        atstop ${busrelease}, 0, 0, itoken, ikind
+    endif
+    xout ibus
+endop
+
+opcode _busaddref, 0, ii
+    ibus, ikind xin
+    itab = ikind == 0 ? gi__busrefs : gi__busrefsk
+    irefs tab_i ibus, itab
+    tabw_i irefs+1, ibus, itab
+endop
+
+opcode _busget, i, ii
+    itoken, ikind xin
+    ibus dict_get gi__bustoken2num, itoken, -1
+    if ibus == -1 then
+        initerror sprintf("Bus not found (token: %d)", itoken)
+    endif
+    xout ibus
+endop
+
+opcode busassign, i, So
+    /* Create a bus, returns a token pointing to that bus
+    
+    Args: 
+      Skind: "a" / "k"
+      ipersist: if non-zero, adds an extra-reference to this bus in order
+        to make it peristent. To release such a bus use busrelease
+      
+    Returns:
+        itoken: the token pointing to the newly assigned bus
+    
+    */
+    Skind, ipersist xin
+    ikind = strcmp(Skind, "a") == 0 ? 0 : 1  ; 0=audio, 1=k
+    if dict_get:i(gi__bustoken2num, itoken, -1) == -1 then
+        initerror sprintf("Bus with token %d already exists (bus: %d)", itoken, ibus)
+    endif
+    ; generate a new token
+    itoken chnget "_busTokenCount"
+    chnset itoken+1, "_busTokenCount"
+    
+    ; assign a bus to the new token
+    ibus _busnew itoken, ikind
+    
+    ; use the bus during the lifetime of this event, add an extra reference
+    ; if asked to persist the bus
+    itab = ikind == 0 ? gi__busrefs : gi__busrefsk
+    irefs tab_i ibus, itab
+    irefs += ipersist == 0 ? 1 : 2
+    tabw_i irefs, ibus, itab
+    atstop ${busrelease}, 0, 0, itoken, ikind
+    xout itoken
+endop
+
+opcode busin, a, i
+    itoken xin
+    ibus = _bususe(itoken, 0)
+    aout = ga__buses[ibus]
+    xout aout
+endop
+
+opcode busin, k, io
+    itoken, idefault xin
+    ibus = _bususe(itoken, 1)
+    ival tab_i ibus, gi__bustable
+    if ival == $$_BUSUNSET then
+        tabw_i idefault, ibus, gi__bustable
+    endif
+    kval tab ibus, gi__bustable
+    xout kval
+endop
+
+opcode busout, 0, ii
+    itoken, isig xin
+    ibus = _busget(itoken, 1)
+    tabw_i isig, ibus, gi__bustable
+endop
+
+opcode busout, 0, ik
+    itoken, ksig xin
+    ibus = _bususe(itoken, 1)
+    tabw ksig, ibus, gi__bustable
+endop
+
+opcode busout, 0, ia
+    itoken, asig xin
+    ibus = _bususe(itoken, 0)
+    ga__buses[ibus] = asig
+endop
+
+opcode busmix, 0, ia
+    itoken, asig xin
+    ibus = _bususe(itoken, 0)
+    ga__buses[ibus] = ga__buses[ibus] + asig
+endop
+
+instr ${busaddref}
+    itoken = p4
+    ikind = p5
+    ibus = _busget(itoken, ikind)
+    _busaddref(ibus, ikind)
+endin
 
 instr ${busrelease}  ; release audio bus
     itoken = p4
@@ -566,120 +666,41 @@ instr ${busrelease}  ; release audio bus
     endif
 endin
 
-opcode _bususe, i, i
-    itoken xin
-    ibus dict_get gi__bustoken2num, itoken, -1
-    if ibus == -1 then
-        ibus = busassign(itoken)
-    endif
-    irefs tab_i ibus, gi__busrefs
-    tabw_i irefs+1, ibus, gi__busrefs
-    atstop ${busrelease}, 0, 0, itoken, 0
-    xout ibus
-endop
-
-instr ${busaddref}
-    itoken = p4
-    ibus dict_get gi__bustoken2num, itoken, -1
-    if ibus == -1 then
-        ibus = busassign(itoken)
-    endif
-    irefs tab_i ibus, gi__busrefs
-    tabw_i irefs+1, ibus, gi__busrefs
-endin
-
-opcode _bususek, i, i
-    itoken xin
-    ibus dict_get gi__bustoken2num, itoken, -9999999
-    if ibus == -9999999 then
-        ibus = busassign(itoken, 1)
-    endif
-    irefs tab_i ibus, gi__busrefsk
-    tabw_i irefs+1, ibus, gi__busrefsk
-    atstop ${busrelease}, 0, 0, itoken, 1
-    xout ibus
-endop
-
-opcode _busget, i, ii
-    itoken, ikind xin
-    ibus dict_get gi__bustoken2num, itoken, -9999999
-    if ibus == -9999999 then
-        ibus = busassign(itoken, ikind)
-        prints "Assigning k-bus %d to token %d\n", ibus, itoken
-    endif
-    xout ibus
-endop
-
 instr ${busindex}
+    ; query the index of a bus / create a bus if not assigned
+    ; args: 
+    ;  isynctoken: the synctoken
+    ;  ibustoken: the bus token
+    ;  iassign: if 1, assign a bus if no bus is found for this bustoken
+    ;  ikind: 0: audio bus, 1: scalar bus
     isynctoken = p4
     ibustoken = p5
-    iassign = p6
+    ikind = p6
+    iaddref = p7
     ibus dict_get gi__bustoken2num, ibustoken, -1
-    if ibus == -1 && iassign == 1 then
-        ibus = busassign(ibustoken, 1)
+    if ibus == -1 then
+        ibus = _busnew(ibustoken, ikind)
+    endif
+    if iaddref == 1 then
+        _busaddref(ibus, ikind)
     endif
     tabw_i ibus, isynctoken, gi__responses
     outvalue "__sync__", isynctoken
 endin
 
-opcode busin, a, i
-    itoken xin
-    ibus = _bususe(itoken)
-    xout ga__buses[ibus]
-endop
 
-opcode busin, k, io
-    itoken, idefault xin
-    ibus = _bususek(itoken)
-    ; prints "busin: %d, ibus: %d\n", itoken, ibus
-    ; init
-    ival tab_i ibus, gi__bustable
-    print ival
-    if ival == $$_BUSUNSET then
-        prints "bus %d unset, setting to default %f\n", ibus, idefault
-        tabw_i idefault, ibus, gi__bustable
-    endif
-    
-    kval tab ibus, gi__bustable
-    xout kval
-endop
-
-opcode busout, 0, ia
-    itoken, asig xin
-    ibus = _bususe(itoken)
-    ga__buses[ibus] = asig
-endop
-
-opcode busout, 0, ik
-    itoken, ksig xin
-    ibus = _bususek(itoken)
-    ; gk__buses[ibus] = ksig
-    tabw ksig, ibus, gi__bustable
-endop
-
-opcode busout, 0, ii
-    itoken, isig xin
-    ibus = _busget(itoken, 1)
-    ; gk__buses[ibus] = isig
-    tabw_i isig, ibus, gi__bustable
-endop
-
-opcode busmix, 0, ia
-    itoken, asig xin
-    ibus = _bususe(itoken)
-    ga__buses[ibus] = ga__buses[ibus] + asig
-endop
 
 instr ${busoutk}
     itoken = p4
     ivalue = p5
     ibus = _busget(itoken, 1)
-    ; gk__buses[ibus] = ivalue
     tabw_i ivalue, ibus, gi__bustable
 endin
 
 instr ${clearbuses_post}
-    zeroarray ga__buses
+    ; Use masked version of zeroarray
+    zeroarray ga__buses, gi__busrefs
+    ; zeroarray ga__buses
 endin
 
 chnset 0, "_busTokenCount"

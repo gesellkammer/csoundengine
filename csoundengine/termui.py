@@ -19,3 +19,4 @@ def waitWithAnimation(waittime: float, dt=0.1) -> None:
     bar = progressbar.ProgressBar(widgets=widgets)
     for i in bar((i for i in range(int(waittime / dt)))):
         time.sleep(dt)
+

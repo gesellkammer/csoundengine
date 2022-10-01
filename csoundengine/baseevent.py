@@ -4,13 +4,13 @@ from abc import abstractmethod
 
 
 class BaseEvent:
-    __slots__ = ('p1', 'start', 'dur', 'pargs')
+    __slots__ = ('p1', 'start', 'dur', 'args')
 
-    def __init__(self, p1: Union[float, str], start: float, dur: float, pargs: Sequence[float]):
+    def __init__(self, p1: Union[float, str], start: float, dur: float, args: Sequence[float]):
         self.p1 = p1
         self.start = start
         self.dur = dur
-        self.pargs = pargs
+        self.args = args
 
     @property
     def end(self) -> float:

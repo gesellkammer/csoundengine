@@ -138,8 +138,11 @@ except (OSError, ImportError) as e:
         print("Called while building sphinx documentation?")
         print("Using mocked ctcsound, this should only happen when building"
               "the sphinx documentation")
-        from sphinx.ext.autodoc.mock import _MockObject
-        ctcsound = _MockObject()
+        try:
+            from sphinx.ext.autodoc.mock import _MockObject
+            ctcsound = _MockObject()
+        except ImportError:
+            pass
     else:
         raise e
 
@@ -315,6 +318,7 @@ class Engine:
             csound process when started
         midiin: if given, use this device as midi input. Can be '?' to select
             from a list, or 'all' to use all devices. None indicates no midi input
+        latency: an extra latency added when scheduling events to ensure synchronicity
 
     Attributes:
         activeEngines (dict): a dictionary of active engines (name:Engine)
@@ -324,10 +328,6 @@ class Engine:
     """
     activeEngines: Dict[str, Engine] = {}
 
-    #_reservedInstrnums = set(engineorc.BUILTIN_INSTRS.values())
-    #for instrnum in range(0, 10):
-    #    _reservedInstrnums.add(instrnum)
-    #_builtinInstrs = engineorc.BUILTIN_INSTRS
     _builtinTables = engineorc.BUILTIN_TABLES
     _channelMode = {'r': ctcsound.CSOUND_INPUT_CHANNEL,
                     'w': ctcsound.CSOUND_INPUT_CHANNEL,
@@ -900,10 +900,11 @@ class Engine:
             self.strSet(s)
         self.sync()
 
-    def restart(self) -> None:
+    def restart(self, withAnimation=True) -> None:
         """ Restart this engine. All defined instrs / tables are removed"""
         self.stop()
-        _termui.waitWithAnimation(2)
+        if withAnimation:
+            _termui.waitWithAnimation(1)
         self.start()
         
     def _outcallback(self, _, channelName, valptr, chantypeptr):
@@ -1366,8 +1367,8 @@ class Engine:
         """
         return _RefTimeContext(self)
 
-    def sched(self, instr:Union[int, float, str], delay=0., dur=-1.,
-              args:Union[np.ndarray, Sequence[Union[float, str]]] = None,
+    def sched(self, instr: int|float|str, delay=0., dur=-1.,
+              args: np.ndarray|Sequence[float|str] = None,
               relative=True
               ) -> float:
         """
@@ -1475,7 +1476,7 @@ class Engine:
         else:
             needsSync = any(isinstance(a, str) and not a in self._strToIndex for a in args)
             pargs = [instrfrac, delay, dur]
-            pargs.extend(a if not isinstance(a, str) else self.strSet(a) for a in args)
+            pargs.extend(float(a) if not isinstance(a, str) else self.strSet(a) for a in args)
             if needsSync:
                 self.sync()
             self._perfThread.scoreEvent(1, "i", pargs)
@@ -1597,6 +1598,10 @@ class Engine:
         """
         Stop a playing event
 
+        If p1 is a round number, all events with the given number
+        are unscheduled. Otherwise only an exact matching event
+        is unscheduled, if it exists
+
         Args:
             p1: the instrument number/name to stop
             delay: if 0, remove the instance as soon as possible
@@ -1624,7 +1629,11 @@ class Engine:
         """
         if isinstance(p1, str):
             p1 = self.queryNamedInstr(p1)
-        pfields = [self.builtinInstrs['turnoff'], delay, 0, p1]
+        if int(p1) == p1:
+            mode = 0   # all instances
+        else:
+            mode = 0   # exact matching
+        pfields = [self.builtinInstrs['turnoff'], delay, 0, p1, mode]
         self._perfThread.scoreEvent(0, "i", pfields)
 
     def unschedFuture(self, p1:Union[float, str]) -> None:
@@ -2875,7 +2884,7 @@ class Engine:
         ...   outch 1, a0
         ... endin
         ... ''')
-        >>> p1 = engine.sched(10, pargs=[0.1, 440])
+        >>> p1 = engine.sched(10, args=[0.1, 440])
         >>> engine.setp(p1, 5, 0.2, 6, 880, delay=0.5)
 
         See Also
@@ -3342,19 +3351,17 @@ class Engine:
         self._perfThread.scoreEvent(0, "i", pargs)
 
 
-    def assignBus(self, persistent=False) -> int:
+    def assignBus(self, kind='audio', persist=False) -> int:
         """
         Assign one audio/control bus, returns the bus number.
 
         Audio buses are always mono.
 
         Args:
-            persistent: if True it ensures that the bus will not get collected even
-                when all the clients are finished using it. To release a
-                persistent bus :meth:`~Engine.releaseBus` needs to be called explicitely
-                (see below for more information)
+            persist: if True the bus created is keps alive until the user
+            calls :meth:`~Engine.releaseBus`
 
-        A bus created in this manner be used together with the built-in opcodes `busout`, `busin`
+        A bus created here can be used together with the built-in opcodes `busout`, `busin`
         and `busmix`. A bus can also be created directly in csound by calling `busassign`
 
         A bus is reference counted and is collected when there are no more clients
@@ -3363,21 +3370,22 @@ class Engine:
         be used.
         Multiple clients can use a bus and the bus is kept alive as long as there
         are clients using it or if the bus was created as *persistent*.
-        When each client starts using it, via any of the bus opcodes, like "busin",
+        When each client starts using the bus via any of the bus opcodes, like "busin",
         the reference count of the bus is increased. After a client has finished
         using it the reference count is automatically decreased and if it reaches
         0 the bus is collected.
 
-        Order of evaluation is important: **buses are cleared at the end of each
-        performance cycle** (they can only be used to communicate from a low
-        priority to a high priority instrument)
+        Order of evaluation is important: **audio buses are cleared at the end of each
+        performance cycle** and can only be used to communicate from a low
+        priority to a high priority instrument.
 
         For more information, see :ref:`Bus Opcodes<busopcodes>`
 
         Example
         =======
 
-        Pass audio from one instrument to another.
+        Pass audio from one instrument to another. The bus will be released after the events
+        are finished.
 
         >>> e = Engine(...)
         >>> e.compile(r'''
@@ -3397,9 +3405,10 @@ class Engine:
         ...   outch 1, asig
         ... endin
         ... ''')
-        >>> busnum = e.assignBus()
-        >>> s1 = e.sched(10, 0, 4, (busnum,))
-        >>> s2 = e.sched(20, 0, 4, (busnum,))
+        >>> bus = e.assignBus("audio")
+        >>> s1 = e.sched(10, 0, 4, (bus,))
+        >>> s2 = e.sched(20, 0, 4, (bus,))
+
 
         Modulate one instr with another, at k-rate. **At k-rate the order of evaluation
         is not important because control buses are not cleared at the end of each cycle**
@@ -3435,11 +3444,9 @@ class Engine:
         if not self.hasBusSupport():
             raise RuntimeError("This Engine was created without bus support")
         bustoken = int(self._busTokenCountPtr[0])
+        ikind = 0 if kind == 'audio' else 1
         assert isinstance(bustoken, int)
         self._busTokenCountPtr[0] = bustoken+1
-        if persistent:
-            pfields = [self.builtinInstrs['busaddref'], 0, 0, bustoken]
-            self._perfThread.scoreEvent(0, "i", pfields)
 
         # before returning the bustoken we schedule a query
         # so that we can return immediately but update the actual
@@ -3447,18 +3454,22 @@ class Engine:
 
         synctoken = self._getSyncToken()
         # Assigns a bus to the given token
-        # 1 = create bus
-        pfields = [self.builtinInstrs['busindex'], 0, 0, synctoken, bustoken, 1]
+        pfields = [self.builtinInstrs['busindex'], 0, 0, synctoken, bustoken, ikind]
 
         def callback(synctoken, bustoken=bustoken, self=self):
             self._busIndexes[bustoken] = int(self._responsesTable[int(synctoken)])
 
         self._eventWithCallback(synctoken, pfields, callback)
+
+        if persist:
+            pfields = [self.builtinInstrs['busaddref'], 0, 0, bustoken, ikind]
+            self._perfThread.scoreEvent(0, "i", pfields)
+
         return bustoken
 
     def hasBusSupport(self) -> bool:
         """
-        Returns True if this Engine was starte with bus support
+        Returns True if this Engine was started with bus support
 
         .. seealso::
 

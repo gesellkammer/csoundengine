@@ -127,8 +127,8 @@ def determineNumbuffers(backend:str, buffersize:int) -> int:
 
 def instrResolveArgs(instr: Instr,
                      p4: int,
-                     pargs: Union[list[float], dict[str, float]]=None,
-                     pkws: dict[str, float]=None,
+                     pargs: list[float] | dict[str, float] = None,
+                     pkws: dict[str, float] = None,
                      ) -> list[float]:
     """
     Resolves pargs, returns pargs starting from p4
@@ -301,5 +301,6 @@ def resolvePfieldIndex(pfield: Union[int, str], pfieldNameToIndex: dict[str, int
 
 def isAscii(s: str) -> bool:
     return all(ord(c)<128 for c in s)
+
 
 

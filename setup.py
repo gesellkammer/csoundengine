@@ -3,7 +3,7 @@
 
 from setuptools import setup
 
-version = (1, 13, 0)
+version = (1, 13, 1)
 
 from os import path
 this_directory = path.abspath(path.dirname(__file__))
@@ -32,7 +32,7 @@ setup(
         "sndfileio>=1.8.2",
         "emlib>=1.3.3",
         "cachetools",
-        "configdict>=0.8",
+        "configdict>=2.4",
         "bpf4",
         "numpyx>=0.5",
         "pitchtools>=1.1",

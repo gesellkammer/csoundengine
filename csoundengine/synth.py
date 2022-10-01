@@ -84,7 +84,7 @@ class AbstrSynth(baseevent.BaseEvent):
         """
         Set a value of a named parameter
 
-        This method works indistinctly for instrs with named pargs or a param table.
+        This method works indistinctly for instrs with named args or a param table.
         """
         mode = self.paramMode()
         if self.paramMode() == 'parg':
@@ -233,7 +233,7 @@ class AbstrSynth(baseevent.BaseEvent):
         Automate the value of a pfield.
 
         Args:
-            param (int|str): either the parg index (5=p5) or the name of the parg
+            param (int|str): either the pfield index (5=p5) or the name of the pfield
                 as used in the body of the instrument (for example, if the
                 body contains the line "kfreq = p5", "kfreq" could be used as param)
             pairs (list[float] | np.ndarray): 1D sequence of floats with the form
@@ -285,7 +285,7 @@ class Synth(AbstrSynth):
         instr: the Instr which originated this Synth
         starttime: start time of the synth, relative to the engine's elapsedTime
         dur: duration of the event (can be -1 for infinite)
-        pargs: the pargs used to create this synth (starting at p4)
+        args: the pfields used to create this synth (starting at p4)
         synthgroup: the group this synth belongs to (if any)
         autostop: should this synth autostop? If True, the lifetime of the csound note
             is associated with this Synth object, so if this Synth goes out of
@@ -299,7 +299,7 @@ class Synth(AbstrSynth):
         instr: the Instr which originated this Synth
         startTime: when was this synth started
         dur: duration of the note (can be -1 for infinite)
-        pargs: the pargs used to create this synth, starting at p4
+        args: the pfields used to create this synth, starting at p4
         synthGroup: the group this synth belongs to (if any)
         table (ParamTable): an associated Table (if defined)
 
@@ -331,7 +331,7 @@ class Synth(AbstrSynth):
                  instr: Instr,
                  start: float,
                  dur: float = -1,
-                 pargs: Optional[list[float]] = None,
+                 args: list[float] | None = None,
                  synthgroup: SynthGroup = None,
                  autostop=False,
                  table: ParamTable = None,
@@ -346,7 +346,7 @@ class Synth(AbstrSynth):
         self.instr: Instr = instr
         self.table: Optional[ParamTable] = table
         self.synthGroup = synthgroup
-        self.pargs = pargs
+        self.args = args
         self._playing: bool = True
 
     def _html(self) -> str:
@@ -360,10 +360,10 @@ class Synth(AbstrSynth):
             ]
         if self.table is not None:
             parts.append(self.table._mappingRepr())
-        if self.pargs:
+        if self.args:
             i2n = self.instr.pargsIndexToName
             argsstrs = []
-            pargs = self.pargs[0:]
+            pargs = self.args[0:]
             if any(arg.startswith('k') for arg in self.instr.pargsNameToIndex):
                 maxi = max(i+4 for i, n in i2n.items()
                            if n.startswith('k'))
@@ -391,7 +391,7 @@ class Synth(AbstrSynth):
             if self.playing():
                 if config['jupyter_synth_repr_stopbutton']:
                     jupytertools.displayButton("Stop", self.stop)
-                if config['jupyter_synth_repr_interact'] and self.pargs:
+                if config['jupyter_synth_repr_interact'] and self.args:
                     pass
         return f"<p>{self._html()}</p>"
 
@@ -400,13 +400,13 @@ class Synth(AbstrSynth):
         parts = [f'{playstr} {self.instr.name}:{self.p1}']
         if self.table is not None:
             parts.append(self.table._mappingRepr())
-        if self.pargs:
+        if self.args:
             maxi = config['synth_repr_max_args']
             i2n = self.instr.pargsIndexToName
             maxi = max((i for i, name in i2n.items() if name.startswith("k")),
                        default=maxi)
             argsstrs = []
-            pargs = self.pargs[0:]
+            pargs = self.args[0:]
             for i, parg in enumerate(pargs, start=0):
                 if i > maxi:
                     argsstrs.append("...")
@@ -514,14 +514,14 @@ class Synth(AbstrSynth):
 
     def setp(self, *args, delay=0., **kws) -> None:
         """
-        Modify a parg of this synth.
+        Modify a pfield of this synth.
 
-        Multiple pargs can be modified simultaneously. It only makes sense
-        to modify a parg if a k-rate variable was assigned to this parg
-        (see example). A parg can be referred to via an integer, corresponding
+        Multiple pfields can be modified simultaneously. It only makes sense
+        to modify a pfield if a k-rate variable was assigned to it.
+        (see example). A pfield can be referred to via an integer, corresponding
         to the p index (5 would refer to p5), or to the name of the assigned k-rate
         variable as a string (for example, if there is a line "kfreq = p6",
-        both 6 and "kfreq" refer to the same parg).
+        both 6 and "kfreq" refer to the same pfield).
 
         Example
         =======
@@ -534,7 +534,7 @@ class Synth(AbstrSynth):
             outch 1, oscili:ar(kamp, kfreq)
             '''
             )
-            >>> synth = session.sched('sine', pargs=[0.1, 440])
+            >>> synth = session.sched('sine', args=[0.1, 440])
             >>> synth.setp(5, 0.5)
             >>> synth.setp(kfreq=880)
             >>> synth.setp(5, 0.1, 6, 1000)
@@ -701,7 +701,7 @@ class Synth(AbstrSynth):
         """
         Automate any named parameter of this Synth
 
-        This method will automate this synth's pargs / param table, depending of
+        This method will automate this synth's pfields / param table, depending of
         how the instrument was defined.
 
         Args:
@@ -777,12 +777,12 @@ def _synthsCreateHtmlTable(synths: list[Synth]) -> str:
             else:
                 row.extend(["-"] * len(keys))
 
-    if synth0.pargs:
+    if synth0.args:
         maxi = config['synth_repr_max_args']
         i2n = instr0.pargsIndexToName
         maxi = max((i for i, name in i2n.items() if name.startswith("k")),
                    default=maxi)
-        for i, parg in enumerate(synth0.pargs):
+        for i, parg in enumerate(synth0.args):
             if i > maxi:
                 colnames.append("...")
                 break
@@ -792,8 +792,8 @@ def _synthsCreateHtmlTable(synths: list[Synth]) -> str:
             else:
                 colnames.append(str(i+4))
         for row, synth in zip(rows, synths):
-            row.extend("%.5g"%parg for parg in synth.pargs[:maxi])
-            if len(synth.pargs) > maxi:
+            row.extend("%.5g"%parg for parg in synth.args[:maxi])
+            if len(synth.args) > maxi:
                 row.append("...")
 
     if limitSynths:

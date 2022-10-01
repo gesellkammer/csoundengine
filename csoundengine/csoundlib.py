@@ -2835,6 +2835,57 @@ class ParsedInstrBody:
         return max(self.pfieldsUsed)
 
 
+def lastAssignmentToVariable(varname: str, lines: list[str]) -> Optional[int]:
+    """
+    Line of the last assignment to a variable
+
+    Given a piece of code (normally the body of an instrument)
+    find the line in which the given variable has its **last**
+    assignment
+
+    Args:
+        varname: the name of the variable
+        lines: the lines which make the instrument body. We need to split
+            the body into lines within the function itself and since the
+            user might need to split the code anyway afterwards, we
+            already ask for the lines instead.
+
+    Returns:
+        the line number of the last assignment, or None if there is no
+        assignment to the given variable
+
+    Possible matches::
+
+        aout oscili 0.1, 1000
+        aout, aout2 pan2 ...
+        aout = ...
+        aout=...
+        aout += ...
+        aout2, aout = ...
+
+    Example
+    ~~~~~~~
+
+        >>> lastAssignmentToVariable("aout", r'''
+        ... aout oscili:a(0.1, 1000)
+        ... aout *= linen:a(...)
+        ... aout = aout + 10
+        ... outch 1, aout
+        ... '''.splitlines())
+        3
+    """
+    rgxs = [
+        _re.compile(rf'^\s*({varname})\s*(=|\*=|-=|\+=|\/=)'),
+        _re.compile(rf'^\s*({varname})\s*,'),
+        _re.compile(rf'^\s*({varname})\s+[A-Za-z]\w*'),
+        _re.compile(rf'^\s*(?:\w*,\s*)+\b({varname})\b')
+    ]
+    for i, l in enumerate(reversed(lines)):
+        for rgx in rgxs:
+            if rgx.search(l):
+                return len(lines) - 1 - i
+    return None
+
 
 @_functools.lru_cache(maxsize=2000)
 def instrParseBody(body: str) -> ParsedInstrBody:

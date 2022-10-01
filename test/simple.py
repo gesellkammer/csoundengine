@@ -11,5 +11,5 @@ a0 oscili 0.1, mtof:i(imidi)
 outch 1, a0
 """)
 import time
-s.sched("foo", 0, 4, pargs=[60])
+s.sched("foo", 0, 4, args=[60])
 time.sleep(4)

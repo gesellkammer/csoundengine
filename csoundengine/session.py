@@ -119,7 +119,7 @@ even if the :class:`~csoundengine.instr.Instr` does not define a parameter table
     Intr('sine', r'''
         a0 = oscili:a(kamp, kfreq)
         outch 1, a0
-    ''', tabledef=dict(amp=0.1, freq=1000)
+    ''', tabargs=dict(amp=0.1, freq=1000)
     ).register(s)
     synth = s.sched('sine', tabargs=dict(amp=0.4, freq=440))
     synth.stop()
@@ -237,8 +237,8 @@ class SessionEvent:
     priority: int = 1
     "The events priority (>1)"
 
-    pargs: list[float] | dict[str, float] | None = None
-    "Numbered pargs or a dict of parg name: value"
+    args: list[float] | dict[str, float] | None = None
+    "Numbered pfields or a dict of pfield name: value"
 
     tabargs: dict[str, float] | None = None
     "Named args passed to an associated table"
@@ -326,7 +326,7 @@ class Session:
         Intr('sine', r'''
             a0 = oscili:a(kamp, kfreq)
             outch 1, a0
-        ''', tabledef=dict(amp=0.1, freq=1000
+        ''', tabargs=dict(amp=0.1, freq=1000
         ).register(s)
         synth = s.sched('sine', tabargs=dict(freq=440))
         synth.stop()
@@ -519,7 +519,7 @@ class Session:
     def defInstr(self, name: str, body: str,
                  args: dict[str, float] = None,
                  init: str = None,
-                 tabledef: dict[str, float] = None,
+                 tabargs: dict[str, float] = None,
                  priority: int = None,
                  **kws) -> Instr:
         """
@@ -531,10 +531,10 @@ class Session:
             name (str): the name of the created instr
             body (str): the body of the instrument. It can have named
                 pfields (see example) or a table declaration
-            args: dynamic pargs with their default values
+            args: pfields with their default values
             init: init (global) code needed by this instr (read soundfiles,
                 load soundfonts, etc)
-            tabledef: param table definition (see example)
+            tabargs: an instrument can have an associated table with named slots (see example)
             priority: if given, the instrument is prepared to be executed
                 at this priority
             kws: any keywords are passed on to the Instr constructor.
@@ -570,7 +570,7 @@ class Session:
             ... a0 = busin(kbus)
             ... a0 = moogladder2(a0, kcutoff, kresonance)
             ... outch 1, a0
-            ... ''', tabledef=dict(kbus=0, kcutoff=1000, kresonance=0.9))
+            ... ''', tabargs=dict(kbus=0, kcutoff=1000, kresonance=0.9))
             # The same but with table args inline
             >>> session.defInstr('filter2', r'''
             ... {kbus=0, kcutoff=1000, kresonance=0.9}
@@ -591,7 +591,7 @@ class Session:
         :meth:`~Session.sched`
         """
         oldinstr = self.instrs.get(name)
-        instr = Instr(name=name, body=body, args=args, init=init, tabledef=tabledef,
+        instr = Instr(name=name, body=body, args=args, init=init, tabargs=tabargs,
                       **kws)
         if oldinstr and oldinstr == instr:
             return oldinstr
@@ -764,7 +764,7 @@ class Session:
         rinstr = self.prepareSched(instrname, priority)
         return rinstr.instrnum
 
-    def assignBus(self) -> int:
+    def assignBus(self, persistent=False) -> int:
         """ Creates a bus in the engine
 
         This is just a wrapper around Engine.assignBus(). See :meth:`Engine.assignBus` for
@@ -806,7 +806,7 @@ class Session:
                      s.sched('receiver', ibus=bus, kgain=0.5)]
 
         """
-        return self.engine.assignBus()
+        return self.engine.assignBus(persist=persistent)
 
     def schedEvent(self, event: SessionEvent) -> Synth:
         kws = event.kws or {}
@@ -814,7 +814,7 @@ class Session:
                           delay=event.delay,
                           dur=event.dur,
                           priority=event.priority,
-                          pargs=event.pargs,
+                          args=event.args,
                           tabargs=event.tabargs,
                           whenfinished=event.whenfinished,
                           relative=event.relative,
@@ -825,7 +825,7 @@ class Session:
               delay=0.,
               dur=-1.,
               priority: int = 1,
-              pargs: Union[list[float], dict[str, float]] = [],
+              args: list[float] | dict[str, float] = None,
               tabargs: dict[str, float] = None,
               whenfinished=None,
               relative=True,
@@ -840,8 +840,8 @@ class Session:
             priority: the priority (1 to 10)
             delay: time offset of the scheduled instrument
             dur: duration (-1 = for ever)
-            pargs: pargs passed to the instrument (p5, p6, ...) or a dict of the
-                form {'parg': value}, where parg can be any px string or the name
+            args: pfields passed to the instrument (p5, p6, ...) or a dict of the
+                form {'pfield': value}, where pfield can be any px string or the name
                 of the variable (for example, if the instrument has a line
                 'kfreq = p5', then 'kfreq' can be used as key here.
             tabargs: args to set the initial state of the associated table. Any
@@ -865,7 +865,7 @@ class Session:
         ... outch 1, asig
         ... ''')
         # NB: in a Session, pfields start at p5 since p4 is reserved
-        >>> synth = s.sched('simplesine', pargs=[1000])
+        >>> synth = s.sched('simplesine', args=[1000])
         ...
         >>> synth.stop()
 
@@ -877,13 +877,13 @@ class Session:
         assert isinstance(priority, int) and 1<=priority<=10
         if relative:
             t0 = self.engine.elapsedTime()
-            delay = t0+delay+self.engine.extraLatency
+            delay = t0 + delay + self.engine.extraLatency
         if instrname == "?":
             instrname = emlib.dialogs.selectItem(list(self.instrs.keys()),
                                                  title="Select Instr",
                                                  ensureSelection=True)
-        instr = self.getInstr(instrname)
-        if not instr:
+        instr: Instr = self.getInstr(instrname)
+        if instr is None:
             raise ValueError(f"Instrument {instrname} not defined")
         table: Optional[ParamTable]
         if instr._tableDefaultValues is not None:
@@ -895,7 +895,12 @@ class Session:
             tableidx = 0
             table = None
         # tableidx is always p4
-        p4args = _tools.instrResolveArgs(instr, tableidx, pargs, pkws)
+        if pkws:
+            for k in pkws.keys():
+                if not k in instr.pargsNameToIndex:
+                    raise KeyError(f"arg '{k}' not known for instr '{instr.name}'. "
+                                   f"Possible args: {instr.pargsNameToIndex.keys()}")
+        p4args = _tools.instrResolveArgs(instr, p4=tableidx, pargs=args, pkws=pkws)
         rinstr = self.prepareSched(instrname, priority, block=True)
         synthid = self.engine.sched(rinstr.instrnum, delay=delay, dur=dur, args=p4args,
                                     relative=False)
@@ -907,7 +912,7 @@ class Session:
                       start=delay,
                       dur=dur,
                       table=table,
-                      pargs=p4args,
+                      args=p4args,
                       priority=priority)
         self._synths[synthid] = synth
         return synth
@@ -1123,7 +1128,7 @@ class Session:
         if imode is None:
             raise ValueError(f"mode {mode} is invalid. Possible modes are 'noise', 'sine'")
         return self.sched('.testAudio', dur=dur,
-                          pargs=dict(imode=imode, iperiod=period, igain=gain))
+                          args=dict(imode=imode, iperiod=period, igain=gain))
 
     def playSample(self, source: Union[int, TableProxy, str, tuple[np.ndarray, int]],
                    delay=0., dur=-1.,
@@ -1187,11 +1192,11 @@ class Session:
         return self.sched('.playSample',
                           delay=delay,
                           dur=dur,
-                          pargs=dict(isndtab=tabnum, istart=skip,
-                                     ifade=fade, igaingroup=gaingroup,
-                                     icompensatesr=int(compensateSamplerate),
-                                     kchan=chan, kspeed=speed, kpan=pan, kgain=gain,
-                                     ixfade=crossfade))
+                          args=dict(isndtab=tabnum, istart=skip,
+                                    ifade=fade, igaingroup=gaingroup,
+                                    icompensatesr=int(compensateSamplerate),
+                                    kchan=chan, kspeed=speed, kpan=pan, kgain=gain,
+                                    ixfade=crossfade))
 
     def makeRenderer(self, sr: int = None, nchnls: int = None, ksmps: int = None
                      ) -> Renderer:
@@ -1220,7 +1225,7 @@ class Session:
             ... outch 1, oscili:ar(kamp, freq)
             ... ''')
             >>> renderer = s.makeRenderer()
-            >>> event = renderer.sched('sine', 0, dur=4, pargs=[0.1, 440])
+            >>> event = renderer.sched('sine', 0, dur=4, args=[0.1, 440])
             >>> event.setp(2, kfreq=880)
             >>> renderer.render("out.wav")
 
