@@ -42,17 +42,17 @@ csound code and schedule events without any overhead.
     # of the running instrument, which can be used to further control it
     event = engine.sched("synth", args=[48, 0.2, 3000, 4])
 
-A csound process is launched by creating a new Engine. One difference to csound here is
+A csound process is launched by creating a new Engine. One difference to *csound* here is
 that **csoundengine** will query the system regarding audio backend, audio device,
 number of channels, samplerate, etc., for any option that is not explicitly given
 (instead of using some arbitrary default). For example, in linux **csoundengine**
-will first check if jack is running and use that, or fallback to portaudio otherwise
-(the order can be configured). If not given an audio device it will use the default
+will first check if jack is running and use that as backend, or fallback to using portaudio
+otherwise (the order can be configured). If not given an audio device it will use the default
 device for the backend and will query the number of channels and use that as
-the `nchnls` option.
+the `nchnls` (number of channels) option.
 
 Another difference to notice is that in **csoundengine** instruments can declare
-*pargs* as dynamic values (k-variables), which can be modulated after the
+*pfields* as dynamic values (*k-variables*), which can be modulated after the
 event has started.
 
 .. code-block:: python
@@ -187,7 +187,7 @@ Features
   many parameters. When an instance of such an instrument is scheduled **csoundengine**
   fills the values of any parameter which is not explicitely given with the default
   value. Any parg can also be modulated in real-time. See :meth:`Engine.setp() <csoundengine.engine.Engine.setp>`
-  and :meth:`Engine.setp() <csoundengine.engine.Engine.getp>`
+  and :meth:`Engine.getp() <csoundengine.engine.Engine.getp>`
 * **Event ids / Modulation** - in *csoundengine* every event is assigned a unique id, allowing the user
   to control it during performance, from python or from csound directly.
 * **Informed use of the Csound API** - *csoundengine* uses the most convenient part of the

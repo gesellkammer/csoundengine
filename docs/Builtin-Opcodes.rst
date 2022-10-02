@@ -14,8 +14,8 @@ are defined, which can be used from any code within this :class:`~csoundengine.e
 These opcodes are present whenever a csound :class:`~csoundengine.engine.Engine` is created with
 ``numAudioBuses > 0`` or ``numControlBuses > 0`` (enabled by default). They implement a pool
 of audio and control buses. The number of buses in the pool is determined by these variables and
-the default can be customized in the configuration (keys ``num_audio_buses`` and
-``num_control_buses``.
+the default can be customized in the configuration (key :ref:`num_audio_buses <config_num_audio_buses>`
+and :ref:`num_control_buses <config_num_control_buses>`).
 
 Buses are reference counted: they stay alive as long as there are events using them. As soon
 as the last event usign a bus ends the bus is freed and returned to the pool. In order to keep
@@ -26,7 +26,7 @@ at the end of the cycle so they cannot be used to implement feedback or pass aud
 instrument instances with a lower priority. Control buses behave like global k-variables
 
 A bus can be created in python via :meth:`csoundengine.engine.Engine.assignBus` or directly
-in csound via ``busassign``.
+in csound via :ref:`busassign`.
 
 These user-defined-opcodes are also present for offline rendering
 
@@ -45,6 +45,11 @@ Receives audio/control data from a bus
 .. code::
 
     asig busin ibus
+    kvalue busin ibus
+
+* ``ibus``: the bus token as returned by :ref:`busassign` or from python by
+  :meth:`Engine.assignBus <csoundengine.engine.Engine.assignBus>`
+
 
 **Example**
 
@@ -82,7 +87,7 @@ busout
 
 Sends audio to a bus or sets a control bus to the given value.
 Audio already in the bus is replaced. In order to allow
-multiple sends to a bus use ``busmix``. 
+multiple sends to a bus use :ref:`busmix`.
 
 
 **Syntax**
@@ -90,6 +95,10 @@ multiple sends to a bus use ``busmix``.
 .. code::
 
     busout ibus, asig
+    busout ibus, kvalue
+
+* ``asig``: the signal to output
+* ``ibus``: the bus token as returned by busassign or from python by :meth:`Engine.assignBus <csoundengine.engine.Engine.assignBus>`
 
 **Example**
 
@@ -149,6 +158,30 @@ Assigns an unused bus
 
    ibus busassign Skind
 
+* ``Skind``: the kind of bus, "a" or "k"
+* ``ibus``: the bus id of the newly assigned bus. This can be passed to :ref:`busin` or
+  :ref:`busout`
+
+.. code-block:: csound
+
+    gimasterL = busassign("a")
+    gimasterR = busassign("a")
+
+    instr mysynth
+      kfreq = p4
+      asig oscili 0.1, kfreq
+      busout gimasterL, asig
+    endin
+
+    instr 999
+      aL busin gimasterL
+      aR busin gimasterR
+      outch 1, aL, 2, aR
+    endin
+
+    schedule(999, 0, -1)
+
+
 -----
 
 
@@ -159,11 +192,18 @@ busmix
 
 Send audio to a bus, mixing it with other sends
 
+The difference with :ref:`busout` is that here the audio of the bus is mixed with
+the new audio. **NB**: **busmix** is only available for audio buses
+
 **Syntax**
 
 .. code::
 
    busmix ibus, asig
+
+* ``ibus``: the bus token as returned by :ref:`busassign` or from python by
+  :meth:`Engine.assignBus <csoundengine.engine.Engine.assignBus>`
+* ``asig``: the audio signal to mix with the contents of the bus
 
 **Example**
 

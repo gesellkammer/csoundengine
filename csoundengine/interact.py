@@ -164,13 +164,13 @@ def interactPargs(engine: engine.Engine, p1: Union[float, str],
         from csoundengine.interact import *
         e = Engine()
         e.compile(r'''
-        instr 10
+        instr 100
           kamp = p4
           kmidi = p5
           a0 vco2 kamp, lag:k(mtof:k(kmidi), 0.1)
           outch 1, a0
         ''')
-        eventid = e.sched(10, args=[0.1, 67])
+        eventid = e.sched(100, args=[0.1, 67])
         interactPfields(e, eventid,
                         specs={4: ParamSpec("kamp", 0, 1),
                                5: ParamSpec("kmidi", 0, 127)})
@@ -210,14 +210,14 @@ def _jupyInteractPargs(engine: engine.Engine, p1: Union[float, str],
         from csoundengine import *
         e = Engine()
         e.compile(r'''
-        instr 10
+        instr 100
           kamp = p4
           kmidi = p5
           a0 vco2 kamp, lag:k(mtof:k(kmidi), 0.1)
           outch 1, a0
         endin
         ''')
-        event = e.sched(10, args=[0.1, 67])
+        event = e.sched(100, args=[0.1, 67])
         e.interact(event, p4=ParamSpec('kamp', 0, 1){4: ParamSpec('kamp', 0, 1)})
     """
     from IPython.display import display

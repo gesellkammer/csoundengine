@@ -278,6 +278,10 @@ class Renderer:
     """
     A Renderer is used when rendering offline.
 
+    In most cases a :class:`Renderer` is a drop-in replacement of a
+    :class:`~csoundengine.session.Session` when rendering offline
+    (see :meth:`~csoundengine.session.Session.makeRenderer`).
+
     Instruments with higher priority are assured to be evaluated later
     in the chain. Instruments within a given priority are evaluated in
     the order they are defined (first defined is evaluated first)

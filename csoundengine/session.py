@@ -546,12 +546,14 @@ class Session:
 
         .. note::
 
-            The instr is not compiled at the moment of definition. Only
+            An instr is not compiled at the moment of definition: only
             when an instr is actually scheduled to be run at a given
             priority the code is compiled. There might be a small delay
             the first time an instr is scheduled at a given
-            priority. To prevent this a user can call
+            priority. To prevent this a user can give a default priority
+            when calling :meth:`Session.defInstr`, or call
             :meth:`Session.prepareSched` to explicitely compile the instr
+
 
         Example
         =======
@@ -764,7 +766,7 @@ class Session:
         rinstr = self.prepareSched(instrname, priority)
         return rinstr.instrnum
 
-    def assignBus(self, persistent=False) -> int:
+    def assignBus(self, kind='audio', persist=False) -> int:
         """ Creates a bus in the engine
 
         This is just a wrapper around Engine.assignBus(). See :meth:`Engine.assignBus` for
@@ -775,6 +777,16 @@ class Session:
         :ref:`busmix<busmix>`
 
         For more information on the bus-opcodes, see :ref:`Bus Opcodes<busopcodes>`
+
+        Args:
+            kind: "audio" or "control"
+            persist: if True the bus created is kept alive until the user
+                calls :meth:`~Engine.releaseBus` or until the end of the Session
+
+        Returns:
+            the bus id, can be passed to any instrument expecting a bus
+            to be used with the built-in opcodes "busin", "busout", etc.
+
 
         Example
         =======
@@ -806,7 +818,7 @@ class Session:
                      s.sched('receiver', ibus=bus, kgain=0.5)]
 
         """
-        return self.engine.assignBus(persist=persistent)
+        return self.engine.assignBus(kind=kind, persist=persist)
 
     def schedEvent(self, event: SessionEvent) -> Synth:
         kws = event.kws or {}
@@ -837,9 +849,9 @@ class Session:
         Args:
             instrname: the name of the instrument, as defined via defInstr.
                 **Use "?" to select an instrument interactively**
-            priority: the priority (1 to 10)
             delay: time offset of the scheduled instrument
             dur: duration (-1 = for ever)
+            priority: the priority (1 to 10)
             args: pfields passed to the instrument (p5, p6, ...) or a dict of the
                 form {'pfield': value}, where pfield can be any px string or the name
                 of the variable (for example, if the instrument has a line
@@ -849,6 +861,7 @@ class Session:
             whenfinished: a function of the form f(synthid) -> None
                 if given, it will be called when this instance stops
             relative: if True, delay is relative to the start time of the Engine.
+            pkws: any keyword argument is interpreted as a named pfield
 
         Returns:
             a :class:`~csoundengine.synth,Synth`, which is a handle to the instance
@@ -860,12 +873,16 @@ class Session:
         >>> from csoundengine import *
         >>> s = Engine().session()
         >>> s.defInstr('simplesine', r'''
+        ... pset 0, 0, 0, 440, 0.1, 0.05
         ... ifreq = p5
+        ... iamp = p6
+        ... iattack = p7
         ... asig vco2 0.1, ifreq
+        ... asig *= linsegr:a(0, iattack, 1, 0.1, 0)
         ... outch 1, asig
         ... ''')
         # NB: in a Session, pfields start at p5 since p4 is reserved
-        >>> synth = s.sched('simplesine', args=[1000])
+        >>> synth = s.sched('simplesine', args=[1000, 0.2], iattack=0.2)
         ...
         >>> synth.stop()
 
@@ -1024,6 +1041,20 @@ class Session:
             .path: the path you just passed
             .nchnls: the number of channels in the output
             .sr: the sample rate of the output
+
+        Example
+        ~~~~~~~
+
+            >>> import csoundengine as ce
+            >>> session = ce.Engine().session()
+            >>> table = session.readSoundfile("path/to/soundfile.flac")
+            >>> table
+            TableProxy(engine='engine0', source=100, sr=44100, nchnls=2,
+                       numframes=88200, path='path/to/soundfile.flac',
+                       freeself=False)
+            >>> table.getDuration()
+            2.0
+            >>> session.playSample(table)
 
         """
         if path == "?":
@@ -1204,7 +1235,8 @@ class Session:
         Create a :class:`~csoundengine.offline.Renderer` (to render offline) with
         the instruments defined in this Session
 
-        To schedule events, use the .sched method of the renderer
+        To schedule events, use the :meth:`~csoundengine.offline.Renderer.sched` method
+        of the renderer
 
         Args:
             sr: the samplerate (see config['rec_sr'])
@@ -1243,9 +1275,22 @@ class Session:
             self.registerInstr(csoundInstr)
 
 
-def getSession(name="default", createIfNeeded=True) -> Optional[Session]:
+def getSession(name: str = None, createIfNeeded=True, **kws
+               ) -> Optional[Session]:
     '''
     Get/create a :class:`Session`.
+
+    Args:
+        name: the name of the Engine to which this Session belongs.
+        createIfNeeded: if True, the underlying Engine will be created
+            if it does not already exist. To configure the Engine parameters
+            create first the Engine, then call :meth:`Engine.session`
+        kws: any keyword arguments are passed to Engine if an Engine
+            needs to be created
+
+    Returns:
+        the requested Session or None if the underlying Engine does not
+        exist and createIfNeeded is False
 
     A :class:`Session` controls a series of instruments and is associated to
     an :class:`~csoundengine.engine.Engine`. If the corresponding
@@ -1255,12 +1300,13 @@ def getSession(name="default", createIfNeeded=True) -> Optional[Session]:
     (to edit those defaults, see
     `Configuration <https://csoundengine.readthedocs.io/en/latest/config.html>`_
 
-    Example::
+    Example
+    ~~~~~~~
 
     .. code-block:: python
 
-        # Get the default Session, create it if needed
-        session = getSession()
+        # Get the "default" Session, create it if needed
+        session = getSession("default", createIfNeeded=True)
 
         # create a session/engine with coreaudio as backend in macos
         engine = Engine("foo", backend='auhal')
@@ -1283,21 +1329,21 @@ def getSession(name="default", createIfNeeded=True) -> Optional[Session]:
         s2 = getSession("foo")
         assert s2 is s
 
-    Args:
-        name: the name of the Engine to which this Session belongs.
-        createIfNeeded: if True, the underlying Engine will be created
-            if it does not already exist. To configure the Engine parameters
-            create first the Engine, then call :meth:`Engine.session`
 
-    Returns:
-        the requested Session or None if the underlying Engine does not
-        exist and createIfNeeded is False
     '''
+    if name is None:
+        if createIfNeeded:
+            engine = Engine(**kws)
+            return engine.session()
+        else:
+            raise ValueError("Cannot retrieve an unnamed Engine")
+
     engine = getEngine(name)
     if engine is None:
         if not createIfNeeded:
+            logger.warning(f"Engine {name} does not exist")
             return None
-        logger.info(f"Engine {name} does not exist, it will be created with "
-                    f"default values")
-        engine = Engine(name)
+        logger.debug(f"Engine {name} does not exist, it will be created with "
+                     f"default values")
+        engine = Engine(name, **kws)
     return engine.session()

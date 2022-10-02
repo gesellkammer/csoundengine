@@ -34,7 +34,7 @@ which is a line-magic and `%%csound` which is a cell-magic)
 .. code-block:: csound
 
     %%csound
-    instr 10
+    instr 100
         kamp = p4
         kmidi = p5
         a0 oscili kamp, mtof:k(kmidi)
@@ -45,7 +45,7 @@ which is a line-magic and `%%csound` which is a cell-magic)
 
 .. code-block:: python
 
-    event = e.sched(10, args=[0.1, 67])
+    event = e.sched(100, args=[0.1, 67])
 
 %%definstr
 ----------

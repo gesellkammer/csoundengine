@@ -1231,7 +1231,7 @@ class Engine:
             >>> import numpy as np
             >>> e = Engine()
             >>> e.compile(r'''
-            ... instr 10
+            ... instr 100
             ...   ifreq = p4
             ...   outch 1, oscili:a(0.1, ifreq) * linseg:a(0, 0.01, 1, 0.1, 0)
             ... endin
@@ -1240,15 +1240,15 @@ class Engine:
             # Schedule 5 events per second for 60 seconds. Without a time
             # reference the events would fall out of sync
             >>> for t in np.arange(0, 60, 0.2):
-            ...     e.sched(10, t+now, 0.15, args=[1000], relative=False)
-            ...     e.sched(10, t+now, 0.15, args=[800], relative=False)
+            ...     e.sched(100, t+now, 0.15, args=[1000], relative=False)
+            ...     e.sched(100, t+now, 0.15, args=[800], relative=False)
 
         The same result can be achieved by locking the elapsed-time clock::
 
             >>> with e.lockedClock():
             ...     for t in np.arange(0, 10, 0.2):
-            ...         e.sched(10, t, 0.15, args=[1000])
-            ...         e.sched(10, t, 0.15, args=[800])
+            ...         e.sched(100, t, 0.15, args=[1000])
+            ...         e.sched(100, t, 0.15, args=[800])
 
         """
         return self._lockedElapsedTime or self.csound.currentTimeSamples() / self.sr
@@ -1268,15 +1268,15 @@ class Engine:
             >>> import numpy as np
             >>> e = Engine()
             >>> e.compile(r'''
-            ... instr 10
+            ... instr 100
             ...   ifreq = p4
             ...   outch 1, oscili:a(0.1, ifreq) * linseg:a(0, 0.01, 1, 0.1, 0)
             ... endin
             ... ''')
             >>> e.lockClock()
             >>> for t in np.arange(0, 10, 0.2):
-            ...     e.sched(10, t, 0.15, args=[1000])
-            ...     e.sched(10, t, 0.15, args=[800])
+            ...     e.sched(100, t, 0.15, args=[1000])
+            ...     e.sched(100, t, 0.15, args=[800])
             >>> e.lockClock(False)
 
         See Also
@@ -1354,15 +1354,15 @@ class Engine:
             >>> import numpy as np
             >>> e = Engine()
             >>> e.compile(r'''
-            ... instr 10
+            ... instr 100
             ...   ifreq = p4
             ...   outch 1, oscili:a(0.1, ifreq) * linseg:a(0, 0.01, 1, 0.1, 0)
             ... endin
             ... ''')
             >>> with e.lockedClock():
             ...     for t in np.arange(0, 10, 0.2):
-            ...         e.sched(10, t, 0.15, args=[1000])
-            ...         e.sched(10, t, 0.15, args=[800])
+            ...         e.sched(100, t, 0.15, args=[1000])
+            ...         e.sched(100, t, 0.15, args=[800])
 
         """
         return _RefTimeContext(self)
@@ -1405,7 +1405,7 @@ class Engine:
             from csoundengine import *
             e = Engine()
             e.compile(r'''
-              instr 10
+              instr 100
                 kfreq = p4
                 kcutoff = p5
                 Smode strget p6
@@ -1418,7 +1418,7 @@ class Engine:
                 outch 1, asig
               endin
             ''')
-            eventid = e.sched(10, 2, args=[200, 400, "lowpass"])
+            eventid = e.sched(100, 2, args=[200, 400, "lowpass"])
             # simple automation in python
             for cutoff in range(400, 3000, 10):
                 e.setp(eventid, 5, cutoff)
@@ -1428,7 +1428,7 @@ class Engine:
             # To ensure simultaneity between events:
             now = e.elapsedTime()
             for t in np.arange(2, 4, 0.2):
-                e.sched(10, t+now, 0.2, relative=False)
+                e.sched(100, t+now, 0.2, relative=False)
 
         See Also
         ~~~~~~~~
@@ -1720,7 +1720,7 @@ class Engine:
         >>> e = Engine()
         >>> source = e.makeEmptyTable(128)
         >>> e.compile(r'''
-        ... instr 10
+        ... instr 100
         ...   imidi = p4
         ...   iamptab = p5
         ...   islot = p6
@@ -1731,7 +1731,7 @@ class Engine:
         ... ''')
         >>> tabarray = e.getTableData(source)
         >>> tabarray[0] = 0.5
-        >>> eventid = e.sched(10, args=[67, source, 0])
+        >>> eventid = e.sched(100, args=[67, source, 0])
         >>> # fade out
         >>> e.automateTable(source=source, idx=0, pairs=[1, 0.5, 5, 0.])
 
@@ -2296,13 +2296,13 @@ class Engine:
         >>> e = Engine()
         >>> e.initChannel("mastergain", 1.0)
         >>> e.compile(r'''
-        ... instr 10
+        ... instr 100
         ...   asig oscili 0.1, 1000
         ...   kmastergain = chnget:k("mastergain")
         ...   asig *= intrp(kmastergain)
         ... endin
         ... ''')
-        >>> eventid = e.sched(10)
+        >>> eventid = e.sched(100)
         >>> e.setChannel("mastergain", 0.5)
         """
         assert self.csound is not None
@@ -2376,13 +2376,13 @@ class Engine:
         >>> e = Engine()
         >>> e.initChannel("mastergain", 1.0)
         >>> e.compile(r'''
-        ... instr 10
+        ... instr 100
         ...   asig oscili 0.1, 1000
         ...   kmastergain = chnget:k("mastergain")
         ...   asig *= intrp(kmastergain)
         ... endin
         ... ''')
-        >>> eventid = e.sched(10)
+        >>> eventid = e.sched(100)
         >>> e.setChannel("mastergain", 0.5)
         """
         modei = {
@@ -2877,14 +2877,14 @@ class Engine:
 
         >>> engine = Engine(...)
         >>> engine.compile(r'''
-        ... instr 10
+        ... instr 100
         ...   kamp = p5
         ...   kfreq = p6
         ...   a0 oscili kamp, kfreq
         ...   outch 1, a0
         ... endin
         ... ''')
-        >>> p1 = engine.sched(10, args=[0.1, 440])
+        >>> p1 = engine.sched(100, args=[0.1, 440])
         >>> engine.setp(p1, 5, 0.2, 6, 880, delay=0.5)
 
         See Also
@@ -2956,7 +2956,7 @@ class Engine:
 
         >>> e = Engine(...)
         >>> e.compile(r'''
-        ... instr 10
+        ... instr 100
         ...   itab = p4
         ...   kamp  table 0, itab
         ...   kfreq table 1, itab
@@ -2965,7 +2965,7 @@ class Engine:
         ... endin
         ... ''')
         >>> source = e.makeTable([0.1, 1000])
-        >>> eventid = e.sched(10, 0, 10, args=(source,))
+        >>> eventid = e.sched(100, 0, 10, args=(source,))
         # automate the frequency (slot 1)
         >>> e.automateTable(source, 1, [0, 1000, 3, 200, 5, 200])
 
@@ -3015,12 +3015,12 @@ class Engine:
 
         >>> e = Engine()
         >>> e.compile(r'''
-        ... instr 10
+        ... instr 100
         ...   kfreq = p4
         ...   outch 1, oscili:a(0.1, kfreq)
         ... endin
         ... ''')
-        >>> eventid = e.sched(10, 0, 10, args=(1000,))
+        >>> eventid = e.sched(100, 0, 10, args=(1000,))
         >>> e.automatep(eventid, 4, [0, 1000, 3, 200, 5, 200])
 
         See Also
@@ -3207,12 +3207,12 @@ class Engine:
 
         >>> e = Engine(udpserver=True)
         >>> e.compile(r'''
-        ... instr 10
+        ... instr 100
         ...   ifreq = p4
         ...   outch 1, oscili:a(0.1, ifreq)
         ... endin
         ... ''')
-        >>> e.udpSendScoreline("i 10 0 4 440")
+        >>> e.udpSendScoreline("i 100 0 4 440")
 
         .. seealso::
 
@@ -3358,11 +3358,17 @@ class Engine:
         Audio buses are always mono.
 
         Args:
+            kind: the kind of bus, "audio" or "control"
             persist: if True the bus created is keps alive until the user
-            calls :meth:`~Engine.releaseBus`
+                calls :meth:`~Engine.releaseBus`
 
-        A bus created here can be used together with the built-in opcodes `busout`, `busin`
-        and `busmix`. A bus can also be created directly in csound by calling `busassign`
+        Returns:
+            the bus id, can be passed to any instrument expecting a bus
+            to be used with the built-in opcodes :ref:`busin`, :ref:`busout`, etc.
+
+        A bus created here can be used together with the built-in opcodes :ref:`busout`,
+        :ref:`busin` and :ref:`busmix`. A bus can also be created directly in csound by
+        calling :ref:`busassign`
 
         A bus is reference counted and is collected when there are no more clients
         using it. At creation the bus is "parked", waiting to be used by any client.
@@ -3370,7 +3376,7 @@ class Engine:
         be used.
         Multiple clients can use a bus and the bus is kept alive as long as there
         are clients using it or if the bus was created as *persistent*.
-        When each client starts using the bus via any of the bus opcodes, like "busin",
+        When each client starts using the bus via any of the bus opcodes, like :ref:`busin`,
         the reference count of the bus is increased. After a client has finished
         using it the reference count is automatically decreased and if it reaches
         0 the bus is collected.
@@ -3389,7 +3395,7 @@ class Engine:
 
         >>> e = Engine(...)
         >>> e.compile(r'''
-        ... instr 10
+        ... instr 100
         ...   ibus = p4
         ...   kfreq = 1000
         ...   asig vco2 0.1, kfreq
@@ -3397,7 +3403,7 @@ class Engine:
         ... endin
         ... ''')
         >>> e.compile(r'''
-        ... instr 20
+        ... instr 110
         ...   ibus = p4
         ...   asig = busin(ibus)
         ...   ; do something with asig
@@ -3406,8 +3412,8 @@ class Engine:
         ... endin
         ... ''')
         >>> bus = e.assignBus("audio")
-        >>> s1 = e.sched(10, 0, 4, (bus,))
-        >>> s2 = e.sched(20, 0, 4, (bus,))
+        >>> s1 = e.sched(100, 0, 4, (bus,))
+        >>> s2 = e.sched(110, 0, 4, (bus,))
 
 
         Modulate one instr with another, at k-rate. **At k-rate the order of evaluation
@@ -3415,14 +3421,14 @@ class Engine:
         (control buses act like global variables)
 
         >>> e.compile(r'''
-        ... instr 30
+        ... instr 130
         ...   ibus = p4
         ...   ; lfo between -0.5 and 0 at 6 Hz
         ...   kvibr = linlin(lfo:k(1, 6), -0.5, 0, -1, 1)
         ...   busout(ibus, kvibr)
         ... endin
         ...
-        ... instr 40
+        ... instr 140
         ...   itranspbus = p4
         ...   kpitch = p5
         ...   ktransp = busin:k(itranspbus, 0)
@@ -3432,8 +3438,8 @@ class Engine:
         ... endin
         ... ''')
         >>> bus = e.assignBus()
-        >>> s1 = e.sched(40, 0, -1, (bus, 67))
-        >>> s2 = e.sched(30, 0, -1, (bus,))  # start moulation
+        >>> s1 = e.sched(140, 0, -1, (bus, 67))
+        >>> s2 = e.sched(130, 0, -1, (bus,))  # start moulation
         >>> e.unsched(s2)        # remove modulation
         >>> e.writeBus(bus, 0)   # reset value
         >>> e.unschedAll()
