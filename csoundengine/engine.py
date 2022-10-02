@@ -3416,10 +3416,9 @@ class Engine:
         >>> s2 = e.sched(110, 0, 4, (bus,))
 
 
-        Modulate one instr with another, at k-rate. **At k-rate the order of evaluation
-        is not important because control buses are not cleared at the end of each cycle**
-        (control buses act like global variables)
-
+        Modulate one instr with another, at k-rate. **NB: control buses act like global
+        variables, the are not cleared at the end of each cycle**.
+        
         >>> e.compile(r'''
         ... instr 130
         ...   ibus = p4
