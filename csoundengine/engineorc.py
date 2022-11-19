@@ -135,7 +135,7 @@ instr ${maketable}
     isr = p8
     inumchannels = p9
     if (iempty == 1) then
-        i0 ftgen itabnum, 0, ilen, -2, 0
+        itabnum ftgen itabnum, 0, ilen, -2, 0
     else
         iValues[] passign 10, 10+ilen
         itabnum ftgen itabnum, 0, ilen, -2, iValues
@@ -560,9 +560,6 @@ opcode busassign, i, So
     */
     Skind, ipersist xin
     ikind = strcmp(Skind, "a") == 0 ? 0 : 1  ; 0=audio, 1=k
-    if dict_get:i(gi__bustoken2num, itoken, -1) == -1 then
-        initerror sprintf("Bus with token %d already exists (bus: %d)", itoken, ibus)
-    endif
     ; generate a new token
     itoken chnget "_busTokenCount"
     chnset itoken+1, "_busTokenCount"

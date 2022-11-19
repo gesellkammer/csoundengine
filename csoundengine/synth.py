@@ -426,12 +426,6 @@ class Synth(AbstrSynth):
         # add a line for k- pargs
         return "\n".join(lines)
 
-    @property
-    def endTime(self) -> float:
-        if self.dur < 0:
-            return float("inf")
-        return self.start + self.dur
-
     def playStatus(self) -> str:
         """
         Returns the playing status of this synth (playing, stopped or future)
@@ -561,8 +555,8 @@ class Synth(AbstrSynth):
         pairsd = {}
         instr = self.instr
         if args:
-            assert len(args)%2 == 0
-            for i in range(len(args)//2):
+            assert len(args) % 2 == 0, f"Arguments should be even, got {args}"
+            for i in range(len(args) // 2):
                 k = args[i*2]
                 v = args[i*2+1]
                 idx = instr.pargIndex(k)
@@ -987,8 +981,11 @@ class SynthGroup(AbstrSynth):
 
     def setp(self, *args, delay=0., **kws) -> None:
         for synth in self.synths:
-            if synth.start <= time.time() + delay <= synth.endTime:
-                synth.setp(*args, delay=delay, **kws)
+            synth.setp(*args, delay=delay, **kws)
+        #now = self.engine.elapsedTime()
+        #for synth in self.synths:
+        #    if synth.start <= now + delay <= synth.end:
+        #        synth.setp(*args, delay=delay, **kws)
 
     def tableParams(self) -> Set[str]:
         """

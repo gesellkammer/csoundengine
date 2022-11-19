@@ -516,7 +516,9 @@ class Session:
             logger.debug(f"Making table with init values: {values} ({overrides})")
             return self.engine.makeTable(data=values, block=wait)
 
-    def defInstr(self, name: str, body: str,
+    def defInstr(self,
+                 name: str,
+                 body: str,
                  args: dict[str, float] = None,
                  init: str = None,
                  tabargs: dict[str, float] = None,
@@ -1178,7 +1180,8 @@ class Session:
         Args:
             source: table number, a path to a sample or a TableProxy, or a tuple
                 (numpy array, samplerate)
-            dur: the duration of playback (-1 to play the whole sample)
+            dur: the duration of playback (-1 to play until the end of the sample
+                or indefinitely if loop==True)
             chan: the channel to play the sample to. In the case of multichannel
                   samples, this is the first channel
             pan: a value between 0-1. -1 means default, which is 0 for mono,

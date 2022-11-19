@@ -6,9 +6,13 @@ from .config import config, logger
 from .errors import CsoundError
 from . import csoundlib
 from . import jupytertools
+from typing import Sequence
 
 
-from typing import Dict, Optional, List, Union, Sequence as Seq, Tuple
+__all__ = (
+    'Instr',
+    'parseInlineArgs'
+)
 
 
 class Instr:
@@ -219,22 +223,22 @@ class Instr:
 
         self.originalBody = body
 
-        self._tableDefaultValues: Optional[list[float]] = None
-        self._tableNameToIndex: Optional[dict[str, int]] = None
+        self._tableDefaultValues: list[float] | None = None
+        self._tableNameToIndex: dict[str, int] | None = None
 
-        delimiters, inline_args, body = parseInlineArgs(body)
+        delimiters, inlineargs, body = parseInlineArgs(body)
 
         if delimiters == '||':
             assert not args
-            args = inline_args
+            args = inlineargs
         elif delimiters == '{}':
             assert not tabargs
-            tabargs = inline_args
+            tabargs = inlineargs
 
         if tabargs:
             if any(name[0] not in 'ki' for name in tabargs.keys()):
                 raise ValueError("Named parameters must start with 'i' or 'k'")
-            self._tableNameToIndex = {paramname:idx for idx, paramname in
+            self._tableNameToIndex = {paramname: idx for idx, paramname in
                                       enumerate(tabargs.keys())}
             defaultvals = list(tabargs.values())
             minsize = config['associated_table_min_size']
@@ -286,11 +290,11 @@ class Instr:
         "an int identifying this Instr"
 
         self.pargsIndexToName: dict[int, str] = pargsIndexToName
-        self.pargsNameToIndex: dict[str, int] = {n:i for i, n in pargsIndexToName.items()}
+        self.pargsNameToIndex: dict[str, int] = {n: i for i, n in pargsIndexToName.items()}
         self.pargsIndexToDefaultValue: dict[int, float] = pargsDefaultValues
         self.instrFreesParamTable = freetable
 
-        self._numpargs: Optional[int] = None
+        self._numpargs: int | None = None
         self._recproc = None
         self._check = config['check_pargs']
         self._preschedCallback = preschedCallback
@@ -359,7 +363,7 @@ class Instr:
             parts.append(htmlorc)
         return "\n".join(parts)
 
-    def paramMode(self) -> Optional[str]:
+    def paramMode(self) -> str | None:
         """
         Returns the dynamic parameter mode, or None
 
@@ -465,8 +469,8 @@ class Instr:
         return idx
 
     def pargsTranslate(self, 
-                       args: Seq[float] = (), 
-                       kws: dict[Union[str, int], float] = None
+                       args: Sequence[float] = (), 
+                       kws: dict[str | int, float] = None
                        ) -> list[float]:
         """
         Given pargs as values and keyword arguments, generate a list of
@@ -632,7 +636,7 @@ class Instr:
         """
         Returns True if this instrument defines a parameters table
         """
-        return self._tableDefaultValues is not None and len(self._tableDefaultValues)>0
+        return self._tableDefaultValues is not None and len(self._tableDefaultValues) > 0
 
     def paramTableParamIndex(self, param: str) -> int:
         """
@@ -650,7 +654,7 @@ class Instr:
             return -1
         return idx
 
-    def overrideTable(self, d: dict[str, float]=None, **kws) -> list[float]:
+    def overrideTable(self, d: dict[str, float] = None, **kws) -> list[float]:
         """
         Overrides default values in the params table
         Returns the initial values
@@ -688,7 +692,6 @@ class Instr:
         return out
 
 
-
 def _checkInstr(instr: str) -> str:
     """
     Returns an error message if the instrument is not well defined
@@ -709,8 +712,8 @@ def _checkInstr(instr: str) -> str:
     return errmsg
 
 
-def parseInlineArgs(body: Union[str, list[str]]
-                    ) -> tuple[str, Optional[dict[str, float]], str]:
+def parseInlineArgs(body: str | list[str]
+                    ) -> tuple[str, dict[str, float], str]:
     """
     Parse an instr body with a possible args declaration (see below).
 
@@ -722,13 +725,11 @@ def parseInlineArgs(body: Union[str, list[str]]
 
         Where:
 
-        * delimiters: the string "||" or "{}", identifying the kind of inline declaration
+        * delimiters: the string "||" or "{}", identifying the kind of inline declaration, or
+            the empty string if the body does not have any inline args
         * fields: a dictionary mapping field name to default value
         * body without declaration: the body of the instrument, as a string, without
           the line declaring fields.
-
-        In the case that the body has no inline declaration delimiters will be an empty
-        string
 
     .. note::
         this is not supported csound syntax, we added this ad-hoc syntax
@@ -745,21 +746,21 @@ def parseInlineArgs(body: Union[str, list[str]]
         ... a0 oscili kamp, kfreq
         ... outch ichan, a0
         ... '''
-        >>> delimiters, args, body2 = parseInlineArgs(body)
+        >>> delimiters, args, bodyWithoutArgs = parseInlineArgs(body)
         >>> delimiters
         '||'
         >>> args
         {'ichan': 0, 'kamp': 0.1, 'kfreq': 440}
-        >>> print(body2)
+        >>> print(bodyWithoutArgs)
         a0 oscili kamp, kfreq
         outch 1, a0
     """
     lines = body if isinstance(body, list) else body.splitlines()
-    delimiters, linenum = _detect_inline_args(lines)
+    delimiters, linenum = _detectInlineArgs(lines)
     if not delimiters:
         if isinstance(body, list):
             body = "\n".join(body)
-        return "", None, body
+        return "", {}, body
     assert linenum is not None
     pfields = {}
     line2 = lines[linenum].strip()
@@ -770,8 +771,9 @@ def parseInlineArgs(body: Union[str, list[str]]
             pfields[varname.strip()] = float(defaultval)
         else:
             pfields[part.strip()] = 0
-    body2 = "\n".join(lines[linenum+1:])
-    return delimiters, pfields, body2
+    bodyWithoutArgs = "\n".join(lines[linenum+1:])
+    return delimiters, pfields, bodyWithoutArgs
+
 
 def _tabargsGenerateCode(tabargs: dict, freetable=True) -> str:
     lines: list[str] = []
@@ -803,6 +805,7 @@ def _tabargsGenerateCode(tabargs: dict, freetable=True) -> str:
     out = textlib.joinPreservingIndentation(lines)
     out = textlib.stripLines(out)
     return out
+
 
 def _pfieldsMergeDeclaration(args: dict[str, float], body: str, startidx=4
                              ) -> dict[int, tuple[str, float]]:
@@ -837,7 +840,7 @@ def _pfieldsMergeDeclaration(args: dict[str, float], body: str, startidx=4
     # TODO: take pset into consideration for defaults
     parsedbody = csoundlib.instrParseBody(body)
     body_i2n = parsedbody.pfieldsIndexToName
-    args_i2n = {i:n for i, n in enumerate(args.keys(), start=startidx)}
+    args_i2n = {i: n for i, n in enumerate(args.keys(), start=startidx)}
     allindexes = set(body_i2n.keys())
     allindexes.update(args_i2n.keys())
     pfields: dict[int, tuple[str, float]] = {}
@@ -863,7 +866,7 @@ def _updatePfieldsCode(body: str, idx2name: dict[int, str]) -> str:
     # return "\n".join((newPfieldCode, "", parsedCode.body))
 
 
-def _pargIndex(parg: str, pargMapping:dict[str, int]) -> int:
+def _pargIndex(parg: str, pargMapping: dict[str, int]) -> int:
     idx = pargMapping.get(parg)
     if idx is None:
         # try with a k-
@@ -871,13 +874,14 @@ def _pargIndex(parg: str, pargMapping:dict[str, int]) -> int:
             idx = pargMapping.get('k' + parg)
             if idx:
                 return idx
-        keys = [k for k in pargMapping.keys() if not k[0]=="p"]
+        keys = [k for k in pargMapping.keys() if not k[0] == "p"]
         raise KeyError(f"parg '{parg}' not found for instr. "
                        f"Possible pargs: {keys} (mapping: {pargMapping})")
     assert idx > 0
     return idx
 
-def _detect_inline_args(lines: list[str]) -> Tuple[str, Optional[int]]:
+
+def _detectInlineArgs(lines: list[str]) -> tuple[str, int | None]:
     """
     Given a list of lines of an instrument's body, detect
     if the instrument has inline args defined, and which kind
@@ -900,7 +904,7 @@ def _detect_inline_args(lines: list[str]) -> Tuple[str, Optional[int]]:
         line = line.strip()
         if not line:
             continue
-        if (line[0]=="|" and line[-1]=="|") or (line[0]=="{" and line[-1]=="}"):
+        if (line[0] == "|" and line[-1] == "|") or (line[0] == "{" and line[-1] == "}"):
             return line[0]+line[-1], i
         break
     return "", None
@@ -937,3 +941,4 @@ def _pfieldsGenerateCode(pfields: dict[int, str], strmethod='strget') -> str:
         else:
             lines.append(f"{name} = p{idx}")
     return "\n".join(lines)
+

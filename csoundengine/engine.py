@@ -1755,8 +1755,12 @@ class Engine:
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         return tabnum
 
-    def makeTable(self, data:Union[Sequence[float], np.ndarray],
-                  tabnum:int=0, sr:int=0, block=True, callback=None,
+    def makeTable(self,
+                  data: list[float] | np.ndarray,
+                  tabnum: int = 0,
+                  sr: int = 0,
+                  block=True,
+                  callback=None,
                   _instrnum=-1.
                   ) -> int:
         """
@@ -1764,7 +1768,7 @@ class Engine:
 
         Args:
             data: the data used to fill the table
-            source: the table number. If -1, a number is assigned by the engine.
+            tabnum: the table number. If -1, a number is assigned by the engine.
                 If 0, a number is assigned by csound (only possible in block or
                 callback mode)
             block: wait until the table is actually created
@@ -2168,8 +2172,13 @@ class Engine:
         self._perfThread.inputMessage(inputMessage)
         return None
 
-    def _makeTableNotify(self, data:Union[Sequence[float], np.ndarray]=None, size=0,
-                         tabnum=0, callback=None, sr:int=0, numchannels=1) -> int:
+    def _makeTableNotify(self,
+                         data: list[float] | np.ndarray | None = None,
+                         size=0,
+                         tabnum=0,
+                         callback=None,
+                         sr: int = 0,
+                         numchannels=1) -> int:
         """
         Create a table with data (or an empty table of the given size).
 
@@ -3418,7 +3427,7 @@ class Engine:
 
         Modulate one instr with another, at k-rate. **NB: control buses act like global
         variables, the are not cleared at the end of each cycle**.
-        
+
         >>> e.compile(r'''
         ... instr 130
         ...   ibus = p4
