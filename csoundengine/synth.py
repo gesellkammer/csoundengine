@@ -340,12 +340,17 @@ class Synth(AbstrSynth):
         """
 
         """
-        __slots__ = ('instr', 'table', 'synthGroup', '_playing')
+        __slots__ = ('instr', 'table', 'group', '_playing')
 
         AbstrSynth.__init__(self, p1=p1, start=start, dur=dur, engine=engine, autostop=autostop, priority=priority)
         self.instr: Instr = instr
+        """The Instr used to play this synth"""
+
         self.table: Optional[ParamTable] = table
-        self.synthGroup = synthgroup
+        """A ParamTable used to define parameters if using a table"""
+
+        self.group = synthgroup
+        """"""
         self.args = args
         self._playing: bool = True
 
@@ -735,8 +740,8 @@ class Synth(AbstrSynth):
     def stop(self, delay=0., stopParent=False) -> None:
         if self.finished():
             return
-        if self.synthGroup is not None and stopParent:
-            self.synthGroup.stop(delay=delay)
+        if self.group is not None and stopParent:
+            self.group.stop(delay=delay)
         else:
             self.session.unsched(self.p1, delay=delay)
 
@@ -808,7 +813,7 @@ class SynthGroup(AbstrSynth):
     __slots__ = ('synths', '__weakref__')
 
     def __init__(self, synths: list[Synth], autostop=False) -> None:
-        assert isinstance(synths, list) and len(synths) > 0
+        # assert isinstance(synths, list) and len(synths) > 0
         priority = max(synth.priority for synth in synths)
         start = min(synth.start for synth in synths)
         end = max(synth.end for synth in synths)
@@ -817,7 +822,7 @@ class SynthGroup(AbstrSynth):
                             engine=synths[0].engine, autostop=autostop,
                             priority=priority)
         groupref = _weakref.ref(self)
-        flatsynths = []
+        flatsynths: list[Synth] = []
         for synth in synths:
             if isinstance(synth, SynthGroup):
                 flatsynths.extend(synth)
@@ -831,7 +836,7 @@ class SynthGroup(AbstrSynth):
         """
         Add the given synths to the synths in this group
         """
-        groupref = _weakref.ref(self)
+        groupref = self.synths[0].group
         for synth in synths:
             synth.synthgroup = groupref
         self.synths.extend(synths)
