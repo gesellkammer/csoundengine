@@ -728,7 +728,10 @@ class Renderer:
             outfile = _state.saveSoundfile(title="Select soundfile for rendering",
                                            ensureSelection=True)
         outfile = emlib.filetools.normalizePath(outfile)
-
+        outfiledir = os.path.split(outfile)[0]
+        if not os.path.isdir(outfiledir) or not os.path.exists(outfiledir):
+            raise FileNotFoundError(f"The path '{outfiledir}' where the rendered soundfile should "
+                                    f"be generated does not exist (outfile: '{outfile}')")
         scorestart, scoreend = self.scoreTimeRange()
         renderend = endtime if endtime > 0 else scoreend
         if renderend == float('inf'):
