@@ -65,27 +65,17 @@ logger = logging.getLogger("csoundengine")
 
 __all__ = ["Renderer", "ScoreEvent"]
 
+
 class ScoreEvent(BaseEvent):
     """
     A ScoreEvent represent a csound event.
 
     It is used by the offline renderer to keep track of scheduled events
 
-    NB: instances of this class are **NOT** created by the used directly, they
-    are generated when scheduling events
+    .. note::
+        instances of this class are **NOT** created by the used directly, they
+        are generated when scheduling events
 
-    Attributes:
-        p1: the event's (fractional) instrument number. This is the actual p1 used by
-            csound
-        start: start time of this event (p2)
-        dur: duration of this event (p3)
-        args: rest of the pfields, starting with p4
-        uniqueId: a unique identifier for this event.
-        paramTable: if the instrument of this event has a parameters table,
-            this attribute points to the table index (0 if no parameters table).
-            Normally, if the inst has a parameters table the table index is
-            passed as p4, so paramTable == args[0]
-        renderer: the renderer which scheduled this score event (if any)
     """
     __slots__ = ('uniqueId', 'paramTable', 'renderer')
 
@@ -99,10 +89,16 @@ class ScoreEvent(BaseEvent):
                  renderer: Renderer = None):
         super().__init__(p1, start, dur, args)
         self.uniqueId = uniqueId
+        """A unique id of this event, as integer"""
+
         self.paramTable = paramTable
+        """Table number of a parameter table, if any"""
+
         self.renderer = renderer
+        """The Renderer to which this event belongs (can be None)"""
 
     def clone(self, **kws) -> ScoreEvent:
+        """Clone this event"""
         out = copy.copy(self)
         for kw, value in kws.items():
             setattr(out, kw, value)
