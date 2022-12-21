@@ -24,4 +24,5 @@ Example
 
 .. autoclass:: csoundengine.instr.Instr
     :members:
+    :autosummary:
 

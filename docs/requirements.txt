@@ -3,12 +3,13 @@ scipy
 matplotlib
 JACK-client
 ctcsound
-sndfileio>=1.8
+sndfileio
 emlib
 cachetools
-configdict>=0.4
+configdict
 bpf4
-numpyx>=0.5
+numpyx
 sphinx-autodoc-typehints
 sphinx-automodapi
 sphinx_rtd_theme
+autodocsumm

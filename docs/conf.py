@@ -29,8 +29,9 @@ author = 'Eduardo Moguillansky'
 # ones.
 extensions = [
     'sphinx.ext.autodoc',
+    'autodocsumm',
     'sphinx_automodapi.automodapi',
-    # 'sphinx_automodapi.smart_resolver',
+    'sphinx_automodapi.smart_resolver',
     'sphinx.ext.napoleon',
     'sphinx_autodoc_typehints',
     'sphinx.ext.viewcode',

@@ -266,28 +266,13 @@ class Instr:
             body = textlib.joinPreservingIndentation((body, "__exit:"))
 
         self.tabargs = tabargs
-        "Associated table arguments and default values"
-
         self.name = name
-        "The name of this instr"
-
         self.body = body
-        "The body of this instr (the part between instr/endin)"
-
         self.args = args
-        "Named arguments of this instr, with defaults"
-
         self.init = init if init else None
-        "Init code needed by this instr"
-
         self.numchans = numchans
-        "Number of channels of output"
-
         self.doc = doc
-        "Doc for this instr"
-
         self.id: int = self._id()
-        "an int identifying this Instr"
 
         self.pargsIndexToName: dict[int, str] = pargsIndexToName
         self.pargsNameToIndex: dict[str, int] = {n: i for i, n in pargsIndexToName.items()}
