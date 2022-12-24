@@ -19,30 +19,33 @@ if TYPE_CHECKING:
     from .paramtable import ParamTable
     from .session import Session
 
-__all__ = ['AbstrSynth', 'Synth', 'SynthGroup']
+
+__all__ = (
+    'AbstrSynth',
+    'Synth',
+    'SynthGroup'
+)
 
 
 class AbstrSynth(baseevent.BaseEvent):
     """
     A base class for Synth and SynthGroup
 
-    Attributes:
-        engine (Engine): the Engine which scheduled this synth
-        autostop (bool): stop the underlying csound synth when this object
-            is deleted
-        priority (int): the priority at which this synth was scheduled
     """
     __slots__ = ('engine', 'autostop', 'priority')
 
     def __init__(self, p1: float, start: float, dur: float,
                  engine: Engine, autostop: bool = False, priority: int = 1):
         super().__init__(p1, start, dur, ())
-        self.p1 = p1
-        self.start = start
-        self.dur = dur
+
         self.engine: Engine = engine
+        "The engine used to schedule this synth"
+
         self.autostop: bool = autostop
+        "If True, stop the underlying csound synth when this object is deleted"
+
         self.priority: int = priority
+        "The priority of this synth. Lower priorities are evaluated first in the chain"
 
     def __del__(self):
         try:
@@ -278,6 +281,7 @@ _synthStatusIcon = {
 
 class Synth(AbstrSynth):
     """
+    A Synth represents one running csound event
 
     Args:
         engine: the engine instance where this synth belongs to
@@ -291,17 +295,6 @@ class Synth(AbstrSynth):
             is associated with this Synth object, so if this Synth goes out of
             scope or is deleted, the underlying note is unscheduled
         table: an associated Table (if needed)
-
-    Attributes:
-        synthid: the synth id inside csound (p1, a fractional instrument number)
-        engine: the engine instance where this synth belongs to
-        synthid: the synth id inside csound (p1, a fractional instrument number)
-        instr: the Instr which originated this Synth
-        startTime: when was this synth started
-        dur: duration of the note (can be -1 for infinite)
-        args: the pfields used to create this synth, starting at p4
-        synthGroup: the group this synth belongs to (if any)
-        table (ParamTable): an associated Table (if defined)
 
     Example
     =======
@@ -343,6 +336,7 @@ class Synth(AbstrSynth):
         __slots__ = ('instr', 'table', 'group', '_playing')
 
         AbstrSynth.__init__(self, p1=p1, start=start, dur=dur, engine=engine, autostop=autostop, priority=priority)
+
         self.instr: Instr = instr
         """The Instr used to play this synth"""
 
@@ -350,8 +344,11 @@ class Synth(AbstrSynth):
         """A ParamTable used to define parameters if using a table"""
 
         self.group = synthgroup
-        """"""
+        """The group this synth belongs to, if any"""
+
         self.args = args
+        """The args used to schedule this synth"""
+
         self._playing: bool = True
 
     def _html(self) -> str:

@@ -16,6 +16,7 @@ Session
       ~Session.findSynthsByName
       ~Session.getInstr
       ~Session.instrnum
+      ~Session.isInstrRegistered
       ~Session.makeRenderer
       ~Session.makeTable
       ~Session.playSample
@@ -25,7 +26,9 @@ Session
       ~Session.registeredInstrs
       ~Session.restart
       ~Session.sched
+      ~Session.schedEvent
       ~Session.scheduledSynths
+      ~Session.testAudio
       ~Session.unsched
       ~Session.unschedAll
       ~Session.unschedByName
@@ -38,6 +41,7 @@ Session
    .. automethod:: findSynthsByName
    .. automethod:: getInstr
    .. automethod:: instrnum
+   .. automethod:: isInstrRegistered
    .. automethod:: makeRenderer
    .. automethod:: makeTable
    .. automethod:: playSample
@@ -47,7 +51,9 @@ Session
    .. automethod:: registeredInstrs
    .. automethod:: restart
    .. automethod:: sched
+   .. automethod:: schedEvent
    .. automethod:: scheduledSynths
+   .. automethod:: testAudio
    .. automethod:: unsched
    .. automethod:: unschedAll
    .. automethod:: unschedByName

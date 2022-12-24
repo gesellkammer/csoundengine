@@ -10,26 +10,12 @@ ScoreEvent
 
    .. autosummary::
 
-      ~ScoreEvent.eventId
       ~ScoreEvent.paramTable
       ~ScoreEvent.renderer
-
-   .. rubric:: Methods Summary
-
-   .. autosummary::
-
-      ~ScoreEvent.automateTable
-      ~ScoreEvent.automatep
-      ~ScoreEvent.setp
+      ~ScoreEvent.uniqueId
 
    .. rubric:: Attributes Documentation
 
-   .. autoattribute:: eventId
    .. autoattribute:: paramTable
    .. autoattribute:: renderer
-
-   .. rubric:: Methods Documentation
-
-   .. automethod:: automateTable
-   .. automethod:: automatep
-   .. automethod:: setp
+   .. autoattribute:: uniqueId

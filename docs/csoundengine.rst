@@ -1,6 +1,14 @@
 Engine
 ======
 
-.. automodapi:: csoundengine.engine
-    :no-inheritance-diagram:
-    
+.. automodule:: csoundengine.engine
+    :members:
+    :autosummary:
+
+------------
+
+.. autoclass:: csoundengine.engine.Engine
+    :members:
+    :autosummary:
+
+

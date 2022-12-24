@@ -43,25 +43,6 @@ class Instr:
             is finished
         doc: some documentation describing what this instr does
 
-
-    Attributes:
-        name: the name of this Instr
-        body: the body of the instr (the text inside instr xxx/endin)
-        args: a dict like ``{'ibus': 1, 'kfreq': 440}``, defining default values for
-            pfields. The mapping between pfield name and index
-            is done by order, starting with p5 (**NB**: an instr cannot use ``p4``, since
-            ``p4`` is reserved for the parameter table)
-        init: any global code needed
-        tabargs: similar to args, but not using pfields but a table. In this
-            case all variables are k-type and do not need the "k" prefix
-        numchans: currently not used
-        freetable: if True, the Instr generates code to free the parameters table
-        doc: some text documenting the use/purpose of this Instr
-        originalBody: the body before any code-generation.
-        id: an int identifying this Instr. This is actually a hash and can be used
-            to check if too Instrs are equal
-
-
     Example
     -------
 
@@ -222,6 +203,7 @@ class Instr:
             raise CsoundError(errmsg)
 
         self.originalBody = body
+        "original body of the instr (prior to any code generation)"
 
         self._tableDefaultValues: list[float] | None = None
         self._tableNameToIndex: dict[str, int] | None = None
@@ -266,18 +248,42 @@ class Instr:
             body = textlib.joinPreservingIndentation((body, "__exit:"))
 
         self.tabargs = tabargs
+        "named table args"
+
         self.name = name
+        "name of thisinstr"
+
         self.body = body
+        "body of the instr"
+
         self.args = args
+        """ A dict like ``{'ibus': 1, 'kfreq': 440}``, defining default values for
+        pfields. The mapping between pfield name and index is done by order, 
+        starting with p5"""
+
         self.init = init if init else None
+        """code to be initialized at the instr0 level"""
+
         self.numchans = numchans
+        "number of audio outputs of this instr"
+
         self.doc = doc
+        "description of this instr (optional)"
+
         self.id: int = self._id()
+        "unique numeric id of this instr"
 
         self.pargsIndexToName: dict[int, str] = pargsIndexToName
+        "a dict mapping parg index to its name"
+
         self.pargsNameToIndex: dict[str, int] = {n: i for i, n in pargsIndexToName.items()}
+        "a dict mapping parg name to its index"
+
         self.pargsIndexToDefaultValue: dict[int, float] = pargsDefaultValues
+        "a dict mapping parg index to its default value"
+
         self.instrFreesParamTable = freetable
+        "does this instr frees its parameter table?"
 
         self._numpargs: int | None = None
         self._recproc = None

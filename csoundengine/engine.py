@@ -222,6 +222,44 @@ class Engine:
     An :class:`Engine` implements a simple interface to run and control a csound
     process.
 
+
+
+    Args:
+        name: the name of the engine
+        sr: sample rate
+        ksmps: samples per k-cycle
+        backend: passed to -+rtaudio (**"?" to select interactively**)
+        outdev: the audio output device, passed to -o (**"?" to select interactively**)
+        indev: the audio input device, passed to -i (**"?" to select interactively**)
+        a4: freq of a4
+        nchnls: number of output channels (passed to nchnls)
+        nchnls_i: number of input channels
+        buffersize: samples per buffer, corresponds to csound's -b option
+        numbuffers: the number of buffers to fill. Together with the buffersize determines
+            the latency of csound and any communication between csound and the python
+            host
+        globalcode: code to evaluate as instr0
+        includes: a list of files to include
+        numAudioBuses: number of audio buses
+        numControlBuses: number of control buses
+        quiet: if True, suppress output of csound (-m 0)
+        udpserver: if True, start a udp server for communication (see udpport)
+        udpport: the udpport to use for real-time messages. 0=autoassign port
+        commandlineOptions: extraOptions command line options passed verbatim to the
+            csound process when started
+        midiin: if given, use this device as midi input. Can be '?' to select
+            from a list, or 'all' to use all devices. None indicates no midi input
+        latency: an extra latency added when scheduling events to ensure synchronicity
+
+    .. note::
+        Any option with a default value of None has a corresponding slot in the
+        config. Default values can be configured via `config.edit()`, see
+        `Configuration <https://csoundengine.readthedocs.io/en/latest/config.html>`_
+
+
+    Example
+    ~~~~~~~
+
     .. code::
 
         from csoundengine import *
@@ -252,81 +290,9 @@ class Engine:
         # stop the synth:
         engine.unsched(p1)
 
-    Default values can be configured via `config.edit()`, see
-    `Configuration <https://csoundengine.readthedocs.io/en/latest/config.html>`_
-
-    .. note::
-
-        When using csoundengine inside jupyter all csound output (including
-        any error messages) will be shown in the terminal where jupyter was
-        started
-
-    Example
-    =======
-
-        >>> from csoundengine import *
-        # Create an Engine with default options. The most appropriate backend for the
-        # platform (from the available backends) will be chosen.
-        >>> e = Engine()
-        # The user can specify many options, if needed, or defaults can be set
-        # via config.edit()
-        >>> e = Engine(backend='portaudio', buffersize=256, ksmps=64, nchnls=2)
-        >>> e.compile(r'''
-        ... instr test
-        ...     iperiod = p4
-        ...     kchan init 0
-        ...     if metro(1/iperiod) == 1 then
-        ...         kchan = (kchan + 1) % nchnls
-        ...     endif
-        ...     asig pinker
-        ...     asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
-        ...     outch ifirstchan+kchan, asig
-        ... endin
-        ... ''')
-        >>> eventid = e.sched('test', args=[1.])
-        ...
-        # wait, then evaluate next line to stop
-        >>> e.unsched(eventid)
-        >>> e.stop()
-
-
-    Any option with a default value of None has a corresponding slot in the
-    config.
-
-    Args:
-        name: the name of the engine
-        sr: sample rate
-        ksmps: samples per k-cycle
-        backend: passed to -+rtaudio (**"?" to select interactively**)
-        outdev: the audio output device, passed to -o (**"?" to select interactively**)
-        indev: the audio input device, passed to -i (**"?" to select interactively**)
-        a4: freq of a4
-        nchnls: number of output channels (passed to nchnls)
-        nchnls_i: number of input channels
-        buffersize: samples per buffer, corresponds to csound's -b option
-        numbuffers: the number of buffers to fill. Together with the buffersize determines
-            the latency of csound and any communication between csound and the python
-            host
-        globalcode: code to evaluate as instr0
-        includes: a list of files to include
-        numAudioBuses: number of audio buses
-        numControlBuses: number of control buses
-        quiet: if True, suppress output of csound (-m 0)
-        udpserver: if True, start a udp server for communication (see udpport)
-        udpport: the udpport to use for real-time messages. 0=autoassign port
-        commandlineOptions: extraOptions command line options passed verbatim to the
-            csound process when started
-        midiin: if given, use this device as midi input. Can be '?' to select
-            from a list, or 'all' to use all devices. None indicates no midi input
-        latency: an extra latency added when scheduling events to ensure synchronicity
-
-    Attributes:
-        activeEngines (dict): a dictionary of active engines (name:Engine)
-        started: is this Engine active?
-        udpport: will hold the udp port if the server is started with UDP support
-
     """
     activeEngines: Dict[str, Engine] = {}
+    "Active engines mapped by name (class variable)"
 
     _builtinTables = engineorc.BUILTIN_TABLES
     _channelMode = {'r': ctcsound.CSOUND_INPUT_CHANNEL,
@@ -496,36 +462,79 @@ class Engine:
             commandlineOptions.append('-m0')
             commandlineOptions.append('-d')
         self.name = name
+        "Name of this Engine"
+
         self.sr = sr
+        "Sample rate"
+
         self.backend = resolvedBackend
+        "Name of the backend used (jack, portaudio, etc)"
+
         self.a4 = a4
+        "Reference frequency for A4"
+
         self.ksmps = ksmps
+        "Number of samples per cycle"
+
         self.outdev = outdev
+        "Output device used"
+
         self.outdevName = outdevName
+        "Long name of the output device"
+
         self.indev = indev
+        "Input device"
+
         self.indevName = indevName
+        "Long name of the input device"
+
         self.nchnls = nchnls
+        "Number of output channels"
+
         self.nchnls_i = nchnls_i
+        "Number of input channels"
+
         self.globalCode = globalcode
+        "Global (init) code to execute at the start of the Engine"
+
         self.started = False
+        "Is this engine started?"
+
         self.extraOptions = commandlineOptions
+        "Extra options passed to csound"
+
         self.includes = includes
+        "List of include files"
+
         self.extraLatency = latency if latency is not None else config['sched_latency']
+        "Added latency for better synch"
+
         self.numAudioBuses = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
+        "Number of audio buses"
+
         self.numControlBuses = numControlBuses if numControlBuses is not None else config['num_control_buses']
+        "Number of control buses"
+
         self._realtime = realtime
+
         backendBufferSize, backendNumBuffers = backendDef.bufferSizeAndNum()
         buffersize = (buffersize or
                       backendBufferSize or
                       config['buffersize'] or
                       max(ksmps * 2, 256))
         self.bufferSize = max(ksmps*2, buffersize)
+        "Buffer size"
+
         self.numBuffers = (numbuffers or
                            backendNumBuffers or
                            config['numbuffers'] or
                            internalTools.determineNumbuffers(self.backend or "portaudio",
                                                              buffersize=self.bufferSize))
+        "Number of buffers to fill"
+
         self.midiBackend: Optional[str] = midibackend
+        "Midi backend used"
+
         if midiin == 'all':
             midiindev = csoundlib.MidiDevice(deviceid='all', name='all')
         elif midiin == '?':
@@ -537,14 +546,19 @@ class Engine:
         else:
             midiindev = None
         self.midiin: Optional[csoundlib.MidiDevice] = midiindev
+        "Midi input device"
+
         if udpserver is None: udpserver = config['start_udp_server']
         self._uddocket: Optional[socket.socket] = None
         self._sendAddr: Optional[Tuple[str, int]] = None
         self.udpPort = 0
+        "UDP port used (0 if no udp port is active)"
+
         if udpserver:
             self.udpPort = udpport or net.findport()
             self._udpSocket = net.udpsocket()
             self._sendAddr = ("127.0.0.1", self.udpPort)
+
         self._perfThread: ctcsound.CsoundPerformanceThread
         self.csound: Optional[ctcsound.Csound] = None            # the csound object
         self._fracnumdigits = 4        # number of fractional digits used for unique instances
@@ -900,11 +914,11 @@ class Engine:
             self.strSet(s)
         self.sync()
 
-    def restart(self, withAnimation=True) -> None:
+    def restart(self, wait=1) -> None:
         """ Restart this engine. All defined instrs / tables are removed"""
         self.stop()
-        if withAnimation:
-            _termui.waitWithAnimation(1)
+        if wait:
+            _termui.waitWithAnimation(wait)
         self.start()
         
     def _outcallback(self, _, channelName, valptr, chantypeptr):
@@ -1949,7 +1963,7 @@ class Engine:
             >>> source = e.readSoundfile("mono.wav", block=True)
             >>> e.plotTableSpectrogram(source)
 
-        .. image:: ../assets/tableproxy-plotspectrogram.png
+        .. image:: assets/tableproxy-plotspectrogram.png
 
         """
         from . import plotting
@@ -1986,7 +2000,7 @@ class Engine:
             # no sr needed here since the output was rea via readSoundfile
             e.plotTable(source)
 
-        .. figure:: ../assets/tableproxy-plot.png
+        .. figure:: assets/tableproxy-plot.png
 
         .. code::
 
@@ -1995,7 +2009,7 @@ class Engine:
             tabnum2 = e.makeTable(data, sr=sr)
             e.plotTable(tabnum2)
 
-        .. figure:: ../assets/tableplot-stereo.png
+        .. figure:: assets/tableplot-stereo.png
 
         .. code::
 
@@ -2006,7 +2020,7 @@ class Engine:
             e.fillTable(source, data=ys)
             e.plotTable(source)
 
-        .. image:: ../assets/tableplot-sine.png
+        .. image:: assets/tableplot-sine.png
 
         See Also
         ~~~~~~~~
@@ -2478,7 +2492,7 @@ class Engine:
             >>> e.fillTable(source, data=ys)
             >>> e.plotTable(source)
 
-        .. figure:: ../assets/tableplot-sine.png
+        .. figure:: assets/tableplot-sine.png
 
         See Also
         ~~~~~~~~
@@ -2692,7 +2706,7 @@ class Engine:
             pitch = e.getp(event, 4)
             event.automatep(event, 4, [offset, pitch, offset+glissdur, pitch+4])
 
-        .. figure:: ../assets/select-preset.png
+        .. figure:: assets/select-preset.png
 
         See Also
         ~~~~~~~~
@@ -2718,7 +2732,7 @@ class Engine:
 
         The soundfont is loaded if it was not loaded before
 
-        .. figure:: ../assets/select-preset.png
+        .. figure:: assets/select-preset.png
 
         Args:
             sf2path: the path to a sf2 file -- **Use "?" to select a file interactively**
@@ -3527,7 +3541,7 @@ class Engine:
             ev = e.sched('synth', args=[67, -12, 3000, 0.9])
             e.eventUI(ev, p4=(0, 127), p5=(-48, 0), kcutoff=(200, 5000), kres=(0.1, 1))
 
-        .. figure:: ../assets/eventui.png
+        .. figure:: assets/eventui.png
         """
         from . import interact
         specs = {}
@@ -3557,14 +3571,35 @@ def _cleanup() -> None:
 
 def activeEngines() -> KeysView[str]:
     """
-    Returns a list with the names of the active engines
+    Returns the names of the active engines
+
+    Example
+    ~~~~~~~
+
+        >>> import csoundengine as ce
+        >>> ce.Engine(nchnls=2)   # Will receive a generic name
+        >>> ce.Engine(name='multichannel', nchnls=8)
+        >>> ce.activeEngines()
+        dict_keys(['engine0', 'multichannel'])
     """
     return Engine.activeEngines.keys()
 
 
 def getEngine(name:str) -> Optional[Engine]:
     """
-    Get an already created engine.
+    Get an already created engine by name
+
+    Example
+    ~~~~~~~
+
+        >>> import csoundengine as ce
+        >>> ce.Engine(name='old', a4=435)
+        >>> getEngine('old')
+        Engine(name=old, sr=44100, backend=jack, outdev=dac, nchnls=2, indev=adc, nchnls_i=2,
+               bufferSize=256)
+        >>> getEngine('foo') is None
+        True
+
     """
     return Engine.activeEngines.get(name)
 

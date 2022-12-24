@@ -71,7 +71,7 @@ autodoc_member_order = 'bysource'
 
 set_type_checking_flag = False
 
-numpydoc_show_class_members = False
+# numpydoc_show_class_members = False
 
 
 autodoc_mock_imports = ["ctcsound"]

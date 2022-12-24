@@ -1,8 +1,15 @@
 Session – High-level interface
 ==============================
 
-.. automodapi:: csoundengine.session
-    :no-inheritance-diagram:
+.. automodule:: csoundengine.session
+    :members:
+    :autosummary:
+
+--------------
+
+.. autoclass:: csoundengine.session.Session
+    :members:
+    :autosummary:
 
 See Also
 --------

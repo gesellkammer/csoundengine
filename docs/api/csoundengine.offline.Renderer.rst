@@ -15,6 +15,7 @@ Renderer
       ~Renderer.automateTable
       ~Renderer.automatep
       ~Renderer.defInstr
+      ~Renderer.generateCsdString
       ~Renderer.getEventById
       ~Renderer.getEventsByP1
       ~Renderer.getInstr
@@ -26,9 +27,12 @@ Renderer
       ~Renderer.registeredInstrs
       ~Renderer.render
       ~Renderer.sched
+      ~Renderer.scoreTimeRange
       ~Renderer.setCsoundOptions
+      ~Renderer.setEndMarker
       ~Renderer.setp
       ~Renderer.strSet
+      ~Renderer.unsched
       ~Renderer.writeCsd
 
    .. rubric:: Methods Documentation
@@ -38,6 +42,7 @@ Renderer
    .. automethod:: automateTable
    .. automethod:: automatep
    .. automethod:: defInstr
+   .. automethod:: generateCsdString
    .. automethod:: getEventById
    .. automethod:: getEventsByP1
    .. automethod:: getInstr
@@ -49,7 +54,10 @@ Renderer
    .. automethod:: registeredInstrs
    .. automethod:: render
    .. automethod:: sched
+   .. automethod:: scoreTimeRange
    .. automethod:: setCsoundOptions
+   .. automethod:: setEndMarker
    .. automethod:: setp
    .. automethod:: strSet
+   .. automethod:: unsched
    .. automethod:: writeCsd

@@ -268,7 +268,9 @@ class Session:
     
     Args:
         name: the name of the Engine. Only one Session per Engine can be created
-    
+        numpriorities: the max. number of priorities for this Session. This
+            determines how deep a chain of effects can effectively be.
+
     Example
     =======
 
@@ -364,22 +366,21 @@ class Session:
 
     def __init__(self, name: str, numpriorities=10) -> None:
         """
-
-        Args:
-            name (str): the name of the Session, which corresponds to an existing
-                Engine with the same name
-            numpriorities: the max. number of priorities for this Session. This
-                determines how deep a chain of effects can effectively be.
+        A Session controls a csound Engine
         """
         assert name in Engine.activeEngines, f"Engine {name} does not exist!"
 
         self.name: str = name
+        """The name of this Session/Engine"""
 
         self.instrs: dict[str, Instr] = {}
         "maps instr name to Instr"
 
-        self.numpriorities = numpriorities
+        self.numpriorities: int = numpriorities
         "Number of priorities in this Session"
+
+        self.engine: Engine = self._getEngine()
+        """The Engine corresponding to this Session"""
 
         self._instrIndex: dict[int, Instr] = {}
         self._sessionInstrStart = engineorc.CONSTS['sessionInstrsStart']
@@ -402,7 +403,6 @@ class Session:
         self._tabnumToTabproxy: dict[int, TableProxy] = {}
         self._pathToTabproxy: dict[str, TableProxy] = {}
         self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
-        self.engine = self._getEngine()
 
         if config['define_builtin_instrs']:
             self._defBuiltinInstrs()
@@ -611,6 +611,7 @@ class Session:
         return self.instrs
 
     def isInstrRegistered(self, instr: Instr) -> bool:
+        """Returns True if *instr* is already registered in this Session"""
         return instr.id in self._instrIndex
 
     def registerInstr(self, instr: Instr) -> bool:
@@ -823,6 +824,17 @@ class Session:
         return self.engine.assignBus(kind=kind, persist=persist)
 
     def schedEvent(self, event: SessionEvent) -> Synth:
+        """
+        Schedule a SessionEvent
+
+        A SessionEvent can be generated to store a Synth's data.
+
+        Args:
+            event: a SessionEvent
+
+        Returns:
+            the generated Synth
+        """
         kws = event.kws or {}
         return self.sched(instrname=event.instrname,
                           delay=event.delay,
