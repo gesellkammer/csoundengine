@@ -108,7 +108,7 @@ class AbstrSynth(baseevent.BaseEvent):
 
         .. seealso::
 
-            * :meth:`~AbstractSynth.set`
+            * :meth:`~AbstrSynth.set`
 
         Example
         =======
@@ -126,7 +126,7 @@ class AbstrSynth(baseevent.BaseEvent):
         """
         raise NotImplementedError()
 
-    def get(self, slot: Union[int, str], default: float = None) -> Optional[float]:
+    def get(self, slot: Union[int, str], default: float = None) -> float | None:
         """
         Get the value of a named parameter
 
@@ -144,18 +144,18 @@ class AbstrSynth(baseevent.BaseEvent):
         """
         raise NotImplementedError()
 
-    def tableParams(self) -> Optional[Set[str]]:
+    def tableParams(self) -> Set[str] | None:
         """
-        Return a set of all named parameters
+        Return a set of all named table parameters
 
         Returns None if this synth does not have a parameters table
 
         .. seealso::
 
-            * :meth:`~AbstractSynth.automateTable`
-            * :meth:`~AbstractSynth.hasParamTable`
-            * :meth:`~AbstractSynth.tableState`
-            * :meth:`~AbstractSynth.namedPfields`
+            * :meth:`~AbstrSynth.automateTable`
+            * :meth:`~AbstrSynth.hasParamTable`
+            * :meth:`~AbstrSynth.tableState`
+            * :meth:`~AbstrSynth.namedPfields`
 
         """
         raise NotImplementedError()
@@ -173,7 +173,7 @@ class AbstrSynth(baseevent.BaseEvent):
         """ Does this synth/group have an associated parameter table?"""
         raise NotImplementedError()
 
-    def paramMode(self) -> Optional[str]:
+    def paramMode(self) -> str | None:
         """
         Returns the dynamic parameter mode, or None
 
@@ -200,23 +200,24 @@ class AbstrSynth(baseevent.BaseEvent):
 
         .. seealso::
 
-            * :meth:`~AbstractSynth.set`
-            * :meth:`~AbstractSynth.get`
+            * :meth:`~AbstrSynth.set`
+            * :meth:`~AbstrSynth.get`
 
         """
         raise NotImplementedError()
 
-    def namedPfields(self) -> Optional[Set[str]]:
+    def namedPfields(self) -> Set[str] | None:
         """
         Returns a set of all named pfields
         """
         raise NotImplementedError()
 
-    def namedParams(self) -> Optional[Set[str]]:
+    def namedParams(self) -> Set[str] | None:
         """
         Returns a set of named parameters, or None if this Synth has no named parameters
 
-        These parameters can be modified via :meth:`~AbstractSynth.set` or :meth:`~AbstractSynth.automate`
+        These parameters can be modified via :meth:`~AbstrSynth.set` or
+        :meth:`~AbstrSynth.automate`
         """
         mode = self.paramMode()
         if mode == 'parg':
@@ -252,7 +253,7 @@ class AbstrSynth(baseevent.BaseEvent):
         Returns:
             a Synth representing the automation routine
 
-        .. seealso:: :meth:`~AbstractSynth.setp`, :meth:`~AbstractSynth.automate`
+        .. seealso:: :meth:`~AbstrSynth.setp`, :meth:`~AbstrSynth.automate`
         """
         raise NotImplementedError()
 
@@ -260,7 +261,7 @@ class AbstrSynth(baseevent.BaseEvent):
         """
         Modify the value of a pfield.
 
-        .. seealso:: :meth:`~AbstractSynth.automatep`
+        .. seealso:: :meth:`~AbstrSynth.automatep`
         """
         raise NotImplementedError()
 
@@ -340,7 +341,7 @@ class Synth(AbstrSynth):
         self.instr: Instr = instr
         """The Instr used to play this synth"""
 
-        self.table: Optional[ParamTable] = table
+        self.table: ParamTable | None = table
         """A ParamTable used to define parameters if using a table"""
 
         self.group = synthgroup
@@ -452,12 +453,12 @@ class Synth(AbstrSynth):
     def finished(self) -> bool:
         return self.playStatus() == 'stopped'
 
-    def tableState(self) -> Optional[dict[str, float]]:
+    def tableState(self) -> dict[str, float] | None:
         if self.table is None:
             return None
         return self.table.asDict()
 
-    def tableParams(self) -> Optional[Set[str]]:
+    def tableParams(self) -> Set[str] | None:
         if self.table is None:
             return None
         return set(self.table.mapping.keys())

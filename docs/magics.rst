@@ -5,6 +5,11 @@ Magics
 
 **csoundengine** defines a set of ipython/jupyter ``%magic`` / ``%%magic`` commands
 
+.. contents:: Table of Contents
+   :depth: 3
+   :local:
+   :backlinks: none
+
 %csound
 -------
 

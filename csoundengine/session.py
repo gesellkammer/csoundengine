@@ -3,7 +3,13 @@ A :class:`Session` provides a high-level interface to control an underlying
 csound process. A :class:`Session` is associated with an
 :class:`~csoundengine.engine.Engine` (there is one Session per Engine)
 
-**Features**
+.. contents:: Table of Contents
+   :depth: 3
+   :local:
+   :backlinks: none
+
+Overview
+--------
 
 *   A Session uses instrument templates (:class:`~csoundengine.instr.Instr`), which
     enable an instrument to be instantiated at any place in the evaluation chain.
@@ -14,16 +20,13 @@ csound process. A :class:`Session` is associated with an
     associated table
 
 1. Instrument Templates
------------------------
+~~~~~~~~~~~~~~~~~~~~~~~
 
 In csound (and within an :class:`~csoundengine.engine.Engine`) there is a direct
 mapping between an instrument declaration and its order of evaluation. Within a
 :class:`Session`, on the other hand, it is possible to declare an instrument which
 is used as a template and can be instantiated at any order, making it possibe to
 create chains of processing units.
-
-Example
-~~~~~~~
 
 .. code-block:: python
 

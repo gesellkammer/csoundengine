@@ -5,11 +5,16 @@ Built-in Opcodes
 Whenever an :class:`~csoundengine.engine.Engine` is created, some user-defined opcodes (``UDO``) 
 are defined, which can be used from any code within this :class:`~csoundengine.engine.Engine`.
 
+.. contents:: Table of Contents
+   :depth: 3
+   :local:
+   :backlinks: none
 
 .. _busopcodes:
 
-1. Bus Opcodes
-==============
+Bus Opcodes
+===========
+
 
 These opcodes are present whenever a csound :class:`~csoundengine.engine.Engine` is created with
 ``numAudioBuses > 0`` or ``numControlBuses > 0`` (enabled by default). They implement a pool
@@ -235,8 +240,8 @@ the new audio. **NB**: **busmix** is only available for audio buses
     
     
 
-2. Other opcodes
-================
+Other opcodes
+==============
 
 sfloadonce
 ----------
@@ -296,5 +301,5 @@ This opcode loads the soundfont if not already loaded (like `sfload`) and assign
     soundfont beforehand, via `sfloadonce`. `sfPresetIndex` will detect this
     and use the loaded instance (this will not happen with `sfload`).    
 
-**See Also**: :meth:`~csoundengine.engine.Engine.soundfontPresetAssignIndex`, which
+**See Also**: :meth:`~csoundengine.engine.Engine.soundfontPreparePreset`, which
 does the same operation. 

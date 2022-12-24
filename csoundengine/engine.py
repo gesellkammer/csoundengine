@@ -2818,9 +2818,8 @@ class Engine:
         Returns:
             the instance number of the playing instrument.
 
-        .. important::
-
-            **Dynamic Fields**
+        .. admonition:: Dynamic Fields
+            :class: important
 
             - **p4**: `gain`
             - **p5**: `speed`

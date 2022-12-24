@@ -70,4 +70,9 @@ Generated ui inside jupyter:
 
 -----
 
-.. automodapi:: csoundengine.synth
+.. automodule:: csoundengine.synth
+    :members:
+    :autosummary:
+
+
+
