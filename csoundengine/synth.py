@@ -625,7 +625,7 @@ class Synth(AbstrSynth):
             # are assigned a widget
             synth.ui(kampdb=(-48, 0), kres=(0, 1))
 
-        .. figure:: ../assets/synthui.png
+        .. figure:: assets/synthui.png
 
         .. seealso::
 
