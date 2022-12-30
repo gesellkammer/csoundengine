@@ -194,7 +194,6 @@ elif 'sphinx' in sys.modules:
 
 __all__ = [
     'Session',
-    'getSession',
     'SessionEvent'
 ]
 
@@ -263,12 +262,9 @@ class Session:
     and scheduled events. An Engine can be thought of as a low-level interface
     to managing a csound instance, whereas a Session allows a higher-level control
 
-    .. note:: 
-    
-        The user **does not** create an instance of this class directly.
-        It is returned by either calling :meth:`engine.session()<csoundengine.engine.Engine.session>`
-        or :func:`~csoundengine.session.getSession`
-    
+    Once a Session is created for an existing Engine Calling Session(engine.name) will
+    always return the same object.
+
     Args:
         name: the name of the Engine. Only one Session per Engine can be created
         numpriorities: the max. number of priorities for this Session. This
@@ -293,6 +289,16 @@ class Session:
         ''').register(s)
         synth = s.sched('sine', kfreq=440, kamp=0.1)
         synth.stop()
+
+    .. code::
+
+        >>> e = Engine(name='foo')
+        >>> s = Session('foo')
+        >>> s is e.session()
+        True
+        >>> s2 = Session('foo')
+        >>> s2 is s
+        True
 
     An :class:`~csoundengine.instr.Instr` can define default values for any of its
     p-fields:
@@ -366,12 +372,23 @@ class Session:
             outch 1, a0
         ''')
     """
+    def __new__(cls, name: str, numpriorities=10):
+        engine = Engine.activeEngines.get(name)
+        if not engine:
+            raise KeyError(f"Engine {name} does not exist!")
+        if engine._session:
+            return engine._session
+        return super().__new__(cls)
 
     def __init__(self, name: str, numpriorities=10) -> None:
         """
         A Session controls a csound Engine
         """
         assert name in Engine.activeEngines, f"Engine {name} does not exist!"
+
+        engine = getEngine(name)
+        if engine._session is self:
+            return
 
         self.name: str = name
         """The name of this Session/Engine"""
@@ -382,25 +399,33 @@ class Session:
         self.numpriorities: int = numpriorities
         "Number of priorities in this Session"
 
-        self.engine: Engine = self._getEngine()
+
+        self.engine: Engine = engine
         """The Engine corresponding to this Session"""
 
         self._instrIndex: dict[int, Instr] = {}
+        """A dict mapping instr id to Instr. This keeps track of defined instruments"""
+
         self._sessionInstrStart = engineorc.CONSTS['sessionInstrsStart']
+        """Start of the reserved instr space for session"""
+
         bucketSizeCurve = bpf4.expon(0.7, 1, 500, numpriorities, 100)
         bucketSizes = [int(size) for size in bucketSizeCurve.map(numpriorities)]
-        startInstr = engineorc.CONSTS['reservedInstrsStart']
+        # startInstr = engineorc.CONSTS['reservedInstrsStart']
         bucketIndices = [self._sessionInstrStart + sum(bucketSizes[:i])
                          for i in range(numpriorities)]
-        self._bucketSizes = bucketSizes       # The size of each bucket
+
+        self._bucketSizes = bucketSizes
+        """Size of each bucket, by bucket index"""
+
         self._bucketIndices = bucketIndices   # The start index of each bucket
+
         self._buckets: list[dict[str, int]] = [{} for _ in range(numpriorities)]
 
         # A dict of the form: {instrname: {priority: reifiedInstr }}
         self._reifiedInstrDefs: dict[str, dict[int, _ReifiedInstr]] = {}
 
         self._synths: dict[float, Synth] = {}
-        self._isDeallocCallbackSet = False
         self._whenfinished: dict[float, Callable] = {}
         self._initCodes: list[str] = []
         self._tabnumToTabproxy: dict[int, TableProxy] = {}
@@ -409,6 +434,11 @@ class Session:
 
         if config['define_builtin_instrs']:
             self._defBuiltinInstrs()
+
+        engine.registerOutvalueCallback("__dealloc__", self._deallocCallback)
+        mininstr, maxinstr = self._reservedInstrRange()
+        engine.reserveInstrRange('session', mininstr, maxinstr)
+        engine._session = self
 
     def _reservedInstrRange(self) -> tuple[int, int]:
         lastinstrnum = self._bucketIndices[-1] + self._bucketSizes[-1]
@@ -450,18 +480,6 @@ class Session:
     def _deallocCallback(self, _, synthid):
         """ This is called by csound when a synth is deallocated """
         self._deallocSynthResources(synthid)
-
-    def _getEngine(self) -> Engine:
-        """
-        Returns the associated engine and sets needed callbacks. The
-        result is cached in Session.engine
-        """
-        engine = getEngine(self.name)
-        assert engine is not None
-        if not self._isDeallocCallbackSet:
-            engine.registerOutvalueCallback("__dealloc__", self._deallocCallback)
-            self._isDeallocCallbackSet = True
-        return engine
 
     def _registerInstrAtPriority(self, instrname: str, priority=1) -> int:
         """
@@ -1292,76 +1310,3 @@ class Session:
         for csoundInstr in builtinInstrs:
             self.registerInstr(csoundInstr)
 
-
-def getSession(name: str = None, createIfNeeded=True, **kws
-               ) -> Optional[Session]:
-    '''
-    Get/create a :class:`Session`.
-
-    Args:
-        name: the name of the Engine to which this Session belongs.
-        createIfNeeded: if True, the underlying Engine will be created
-            if it does not already exist. To configure the Engine parameters
-            create first the Engine, then call :meth:`Engine.session`
-        kws: any keyword arguments are passed to Engine if an Engine
-            needs to be created
-
-    Returns:
-        the requested Session or None if the underlying Engine does not
-        exist and createIfNeeded is False
-
-    A :class:`Session` controls a series of instruments and is associated to
-    an :class:`~csoundengine.engine.Engine`. If the corresponding
-    :class:`~csoundengine.engine.Engine` has not been created before `getSession`
-    is called and createIfNeeded is True, it will be created with default values
-    regarding backend, samplerate, number of channels, etc
-    (to edit those defaults, see
-    `Configuration <https://csoundengine.readthedocs.io/en/latest/config.html>`_
-
-    Example
-    ~~~~~~~
-
-    .. code-block:: python
-
-        # Get the "default" Session, create it if needed
-        session = getSession("default", createIfNeeded=True)
-
-        # create a session/engine with coreaudio as backend in macos
-        engine = Engine("foo", backend='auhal')
-        s = getSession("foo")
-
-        # Alternatively:
-        s = Engine("foo", ...).session()
-
-        # an instrument is defined with the code inside instr/endin
-        # (don't use p4, it is reserved)
-        Instr("sine", r"""
-          kamp = p5
-          kfreq = p6
-          outch 1, oscili:a(kamp, kfreq)
-        """).register(s)
-        synth = s.sched('sine', kamp=0.1, kfreq=442)
-        synth.setp(kfreq=800)
-        synth.stop()
-        # A Session exists as long as the underlying engine exists
-        s2 = getSession("foo")
-        assert s2 is s
-
-
-    '''
-    if name is None:
-        if createIfNeeded:
-            engine = Engine(**kws)
-            return engine.session()
-        else:
-            raise ValueError("Cannot retrieve an unnamed Engine")
-
-    engine = getEngine(name)
-    if engine is None:
-        if not createIfNeeded:
-            logger.warning(f"Engine {name} does not exist")
-            return None
-        logger.debug(f"Engine {name} does not exist, it will be created with "
-                     f"default values")
-        engine = Engine(name, **kws)
-    return engine.session()

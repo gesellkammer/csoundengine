@@ -5,10 +5,4 @@ Engine
     :members:
     :autosummary:
 
-------------
-
-.. autoclass:: csoundengine.engine.Engine
-    :members:
-    :autosummary:
-
 

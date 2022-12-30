@@ -436,9 +436,11 @@ class Instr:
             synth.register(renderer)
         """
         if isinstance(renderer, str):
-            from .session import getSession
-            session = getSession(renderer)
-            assert session is not None
+            from .engine import getEngine
+            e = getEngine(renderer)
+            if e is None:
+                raise KeyError(f"Engine {renderer} does not exists")
+            session = e.session()
             session.registerInstr(self)
         else:
             renderer.registerInstr(self)

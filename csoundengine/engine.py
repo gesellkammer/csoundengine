@@ -1713,14 +1713,24 @@ class Engine:
         >>> for i, midi in enumerate([60, 64, 67]):
         ...     session.sched("synth", delay=i, dur=4, kamp=0.1, kmidi=midi)
         """
-        from .session import Session
         if self._session is None:
+            from .session import Session
             self._session = session = Session(self.name)
-            mininstr, maxinstr = session._reservedInstrRange()
-            self._reserveInstrRange('session', mininstr, maxinstr)
         return self._session
 
-    def _reserveInstrRange(self, name: str, mininstrnum: int, maxinstrnum: int):
+    def reserveInstrRange(self, name: str, mininstrnum: int, maxinstrnum: int) -> None:
+        """
+        Declares the instrument numbers in the given range as reserved
+
+        Instrument numbers within this range will not be allocated when using
+        named instruments.
+
+        Args:
+            name: the name of the reserved block
+            mininstrnum: lowest instrument number to reserve
+            maxinstrnum: highest instrument number to reserve (not included in the range)
+
+        """
         self._reservedInstrnumRanges.append((name, mininstrnum, maxinstrnum))
 
     def makeEmptyTable(self, size, numchannels=1, sr=0, instrnum=-1) -> int:
@@ -3584,7 +3594,7 @@ def activeEngines() -> KeysView[str]:
     return Engine.activeEngines.keys()
 
 
-def getEngine(name:str) -> Optional[Engine]:
+def getEngine(name: str) -> Engine | None:
     """
     Get an already created engine by name
 

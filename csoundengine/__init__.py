@@ -107,7 +107,7 @@ if not ok:
 
 from .engine import *
 from .config import config, setLoggingLevel
-from .session import Session, getSession
+from .session import Session
 from .instr import Instr
 from .offline import Renderer
 from . import synth
