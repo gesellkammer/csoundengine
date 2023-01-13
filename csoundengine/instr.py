@@ -705,8 +705,46 @@ def _checkInstr(instr: str) -> str:
     return errmsg
 
 
+@dataclass
+class Docstring:
+    shortdescr: str = ''
+    longdescr: str = ''
+    args: list[tuple[str, str]] | None = None
+
+
+def parseDocstring(text: str | list[str]) -> Docstring | None:
+    lines = text if isinstance(text, list) else text.splitlines()
+    doclines = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            if not doclines:
+                continue
+            else:
+                doclines.append('')
+        elif not line.startswith(';'):
+            break
+        line = line.replace(';', '').strip()
+        doclines.append(line)
+    if not doclines:
+        return None
+    docs = '\n'.join(doclines)
+    import docstring_parser
+    parsed = docstring_parser.parse(docs)
+    if parsed.params:
+        args = [(param.arg_name, param.description) for param in parsed.params]
+    else:
+        args = None
+
+    return Docstring(shortdescr=parsed.short_description,
+                     longdescr=parsed.long_description,
+                     args=args)
+
+
+
+
 def parseInlineArgs(body: str | list[str]
-                    ) -> tuple[str, dict[str, float], str]:
+                    ) -> tuple[str, dict[str, float], str, int]:
     """
     Parse an instr body with a possible args declaration (see below).
 
@@ -714,7 +752,7 @@ def parseInlineArgs(body: str | list[str]
         body: the body of the instrument as a string or as a list of lines
 
     Returns:
-        a tuple (delimiters, fields, body without fields declaration)
+        a tuple (delimiters, fields, body without fields declaration, inline args line number)
 
         Where:
 
@@ -765,7 +803,7 @@ def parseInlineArgs(body: str | list[str]
         else:
             pfields[part.strip()] = 0
     bodyWithoutArgs = "\n".join(lines[linenum+1:])
-    return delimiters, pfields, bodyWithoutArgs
+    return delimiters, pfields, bodyWithoutArgs, linenum
 
 
 def _tabargsGenerateCode(tabargs: dict, freetable=True) -> str:

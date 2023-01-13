@@ -43,7 +43,8 @@ setup(
         "ipywidgets",
         "risset",
         "progressbar2",
-        "xxhash"
+        "xxhash",
+        "docstring-parser"
     ],
     license="BSD",
     classifiers=[
