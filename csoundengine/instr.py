@@ -1,12 +1,15 @@
 from __future__ import annotations
 from emlib import textlib, iterlib
+from dataclasses import dataclass
 import re
+import os
 
 from .config import config, logger
 from .errors import CsoundError
 from . import csoundlib
 from . import jupytertools
 from typing import Sequence
+import textwrap
 
 
 __all__ = (
@@ -208,14 +211,16 @@ class Instr:
         self._tableDefaultValues: list[float] | None = None
         self._tableNameToIndex: dict[str, int] | None = None
 
-        delimiters, inlineargs, body = parseInlineArgs(body)
+        inlineargs = parseInlineArgs(body)
 
-        if delimiters == '||':
-            assert not args
-            args = inlineargs
-        elif delimiters == '{}':
-            assert not tabargs
-            tabargs = inlineargs
+        if inlineargs:
+            body = inlineargs.body
+            if inlineargs.delimiters == '||':
+                assert not args
+                args = inlineargs.args
+            else:
+                assert not tabargs
+                tabargs = inlineargs.args
 
         if tabargs:
             if any(name[0] not in 'ki' for name in tabargs.keys()):
@@ -548,9 +553,9 @@ class Instr:
             logger.error(msg)
         return ok
 
-    def rec(self, dur, outfile: str = None, args: list[float] = None,
-            sr: int = None, ksmps: int = None, samplefmt=None, nchnls: int = 2,
-            block=True, a4: int = None) -> str:
+    def rec(self, dur, outfile: str = None, args: list[float] | dict[str, float] = None,
+            sr: int = None, ksmps: int = None, encoding: str = None, nchnls: int = 2,
+            wait=True, a4: int = None, delay=0., **kws) -> str:
         """
         Record this Instr for a given duration
 
@@ -558,72 +563,107 @@ class Instr:
             dur: the duration of the recording
             outfile: if given, the path to the generated output.
                 If not given, a temporary file will be generated.
-            args: the data. of pargs passed to the instrument (if any),
-                beginning with p4
+            args: the arguments passed to the instrument (if any),
+                beginning with p5 or a dict with named arguments
             sr: the sample rate -> config['rec_sr']
             ksmps: the number of samples per cycle -> config['rec_ksmps']
-            samplefmt: one of 16, 24, 32, or 'float' -> config['rec_sample_format']
+            encoding: the sample encoding of the rendered file, given as
+                'pcmXX' or 'floatXX', where XX represent the bit-depth
+                ('pcm16', 'float32', etc). If no encoding is given a suitable default for
+                the sample format is chosen
             nchnls: the number of channels of the generated output.
-            block: if True, the function blocks until done, otherwise rendering
+            wait: if True, the function blocks until done, otherwise rendering
                 is asynchronous
             a4: the frequency of A4 (see config['A4']
-
-        See Also:
-            :meth:`~Instr.recEvents`
-        """
-        event = [0., dur]
-        if args:
-            event.extend(args)
-        return self.recEvents(events=[event], outfile=outfile, sr=sr,
-                              ksmps=ksmps, samplefmt=samplefmt, nchnls=nchnls,
-                              block=block, a4=a4)
-
-    def recEvents(self, events: list[list[float]], outfile: str = None,
-                  sr=44100, ksmps=64, samplefmt='float', nchnls=2,
-                  block=True, a4=None
-                  ) -> str:
-        """
-        Record the given events with this instrument.
-
-        Args:
-            events: a data. of events, where each event is the list of pargs
-                passed to the instrument, as [delay, dur, p4, p5, ...]
-                (p1 is omitted)
-            outfile: if given, the path to the generated output. If not
-                given, a temporary file will be generated.
-            sr: the sample rate -> config['rec_sr']
-            ksmps: the number of samples per cycle -> config['rec_ksmps']
-            samplefmt: one of 16, 24, 32, or 'float' -> config['rec_sample_format']
-            nchnls: the number of channels of the generated output.
-            a4: the frequency of A4 (see config['A4']
-            block: if True, the function blocks until done, otherwise rendering
-                is asynchronous
+            kws: any keyword will be interpreted as a named argument of this Instr
 
         Returns:
-            the generated output (if outfile is not given, a temp file
-            is created)
+            the path of the generated soundfile
 
-        See Also:
-            :meth:`~Instr.rec`
+        .. seealso:: :meth:`Instr.renderSamples`
+
+        Example
+        ~~~~~~~
+
+            >>> from csoundengine import *
+            >>> from sndfileio import *
+            >>> s = Engine().session()
+            >>> white = s.defInstr('white', r'''
+            .... |igain=0.1|
+            .... aout = gauss:a(1) * igain
+            .... outch 1, aout
+            ''')
+            >>> samples, info = sndget(white.rec(2))
+            >>> info
+            samplerate : 44100
+            nframes    : 88192
+            channels   : 2
+            encoding   : float32
+            fileformat : wav
+            duration   : 2.000
+
         """
-        a4 = a4 or config['A4']
-        sr = sr or config['rec_sr']
-        ksmps = ksmps or config['rec_ksmps']
-        samplefmt = samplefmt or config['rec_sample_format']
-        initstr = self.init or ""
-        a4 = a4 or config['A4']
-        outfile, popen = csoundlib.recInstr(body=self.body,
-                                            init=initstr,
-                                            outfile=outfile,
-                                            events=events,
-                                            sr=sr,
-                                            ksmps=ksmps,
-                                            samplefmt=samplefmt,
-                                            nchnls=nchnls,
-                                            a4=a4)
-        if block:
-            popen.wait()
-        return outfile
+        from csoundengine.offline import Renderer
+        r = Renderer(sr=sr, nchnls=nchnls, ksmps=ksmps, a4=a4)
+        r.registerInstr(self)
+        r.sched(instrname=self.name,
+                delay=delay,
+                dur=dur,
+                args=args,
+                **kws)
+        sndfile, process = r.render(outfile, wait=wait, encoding=encoding)
+        return sndfile
+
+    def renderSamples(self,
+                      dur,
+                      args: list[float] | dict[str, float] = None,
+                      sr: int = 44100,
+                      ksmps: int = None,
+                      nchnls: int = 2,
+                      a4: int = None,
+                      delay=0.,
+                      **kws) -> np.ndarray:
+        """
+        Record this instrument and return the generated samples
+
+        Args:
+            dur: the duration of the recording
+            args: the args passed to this instr
+            sr: the samplerate of the recording
+            ksmps: the samples per cycle used
+            nchnls: the number of channels
+            a4: the value of a4
+            delay: when to schedule this instr
+            kws: any keyword will be interpreted as a named argument of this Instr
+
+
+        Returns:
+            the generated samples as numpy array
+
+        .. seealso:: :meth:`Instr.rec`
+
+        Example
+        ~~~~~~~
+
+            >>> from csoundengine import *
+            >>> from sndfileio import *
+            >>> s = Engine().session()
+            >>> white = s.defInstr('white', r'''
+            .... |igain=0.1|
+            .... aout = gauss:a(1) * igain
+            .... outch 1, aout
+            ''')
+            # Render two seconds of white noise
+            >>> samples = white.renderSamples(2)
+        """
+        sndfile = self.rec(dur=dur, args=args, sr=sr, ksmps=ksmps, nchnls=nchnls,
+                           wait=True, a4=a4, delay=delay, **kws)
+        if not os.path.exists(sndfile):
+            raise RuntimeError(f"Rendering error, could not find generated soundfile ('{sndfile}')")
+        import sndfileio
+        samples, sr = sndfileio.sndread(sndfile)
+        os.remove(sndfile)
+        return samples
 
     def hasParamTable(self) -> bool:
         """
@@ -709,7 +749,7 @@ def _checkInstr(instr: str) -> str:
 class Docstring:
     shortdescr: str = ''
     longdescr: str = ''
-    args: list[tuple[str, str]] | None = None
+    args: dict[str, str] | None = None
 
 
 def parseDocstring(text: str | list[str]) -> Docstring | None:
@@ -724,7 +764,7 @@ def parseDocstring(text: str | list[str]) -> Docstring | None:
                 doclines.append('')
         elif not line.startswith(';'):
             break
-        line = line.replace(';', '').strip()
+        line = line.lstrip(';')
         doclines.append(line)
     if not doclines:
         return None
@@ -732,7 +772,7 @@ def parseDocstring(text: str | list[str]) -> Docstring | None:
     import docstring_parser
     parsed = docstring_parser.parse(docs)
     if parsed.params:
-        args = [(param.arg_name, param.description) for param in parsed.params]
+        args = {param.arg_name: param.description for param in parsed.params}
     else:
         args = None
 
@@ -741,10 +781,19 @@ def parseDocstring(text: str | list[str]) -> Docstring | None:
                      args=args)
 
 
+@dataclass
+class InlineArgs:
+    delimiters: str
+    args: dict[str, float]
+    body: str
+    linenum: int
+
+    def __post_init__(self):
+        assert self.delimiters == '||' or self.delimiters == '{}'
 
 
 def parseInlineArgs(body: str | list[str]
-                    ) -> tuple[str, dict[str, float], str, int]:
+                    ) -> InlineArgs | None:
     """
     Parse an instr body with a possible args declaration (see below).
 
@@ -752,7 +801,7 @@ def parseInlineArgs(body: str | list[str]
         body: the body of the instrument as a string or as a list of lines
 
     Returns:
-        a tuple (delimiters, fields, body without fields declaration, inline args line number)
+        an InlineArgs with fields
 
         Where:
 
@@ -777,8 +826,8 @@ def parseInlineArgs(body: str | list[str]
         ... a0 oscili kamp, kfreq
         ... outch ichan, a0
         ... '''
-        >>> delimiters, args, bodyWithoutArgs = parseInlineArgs(body)
-        >>> delimiters
+        >>> inlineargs = parseInlineArgs(body)
+        >>> inlineargs.delimiter
         '||'
         >>> args
         {'ichan': 0, 'kamp': 0.1, 'kfreq': 440}
@@ -789,21 +838,19 @@ def parseInlineArgs(body: str | list[str]
     lines = body if isinstance(body, list) else body.splitlines()
     delimiters, linenum = _detectInlineArgs(lines)
     if not delimiters:
-        if isinstance(body, list):
-            body = "\n".join(body)
-        return "", {}, body
+        return None
     assert linenum is not None
-    pfields = {}
+    args = {}
     line2 = lines[linenum].strip()
     parts = line2[1:-1].split(",")
     for part in parts:
         if "=" in part:
             varname, defaultval = part.split("=")
-            pfields[varname.strip()] = float(defaultval)
+            args[varname.strip()] = float(defaultval)
         else:
-            pfields[part.strip()] = 0
+            args[part.strip()] = 0
     bodyWithoutArgs = "\n".join(lines[linenum+1:])
-    return delimiters, pfields, bodyWithoutArgs, linenum
+    return InlineArgs(delimiters, args=args, body=bodyWithoutArgs, linenum=linenum)
 
 
 def _tabargsGenerateCode(tabargs: dict, freetable=True) -> str:
@@ -890,11 +937,65 @@ def _pfieldsMergeDeclaration(args: dict[str, float], body: str, startidx=4
     return pfields
 
 
-def _updatePfieldsCode(body: str, idx2name: dict[int, str]) -> str:
+def _updatePfieldsCode(body: str, idx2name: dict[int, str], placeDocstringOnTop=True) -> str:
+    """
+    Generate pfield code
+
+    Args:
+        body: the body of the instrument
+        idx2name: a dict mapping pfield index to its name (as in iname = p5)
+        placeDocstringOnTop: if True, place the docstring on top, then the generated
+            pfield code and the rest of the code last
+
+    Returns:
+        the resulting csound code
+
+    Example
+    ~~~~~~~
+
+    Given a mapping ``{5: 'ifreq', 6: 'kamp'}`` and a body:
+
+    .. code::
+
+        ; Docstring
+        ; Args:
+        ;   ifreq: the frequency
+        ;   kamp: the ampltidue
+        asig oscili ifreq, kamp
+        outch 1, asig
+
+    Generates the following code (with ``placeDocstringOnTop=True``)
+
+    .. code::
+
+        ; Docstring
+        ; Args:
+        ;   ifreq: the frequency
+        ;   kamp: the ampltidue
+        ifreq = p5
+        kamp = p6
+        asig oscili ifreq, kamp
+        outch 1, asig
+
+
+    """
+    bodylines = body.splitlines()
     parsedCode = csoundlib.instrParseBody(body)
     newPfieldCode = _pfieldsGenerateCode(idx2name)
-    return textlib.joinPreservingIndentation((newPfieldCode, "", parsedCode.body))
-    # return "\n".join((newPfieldCode, "", parsedCode.body))
+    if not placeDocstringOnTop:
+        parts = [newPfieldCode, " ", parsedCode.body]
+    else:
+        docstringLocation = csoundlib.locateDocstring(parsedCode.body)
+        if docstringLocation is None:
+            parts = [newPfieldCode, " ", parsedCode.body]
+        else:
+            bodylines = parsedCode.body.splitlines()
+            start, end = docstringLocation
+            docstring = '\n'.join(bodylines[start:end])
+            rest = '\n'.join(bodylines[end:])
+            parts = [docstring, newPfieldCode, " ", rest]
+    out = textlib.joinPreservingIndentation(parts)
+    return textwrap.dedent(out)
 
 
 def _pargIndex(parg: str, pargMapping: dict[str, int]) -> int:
@@ -943,6 +1044,8 @@ def _detectInlineArgs(lines: list[str]) -> tuple[str, int | None]:
 
 def _pfieldsGenerateCode(pfields: dict[int, str], strmethod='strget') -> str:
     """
+    Generate code for the given pfields
+
     Args:
         pfields: a dict mapping p-index to name
         strmethod: if 'strget', string pargs are implemented as 'Sfoo = strget(p4)',

@@ -378,7 +378,7 @@ class Synth(AbstrSynth):
                 if not isinstance(parg, str):
                     parg = f'{parg:.6g}'
                 if name:
-                    s = f"<b>{name}</b>:{i}=<code>{parg}</code>"
+                    s = f"{i}:<b>{name}</b>=<code>{parg}</code>"
                 else:
                     # s = f"<b>p{i + 4}</b>=<code>{parg:.6g}</code>"
                     s = f"<b>{i}</b>=<code>{parg}</code>"
@@ -633,6 +633,9 @@ class Synth(AbstrSynth):
 
         """
         from . import interact
+        if not self.instr.pargsIndexToName:
+            logger.info(f"This synth has no named arguments (instr='{self.instr.name}')")
+            return
         pairs = list(self.instr.pargsIndexToName.items())
         pairs.sort()
         pargindexes, pargnames = zip(*pairs)
@@ -789,7 +792,8 @@ def _synthsCreateHtmlTable(synths: list[Synth]) -> str:
             else:
                 colnames.append(str(i+4))
         for row, synth in zip(rows, synths):
-            row.extend("%.5g"%parg for parg in synth.args[:maxi])
+            row.extend("%.5g"%parg if not isinstance(parg, str) else parg
+                       for parg in synth.args[:maxi])
             if len(synth.args) > maxi:
                 row.append("...")
 

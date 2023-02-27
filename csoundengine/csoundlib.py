@@ -2807,23 +2807,30 @@ class ParsedInstrBody:
 
     This is used by :func:`instrParseBody`
 
-    Attributes:
-        pfieldsIndexToName: maps p index to name
-        pfieldsText: a (multiline) string collecting all lines
-            which deal with pfields (ifoo = p4 / ibar, ibaz passign ... / etc)
-        body: the body of the instr without any pfields declarations
-        pfieldsDefaults: default values used by pfields (via pset)
-        pfieldsUsed: a set of all pfields used, both named and unnamed
-        outChannels: output channels explicitely used (out, outs, outch with
-            a constant)
     """
     pfieldsIndexToName: dict[int, str]
+    "Map pfield index to arg name"
+
     pfieldsText: str
+    "All pfield declarations collected in one string"
+
     body: str
+    "The body of the instr without any field declarations"
+
+    lines: list[str]
+    "The lines of the original instr code"
+
     pfieldsDefaults: Optional[dict[int, float]] = None
+    "Default values of the pfields, by pfield index"
+
     pfieldsUsed: Optional[set[int]] = None
+    "Which pfields are used"
+
     outChannels: Optional[set[int]] = None
+    "Which output channels are used"
+
     pfieldsNameToIndex: dict[str, int] = None
+    "Map pfield name to index"
 
     def __post_init__(self):
         self.pfieldsNameToIndex = {name:idx for idx, name in self.pfieldsIndexToName.items()}
@@ -2887,6 +2894,45 @@ def lastAssignmentToVariable(varname: str, lines: list[str]) -> Optional[int]:
     return None
 
 
+def locateDocstring(code: str | list[str]) -> tuple[int, int] | None:
+    """
+    Locate the docstring in this instr code
+
+    Args:
+        code: the code to analyze, tipically the code inside of an instr
+            (between instr/endin)
+
+    Returns:
+        a tuple (first line, last line) indicating the location of the docstring
+        within the given text, or None if no docstring found
+
+    """
+    docstringStart = None
+    docstringKind = ''
+    lines = code if isinstance(code, list) else code.splitlines()
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+        if docstringStart is None:
+            if match := _re.search(r'\s*(;|\/\/|\/\*)', line):
+                docstringStart = i
+                docstringKind = ';' if line[0] == ';' else line[:2]
+                continue
+            else:
+                # no docstring
+                break
+        else:
+            # inside docstring
+            if docstringKind == '/*':
+                # TODO
+                pass
+            elif not line.startswith(docstringKind):
+                # end of docstring
+                return (docstringStart, i)
+    return None
+
+
 @_functools.lru_cache(maxsize=2000)
 def instrParseBody(body: str) -> ParsedInstrBody:
     """
@@ -2919,36 +2965,37 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                         outChannels={1},
                         pfieldsNameToIndex={'ibus': 4, 'kfreq': 5})
     """
-    pfield_lines = []
-    rest_lines = []
+    pfieldLines = []
+    restLines = []
     values = None
-    pargs_used = set()
+    pargsUsed = set()
     pfields: dict[int, str] = {}
     outchannels: set[int] = set()
-
-    for line in body.splitlines():
-        pargs_in_line = _re.findall(r"\bp\d+", line)
-        if pargs_in_line:
-            for p in pargs_in_line:
-                pargs_used.add(int(p[1:]))
+    lines = body.splitlines()
+    for i, line in enumerate(lines):
+        pargsInLine = _re.findall(r"\bp\d+", line)
+        if pargsInLine:
+            for p in pargsInLine:
+                pargsUsed.add(int(p[1:]))
         if m := _re.search(r"\bpassign\s+(\d+)", line):
-            pfield_lines.append(line)
+            pfieldLines.append(line)
             pstart = int(m.group(1))
             argsstr, rest = line.split("passign")
             args = argsstr.split(",")
             for i, name in enumerate(args, start=pstart):
-                pargs_used.add(i)
+                pargsUsed.add(i)
                 pfields[i] = name.strip()
         elif _re.search(r"^\s*pset\s+([+-]?([0-9]*[.])?[0-9]+)", line):
-            defaults_str = line.strip()[4:]
+            defaultsStr = line.strip()[4:]
             values = {i: float(v)
-                      for i, v in enumerate(defaults_str.split(","), start=1)}
+                      for i, v in enumerate(defaultsStr.split(","), start=1)}
         elif m := _re.search(r"^\s*\b(\w+)\s*(=|init\s)\s*p(\d+)", line):
+            # 'ival = p4' / kval = p4 or 'ival init p4'
             pname = m.group(1)
             parg = int(m.group(3))
-            pfield_lines.append(line)
+            pfieldLines.append(line)
             pfields[parg] = pname.strip()
-            pargs_used.add(parg)
+            pargsUsed.add(parg)
         else:
             if _re.search(r"\bouts\s+", line):
                 outchannels.update((1, 2))
@@ -2960,14 +3007,15 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                 for chans in channels:
                     if (chan := emlib.misc.asnumber(chans)) is not None:
                         outchannels.add(chan)
-            rest_lines.append(line)
+            restLines.append(line)
 
-    return ParsedInstrBody(pfieldsText="\n".join(pfield_lines),
+    return ParsedInstrBody(pfieldsText="\n".join(pfieldLines),
                            pfieldsDefaults=values,
                            pfieldsIndexToName=pfields,
-                           pfieldsUsed=pargs_used,
+                           pfieldsUsed=pargsUsed,
                            outChannels=outchannels,
-                           body="\n".join(rest_lines))
+                           body="\n".join(restLines),
+                           lines=lines)
 
 
 def bestSampleEncodingForExtension(ext: str) -> Optional[str]:

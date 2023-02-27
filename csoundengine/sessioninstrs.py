@@ -32,7 +32,15 @@ builtinInstrs = [
     Instr('.playSample',
           body=r"""
         |isndtab=0, istart=0, ifade=0, igaingroup=0, icompensatesr=1, kchan=1, kspeed=1, kgain=1, kpan=-1, ixfade=-1|
-        ; ixfade: crossfade time, if negative no looping
+        ; Play a sample loaded via GEN01
+        ; Args:
+        ;   istart: the start time within the sample
+        ;   ifade: fade in / out
+        ;   kchan: output channel
+        ;   kspeed: playback speed
+        ;   kgain: gain
+        ;   kpan: pan position, between 0-1. Use -1 to use default, which is 0 for mono and 0.5 for stereo
+        ;   ixfade: crossfade time, if negative no looping
         iloop = ixfade >= 0 ? 1 : 0
         ionecycle = ksmps/sr
         ifade = ifade < 0 ? 0.05 : ifade

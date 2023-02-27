@@ -28,16 +28,20 @@ def _guessRange(value: float, namehint: str = '') -> Tuple[float, float]:
     if namehint:
         if "freq" in namehint and 0 < value < 12000:
             return (0, 12000)
-        if "amp" in namehint and 0 <= value <= 1:
+        if ("amp" in namehint or "gain" in namehint) and 0 <= value <= 1:
             return (0, 1)
         if "cutoff" in namehint and 0 < value < 12000:
             return (0, 12000)
-        if "midi" in namehint and 0 <= value <= 127:
+        if ("midi" in namehint or "pitch" in namehint) and 0 <= value <= 127:
             return (0, 127)
+    if -90 < value < 0:
+        return (-100, 0)
     if value < 0:
         val0, val1 = _guessRange(-value)
         return -val1, -val0
     if value < 1:
+        return (0, 2)
+    elif value < 5:
         return (0, 10)
     elif value < 50:
         return (0, 500)

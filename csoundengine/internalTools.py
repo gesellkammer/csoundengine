@@ -21,7 +21,10 @@ _registry: dict[str, Any] = {}
 try:
     import xxhash
     def ndarrayhash(a: np.ndarray) -> str:
-        return xxhash.xxh128_hexdigest(a)
+        if a.flags.contiguous:
+            return xxhash.xxh128_hexdigest(a)
+        else:
+            return str(id(a))
 
 except ImportError:
     import hashlib

@@ -56,7 +56,7 @@ from .baseevent import BaseEvent
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING or "sphinx" in sys.modules:
-    from typing import Optional, Union
+    from typing import Callable
     import subprocess
 
 
@@ -80,7 +80,7 @@ class ScoreEvent(BaseEvent):
     __slots__ = ('uniqueId', 'paramTable', 'renderer')
 
     def __init__(self,
-                 p1: Union[float, str],
+                 p1: float | str,
                  start: float,
                  dur: float,
                  args: list[float],
@@ -106,7 +106,7 @@ class ScoreEvent(BaseEvent):
 
     def setp(self, delay:float, *args, **kws) -> None:
         """
-        Modify a parg of this synth.
+        Modify a parg of this synth (offline).
 
         Multiple pfields can be modified simultaneously. It only makes sense
         to modify a parg if a k-rate variable was assigned to this parg
@@ -132,8 +132,12 @@ class ScoreEvent(BaseEvent):
         assert self.renderer
         self.renderer.setp(self, delay=delay, *args, **kws)
 
-    def automatep(self, param: str, pairs: Union[list[float], np.ndarray],
-                  mode="linear", delay: float = None) -> None:
+    def automatep(self,
+                  param: str,
+                  pairs: list[float]|np.ndarray,
+                  mode="linear",
+                  delay: float = None
+                  ) -> None:
         """
         Automate a named parg
 
@@ -146,8 +150,12 @@ class ScoreEvent(BaseEvent):
         self.renderer.automatep(self, param=param, pairs=pairs, mode=mode,
                                 delay=delay)
 
-    def automateTable(self, param: str, pairs: Union[list[float], np.ndarray],
-                      mode="linear", delay=0.) -> None:
+    def automateTable(self,
+                      param: str,
+                      pairs: list[float] | np.ndarray,
+                      mode="linear",
+                      delay=0.
+                      ) -> None:
         """
         Automate the event's parameter table with the given pairs
 
@@ -351,6 +359,7 @@ class Renderer:
         self._busSystemInitialized = False
         self._busTokenCount = 0
         self._endMarker = 0.
+        self._exitCallbacks: set[Callable] = set()
 
         for instrname in ['.playSample']:
             instr = sessioninstrs.builtinInstrIndex[instrname]
@@ -392,6 +401,12 @@ class Renderer:
         self._instrnumToNameAndPriority[instrnum] = (instrname, priority)
         self.csd.addInstr(instrnum, instrdef.body)
         return instrnum
+
+    def _registerExitCallback(self, callback) -> None:
+        """
+        Register a function to be called when exiting this Renderer as context manager
+        """
+        self._exitCallbacks.add(callback)
 
     def isInstrDefined(self, instrname: str) -> bool:
         """
@@ -480,7 +495,7 @@ class Renderer:
         """
         return self._instrdefs
 
-    def getInstr(self, name) -> Optional[Instr]:
+    def getInstr(self, name) -> Instr | None:
         """
         Find a registered Instr, by name
 
@@ -572,7 +587,7 @@ class Renderer:
         self.scheduledEvents[eventId] = event
         return event
 
-    def unsched(self, event: Union[int, float, ScoreEvent], delay: float) -> None:
+    def unsched(self, event: int|float|ScoreEvent, delay: float) -> None:
         """
         Stop a scheduled event
 
@@ -803,7 +818,7 @@ class Renderer:
         """
         return self.csd.dump()
 
-    def getEventById(self, eventid: int) -> Optional[ScoreEvent]:
+    def getEventById(self, eventid: int) -> ScoreEvent | None:
         """
         Retrieve a scheduled event by its eventid
 
@@ -895,8 +910,11 @@ class Renderer:
         pargs.extend(pairs)
         self.csd.addEvent("_pwrite", start=delay, dur=0.1, args=pargs)
 
-    def makeTable(self, data: Union[np.ndarray, list[float]] = None,
-                  size: int = 0, tabnum: int = 0, sr: int = 0,
+    def makeTable(self,
+                  data: np.ndarray|list[float] = None,
+                  size=0,
+                  tabnum=0,
+                  sr=0,
                   delay=0.
                   ) -> int:
         """
@@ -945,7 +963,8 @@ class Renderer:
                                    chan=chan)
 
 
-    def playSample(self, source:Union[int, str, tuple[np.ndarray, int]],
+    def playSample(self,
+                   source: int|str|tuple[np.ndarray, int],
                    delay=0., dur=0,
                    chan=1, speed=1., loop=False, pan=-1, gain=1.,
                    fade=0., skip=0.,
@@ -1009,7 +1028,7 @@ class Renderer:
         return self.sched('.playSample', delay=delay, dur=dur, args=args)
 
     def automatep(self, event: ScoreEvent, param: str,
-                  pairs: Union[list[float], np.ndarray],
+                  pairs: list[float] | np.ndarray,
                   mode="linear", delay: float = None) -> None:
         """
         Automate a pfield of a scheduled event
@@ -1042,7 +1061,7 @@ class Renderer:
         self.csd.addEvent("_automatePargViaTable", start=delay, dur=dur, args=args)
 
     def automateTable(self, event: ScoreEvent, param: str,
-                      pairs: Union[list[float], np.ndarray],
+                      pairs: list[float]|np.ndarray,
                       mode="linear", delay: float = None) -> None:
         """
         Automate a slot of an event param table
@@ -1099,6 +1118,14 @@ class Renderer:
         tabpairs = self.csd.addTableFromData(pairs, start=start)
         args = [event.paramTable, pindex, tabpairs, modeint]
         self.csd.addEvent("_automateTableViaTable", start=delay, dur=dur, args=args)
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._exitCallbacks:
+            for func in self._exitCallbacks:
+                func(self)
 
 
 def cropScore(events: list[ScoreEvent], start=0, end=0) -> list[ScoreEvent]:

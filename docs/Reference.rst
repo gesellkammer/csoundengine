@@ -36,7 +36,7 @@ Offline rendering
     interface as a :class:`~csoundengine.session.Session` but collects all scheduled events,
     soundfiles, automation, etc. and renders everything in non-real-time (and probably much faster).
     A :class:`~csoundengine.offline.Renderer` is a drop-in replacement for a
-    :class:`~csoundengine.session.Session`
+    :class:`~csoundengine.session.Session`. See :ref:`offlinemod
 
 ---------------
 

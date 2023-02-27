@@ -431,6 +431,7 @@ class Session:
         self._tabnumToTabproxy: dict[int, TableProxy] = {}
         self._pathToTabproxy: dict[str, TableProxy] = {}
         self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
+        self._schedCallback: Callable | None = None
 
         if config['define_builtin_instrs']:
             self._defBuiltinInstrs()
@@ -857,6 +858,7 @@ class Session:
             the generated Synth
         """
         kws = event.kws or {}
+        print(f"session:schedEvent) {kws=}")
         return self.sched(instrname=event.instrname,
                           delay=event.delay,
                           dur=event.dur,
@@ -866,7 +868,38 @@ class Session:
                           whenfinished=event.whenfinished,
                           relative=event.relative,
                           **kws)
+    
+    def rendering(self, outfile='') -> Renderer:
+        """
+    
+        Example
+        ~~~~~~~
+        
+            >>> from csoundengine import *
+            >>> s = Engine().session()
+            >>> s.defInstr('simplesine', r'''
+            ... |kfreq=440, kgain=0.1, iattack=0.05|
+            ... asig vco2 1, ifreq
+            ... asig *= linsegr:a(0, iattack, 1, 0.1, 0)
+            ... asing *= kgain
+            ... outch 1, asig
+            ... ''') 
+            >>> with s.rendering('out.wav') as r:
+            ...     r.sched('simplesine', 0, dur=2, kfreq=1000)
+            ...     r.sched('simplesine', 0.5, dur=1.5, kfreq=1004)
+        """
+        renderer = self.makeRenderer()
 
+        def exit(r: Renderer, outfile=outfile):
+            r.render(outfile=outfile)
+
+        if outfile:
+            renderer._registerExitCallback(exit)
+
+        return renderer
+        
+        
+    
     def sched(self,
               instrname: str,
               delay=0.,
@@ -926,6 +959,17 @@ class Session:
 
         :meth:`~csoundengine.synth.Synth.stop`
         """
+        if self._schedCallback:
+            return self._schedCallback(instrname=instrname,
+                                       delay=delay,
+                                       dur=dur,
+                                       priority=priority,
+                                       args=args,
+                                       tabargs=tabargs,
+                                       whenfinished=whenfinished,
+                                       relative=relative,
+                                       **pkws)
+            
         assert isinstance(priority, int) and 1<=priority<=10
         if relative:
             t0 = self.engine.elapsedTime()
@@ -1116,10 +1160,15 @@ class Session:
         if tabproxy.path:
             self._pathToTabproxy[tabproxy.path] = tabproxy
 
-    def makeTable(self, data: Union[np.ndarray, list[float]] = None,
-                  size: int = 0, tabnum: int = 0,
-                  block=True, callback=None, sr: int = 0,
-                  freeself=True,
+    def makeTable(self,
+                  data: Union[np.ndarray, list[float]] = None,
+                  size: int = 0,
+                  tabnum: int = 0,
+                  block=True,
+                  callback=None,
+                  sr: int = 0,
+                  freeself=False,
+                  unique=True,
                   _instrnum: float = -1,
                   ) -> TableProxy:
         """
@@ -1132,8 +1181,7 @@ class Session:
             tabnum (int): 0 to let csound determine a table number, -1 to self assign
                 a value
             block (bool): if True, wait until the operation has been finished
-            callback (func): if given, this function will be called when the table
-                is fully created
+            callback: function called when the table is fully created
             sr (int): the samplerate of the data, if applicable.
             freeself (bool): if True, the underlying csound table will be freed
                 whenever the returned TableProxy ceases to exist.
@@ -1160,16 +1208,18 @@ class Session:
             else:
                 assert isinstance(data, np.ndarray)
                 nchnls = _tools.arrayNumChannels(data)
-            datahash = _tools.ndarrayhash(data)
-            if (tabproxy := self._ndarrayHashToTabproxy.get(datahash)) is not None:
-                return tabproxy
+            if not unique:
+                datahash = _tools.ndarrayhash(data)
+                if (tabproxy := self._ndarrayHashToTabproxy.get(datahash)) is not None:
+                    return tabproxy
             numframes = len(data)
             tabnum = self.engine.makeTable(data=data, tabnum=tabnum,
                                            _instrnum=_instrnum, block=block,
                                            callback=callback, sr=sr)
             tabproxy = TableProxy(tabnum=tabnum, sr=sr, nchnls=nchnls, numframes=numframes,
                                   engine=self.engine, freeself=freeself)
-            self._ndarrayHashToTabproxy[datahash] = tabproxy
+            if not unique:
+                self._ndarrayHashToTabproxy[datahash] = tabproxy
 
         self._registerTable(tabproxy)
         return tabproxy
