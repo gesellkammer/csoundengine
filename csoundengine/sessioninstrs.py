@@ -31,7 +31,7 @@ builtinInstrs = [
     '''),
     Instr('.playSample',
           body=r"""
-        |isndtab=0, istart=0, ifade=0, igaingroup=0, icompensatesr=1, kchan=1, kspeed=1, kgain=1, kpan=-1, ixfade=-1|
+        |isndtab=0, istart=0, ifade=0, igaingroup=0, kchan=1, kspeed=1, kgain=1, kpan=-1, ixfade=-1|
         ; Play a sample loaded via GEN01
         ; Args:
         ;   istart: the start time within the sample
@@ -55,7 +55,6 @@ builtinInstrs = [
         endif
         idur = inumsamples / isr
         
-        ispeed = icompensatesr==1 ? isr/sr : 1
         know init istart
         ksubgain = table:k(igaingroup, gi__subgains)
         if inumouts == 0 then
@@ -71,14 +70,14 @@ builtinInstrs = [
         endif
         
         if inumouts == 1 then
-            ; a1 flooper2 1, ispeed*kspeed, istart, idur, ixfade, isndtab, istart
+            ; a1 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart
             a1 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart
             a1 *= aenv
             kpan = kpan == -1 ? 0 : kpan
             aL, aR pan2 a1, kpan
             outch kchan, aL, kchan+1, aR
         elseif inumouts == 2 then
-            a1, a2 flooper2 1, ispeed*kspeed, istart, idur, ixfade, isndtab, istart
+            a1, a2 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart
             ; a1, a2 loscil3 1, ispeed*kspeed, isndtab, 1, iloop
             a1 *= aenv
             a2 *= aenv
@@ -90,6 +89,7 @@ builtinInstrs = [
             endif
             outch kchan, a1, kchan+1, a2
         else
+            ; TODO: test samplerate speed compensation
             ; 4: cubic interpolation
             ; 1: ibas, base frequency
             ; NB: loscilx has no crossfade

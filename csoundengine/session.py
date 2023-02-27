@@ -858,7 +858,6 @@ class Session:
             the generated Synth
         """
         kws = event.kws or {}
-        print(f"session:schedEvent) {kws=}")
         return self.sched(instrname=event.instrname,
                           delay=event.delay,
                           dur=event.dur,
