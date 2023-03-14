@@ -226,6 +226,7 @@ class _ReifiedInstr:
 class SessionEvent:
     """
     A class to store a Session event to be scheduled
+
     """
     instrname: str
     """The name of the instrument"""

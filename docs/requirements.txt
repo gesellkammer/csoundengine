@@ -7,8 +7,10 @@ sndfileio
 emlib
 cachetools
 configdict
+pitchtools
 bpf4
 numpyx
+appdirs
 sphinx-autodoc-typehints
 sphinx-automodapi
 sphinx_rtd_theme
