@@ -1,6 +1,7 @@
 from __future__ import annotations
 from emlib import textlib, iterlib
 from dataclasses import dataclass
+import numpy as np
 import re
 import os
 
@@ -557,9 +558,19 @@ class Instr:
             logger.error(msg)
         return ok
 
-    def rec(self, dur, outfile: str = None, args: list[float] | dict[str, float] = None,
-            sr: int = None, ksmps: int = None, encoding: str = None, nchnls: int = 2,
-            wait=True, a4: int = None, delay=0., **kws) -> str:
+    def rec(self,
+            dur: float,
+            outfile: str = None,
+            args: list[float] | dict[str, float] = None,
+            sr: int = None,
+            ksmps: int = None,
+            encoding: str = None,
+            nchnls: int = 2,
+            wait=True,
+            a4: int = None,
+            delay=0.,
+            **kws
+            ) -> str:
         """
         Record this Instr for a given duration
 
@@ -580,6 +591,7 @@ class Instr:
                 is asynchronous
             a4: the frequency of A4 (see config['A4']
             kws: any keyword will be interpreted as a named argument of this Instr
+            delay: when to schedule the instr
 
         Returns:
             the path of the generated soundfile
@@ -593,10 +605,10 @@ class Instr:
             >>> from sndfileio import *
             >>> s = Engine().session()
             >>> white = s.defInstr('white', r'''
-            .... |igain=0.1|
-            .... aout = gauss:a(1) * igain
-            .... outch 1, aout
-            ''')
+            ...   |igain=0.1|
+            ...   aout = gauss:a(1) * igain
+            ...   outch 1, aout
+            ... ''')
             >>> samples, info = sndget(white.rec(2))
             >>> info
             samplerate : 44100
@@ -626,7 +638,8 @@ class Instr:
                       nchnls: int = 2,
                       a4: int = None,
                       delay=0.,
-                      **kws) -> np.ndarray:
+                      **kws
+                      ) -> np.ndarray:
         """
         Record this instrument and return the generated samples
 
@@ -653,10 +666,10 @@ class Instr:
             >>> from sndfileio import *
             >>> s = Engine().session()
             >>> white = s.defInstr('white', r'''
-            .... |igain=0.1|
-            .... aout = gauss:a(1) * igain
-            .... outch 1, aout
-            ''')
+            ...  |igain=0.1|
+            ...  aout = gauss:a(1) * igain
+            ...  outch 1, aout
+            ... ''')
             # Render two seconds of white noise
             >>> samples = white.renderSamples(2)
         """
@@ -831,7 +844,7 @@ def parseInlineArgs(body: str | list[str]
         ... outch ichan, a0
         ... '''
         >>> inlineargs = parseInlineArgs(body)
-        >>> inlineargs.delimiter
+        >>> inlineargs.delimiters
         '||'
         >>> args
         {'ichan': 0, 'kamp': 0.1, 'kfreq': 440}

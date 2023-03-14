@@ -4,7 +4,6 @@ import emlib.misc
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import *
     from . import engine
     import ipywidgets as ipy
 
@@ -24,7 +23,7 @@ def _guessStep(minval: float, maxval: float):
     return step
 
 
-def _guessRange(value: float, namehint: str = '') -> Tuple[float, float]:
+def _guessRange(value: float, namehint: str = '') -> tuple[float, float]:
     if namehint:
         if "freq" in namehint and 0 < value < 12000:
             return (0, 12000)
@@ -109,7 +108,7 @@ def _jupyEntry(name: str, startvalue: float, minvalue:float, maxvalue: float,
     return w
 
 
-def interact(**sliders: Dict[str, Tuple[float, float, float, Callable]]):
+def interact(**sliders: dict[str, tuple[float, float, float, Callable]]):
     """
     Creates a set of interactive widgets
 
@@ -150,8 +149,9 @@ def interact(**sliders: Dict[str, Tuple[float, float, float, Callable]]):
     display(*widgets)
 
 
-def interactPargs(engine: engine.Engine, p1: Union[float, str],
-                  specs: Dict[Union[int, str], ParamSpec]=None,
+def interactPargs(engine: engine.Engine, 
+                  p1: float | str,
+                  specs: dict[int|str, ParamSpec]=None,
                   **namedSpecs):
     """
     Interact with pfields of an event
@@ -196,11 +196,13 @@ def interactPargs(engine: engine.Engine, p1: Union[float, str],
                            " moment.")
 
 
-def _jupyInteractPargs(engine: engine.Engine, p1: Union[float, str],
-                       specs: Dict[Union[int, str], ParamSpec]=None,
+def _jupyInteractPargs(engine: engine.Engine,
+                       p1: float|str,
+                       specs: dict[int|str, ParamSpec] = None,
                        stopbutton=True,
                        width='80%'):
     """
+    Create a jupyter interactive widget for this event
 
     .. note::
 

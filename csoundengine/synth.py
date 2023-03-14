@@ -636,9 +636,15 @@ class Synth(AbstrSynth):
         if not self.instr.pargsIndexToName:
             logger.info(f"This synth has no named arguments (instr='{self.instr.name}')")
             return
-        pairs = list(self.instr.pargsIndexToName.items())
+        pairs = list((idx, name) for idx, name in self.instr.pargsIndexToName.items()
+                     if name.startswith('k'))
+        if not pairs:
+            logger.error("The instrument has no dynamic (k) arguments")
+            return
+
         pairs.sort()
         pargindexes, pargnames = zip(*pairs)
+
         if self.playStatus() == 'future':
             pvalues = [self.instr.pargsIndexToDefaultValue[idx]
                        for idx in pargindexes]
