@@ -218,6 +218,18 @@ class _RefTimeContext:
         self.engine.popLock()
 
 
+def _channelMode(kind: str) -> int:
+    if kind == 'r':
+        return ctcsound.CSOUND_INPUT_CHANNEL
+    elif kind == 'w':
+        return ctcsound.CSOUND_INPUT_CHANNEL
+    elif kind == 'rw':
+        return ctcsound.CSOUND_INPUT_CHANNEL | ctcsound.CSOUND_OUTPUT_CHANNEL
+    else:
+        raise ValueError(f"Expected r, w or rw, got {kind}")
+
+
+
 class Engine:
     """
     An :class:`Engine` implements a simple interface to run and control a csound
@@ -296,9 +308,6 @@ class Engine:
     "Active engines mapped by name (class variable)"
 
     _builtinTables = engineorc.BUILTIN_TABLES
-    _channelMode = {'r': ctcsound.CSOUND_INPUT_CHANNEL,
-                    'w': ctcsound.CSOUND_INPUT_CHANNEL,
-                    'rw': ctcsound.CSOUND_INPUT_CHANNEL | ctcsound.CSOUND_OUTPUT_CHANNEL}
 
     def __init__(self,
                  name: str = None,
@@ -2311,7 +2320,7 @@ class Engine:
         ptr = self._channelPointers.get(channel)
         if ptr is None:
             kindint = ctcsound.CSOUND_CONTROL_CHANNEL if kind == 'control' else ctcsound.CSOUND_AUDIO_CHANNEL
-            ptr, err = self.csound.channelPtr(channel, kindint | self._channelMode[mode])
+            ptr, err = self.csound.channelPtr(channel, kindint | _channelMode(mode))
             if err:
                 raise RuntimeError(f"Error while trying to retrieve/create a channel pointer: {err}")
             self._channelPointers[channel] = ptr
