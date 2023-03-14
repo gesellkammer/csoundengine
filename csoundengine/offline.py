@@ -360,14 +360,16 @@ class Renderer:
         self._busTokenCount = 0
         self._endMarker = 0.
         self._exitCallbacks: set[Callable] = set()
+        self._stringRegistry: dict[str, int] = {}
+        self._includes: set[str] = set()
 
         for instrname in ['.playSample']:
             instr = sessioninstrs.builtinInstrIndex[instrname]
             self.registerInstr(instr)
 
-    def _commitInstrument(self, instrname: str, priority=1) -> int:
+    def commitInstrument(self, instrname: str, priority=1) -> int:
         """
-        Creaaate concrete instrument at the given priority
+        Create concrete instrument at the given priority
 
         Returns the instr number
 
@@ -503,6 +505,14 @@ class Renderer:
         """
         return self._instrdefs.get(name)
 
+    def addInclude(self, path: str ) -> None:
+        if path in self._includes:
+            return
+        self._includes.add(path)
+        if not os.path.exists(path):
+            logger.warning(f"Adding an include '{path}', but this path does not exist")
+        self.csd.addGlobalCode(f'#include "{path}"')
+
     def addGlobalCode(self, code: str) -> None:
         """
         Add global code (instr 0)
@@ -573,14 +583,14 @@ class Renderer:
         instr = self._instrdefs.get(instrname)
         if not instr:
             raise KeyError(f"instrument {instrname} is not defined")
-        instrnum = self._commitInstrument(instrname, priority)
+        instrnum = self.commitInstrument(instrname, priority)
         tabnum = 0
         if instr.hasParamTable():
             tabnum = self.csd.addTableFromData(instr.overrideTable(tabargs),
                                                start=max(0., delay - 2.))
         args = internalTools.instrResolveArgs(instr, tabnum, args, pkws)
         p1 = self._getUniqueP1(instrnum)
-        self.csd.addEvent(p1, start=delay, dur=dur, args=args)
+        self.csd.addEvent(p1, start=float(delay), dur=float(dur), args=args)
         eventId = self._generateEventId()
         event = ScoreEvent(p1, delay, dur, args, eventId, paramTable=tabnum,
                            renderer=self)
@@ -692,8 +702,14 @@ class Renderer:
         self._endMarker = time
         self.csd.setEndMarker(time)
 
-    def render(self, outfile: str = None, endtime: float = 0, encoding: str = None,
-               wait=True, quiet:bool=None, openWhenDone=False, starttime: float=0,
+    def render(self,
+               outfile: str = None,
+               endtime: float = 0,
+               encoding: str = None,
+               wait=True,
+               quiet: bool = None,
+               openWhenDone=False,
+               starttime: float = 0,
                compressionBitrate: int = None
                ) -> tuple[str, subprocess.Popen]:
         """
@@ -844,7 +860,7 @@ class Renderer:
         """
         return [ev for ev in self.scheduledEvents.values() if ev.p1 == p1]
 
-    def strSet(self, s: str) -> int:
+    def strSet(self, s: str, index: int = None) -> int:
         """
         Set a string in this renderer. The string can be retrieved in any
         instrument via strget. The index is determined by the Renderer itself,
@@ -858,7 +874,7 @@ class Renderer:
             the string id. This can be passed to any instrument to retrieve
             the given string
         """
-        return self.csd.strset(s)
+        return self.csd.strset(s, index=index)
 
     def _instrFromEvent(self, event: ScoreEvent) -> Instr:
         instrNameAndPriority = self._instrnumToNameAndPriority.get(int(event.p1))
@@ -911,7 +927,7 @@ class Renderer:
         self.csd.addEvent("_pwrite", start=delay, dur=0.1, args=pargs)
 
     def makeTable(self,
-                  data: np.ndarray|list[float] = None,
+                  data: np.ndarray | list[float] | None = None,
                   size=0,
                   tabnum=0,
                   sr=0,

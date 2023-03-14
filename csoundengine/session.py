@@ -484,8 +484,7 @@ class Session:
 
     def _registerInstrAtPriority(self, instrname: str, priority=1) -> int:
         """
-        Get the instrument number corresponding to this name and
-        the given priority
+        Get the instrument number corresponding to this name and the given priority
 
         Args:
             instrname: the name of the instr as given to defInstr
@@ -662,6 +661,10 @@ class Session:
             logger.info(f"Redefining instr {instr.name}")
             oldinstr = self.instrs[instr.name]
             del self._instrIndex[oldinstr.id]
+
+        if instr.includes:
+            for include in instr.includes:
+                self.engine.includeFile(include)
 
         if instr.init and instr.init not in self._initCodes:
             # compile init code if we haven't already
@@ -896,8 +899,7 @@ class Session:
             renderer._registerExitCallback(exit)
 
         return renderer
-        
-        
+
     
     def sched(self,
               instrname: str,

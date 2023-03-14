@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 import numpy as np
-from typing import Optional as Opt, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .synth import Synth
@@ -50,6 +50,9 @@ class TableProxy:
     .. image:: assets/tableproxy-plotspectrogram.png
 
     """
+
+    __slots__ = ('tabnum', 'sr', 'nchnls', 'engine', 'numframes', 'path', 'freeself', '_array')
+
     def __init__(self,
                  tabnum: int,
                  engine: Engine,
@@ -67,7 +70,7 @@ class TableProxy:
         self.numframes = numframes
         self.path = path
         self.freeself = freeself
-        self._array: Opt[np.ndarray] = None
+        self._array: np.ndarray | None = None
 
     def __repr__(self):
         return (f"TableProxy(engine={self.engine.name}, source={self.tabnum}, sr={self.sr},"

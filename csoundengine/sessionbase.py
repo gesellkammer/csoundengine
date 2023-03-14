@@ -1,9 +1,6 @@
 from __future__ import annotations
 from csoundengine.instr import Instr
 from abc import abstractmethod
-from typing import Optional, Union
-import numpy as np
-
 
 
 class BaseSession:
@@ -22,7 +19,7 @@ class BaseSession:
 
     def isInstrRegistered(self, instr: Instr) -> bool: ...
 
-    def getInstr(self, name: str) -> Optional[Instr]:
+    def getInstr(self, name: str) -> Instr | None:
         return self.registeredInstrs().get(name)
 
     def assignBus(self) -> int: ...
@@ -32,8 +29,8 @@ class BaseSession:
               delay=0.,
               dur=-1.,
               priority: int = 1,
-              pargs: Union[List[float], Dict[str, float]] = [],
-              tabargs: Dict[str, float] = None,
+              pargs: list[float] | dict[str, float] | None = None,
+              tabargs: dict[str, float] | None = None,
               whenfinished=None,
               relative=True,
               **pkws

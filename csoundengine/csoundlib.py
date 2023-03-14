@@ -1715,23 +1715,31 @@ class Csd:
         dur = round(dur, 8)
         event = ["i", _quoteIfNeeded(instr), start, dur]
         if args:
-            assert all(isinstance(arg, (int,float, str)) for arg in args), str(args)
+            if any(not isinstance(arg, (int, float, str)) for arg in args):
+                badargs = [f"{a} ({type(a)})" for a in args if not isinstance(a, (int, float, str))]
+                raise TypeError(f"pargs must be int, float or str, got {', '.join(badargs)} "
+                                f"({instr=}, {args=}, {start=}, {dur=})")
             event.extend(_quoteIfNeeded(arg) for arg in args)
         self.score.append(event)
 
-    def strset(self, s:str) -> int:
+    def strset(self, s: str, index: int | None) -> int:
         """
         Add a strset to this csd
 
         If ``s`` has already been passed, the same index is returned
         """
-        idx = self._str2index.get(s)
-        if idx is not None:
-            return idx
-        idx = self._strLastIndex
+        if s in self._str2index:
+            if index != self._str2index[s]:
+                raise KeyError(f"String '{s}' already set with different index")
+            return self._str2index[s]
+
+        if index is None:
+            index = self._strLastIndex
+        else:
+            self._strLastIndex = max(self._strLastIndex, index)
         self._strLastIndex += 1
-        self._str2index[s] = idx
-        return idx
+        self._str2index[s] = index
+        return index
 
     def _assignTableIndex(self, tabnum=0) -> int:
         if tabnum == 0:
@@ -2641,7 +2649,7 @@ class ParsedBlock:
     Used by :func:`parseOrc` to split an orchestra in individual blocks
 
     Attributes:
-        kind: the kind of block ('instr', 'opcode', 'header')
+        kind: the kind of block ('instr', 'opcode', 'header', 'include', 'instr0')
         text: thet text of the block
         startLine: where does this block start within the parsed orchestra
         endLine: where does this block end
@@ -2658,6 +2666,7 @@ class ParsedBlock:
     attrs: Optional[dict[str, str]] = None
 
     def __post_init__(self):
+        assert self.kind in ('instr', 'opcode', 'header', 'include', 'instr0')
         if self.endLine == -1:
             self.endLine = self.startLine
 
@@ -2793,6 +2802,10 @@ def parseOrc(code: str, keepComments=True) -> list[ParsedBlock]:
                               outargs = match.group(2),
                               inargs = match.group(3)
                               )
+        elif strippedline.startswith('#include'):
+            blocks.append(ParsedBlock(kind='include',
+                                      startLine=i,
+                                      text=line))
         else:
             blocks.append(ParsedBlock(kind='instr0',
                                       startLine=i,
@@ -3224,6 +3237,24 @@ def soundfontInstrument(sfpath: str, name:str) -> Optional[int]:
         sfpath = _state.openSoundfont(ensureSelection=True)
     sfindex = soundfontIndex(sfpath)
     return sfindex.nameToIndex.get(name)
+
+
+def splitInclude(line: str) -> str:
+    """
+    Given an include line it splits the include path
+
+    Example
+    ~~~~~~~
+
+        >>> splitInclude(r'   #include "foo/bar" ')
+        foo/bar
+
+    NB: the quotation marks are not included
+    """
+    match = _re.search(r'#include\s+"(.+)""', line)
+    if not match:
+        raise ValueError("Could not parse include")
+    return match.group(1)
 
 
 def highlightCsoundOrc(code: str, theme:str=None) -> str:

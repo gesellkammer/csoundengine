@@ -45,6 +45,7 @@ class Instr:
         freetable: if ``True``, the associated table is freed in csound when the note
             is finished
         doc: some documentation describing what this instr does
+        includes: a list of files which need to be included in order for this instr to work
 
     Example
     -------
@@ -184,7 +185,7 @@ class Instr:
         'tabargs', 'numchans', 'instrFreesParamTable', 'doc',
         'pargsIndexToName', 'pargsNameToIndex', 'pargsIndexToDefaultValue',
         '_numpargs', '_recproc', '_check', '_preschedCallback',
-        'originalBody'
+        'originalBody', 'includes'
     )
 
     def __init__(self,
@@ -198,6 +199,7 @@ class Instr:
                  freetable=True,
                  doc: str = '',
                  userPargsStart=5,
+                 includes: list[str] | None = None
                  ) -> None:
 
         assert isinstance(name, str)
@@ -267,7 +269,9 @@ class Instr:
         starting with p5"""
 
         self.init = init if init else None
-        """code to be initialized at the instr0 level"""
+        """code to be initialized at the instr0 level, excluding include files"""
+
+        self.includes: list[str] | None = includes
 
         self.numchans = numchans
         "number of audio outputs of this instr"

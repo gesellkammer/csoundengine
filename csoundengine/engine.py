@@ -91,6 +91,7 @@ IPython Magic
 from __future__ import annotations
 
 import dataclasses
+import os.path
 import tempfile
 import sys as _sys
 
@@ -291,7 +292,7 @@ class Engine:
         engine.unsched(p1)
 
     """
-    activeEngines: Dict[str, Engine] = {}
+    activeEngines: dict[str, Engine] = {}
     "Active engines mapped by name (class variable)"
 
     _builtinTables = engineorc.BUILTIN_TABLES
@@ -300,29 +301,29 @@ class Engine:
                     'rw': ctcsound.CSOUND_INPUT_CHANNEL | ctcsound.CSOUND_OUTPUT_CHANNEL}
 
     def __init__(self,
-                 name:str = None,
-                 sr:int = None,
-                 ksmps:int = None,
-                 backend:str = 'default',
-                 outdev:str=None,
-                 indev:str=None,
-                 a4:int = None,
-                 nchnls:int = None,
-                 nchnls_i:int=None,
+                 name: str = None,
+                 sr: int = None,
+                 ksmps: int = None,
+                 backend: str = 'default',
+                 outdev: str=None,
+                 indev: str=None,
+                 a4: int = None,
+                 nchnls: int = None,
+                 nchnls_i: int=None,
                  realtime=False,
-                 buffersize:int=None,
-                 numbuffers:int=None,
-                 globalcode:str = "",
-                 numAudioBuses:int=None,
-                 numControlBuses:int=None,
-                 quiet:bool=None,
-                 udpserver:bool=None,
-                 udpport:int=0,
-                 commandlineOptions:List[str]=None,
-                 includes:List[str]=None,
-                 midibackend:str = 'default',
-                 midiin:str = None,
-                 latency:float=None):
+                 buffersize: int=None,
+                 numbuffers: int=None,
+                 globalcode: str = "",
+                 numAudioBuses: int = None,
+                 numControlBuses: int = None,
+                 quiet: bool = None,
+                 udpserver: bool = None,
+                 udpport: int=0,
+                 commandlineOptions: list[str] | None = None,
+                 includes: list[str] | None = None,
+                 midibackend: str = 'default',
+                 midiin: str = None,
+                 latency: float=None):
         if name is None:
             name = _generateUniqueEngineName()
         elif name in Engine.activeEngines:
@@ -503,7 +504,7 @@ class Engine:
         self.extraOptions = commandlineOptions
         "Extra options passed to csound"
 
-        self.includes = includes
+        self.includes: list[str] = includes if includes else []
         "List of include files"
 
         self.extraLatency = latency if latency is not None else config['sched_latency']
@@ -532,7 +533,7 @@ class Engine:
                                                              buffersize=self.bufferSize))
         "Number of buffers to fill"
 
-        self.midiBackend: Optional[str] = midibackend
+        self.midiBackend: None | str = midibackend
         "Midi backend used"
 
         if midiin == 'all':
@@ -545,12 +546,12 @@ class Engine:
             midiindev = csoundlib.MidiDevice(deviceid=midiin, name='')
         else:
             midiindev = None
-        self.midiin: Optional[csoundlib.MidiDevice] = midiindev
+        self.midiin: csoundlib.MidiDevice | None = midiindev
         "Midi input device"
 
         if udpserver is None: udpserver = config['start_udp_server']
-        self._uddocket: Optional[socket.socket] = None
-        self._sendAddr: Optional[Tuple[str, int]] = None
+        self._uddocket: None | socket.socket = None
+        self._sendAddr: None | tuple[str, int] = None
         self.udpPort = 0
         "UDP port used (0 if no udp port is active)"
 
@@ -560,38 +561,37 @@ class Engine:
             self._sendAddr = ("127.0.0.1", self.udpPort)
 
         self._perfThread: ctcsound.CsoundPerformanceThread
-        self.csound: Optional[ctcsound.Csound] = None            # the csound object
+        self.csound: None | ctcsound.Csound = None            # the csound object
         self._fracnumdigits = 4        # number of fractional digits used for unique instances
         self._exited = False           # are we still running?
 
         # counters to create unique instances for each instrument
-        self._instanceCounters: Dict[int, int] = {}
+        self._instanceCounters: dict[int, int] = {}
 
         # Maps instrname/number: code
-        self._instrRegistry: Dict[Union[str, int], str] = {}
+        self._instrRegistry: dict[Union[str, int], str] = {}
 
         # a dict of callbacks, reacting to outvalue opcodes
-        self._outvalueCallbacks: Dict[bytes, callback_t] = {}
+        self._outvalueCallbacks: dict[bytes, callback_t] = {}
 
         # Maps used for strSet / strGet
-        self._indexToStr: Dict[int, str] = {}
-        self._strToIndex: Dict[str, int] = {}
+        self._indexToStr: dict[int, str] = {}
+        self._strToIndex: dict[str, int] = {}
         self._strLastIndex = 20
 
         # global code added to this engine
-        self._globalCode: Dict[str, str] = {}
+        self._globalCode: dict[str, str] = {}
 
         # this will be a numpy array pointing to a csound table of
         # NUMTOKENS size. When an instrument wants to return a value to the
         # host, the host sends a token, the instr sets table[token] = value
         # and calls 'outvale "__sync__", token' to signal that an answer is
         # ready
-        # self._responsesTable: Optional[np.ndarray] = None
         self._responsesTable: np.ndarray
 
         # a table with sub-mix gains which can be used to group
         # synths, samples, etc.
-        self._subgainsTable: Optional[np.ndarray] = None
+        self._subgainsTable: None | np.ndarray = None
 
         # tokens start at 1, leave token 0 to signal that no sync is needed
         # tokens are used as indices to _responsesTable, which is an alias of
@@ -604,24 +604,24 @@ class Engine:
 
         # a dict of token:callback, used to register callbacks when asking for
         # feedback from csound
-        self._responseCallbacks: Dict[int, Callable] = {}
+        self._responseCallbacks: dict[int, Callable] = {}
 
         # a dict mapping tableindex to fractional instr number
-        self._assignedTables: Dict[int, float] = {}
+        self._assignedTables: dict[int, float] = {}
 
-        self._tableCache: Dict[int, np.ndarray] = {}
-        self._tableInfo: Dict[int, TableInfo] = {}
+        self._tableCache: dict[int, np.ndarray] = {}
+        self._tableInfo: dict[int, TableInfo] = {}
 
-        self._channelPointers: Dict[str, np.ndarray] = {}
+        self._channelPointers: dict[str, np.ndarray] = {}
 
-        self._instrNumCache: Dict[str, int] = {}
+        self._instrNumCache: dict[str, int] = {}
 
-        self._session: Optional[_session.Session] = None
-        self._busTokenCountPtr: Optional[np.ndarray] = None
-        self._soundfontPresetCountPtr: Optional[np.ndarray] = None
-        self._kbusTable: Optional[np.ndarray] = None
-        self._busIndexes: Dict[int, int] = {}
-        self._soundfontPresets: Dict[Tuple[str, int, int], int] = {}
+        self._session: None | _session.Session = None
+        self._busTokenCountPtr: np.ndarray | None = None
+        self._soundfontPresetCountPtr: np.ndarray | None = None
+        self._kbusTable: np.ndarray | None = None
+        self._busIndexes: dict[int, int] = {}
+        self._soundfontPresets: dict[tuple[str, int, int], int] = {}
         self._soundfontPresetCount = 0
         self._startTime = 0.
         self._lockedElapsedTime = 0.
@@ -629,8 +629,8 @@ class Engine:
         self._clockStatesStack: list[bool] = []
 
         self.started = False
-        self.commandlineOptions: List[str] = []
-        self.builtinInstrs: Dict[str, int] = {}
+        self.commandlineOptions: list[str] = []
+        self.builtinInstrs: dict[str, int] = {}
         self._reservedInstrnums: Set[int] = set()
         self._reservedInstrnumRanges: list[tuple[str, int, int]] = [('builtinorc', CONSTS['reservedInstrsStart'], CONSTS['userInstrsStart']-1)]
         self.start()
@@ -676,8 +676,8 @@ class Engine:
         self._responsesTable[token] = _UNSET
         return token
 
-    def _waitOnToken(self, token:int, sleepfunc=time.sleep, period=0.001, timeout:float=None
-                     ) -> Optional[float]:
+    def _waitOnToken(self, token: int, sleepfunc=time.sleep, period=0.001, timeout: float = None
+                     ) -> float | None:
         if timeout is None:
             timeout = config['timeout']
         n = timeout // period
@@ -691,7 +691,7 @@ class Engine:
             sleepfunc(period)
         return None
 
-    def _releaseToken(self, token:int) -> None:
+    def _releaseToken(self, token: int) -> None:
         """ Release token back to pool when done """
         self._tokens.append(token)
 
@@ -1092,13 +1092,19 @@ class Engine:
 
         """
         codeblocks = csoundlib.parseOrc(code)
-        for block in codeblocks:
-            if block.kind == 'instr' and block.name[0].isdigit():
-                instrnum = int(block.name)
+        for codeblock in codeblocks:
+            if codeblock.kind == 'include':
+                includepath = csoundlib.splitInclude(codeblock.text)
+                if not os.path.exists(includepath):
+                    logger.warning(f"Include path not found '{includepath}'")
+                self.includes.append(includepath)
+
+            elif codeblock.kind == 'instr' and codeblock.name[0].isdigit():
+                instrnum = int(codeblock.name)
                 for rangename, mininstr, maxinstr in self._reservedInstrnumRanges:
                     if mininstr <= instrnum < maxinstr:
                         logger.error(f"Instrument number {instrnum} is reserved. Code:")
-                        logger.error("\n" + textwrap.indent(block.text, "    "))
+                        logger.error("\n" + textwrap.indent(codeblock.text, "    "))
                         raise ValueError(f"Cannot use instrument number {instrnum}, "
                                          f"the range {mininstr} - {maxinstr} is reserved for {rangename}")
 
@@ -1194,7 +1200,7 @@ class Engine:
             assert self._perfThread is not None
             self._perfThread.scoreEvent(0, "i", pargs)
 
-    def getTableData(self, idx:int, flat=False) -> Optional[np.ndarray]:
+    def getTableData(self, idx:int, flat=False) -> None | np.ndarray:
         """
         Returns a numpy array pointing to the data of the table.
 
@@ -1496,7 +1502,7 @@ class Engine:
             self._perfThread.scoreEvent(1, "i", pargs)
         return instrfrac
 
-    def _queryNamedInstrs(self, names:List[str], timeout=0.1, callback=None, delay=0.) -> None:
+    def _queryNamedInstrs(self, names:list[str], timeout=0.1, callback=None, delay=0.) -> None:
         """
         Query assigned instr numbers
 
@@ -1509,7 +1515,7 @@ class Engine:
             names: the names to query
             timeout: if 0, the operation is async. Otherwise active polling is done
                 for this amount of time
-            callback: a func of the form `func(name2instr:Dict[str, int])` which will be
+            callback: a func of the form `func(name2instr:dict[str, int])` which will be
                 called when all instrs have an assigned instr number
                 called for
         """
@@ -1608,7 +1614,7 @@ class Engine:
             self._instrNumCache[instrname] = out
         return out
 
-    def unsched(self, p1:Union[float, str], delay:float = 0) -> None:
+    def unsched(self, p1: float | str, delay:float = 0) -> None:
         """
         Stop a playing event
 
@@ -1650,7 +1656,7 @@ class Engine:
         pfields = [self.builtinInstrs['turnoff'], delay, 0, p1, mode]
         self._perfThread.scoreEvent(0, "i", pfields)
 
-    def unschedFuture(self, p1:Union[float, str]) -> None:
+    def unschedFuture(self, p1: float | str) -> None:
         """
         Stop a future event
 
@@ -1684,7 +1690,7 @@ class Engine:
         self.csound.rewindScore()
         self._setupGlobalInstrs()
 
-    def session(self):
+    def session(self) -> _session.Session:
         """
         Return the Session corresponding to this Engine
 
@@ -1932,7 +1938,7 @@ class Engine:
         self._eventWithCallback(token, pargs, lambda token: callback())
 
     def _eventWait(self, token:int, pargs:Sequence[float], timeout: float = None
-                   ) -> Optional[float]:
+                   ) -> float | None:
         if timeout is None:
             timeout = config['timeout']
         assert timeout > 0
@@ -2055,9 +2061,13 @@ class Engine:
             if not plotting.matplotlibIsInline():
                 plotting.plt.show()
 
-    def schedSync(self, instr:Union[int, float, str], delay:float = 0, dur:float = -1,
-                  args:Union[np.ndarray, Sequence[Union[float, str]]] = None,
-                  timeout=-1):
+    def schedSync(self,
+                  instr: int | float | str,
+                  delay: float = 0,
+                  dur: float = -1,
+                  args: np.ndarray | Sequence[float | str] = None,
+                  timeout=-1
+                  ):
         """
         Schedule an instr, wait for a sync message
 
@@ -2143,7 +2153,7 @@ class Engine:
         return None
 
     def _inputMessageWait(self, token:int, inputMessage:str,
-                          timeout:float=None) -> Optional[float]:
+                          timeout:float=None) -> float | None:
         """
         This function passes the str inputMessage to csound and waits for
         the instr to notify us with a "__sync__" outvalue
@@ -2308,8 +2318,9 @@ class Engine:
         assert ptr is not None
         return ptr
 
-    def setChannel(self, channel:str, value:Union[float, str, np.ndarray],
-                   method:str=None, delay=0.) -> None:
+    def setChannel(self, channel: str, value: float | str | np.ndarray,
+                   method: str = None, delay=0.
+                   ) -> None:
         """
         Set the value of a software channel
 
@@ -2384,7 +2395,7 @@ class Engine:
             raise ValueError(f"method {method} not supported "
                              f"(choices: 'api', 'score', 'udp'")
 
-    def initChannel(self, channel:str, value:Union[float, str, np.ndarray]=0, kind:str=None,
+    def initChannel(self, channel: str, value: float | str | np.ndarray=0, kind='',
                     mode="r") -> None:
         """
         Create a channel and set its initial value
@@ -2423,7 +2434,7 @@ class Engine:
             "w": 2,
             "rw": 3
         }[mode]
-        if kind is None:
+        if not kind:
             if isinstance(value, (int, float)):
                 kind = 'k'
             elif isinstance(value, str):
@@ -2598,6 +2609,13 @@ class Engine:
         return TableInfo(sr=vals[0], numChannels=int(vals[1]),
                          numFrames=int(vals[2]), size=int(vals[3]))
 
+    def includeFile(self, include: str) -> None:
+        abspath = os.path.abspath(include)
+        for f in self.includes:
+            if abspath == f:
+                return
+        self.includes.append(abspath)
+    
     def readSoundfile(self, path:str="?", tabnum:int = None, chan=0,
                       callback=None, block=False) -> int:
         """
@@ -2733,7 +2751,7 @@ class Engine:
                           args=args)
 
 
-    def soundfontPreparePreset(self, sf2path:str, preset:Tuple[int, int]=None) -> int:
+    def soundfontPreparePreset(self, sf2path:str, preset:tuple[int, int]=None) -> int:
         """
         Prepare a soundfont's preset to be used
 
@@ -3112,7 +3130,16 @@ class Engine:
             self.sync()
         return stringIndex
 
-    def strGet(self, index:int) -> Optional[str]:
+    def definedStrings(self) -> dict[str, int]:
+        """
+        Returns a dict mapping defined strings to their integer id
+
+        These are strings defined via :meth:`~Engine.strSet` via the Engine,
+        not internally using csound itself
+        """
+        return self._strToIndex
+
+    def strGet(self, index: int) -> str | None:
         """
         Get the string previously set via strSet.
 
@@ -3516,7 +3543,7 @@ class Engine:
         """
         return (self.numAudioBuses > 0 or self.numControlBuses > 0)
 
-    def eventUI(self, eventid: float, **pargs: Dict[str, Tuple[float, float]]) -> None:
+    def eventUI(self, eventid: float, **pargs: dict[str, tuple[float, float]]) -> None:
         """
         Modify pfields through an interactive user-interface
 
