@@ -1449,7 +1449,10 @@ def getAudioBackendNames(available=False, platform:str=None) -> list[str]:
 
 
 def _quoteIfNeeded(arg:Union[float, int, str]) -> Union[float, int, str]:
-    return arg if not isinstance(arg, str) else f'"{arg}"'
+    if isinstance(arg, str):
+        return emlib.textlib.quoteIfNeeded(arg)
+    else:
+        return arg
 
 
 def _eventStartTime(event:Union[list, tuple]) -> float:
