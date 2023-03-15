@@ -2805,7 +2805,8 @@ def parseOrc(code: str, keepComments=True) -> list[ParsedBlock]:
         elif strippedline.startswith('#include'):
             blocks.append(ParsedBlock(kind='include',
                                       startLine=i,
-                                      text=line))
+                                      text=line,
+                                      ))
         else:
             blocks.append(ParsedBlock(kind='instr0',
                                       startLine=i,
@@ -3255,6 +3256,22 @@ def splitInclude(line: str) -> str:
     if not match:
         raise ValueError("Could not parse include")
     return match.group(1)
+
+
+def makeIncludeLine(include: str) -> str:
+    """
+    Given a path, creates the #include directive
+
+    In particula, it checks the need for quotation marks
+
+    Args:
+        include: path to include
+
+    Returns:
+
+    """
+    s = emlib.textlib.quoteIfNeeded(include.strip())
+    return f'#include {s}'
 
 
 def highlightCsoundOrc(code: str, theme:str=None) -> str:

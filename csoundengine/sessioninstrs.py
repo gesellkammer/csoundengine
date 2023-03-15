@@ -31,7 +31,7 @@ builtinInstrs = [
     '''),
     Instr('.playSample',
           body=r"""
-        |isndtab=0, istart=0, ifade=0, igaingroup=0, kchan=1, kspeed=1, kgain=1, kpan=-1, ixfade=-1|
+        |isndtab=0, istart=0, ifadein=0, ifadeout=0, igaingroup=0, kchan=1, kspeed=1, kgain=1, kpan=-1, ixfade=-1|
         ; Play a sample loaded via GEN01
         ; Args:
         ;   istart: the start time within the sample
@@ -63,7 +63,7 @@ builtinInstrs = [
         endif
 
         kidx init 0
-        aenv = linsegr:a(0, ifade, 1, ifade, 0)
+        aenv = linsegr:a(0, ifadein, 1, ifadeout, 0)
         kgain2 = kgain*ksubgain
         if kgain2 != 1 then
             aenv *= a(ksubgain*kgain)

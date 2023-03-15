@@ -172,7 +172,7 @@ import emlib.dialogs
 from .engine import Engine, getEngine, CsoundError
 from . import engineorc
 from .instr import Instr
-from .synth import AbstrSynth, Synth, SynthGroup
+from .synth import Synth
 from .tableproxy import TableProxy
 from .paramtable import ParamTable
 from .config import config, logger
@@ -182,14 +182,7 @@ from . import state as _state
 from . import jupytertools
 from .offline import Renderer
 import bpf4
-
 import numpy as np
-
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import *
-elif 'sphinx' in sys.modules:
-    from typing import *
 
 
 __all__ = [
@@ -241,7 +234,7 @@ class SessionEvent:
     "The events priority (>1)"
 
     args: list[float] | dict[str, float] | None = None
-    "Numbered pfields or a dict of pfield name: value"
+    "Numbered pfields or a dict of pfield the form `{name: value}`"
 
     tabargs: dict[str, float] | None = None
     "Named args passed to an associated table"
@@ -457,7 +450,7 @@ class Session:
         name = jupytertools.htmlName(self.name)
         return f"Session({name}, synths={active})"
 
-    def _deallocSynthResources(self, synthid: Union[int, float], delay=0.) -> None:
+    def _deallocSynthResources(self, synthid: int | float, delay=0.) -> None:
         """
         Deallocates resources associated with synth
 
@@ -718,7 +711,7 @@ class Session:
         self._registerReifiedInstr(name, priority, rinstr)
         return rinstr
 
-    def getInstr(self, name: str) -> Optional[Instr]:
+    def getInstr(self, name: str) -> Instr | None:
         """
         Returns the :class:`~csoundengine.instr.Instr` defined under name
 
@@ -736,7 +729,7 @@ class Session:
             name = emlib.dialogs.selectItem(list(self.instrs.keys()))
         return self.instrs.get(name)
 
-    def _getReifiedInstr(self, name: str, priority: int) -> Optional[_ReifiedInstr]:
+    def _getReifiedInstr(self, name: str, priority: int) -> _ReifiedInstr | None:
         registry = self._reifiedInstrDefs.get(name)
         if not registry:
             return None
@@ -983,7 +976,7 @@ class Session:
         instr: Instr = self.getInstr(instrname)
         if instr is None:
             raise ValueError(f"Instrument {instrname} not defined")
-        table: Optional[ParamTable]
+        table: ParamTable | None
         if instr._tableDefaultValues is not None:
             # the instruments has an associated table
             tableidx = self._makeInstrTable(instr, overrides=tabargs, wait=True)
@@ -1106,7 +1099,7 @@ class Session:
         for i, initcode in enumerate(self._initCodes):
             self.engine.compile(initcode)
 
-    def readSoundfile(self, path="?", chan=0, free=False) -> TableProxy:
+    def readSoundfile(self, path="?", chan=0, free=False, force=False) -> TableProxy:
         """
         Read a soundfile, store its metadata in a :class:`~csoundengine.tableproxy.TableProxy`
 
@@ -1115,6 +1108,8 @@ class Session:
             chan: the channel to read, or 0 to read all channels into a
                 (possibly) stereo or multichannel table
             free: free the table when the returned TableDef is itself deallocated
+            force: if True, the soundfile will be read and added to the session even if the
+                same path has already been read before.
 
         Returns:
             a TableProxy, holding information like
@@ -1140,8 +1135,7 @@ class Session:
         """
         if path == "?":
             path = _state.openSoundfile()
-        table = self._pathToTabproxy.get(path)
-        if table:
+        if (table := self._pathToTabproxy.get(path)) is not None and not force:
             return table
         tabnum = self.engine.readSoundfile(path=path, chan=chan)
         import sndfileio
@@ -1163,7 +1157,7 @@ class Session:
             self._pathToTabproxy[tabproxy.path] = tabproxy
 
     def makeTable(self,
-                  data: Union[np.ndarray, list[float]] = None,
+                  data: np.ndarray | list[float] | None = None,
                   size: int = 0,
                   tabnum: int = 0,
                   block=True,
@@ -1248,18 +1242,24 @@ class Session:
         return self.sched('.testAudio', dur=dur,
                           args=dict(imode=imode, iperiod=period, igain=gain))
 
-    def playSample(self, source: Union[int, TableProxy, str, tuple[np.ndarray, int]],
-                   delay=0., dur=-1.,
-                   chan=1, gain=1.,
-                   speed=1., loop=False, pan=-1.,
-                   skip=0., fade: float = None, gaingroup=0,
-                   compensateSamplerate=True,
+    def playSample(self,
+                   source: int | TableProxy | str | tuple[np.ndarray, int],
+                   delay=0.,
+                   dur=-1.,
+                   chan=1,
+                   gain=1.,
+                   speed=1.,
+                   loop=False,
+                   pan=-1.,
+                   skip=0.,
+                   fade: float | tuple[float, float] = None,
+                   gaingroup=0,
                    crossfade=0.02) -> Synth:
         """
         Play a sample.
 
         This method ensures that the sample is played at the original pitch,
-        indendent of the current samplerate. The source can be a table,
+        independent of the current samplerate. The source can be a table,
         a soundfile or a :class:`~csoundengine.tableproxy.TableProxy`
 
         Args:
@@ -1278,13 +1278,11 @@ class Session:
                 file formats define loop points)
             delay: time to wait before playback starts
             skip: the starting playback time (0=play from beginning)
-            fade: fade in/out in secods. None=default
+            fade: fade in/out in secods. None=default. Either a fade value or a tuple
+                (fadein, fadeout)
             gaingroup: the idx of a gain group. The gain of all samples routed to the
                 same group are scaled by the same value and can be altered as a group
                 via Engine.setSubGain(idx, gain)
-            compensateSamplerate: if True, adjust playback rate in order to preserve
-                the sample's original pitch if there is a sr mismatch between the
-                sample and the engine.
             crossfade: if looping, this indicates the length of the crossfade
 
         Returns:
@@ -1305,16 +1303,26 @@ class Session:
             raise TypeError(f"Expected int, TableProxy or str, got {source}")
         # isndtab, iloop, istart, ifade
         if fade is None:
-            fade = config['sample_fade_time']
+            fadein = fadeout = config['sample_fade_time']
+        else:
+            if isinstance(fade, tuple):
+                fadein, fadeout = fade
+            else:
+                fadein = fadeout = fade
         if not loop:
             crossfade = -1
         return self.sched('.playSample',
                           delay=delay,
                           dur=dur,
-                          args=dict(isndtab=tabnum, istart=skip,
-                                    ifade=fade, igaingroup=gaingroup,
-                                    icompensatesr=int(compensateSamplerate),
-                                    kchan=chan, kspeed=speed, kpan=pan, kgain=gain,
+                          args=dict(isndtab=tabnum,
+                                    istart=skip,
+                                    ifadein=fadein,
+                                    ifadeout=fadeout,
+                                    igaingroup=gaingroup,
+                                    kchan=chan,
+                                    kspeed=speed,
+                                    kpan=pan,
+                                    kgain=gain,
                                     ixfade=crossfade))
 
     def makeRenderer(self, sr: int = None, nchnls: int = None, ksmps: int = None
