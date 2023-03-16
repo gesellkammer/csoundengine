@@ -902,7 +902,9 @@ def _tabargsGenerateCode(tabargs: dict, freetable=True) -> str:
     return out
 
 
-def _pfieldsMergeDeclaration(args: dict[str, float], body: str, startidx=4
+def _pfieldsMergeDeclaration(args: dict[str, float],
+                             body: str,
+                             startidx=4
                              ) -> dict[int, tuple[str, float]]:
     """
     Given a dictionary declaring pfields and their defaults,

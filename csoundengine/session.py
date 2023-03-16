@@ -183,6 +183,7 @@ from . import jupytertools
 from .offline import Renderer
 import bpf4
 import numpy as np
+from typing import Callable
 
 
 __all__ = [
@@ -991,6 +992,7 @@ class Session:
                 if not k in instr.pargsNameToIndex:
                     raise KeyError(f"arg '{k}' not known for instr '{instr.name}'. "
                                    f"Possible args: {instr.pargsNameToIndex.keys()}")
+
         p4args = _tools.instrResolveArgs(instr, p4=tableidx, pargs=args, pkws=pkws)
         rinstr = self.prepareSched(instrname, priority, block=True)
         synthid = self.engine.sched(rinstr.instrnum, delay=delay, dur=dur, args=p4args,

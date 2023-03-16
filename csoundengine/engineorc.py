@@ -1,7 +1,7 @@
 from __future__ import annotations
 from string import Template
 from functools import cache
-from typing import List, Dict, Any, Tuple
+from typing import Any
 import re
 
 # In all templates we make the difference between substitutions which
@@ -486,7 +486,6 @@ _busOrc = r'''
 ; The actual buses
 ga__buses[]   init ${numAudioBuses}
 gi__bustable ftgen 0, 0, ${numControlBuses}, -2, 0
-; gk__buses[]   init ${numControlBuses}
 
 ; This table keeps track of the number of references a bus has
 gi__busrefs ftgen 0, 0, ${numAudioBuses}, -2, 0
@@ -520,13 +519,14 @@ opcode _bususe, i, ii
     itoken, ikind xin
     ibus dict_get gi__bustoken2num, itoken, -1
     if ibus < 0 then
-        initerror sprintf("Bus not found (token %d)\n", itoken)
-    else
-        itab = ikind == 0 ? gi__busrefs : gi__busrefsk
-        irefs tab_i ibus, itab
-        tabw_i irefs+1, ibus, itab
-        atstop ${busrelease}, 0, 0, itoken, ikind
+        ; initerror sprintf("Bus not found (token %d)\n", itoken)
+        ibus _busnew itoken, ikind
+        prints "Bus not found (token %d). Assigned bus %d\n", itoken, ibus
     endif
+    itab = ikind == 0 ? gi__busrefs : gi__busrefsk
+    irefs tab_i ibus, itab
+    tabw_i irefs+1, ibus, itab
+    atstop ${busrelease}, 0, 0, itoken, ikind
     xout ibus
 endop
 
@@ -538,6 +538,7 @@ opcode _busaddref, 0, ii
 endop
 
 opcode _busget, i, ii
+    ; like _bususe but does not add a reference, only gets the bus index
     itoken, ikind xin
     ibus dict_get gi__bustoken2num, itoken, -1
     if ibus == -1 then
@@ -685,8 +686,6 @@ instr ${busindex}
     outvalue "__sync__", isynctoken
 endin
 
-
-
 instr ${busoutk}
     itoken = p4
     ivalue = p5
@@ -732,7 +731,7 @@ BUILTIN_TABLES = {name:i for i, name in enumerate(_tableNames, start=1)}
 
 
 @cache
-def assignBuiltinInstrs(orc: str, startInstr: int, postInstrNum: int) -> Dict[str, int]:
+def assignBuiltinInstrs(orc: str, startInstr: int, postInstrNum: int) -> dict[str, int]:
     """
     Given an orc with quotes instr. names, assign numbers to each instr
     """
@@ -755,10 +754,16 @@ def _joinOrc(busSupport=True) -> str:
 
 
 @cache
-def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
-            a4:float, globalcode:str="", includestr:str="",
-            numAudioBuses:int=0, numControlBuses:int=0
-            ) -> Tuple[str, Dict[str, int]]:
+def makeOrc(sr: int, 
+            ksmps: int, 
+            nchnls: int, 
+            nchnls_i: int,
+            a4: float, 
+            globalcode: str = "", 
+            includestr: str = "",
+            numAudioBuses: int = 0, 
+            numControlBuses: int = 0
+            ) -> tuple[str, dict[str, int]]:
     """
     Create an Engine's orchestra
 
@@ -773,7 +778,7 @@ def makeOrc(sr:int, ksmps:int, nchnls:int, nchnls_i:int,
     instrs = assignBuiltinInstrs(orcproto,
                                  startInstr=CONSTS['reservedInstrsStart'],
                                  postInstrNum=CONSTS['postProcInstrnum'])
-    subs: Dict[str, Any] = {name:f"{num}  /* {name} */"
+    subs: dict[str, Any] = {name:f"{num}  /* {name} */"
                             for name, num in instrs.items()}
     subs.update(BUILTIN_TABLES)
     subs.update(CONSTS)
@@ -796,9 +801,9 @@ def busSupportCode(numAudioBuses:int,
                    numControlBuses:int,
                    postInstrNum:int,
                    startInstr:int
-                   ) -> Tuple[str, Dict[str, int]]:
-    instrnums = assignBuiltinInstrs(_busOrc, startInstr)
-    subs: Dict[str, Any] = {name: f"{num}  /* {name} */"
+                   ) -> tuple[str, dict[str, int]]:
+    instrnums = assignBuiltinInstrs(_busOrc, startInstr=startInstr, postInstrNum=postInstrNum)
+    subs: dict[str, Any] = {name: f"{num}  /* {name} */"
                             for name, num in instrnums.items()}
     subs['clearbuses'] = f'{postInstrNum} /* clearbuses */'
     orc = Template(_busOrc).substitute(numAudioBuses=numAudioBuses,

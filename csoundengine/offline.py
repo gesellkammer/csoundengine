@@ -36,6 +36,7 @@ import copy
 import os
 import sys
 import sndfileio
+import bpf4
 from .errors import RenderError
 from .config import config
 from . import csoundlib
@@ -77,7 +78,7 @@ class ScoreEvent(BaseEvent):
         are generated when scheduling events
 
     """
-    __slots__ = ('uniqueId', 'paramTable', 'renderer')
+    __slots__ = ('uniqueId', 'paramTable', 'renderer', 'instrname', 'priority')
 
     def __init__(self,
                  p1: float | str,
@@ -86,7 +87,9 @@ class ScoreEvent(BaseEvent):
                  args: list[float],
                  uniqueId: int,
                  paramTable: int = 0,
-                 renderer: Renderer = None):
+                 renderer: Renderer = None,
+                 instrname: str = '',
+                 priority: int = 0):
         super().__init__(p1, start, dur, args)
         self.uniqueId = uniqueId
         """A unique id of this event, as integer"""
@@ -96,6 +99,23 @@ class ScoreEvent(BaseEvent):
 
         self.renderer = renderer
         """The Renderer to which this event belongs (can be None)"""
+
+        self.instrname = instrname
+        """The instrument template this ScoreEvent was created from, if applicable"""
+
+        self.priority = priority
+        """The priority of this ScoreEvent, if applicable"""
+
+    def __repr__(self):
+        parts = [f"p1={self.p1}, start={self.start}, dur={self.dur}, uniqueId={self.uniqueId}"]
+        if self.args:
+            parts.append(f'args={self.args}')
+        if self.instrname:
+            parts.append(f'instrname={self.instrname}')
+        if self.priority:
+            parts.append(f'priority={self.priority}')
+        partsstr = ', '.join(parts)
+        return f"ScoreEvent({partsstr})"
 
     def clone(self, **kws) -> ScoreEvent:
         """Clone this event"""
@@ -171,12 +191,16 @@ class ScoreEvent(BaseEvent):
         assert self.renderer
         self.renderer.unsched(self, delay=delay)
 
-
-_offlineOrc = r'''
+_prelude = r'''
 gi__soundfontIndexes dict_new "str:float"
 gi__soundfontIndexCounter init 1000
+; maxNumInstrs  = 10000
+gi__tokenToInstrnum ftgen 0, 0, 10000, -2, 0
+ 
+; numtokens = 1000
+gi__responses   ftgen  0, 0, 1000, -2, 0
 
-gi__subgains   ftgen 0, 0, 100, -2, 0
+gi__subgains    ftgen 0, 0, 100, -2, 0
 ftset gi__subgains, 1
 
 
@@ -188,6 +212,36 @@ opcode _panweights, kk, k
     kampR = bpf:k(kpos, 0, 0,      0.5, 1, 1, 1.4142)
     xout kampL, kampR
 endop 
+
+opcode sfloadonce, i, S
+  Spath xin
+  iidx dict_get gi__soundfontIndexes, Spath, -1
+  if (iidx == -1) then
+      iidx sfload Spath
+      dict_set gi__soundfontIndexes, Spath, iidx
+  endif
+  xout iidx
+endop
+
+opcode sfPresetIndex, i, Sii
+  Spath, ibank, ipresetnum xin
+  isf sfloadonce Spath
+  Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum  
+  iidx dict_get gi__soundfontIndexes, Skey, -1  
+  if iidx == -1 then
+      iidx chnget "_soundfontPresetCount"
+      chnset iidx+1, "_soundfontPresetCount"
+      i0 sfpreset ipresetnum, ibank, isf, iidx
+      if iidx != i0 then
+        prints "???: iidx = %d, i0 = %d\n", iidx, i0
+      endif
+      dict_set gi__soundfontIndexes, Skey, i0
+  endif
+  xout iidx
+endop
+
+'''
+_offlineOrc = r'''
 
 instr _stop
     ; turnoff inum (match instr number exactly, allow release)
@@ -250,32 +304,6 @@ instr _pwrite
   turnoff
 endin
 
-opcode sfloadonce, i, S
-  Spath xin
-  iidx dict_get gi__soundfontIndexes, Spath, -1
-  if (iidx == -1) then
-      iidx sfload Spath
-      dict_set gi__soundfontIndexes, Spath, iidx
-  endif
-  xout iidx
-endop
-
-opcode sfPresetIndex, i, Sii
-  Spath, ibank, ipresetnum xin
-  isf sfloadonce Spath
-  Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum  
-  iidx dict_get gi__soundfontIndexes, Skey, -1  
-  if iidx == -1 then
-      iidx chnget "_soundfontPresetCount"
-      chnset iidx+1, "_soundfontPresetCount"
-      i0 sfpreset ipresetnum, ibank, isf, iidx
-      if iidx != i0 then
-        prints "???: iidx = %d, i0 = %d\n", iidx, i0
-      endif
-      dict_set gi__soundfontIndexes, Skey, i0
-  endif
-  xout iidx
-endop
 '''
 
 class Renderer:
@@ -325,7 +353,7 @@ class Renderer:
 
     """
     def __init__(self, sr: int = None, nchnls: int = 2, ksmps: int = None,
-                 a4: float = None, maxpriorities=10, bucketsize=100,
+                 a4: float = None, numpriorities=10,
                  numAudioBuses=1000):
         """
 
@@ -343,29 +371,52 @@ class Renderer:
         self.csd = csoundlib.Csd(sr=sr, nchnls=nchnls, ksmps=ksmps, a4=a4)
         self._nameAndPriorityToInstrnum: dict[tuple[str, int], int] = {}
         self._instrnumToNameAndPriority: dict[int, tuple[str, int]] = {}
-        self._numbuckets = maxpriorities
-        self._bucketCounters = [0]*maxpriorities
-        self._bucketsize = bucketsize
+        self._numbuckets = numpriorities
+        self._bucketCounters = [0] * numpriorities
+        self._startUserInstrs = 20
         self._instrdefs: dict[str, Instr] = {}
         self._instanceCounters: dict[int, int] = {}
         self._numInstancesPerInstr = 10000
         self._numAudioBuses = numAudioBuses
         self._numControlBuses = 10000
-        self._lastUserInstr = self._numbuckets * self._bucketsize
-        self._numReservedInstrs = 100
         self._ndarrayHashToTabnum: dict[str, int] = {}
 
-        self.csd.addGlobalCode(_textwrap.dedent(_offlineOrc))
-        self._busSystemInitialized = False
+        bucketSizeCurve = bpf4.expon(0.7, 1, 500, numpriorities, 50)
+        bucketSizes = [int(size) for size in bucketSizeCurve.map(numpriorities)]
+
+        self._bucketSizes = bucketSizes
+        """Size of each bucket, by bucket index"""
+
+        self._bucketIndices = [self._startUserInstrs + sum(bucketSizes[:i])
+                               for i in range(numpriorities)]
+        self._postUserInstrs = self._bucketIndices[-1] + self._bucketSizes[-1]
+        """Start of 'post' instruments (instruments at the end of the processing chain)"""
+
         self._busTokenCount = 0
         self._endMarker = 0.
         self._exitCallbacks: set[Callable] = set()
         self._stringRegistry: dict[str, int] = {}
         self._includes: set[str] = set()
+        self._builtinInstrs: dict[str, int] = {}
+
+        self.csd.addGlobalCode(_textwrap.dedent(_prelude))
+
+        if self.hasBusSupport():
+            busorc, instrIndex = engineorc.busSupportCode(numAudioBuses=self._numAudioBuses,
+                                                          numControlBuses=self._numControlBuses,
+                                                          postInstrNum=self._postUserInstrs,
+                                                          startInstr=1)
+            self._builtinInstrs.update(instrIndex)
+            self.csd.addGlobalCode(busorc)
+
+        self.csd.addGlobalCode(_textwrap.dedent(_offlineOrc))
 
         for instrname in ['.playSample']:
             instr = sessioninstrs.builtinInstrIndex[instrname]
             self.registerInstr(instr)
+
+        if self.hasBusSupport():
+            self.csd.addEvent(self._builtinInstrs['clearbuses_post'], start=0, dur=-1)
 
     def commitInstrument(self, instrname: str, priority=1) -> int:
         """
@@ -393,12 +444,12 @@ class Renderer:
             raise KeyError(f"instrument {instrname} is not defined")
 
         count = self._bucketCounters[priority]
-        if count>self._bucketsize:
+        if count > self._bucketSizes[priority]:
             raise ValueError(
-                f"Too many instruments ({count}) defined, max. is {self._bucketsize}")
+                f"Too many instruments ({count}) defined, max. is {self._bucketSizes[priority]}")
 
         self._bucketCounters[priority] += 1
-        instrnum = priority * self._bucketsize + count
+        instrnum = self._bucketIndices[priority] + count
         self._nameAndPriorityToInstrnum[(instrname, priority)] = instrnum
         self._instrnumToNameAndPriority[instrnum] = (instrname, priority)
         self.csd.addInstr(instrnum, instrdef.body)
@@ -473,8 +524,8 @@ class Renderer:
             ... ''')
             # An instr with named table args
             >>> renderer.defInstr('filter', '''
-            ... {bus=0, cutoff=1000, resonance=0.9}
-            ... a0 = busin(kbus)
+            ... {ibus=0, kcutoff=1000, kresonance=0.9}
+            ... a0 = busin(ibus)
             ... a0 = moogladder2(a0, kcutoff, kresonance)
             ... outch 1, a0
             ... ''')
@@ -483,9 +534,9 @@ class Renderer:
             >>> event = renderer.sched('sine', 0, dur=10, ibus=bus, kmidi=67)
             >>> event.setp(kmidi=60, delay=2)
 
-            >>> filt = renderer.sched('filter', 0, dur=synth.dur, priority=synth.priority+1,
-            ...                       tabargs={'bus': bus, 'cutoff': 1000})
-            >>> filt.automateTable('cutoff', [3, 1000, 6, 200, 10, 4000])
+            >>> filt = renderer.sched('filter', 0, dur=event.dur, priority=event.priority+1,
+            ...                       tabargs={'ibus': bus, 'kcutoff': 1000})
+            >>> filt.automateTable('kcutoff', [3, 1000, 6, 200, 10, 4000])
         """
         instr = Instr(name=name, body=body, **kws)
         self.registerInstr(instr)
@@ -590,11 +641,17 @@ class Renderer:
                                                start=max(0., delay - 2.))
         args = internalTools.instrResolveArgs(instr, tabnum, args, pkws)
         p1 = self._getUniqueP1(instrnum)
-        self.csd.addEvent(p1, start=float(delay), dur=float(dur), args=args)
-        eventId = self._generateEventId()
-        event = ScoreEvent(p1, delay, dur, args, eventId, paramTable=tabnum,
-                           renderer=self)
-        self.scheduledEvents[eventId] = event
+        return self._schedEvent(p1=p1, start=float(delay), dur=float(dur), args=args,
+                                instrname=instrname, priority=priority)
+
+    def _schedEvent(self, p1: float|int, start: float, dur: float, args: list[float|str],
+                    instrname: str = '', priority=0
+                    ) -> ScoreEvent:
+        self.csd.addEvent(p1, start=start, dur=dur, args=args)
+        eventid = self._generateEventId()
+        event = ScoreEvent(p1, start=start, dur=dur, args=args, uniqueId=eventid, renderer=self,
+                           priority=priority, instrname=instrname)
+        self.scheduledEvents[eventid] = event
         return event
 
     def unsched(self, event: int|float|ScoreEvent, delay: float) -> None:
@@ -612,15 +669,12 @@ class Renderer:
         p1 = event.p1 if isinstance(event, ScoreEvent) else event
         self.csd.addEvent("_stop", start=delay, dur=0, args=[p1])
 
-    def _initBusSystem(self) -> None:
-        if self._busSystemInitialized:
-            return
-        busorc, instrIndex = engineorc.busSupportCode(numAudioBuses=self._numAudioBuses,
-                                                      numControlBuses=self._numControlBuses,
-                                                      postInstrNum=self._lastUserInstr + self._numReservedInstrs,
-                                                      startInstr=self._lastUserInstr)
-        self.csd.addGlobalCode(busorc)
-        self._busSystemInitialized = True
+    def hasBusSupport(self):
+        """
+        Returns True if this Engine was started with bus suppor
+
+        """
+        return (self._numAudioBuses > 0 or self._numControlBuses > 0)
 
     def assignBus(self) -> int:
         """
@@ -629,19 +683,9 @@ class Renderer:
         Example
         =======
 
-            >>> from csoundengine.offline import Renderer
-            >>> r = Renderer()
-            >>> Instr('vco', r'''
-            ...     kfreq=p5
-            ...     kamp=p6
-            ...     asig vco2 1, kfreq
-            ...     aenv = linsegr:a(0, 0.01, 1, 0.01, 0)
-            ...     aenv *= lag:a(a(kamp), 0.1)
-            ...     asig *= aenv
-            ...     outch 1, asig
-            ... ''').register(r)
+        TODO
         """
-        self._initBusSystem()
+        assert self.hasBusSupport()
         token = self._busTokenCount
         self._busTokenCount += 1
         return token
