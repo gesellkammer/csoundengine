@@ -272,6 +272,14 @@ class AbstrSynth(baseevent.BaseEvent):
         """
         return self.engine.session()
 
+    def show(self) -> None:
+        """
+        If inside jupyter, display the html representation of self
+        """
+        if emlib.misc.inside_jupyter():
+            from IPython.display import display
+            display(self)
+
 
 _synthStatusIcon = {
     'playing': '▶',
@@ -1010,3 +1018,6 @@ class SynthGroup(AbstrSynth):
             if params:
                 allparams.update(params)
         return allparams
+
+
+

@@ -165,7 +165,6 @@ UI generated when using the terminal:
 """
 
 from __future__ import annotations
-import sys
 from dataclasses import dataclass
 import emlib.misc
 import emlib.dialogs
@@ -532,6 +531,29 @@ class Session:
             logger.debug(f"Making table with init values: {values} ({overrides})")
             return self.engine.makeTable(data=values, block=wait)
 
+    def setSchedCallback(self, callback: Callable) -> Callable | None:
+        """
+        Set the schedule callback
+
+        A Session can be set to bypass its schedule mechanism. When the schedule callback
+        is set, the function given will be called whenever :meth:`Session.sched` is called
+        and the Session will not perform any other action than calling this callback.
+
+        This is used, for example, to create a context manager under which a series
+        of events need to be scheduled but instead of scheduling one by one all are
+        first collected, they are initialized and then scheduled all at once (with
+        the engine's time locked) in order to keep them in synch.
+
+        Args:
+            callback: the callback to set. The signature is the same as :meth:`Session.sched`
+
+        Returns:
+            the old callback, or None if no callback was set
+        """
+        oldcallback = self._schedCallback
+        self._schedCallback = callback
+        return oldcallback
+
     def defInstr(self,
                  name: str,
                  body: str,
@@ -650,6 +672,7 @@ class Session:
 
         """
         if instr.id in self._instrIndex:
+            logger.debug(f"Instr {instr.name} already defined")
             return False
 
         if instr.name in self.instrs:

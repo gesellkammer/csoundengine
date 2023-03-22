@@ -13,7 +13,7 @@ with open(path.join(this_directory, 'README.rst'), encoding='utf-8') as f:
 
 setup(
     name='csoundengine',
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     version=".".join(map(str, version)),
     description='A synthesis framework using csound',
     long_description=long_description,

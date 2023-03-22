@@ -43,8 +43,8 @@ builtinInstrs = [
         ;   ixfade: crossfade time, if negative no looping
         iloop = ixfade >= 0 ? 1 : 0
         ionecycle = ksmps/sr
-        ifade = ifade < 0 ? 0.05 : ifade
-        ifade = max(ifade, ionecycle)
+        ifadein = max(ifadein, ionecycle)
+        ifadeout = max(ifadeout, ionecycle)
         igaingroup = limit(igaingroup, 0, 100)
         inumouts = ftchnls(isndtab)
         inumsamples = nsamp(isndtab)
