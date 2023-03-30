@@ -102,7 +102,7 @@ builtinInstrs = [
             od
         endif   
         know += ionecycle * kspeed
-        imaxtime = idur - ifade - ionecycle
+        imaxtime = idur - ifadeout - ionecycle
         if iloop == 0 && know >= imaxtime then
             turnoff
         endif   
