@@ -4,7 +4,7 @@
 from setuptools import setup
 import os
 
-version = (1, 18, 0)
+version = (1, 18, 1)
 
 from os import path
 this_directory = path.abspath(path.dirname(__file__))
@@ -40,7 +40,7 @@ setup(
         "scipy",
         "matplotlib",
         "JACK-client",
-        "ctcsound",
+        "ctcsound7",
         "sndfileio>=1.8.2",
         "emlib>=1.7.7",
         "cachetools",
