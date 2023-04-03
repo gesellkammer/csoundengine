@@ -132,7 +132,8 @@ elif 'sphinx' in _sys.modules:
     from typing import *
 
 try:
-    import ctcsound
+    import ctcsound7 as ctcsound
+    logger.debug(f'Csound API Version: {ctcsound.APIVERSION}, csound version: {ctcsound.VERSION}')
     _MYFLTPTR = _ctypes.POINTER(ctcsound.MYFLT)
 except (OSError, ImportError) as e:
     if 'sphinx' in _sys.modules:
@@ -843,7 +844,6 @@ class Engine:
         if config['set_sigint_handler']:
             internalTools.setSigintHandler()
         # time.sleep(0.05)
-        self._setupCallbacks()
         self._subgainsTable = self.csound.table(self._builtinTables['subgains'])
         self._responsesTable = self.csound.table(self._builtinTables['responses'])
 
@@ -866,6 +866,8 @@ class Engine:
             self._kbusTable = self.csound.table(kbustable)
         else:
             logger.info("Server started without bus support")
+        self._setupCallbacks()
+        time.sleep(0.2)
         self.sync()
 
     def _setupGlobalInstrs(self):
@@ -935,8 +937,11 @@ class Engine:
         if not func:
             logger.error(f"outvalue: callback not set for channel {channelName}")
             return
-        val = _ctypes.cast(valptr, _MYFLTPTR).contents.value
-        func(channelName, val)
+        if valptr is not None:
+            val = _ctypes.cast(valptr, _MYFLTPTR).contents.value
+            func(channelName, val)
+        else:
+            logger.warning(f"outcallback: {channelName=} called with null pointer, skipping")
 
     def _setupCallbacks(self) -> None:
         assert self.csound is not None

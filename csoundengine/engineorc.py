@@ -67,7 +67,7 @@ opcode sfPresetIndex, i, Sii
 endop
 
 instr ${notifyDealloc}
-    outvalue, "__dealloc__", p4
+    outvalue "__dealloc__", p4
 endin
 
 instr ${pingback}

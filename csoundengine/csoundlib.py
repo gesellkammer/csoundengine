@@ -37,14 +37,14 @@ if TYPE_CHECKING:
 
 
 try:
-    import ctcsound
+    import ctcsound7 as ctcsound
 except (OSError, ImportError) as e:
     if 'sphinx' in sys.modules:
         print("Called while building sphinx documentation?")
         from sphinx.ext.autodoc.mock import _MockObject
         ctcsound = _MockObject()
     else:
-        print("ctcsound not found!")
+        print("ctcsound (ctcsound7) not found! Install it via 'pip install ctcsound7'")
         raise e
 
 logger = _logging.getLogger("csoundengine")
@@ -660,10 +660,16 @@ def getDefaultBackend() -> AudioBackend:
 
 
 _pluginsFolders = {
-    'float64': {
+    '6.0': {
         'linux': '$HOME/.local/lib/csound/6.0/plugins64',
         'darwin': '$HOME/Library/csound/6.0/plugins64',
         'win32': '%LOCALAPPDATA%/csound/6.0/plugins64'
+    },
+    '7.0': {
+        'linux': '$HOME/.local/lib/csound/7.0/plugins64',
+        'darwin': '$HOME/Library/csound/7.0/plugins64',
+        'win32': '%LOCALAPPDATA%/csound/7.0/plugins64'
+
     },
     'float32': {
         'linux': '$HOME/.local/lib/csound/6.0/plugins',
@@ -673,7 +679,7 @@ _pluginsFolders = {
 }
 
 
-def userPluginsFolder(float64=True) -> str:
+def userPluginsFolder(float64=True, apiversion='6.0') -> str:
     """
     Returns the user plugins folder for this platform
 
@@ -683,6 +689,7 @@ def userPluginsFolder(float64=True) -> str:
 
     Args:
         float64: if True, report the folder for 64-bit plugins
+        apiversion: 6.0 or 7.0
 
     Returns:
         the user plugins folder for this platform
@@ -699,8 +706,11 @@ def userPluginsFolder(float64=True) -> str:
 
     For 32-bit plugins the folder is the same, without the '64' ending (``.../plugins``)
     """
-    arch = 'float64' if float64 else 'float32'
-    folder = _pluginsFolders[arch][sys.platform]
+    key = apiversion if float64 else 'float32'
+    folders = _pluginsFolders[key]
+    if not sys.platform in folders:
+        raise RuntimeError(f"Platform {sys.platform} not known")
+    folder = folders[sys.platform]
     return _os.path.abspath(_os.path.expandvars(folder))
 
 

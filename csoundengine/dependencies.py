@@ -144,10 +144,11 @@ def _copyFiles(files: List[str], dest: str, verbose=False) -> None:
         shutil.copy(f, dest)
 
 
-def pluginsInstalled(cached=True) -> bool:
+def pluginsInstalled(cached: bool) -> bool:
     """Returns True if the needed plugins are already installed"""
-    opcodes = set(csoundlib.opcodesList(cached=cached,
-                                        opcodedir=csoundlib.userPluginsFolder()))
+    #opcodes = set(csoundlib.opcodesList(cached=cached,
+    #                                    opcodedir=csoundlib.userPluginsFolder(apiversion=apiversion)))
+    opcodes = set(csoundlib.opcodesList(cached=cached))
     neededOpcodes = {
         "atstop", "pwrite", "pread", "initerror",
         "dict_new", "dict_set", "dict_get",
@@ -190,8 +191,8 @@ def _installPluginsFromZipFile(zipped: Path):
         raise RuntimeError("There was an error in the installation...")
 
 
-def _installPluginsFromDist():
-    rootfolder = Path(os.path.split(__file__)[0]).parent
+def _installPluginsFromDist(apiversion=6):
+    rootfolder = Path(os.path.split(__file__)[0])
     assert rootfolder.exists()
     subfolder, globpattern = {
         'darwin': ('macos', '*.dylib'),
@@ -200,7 +201,7 @@ def _installPluginsFromDist():
     }.get(sys.platform, (None, None))
     if subfolder is None:
         raise RuntimeError(f"Platform {sys.platform} not supported")
-    pluginspath = rootfolder/'data/plugins'/subfolder
+    pluginspath = rootfolder/f'data/plugins{apiversion}'/subfolder
     if not pluginspath.exists():
         raise RuntimeError(f"Could not find own csound plugins. Folder: {pluginspath}")
     plugins = list(pluginspath.glob(globpattern))
@@ -208,7 +209,8 @@ def _installPluginsFromDist():
         logger.error(f"Plugins not found. Plugins folder: {pluginspath}, "
                      f"glob patter: {globpattern}")
         raise RuntimeError("Plugins not found")
-    pluginsDest = csoundlib.userPluginsFolder()
+    pluginsDest = csoundlib.userPluginsFolder(apiversion=f'{apiversion}.0')
+    logger.info(f"Installing plugins in folder: {pluginsDest}")
     os.makedirs(pluginsDest, exist_ok=True)
     _copyFiles([plugin.as_posix() for plugin in plugins], pluginsDest, verbose=True)
     if not pluginsInstalled(cached=False):
@@ -239,34 +241,46 @@ def _installPluginsViaRisset() -> bool:
         return False
 
 
-def installPlugins() -> bool:
+def installPlugins(majorversion=6) -> bool:
     """
     Install all needed plugins
 
     Will raise RuntimeError if failed
     """
-    if pluginsInstalled():
-        logger.info("Plugins are already installed, installed plugins will be "
-                    "(eventually) overwritten")
+    #if pluginsInstalled():
+    #    logger.info("Plugins are already installed, installed plugins will be "
+    #                "(eventually) overwritten")
 
-    try:
-        logger.info("Installing external plugins via risset")
-        ok = _installPluginsViaRisset()
-        if not ok:
-            logger.error("Could not install plugins via risset")
-            zipped = downloadLatestPluginForPlatform()
-            _installPluginsFromZipFile(zipped)
-        return pluginsInstalled(cached=False)
-    except RuntimeError as e:
-        logger.error(f"Could not install plugins from github: {e}")
-    logger.info("Installing plugins from distribution")
-    _installPluginsFromDist()
-    ok = pluginsInstalled(cached=False)
-    if ok:
-        logger.info("<<< Plugins installed successfully! >>>")
+    if majorversion == 6:
+        try:
+            logger.info("Installing external plugins via risset")
+            ok = _installPluginsViaRisset()
+            if not ok:
+                logger.error("Could not install plugins via risset")
+                zipped = downloadLatestPluginForPlatform()
+                _installPluginsFromZipFile(zipped)
+            return pluginsInstalled(cached=False)
+        except RuntimeError as e:
+            logger.error(f"Could not install plugins from github: {e}")
+        logger.info("Installing plugins from distribution")
+        _installPluginsFromDist()
+        ok = pluginsInstalled(cached=False)
+        if ok:
+            logger.info("<<< Plugins installed successfully! >>>")
+        else:
+            logger.error("Plugins are not installed correctly")
+        return ok
     else:
-        logger.error("Plugins are not installed correctly")
-    return ok
+        print("Installing plugins for csound 7")
+        _installPluginsFromDist(7)
+        ok = pluginsInstalled(cached=False)
+        if ok:
+            logger.info("Plugins seem to be installed...")
+        else:
+            logger.error("Could not install needed csound plugins. "
+                         "Needed plugins: klib, else, poly. Please install these "
+                         "manually")
+        return ok
 
 
 def _checkDependencies(fix=False, updateState=True) -> Optional[str]:
@@ -281,13 +295,13 @@ def _checkDependencies(fix=False, updateState=True) -> Optional[str]:
         return f"Csound version ({version}) is too old, should be >= 6.16"
 
     if version[0] >= 7:
-        return f"Csound 7 is not yet supported!"
+        print(f"WARNING: Csound 7 is not fully supported. Crossing fingers... ")
 
-    if not pluginsInstalled():
+    if not pluginsInstalled(cached=False):
         if fix:
             print("csound plugins are not installed or are too old."
                   " I will try to install them now")
-            installPlugins()
+            installPlugins(version[0])
         else:
             return ("Some plugins are not installed. Install them via risset "
                     "(risset install \"*\"), or manually from "
@@ -320,5 +334,7 @@ def checkDependencies(force=False, fix=False, timeoutDays=1) -> bool:
         errormsg = _checkDependencies(fix=fix)
         if errormsg:
             logger.error(f"*** checkDependencies: {errormsg}")
+            if not fix:
+                logger.error("*** You can try to fix them by calling checkDependencies(force=True, fix=True)")
             return False
     return True

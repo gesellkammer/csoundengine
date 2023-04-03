@@ -44,7 +44,7 @@ def copyfiles(files, dest:Path):
 
 
 infourl = "https://api.github.com/repos/csound-plugins/csound-plugins/releases/latest"
-pluginsroot = Path("/home/em/dev/python/csoundengine/data/plugins")
+dataroot = Path("/home/em/dev/python/csoundengine/csoundengine/data")
 tmpfile, _ = urllib.request.urlretrieve(infourl)
 info = json.load(open(tmpfile))
 assets = info.get('assets')
@@ -53,6 +53,11 @@ destfolder = "/home/em/Downloads"
 for url in asseturls:
     zipped = download(url, destfolder)
     unzipped = extract(zipped)
+    if 'csound7' in url:
+        pluginsfolder = 'plugins7'
+    else:
+        pluginsfolder = 'plugins6'
+
     if "linux" in url:
         subfolder, globpatt = "linux", "*.so"
     elif "macos" in url:
@@ -60,9 +65,8 @@ for url in asseturls:
     elif "windows" in url or "win64" in url:
         subfolder, globpatt = "windows", "*.dll"
     else:
-        print("Url unknown", url)    
+        print("Url unknown", url)
         continue
+
     plugins = list(unzipped.glob(globpatt))
-    copyfiles(plugins, pluginsroot/subfolder)
-        
-      
+    copyfiles(plugins, dataroot/pluginsfolder/subfolder)
