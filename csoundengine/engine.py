@@ -135,7 +135,7 @@ try:
     import ctcsound7 as ctcsound
     logger.debug(f'Csound API Version: {ctcsound.APIVERSION}, csound version: {ctcsound.VERSION}')
     _MYFLTPTR = _ctypes.POINTER(ctcsound.MYFLT)
-except (OSError, ImportError) as e:
+except Exception as e:
     if 'sphinx' in _sys.modules:
         print("Called while building sphinx documentation?")
         print("Using mocked ctcsound, this should only happen when building"
