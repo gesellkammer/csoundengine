@@ -247,10 +247,6 @@ def installPlugins(majorversion=6) -> bool:
 
     Will raise RuntimeError if failed
     """
-    #if pluginsInstalled():
-    #    logger.info("Plugins are already installed, installed plugins will be "
-    #                "(eventually) overwritten")
-
     if majorversion == 6:
         try:
             logger.info("Installing external plugins via risset")
@@ -295,12 +291,12 @@ def _checkDependencies(fix=False, updateState=True) -> Optional[str]:
         return f"Csound version ({version}) is too old, should be >= 6.16"
 
     if version[0] >= 7:
-        print(f"WARNING: Csound 7 is not fully supported. Crossing fingers... ")
+        print(f"WARNING: Csound 7 is not fully supported. Proceed at yout own risk")
 
     if not pluginsInstalled(cached=False):
         if fix:
-            print("csound plugins are not installed or are too old."
-                  " I will try to install them now")
+            print("*** Csound plugins are not installed or are too old."
+                  " I will try to install them now ***")
             installPlugins(version[0])
         else:
             return ("Some plugins are not installed. Install them via risset "
@@ -311,7 +307,7 @@ def _checkDependencies(fix=False, updateState=True) -> Optional[str]:
         state['last_run'] = datetime.now().isoformat()
 
 
-def checkDependencies(force=False, fix=False, timeoutDays=1) -> bool:
+def checkDependencies(force=False, fix=True, timeoutDays=1) -> bool:
     """
     Check that all external dependencies are fullfilled.
 
