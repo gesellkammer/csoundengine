@@ -1,0 +1,89 @@
+on: [push]
+
+jobs:
+  testwin:
+    name: Test csoundengine on windows
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: [ "3.10" ]
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: windows - install csound
+        run: |
+          curl -L -o csound-binaries.zip https://github.com/csound/csound/releases/download/6.18.1/Csound-6.18.1-windows-x64-binaries.zip
+          Expand-Archive csound-binaries.zip -DestinationPath "C:\Program Files\csound-binaries"
+          ls -r "C:\Program Files\csound-binaries"
+
+          [Environment]::SetEnvironmentVariable("PATH", $Env:PATH + ";C:\Program Files\csound-binaries\build\Release", [EnvironmentVariableTarget]::Machine)
+          $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
+          Write-Output $Env:PATH
+          csound.exe --version
+
+      - name: windows - test install from pip
+        run: |
+          $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
+          pip install -U csoundengine
+          cd test
+          python test1.py
+
+  testlinux:
+    name: Test csoundengine on linux
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [ "3.10" ]
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: linux - install csound
+        run: |
+          sudo apt install csound
+          csound --version
+
+      - name: linux - test install from pip
+        run: |
+          pip install -U csoundengine
+          cd test
+          python test1.py
+
+
+  testmacos:
+    name: Test csoundengine on macos
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        python-version: ["3.10"]
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: macos - install csound
+        if: runner.os == 'macos'
+        run: |
+          curl -L -o csound6.18.dmg https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg
+          brew install p7zip
+          7z x csound6.18.dmg
+          cd Csound-universal-6.18.1
+          sudo installer -pkg csound-MacOS-universal-6.18.1.pkg -target /
+          csound --version
+          cd ..
+
+      - name: macos - test install from pip
+        if: runner.os == 'macos'
+        run: |
+          pip install -U csoundengine
+          cd test
+          python test1.py
