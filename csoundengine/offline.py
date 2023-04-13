@@ -724,8 +724,11 @@ class Renderer:
         (see :meth:`~Renderer.setEndMarker`)
 
         Returns:
-            a tuple (start of earliest event, end of last event)
+            a tuple (start of the earliest event, end of last event). If no events, returns
+            (0, 0)
         """
+        if not self.scheduledEvents:
+            return (0., 0.)
         events = self.scheduledEvents.values()
         start = min(event.start for event in events)
         end = max(event.end for event in events)
@@ -1180,7 +1183,7 @@ class Renderer:
         self.csd.addEvent("_automateTableViaTable", start=delay, dur=dur, args=args)
 
     def __enter__(self):
-        pass
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self._exitCallbacks:

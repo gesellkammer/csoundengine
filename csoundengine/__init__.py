@@ -99,8 +99,8 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
 import sndfileio
 
 from .config import config, setLoggingLevel
-from .dependencies import checkDependencies
-ok = checkDependencies(force=False, fix=True, timeoutDays=config['dependencies_check_timeout_days'])
+from .dependencies import checkDependencies, installDependencies
+ok = checkDependencies(force=False, fix=True)
 if not ok:
     raise RuntimeError("csoundengine: Depencencies not fullfilled")
 

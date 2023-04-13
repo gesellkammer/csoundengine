@@ -4,7 +4,7 @@
 from setuptools import setup
 import os
 
-version = (1, 18, 3)
+version = (1, 19, 0)
 
 from os import path
 this_directory = path.abspath(path.dirname(__file__))
@@ -39,24 +39,25 @@ setup(
         "numpy",
         "scipy",
         "matplotlib",
-        "JACK-client",
-        "ctcsound7",
-        "sndfileio>=1.8.2",
-        "emlib>=1.7.7",
         "cachetools",
-        "configdict>=2.4",
-        "bpf4",
-        "numpyx>=0.5",
-        "pitchtools>=1.9.2",
+        "JACK-client",
         "appdirs",
         "pygments",
         "sf2utils",
         "jupyter",
         "ipywidgets",
-        "risset",
         "progressbar2",
         "xxhash",
-        "docstring-parser"
+        "docstring-parser",
+
+        "ctcsound7>=0.3.0",
+        "sndfileio>=1.9.0",
+        "emlib>=1.8.0",
+        "configdict>=2.6.0",
+        "bpf4>=1.8.4",
+        "numpyx>=1.3.1",
+        "pitchtools>=1.9.2",
+        "risset>=2.4",
     ],
     license="BSD",
     classifiers=[

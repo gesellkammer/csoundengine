@@ -191,7 +191,7 @@ def _installPluginsFromZipFile(zipped: Path):
         raise RuntimeError("There was an error in the installation...")
 
 
-def _installPluginsFromDist(apiversion=6):
+def _installPluginsFromDist(apiversion=6) -> None:
     rootfolder = Path(os.path.split(__file__)[0])
     assert rootfolder.exists()
     subfolder, globpattern = {
@@ -213,32 +213,30 @@ def _installPluginsFromDist(apiversion=6):
     logger.info(f"Installing plugins in folder: {pluginsDest}")
     os.makedirs(pluginsDest, exist_ok=True)
     _copyFiles([plugin.as_posix() for plugin in plugins], pluginsDest, verbose=True)
-    if not pluginsInstalled(cached=False):
-        raise RuntimeError("There was an error in the installation")
 
 
 def _installPluginsViaRisset() -> bool:
+    """
+    Tries to install plugins via risset
+
+    Does not raise anything itself, but risset might
+    """
     logger.info("Trying to install plugins via risset")
-    try:
-        import risset
-        logger.info("Risset found")
-        idx = risset.MainIndex()
-        for pluginname in ['else', 'beosc', 'klib', 'poly']:
-            p = idx.plugins.get(pluginname)
-            if p is None:
-                logger.error(f"Plugin {pluginname} not found in risset's index")
+    import risset
+    idx = risset.MainIndex()
+    for pluginname in ['else', 'beosc', 'klib', 'poly']:
+        p = idx.plugins.get(pluginname)
+        if p is None:
+            logger.error(f"Plugin {pluginname} not found in risset's index")
+            return False
+        elif idx.is_plugin_installed(p):
+            logger.debug(f"Plugin {pluginname} already installed, skipping")
+        else:
+            errmsg = idx.install_plugin(p)
+            if errmsg:
+                logger.error(f"Error while installing plugin {pluginname}: {errmsg}")
                 return False
-            elif idx.is_plugin_installed(p):
-                logger.debug(f"Plugin {pluginname} already installed, skipping")
-            else:
-                errmsg = idx.install_plugin(p)
-                if errmsg:
-                    logger.error(f"Error while installing plugin {pluginname}: {errmsg}")
-                    return False
-        return True
-    except ImportError:
-        logger.error("Risset not found, can't install plugins this way")
-        return False
+    return True
 
 
 def installPlugins(majorversion=6) -> bool:
@@ -247,39 +245,43 @@ def installPlugins(majorversion=6) -> bool:
 
     Will raise RuntimeError if failed
     """
-    if majorversion == 6:
-        try:
-            logger.info("Installing external plugins via risset")
-            ok = _installPluginsViaRisset()
-            if not ok:
-                logger.error("Could not install plugins via risset")
-                zipped = downloadLatestPluginForPlatform()
-                _installPluginsFromZipFile(zipped)
-            return pluginsInstalled(cached=False)
-        except RuntimeError as e:
-            logger.error(f"Could not install plugins from github: {e}")
-        logger.info("Installing plugins from distribution")
+    logger.info("Installing external plugins via risset")
+    try:
+        ok = _installPluginsViaRisset()
+        pluginsok = pluginsInstalled(cached=False)
+        if ok and pluginsok:
+            logger.info("Plugins installed successfully via risset")
+            return True
+        else:
+            logger.error("Could not install plugins via risset")
+            if not pluginsok:
+                logger.error("Tried to load the plugins but the provided opcodes are not"
+                             " listed by csound")
+                opcodes = csoundlib.opcodesList(cached=False)
+                opcodestr = ', '.join(opcodes)
+                logger.error(f"List of opcodes loaded by csound: {opcodestr}")
+    except Exception as e:
+        logger.error(f"Exception {e} while trying to install plugins via risset")
+
+    # zipped = downloadLatestPluginForPlatform()
+    # _installPluginsFromZipFile(zipped)
+    # return pluginsInstalled(cached=False)
+
+    logger.info("Installing plugins from distribution")
+    try:
         _installPluginsFromDist()
         ok = pluginsInstalled(cached=False)
         if ok:
-            logger.info("<<< Plugins installed successfully! >>>")
+            logger.info("Plugins installed successfully from distribution")
         else:
-            logger.error("Plugins are not installed correctly")
-        return ok
-    else:
-        print("Installing plugins for csound 7")
-        _installPluginsFromDist(7)
-        ok = pluginsInstalled(cached=False)
-        if ok:
-            logger.info("Plugins seem to be installed...")
-        else:
-            logger.error("Could not install needed csound plugins. "
-                         "Needed plugins: klib, else, poly. Please install these "
-                         "manually")
-        return ok
+            logger.error("Plugins where installed but do not seem to be detected")
+    except Exception as e:
+        logger.error(f"Exception {e} while trying to install plugins from distribution")
+        return False
+    return True
 
 
-def _checkDependencies(fix=False, updateState=True) -> Optional[str]:
+def _checkDependencies(fix=False, updateState=True, quiet=False) -> Optional[str]:
     """
     Either returns None or an error message
     """
@@ -295,9 +297,17 @@ def _checkDependencies(fix=False, updateState=True) -> Optional[str]:
 
     if not pluginsInstalled(cached=False):
         if fix:
-            print("*** Csound plugins are not installed or are too old."
-                  " I will try to install them now ***")
-            installPlugins(version[0])
+            if not quiet:
+                print("** csoundengine: Csound external plugins are not installed or are too old."
+                      " I will try to install them now")
+                ok = installPlugins(version[0])
+                if ok:
+                    if not quiet:
+                        print("** csoundengine: csound external plugins installed ok")
+                else:
+                    if not quiet:
+                        print("** csoundengine: csound external plugins could not be installed")
+                    return "csound external plugins could not be installed"
         else:
             return ("Some plugins are not installed. Install them via risset "
                     "(risset install \"*\"), or manually from "
@@ -307,7 +317,20 @@ def _checkDependencies(fix=False, updateState=True) -> Optional[str]:
         state['last_run'] = datetime.now().isoformat()
 
 
-def checkDependencies(force=False, fix=True, timeoutDays=1) -> bool:
+def installDependencies() -> bool:
+    """
+    Install any needed depencendies
+
+    Any problems regarding installation of dependencies will be logged as
+    errors
+
+    Returns:
+        True if dependencies are installed or were installed successfully, False otherwise
+    """
+    return checkDependencies(force=True, fix=True)
+
+
+def checkDependencies(force=False, fix=True) -> bool:
     """
     Check that all external dependencies are fullfilled.
 
@@ -325,12 +348,12 @@ def checkDependencies(force=False, fix=True, timeoutDays=1) -> bool:
         return True
 
     timeSincelast_run = datetime.now() - datetime.fromisoformat(state['last_run'])
-    if force or timeSincelast_run.days > timeoutDays:
+    if force or timeSincelast_run.days > 30:
         logger.warning("Checking dependencies")
         errormsg = _checkDependencies(fix=fix)
         if errormsg:
             logger.error(f"*** checkDependencies: {errormsg}")
             if not fix:
-                logger.error("*** You can try to fix them by calling checkDependencies(force=True, fix=True)")
+                logger.error("*** You can try to fix this by calling installDependencies()")
             return False
     return True

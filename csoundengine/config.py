@@ -163,9 +163,6 @@ _('spectrogram_figsize', "24:8", validatefunc=_validateFigsize,
 _('spectrogram_maxfreq', 12000,
   doc="Highest freq. in a spectrogram")
 _('spectrogram_window', 'hamming', choices={'hamming', 'hanning'})
-_('dependencies_check_timeout_days', 7,
-  doc="Elapsed time (in days) after which dependencies will be checked",
-  range=(1, 365))
 
 config.load()
 
