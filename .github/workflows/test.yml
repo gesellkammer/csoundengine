@@ -30,7 +30,12 @@ jobs:
           $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
           pip install -U csoundengine
           cd test
-          python test1.py
+          python test1.py -o test1-win.wav
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: test/*.wav
+
 
   testlinux:
     name: Test csoundengine on linux
@@ -47,17 +52,21 @@ jobs:
 
       - name: linux - install csound
         run: |
-          sudo apt install csound csound libcsnd-dev          
+          sudo apt install csound csound libcsnd-dev
           csound --version
 
-      - name: linux - test install from git 
+      - name: linux - test install from git
         run: |
           csound --version
           pip install .
           # pip install -U csoundengine
           cd test
-          python test1.py
+          python test1.py -o test1-linux.wav
           pip uninstall -y csoundengine
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: test/*.wav
 
 
   testmacos:
@@ -89,4 +98,8 @@ jobs:
         run: |
           pip install -U csoundengine
           cd test
-          python test1.py
+          python test1.py -o test1-macos.wav
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: test/*.wav
