@@ -59,9 +59,16 @@ jobs:
         run: |
           csound --version
           pip install .
-          # pip install -U csoundengine
           cd test
           python test1.py -o test1-linux.wav
+          pip uninstall -y csoundengine
+
+      - name: linux - test install from pip
+        run: |
+          csound --version
+          pip install -U csoundengine
+          cd test
+          python test1.py -o test1-linux-pip.wav
           pip uninstall -y csoundengine
 
       - uses: actions/upload-artifact@v3
@@ -83,7 +90,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: macos - install csound
-        if: runner.os == 'macos'
         run: |
           curl -L -o csound6.18.dmg https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg
           brew install p7zip
@@ -93,12 +99,18 @@ jobs:
           csound --version
           cd ..
 
+      - name: macos - test install from git
+        run: |
+          pip install .
+          cd test
+          python test1.py -o test1-macos.wav
+
       - name: macos - test install from pip
-        if: runner.os == 'macos'
         run: |
           pip install -U csoundengine
           cd test
-          python test1.py -o test1-macos.wav
+          python test1.py -o test1-macos-pip.wav
+
 
       - uses: actions/upload-artifact@v3
         with:
