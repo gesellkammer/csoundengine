@@ -352,8 +352,12 @@ class Renderer:
         renderer.render("out.wav")
 
     """
-    def __init__(self, sr: int = None, nchnls: int = 2, ksmps: int = None,
-                 a4: float = None, numpriorities=10,
+    def __init__(self,
+                 sr: int = None,
+                 nchnls: int = 2,
+                 ksmps: int = None,
+                 a4: float = None,
+                 numpriorities=10,
                  numAudioBuses=1000):
         """
 
@@ -494,7 +498,12 @@ class Renderer:
         """
         self._instrdefs[instr.name] = instr
 
-    def defInstr(self, name: str, body: str, **kws) -> Instr:
+    def defInstr(self,
+                 name: str,
+                 body: str,
+                 args: dict[str, float|str] = None,
+                 init: str = None,
+                 **kws) -> Instr:
         """
         Create an :class:`~csoundengine.instr.Instr` and register it with this renderer
 
@@ -502,12 +511,18 @@ class Renderer:
             name (str): the name of the created instr
             body (str): the body of the instrument. It can have named
                 pfields (see example) or a table declaration
+            args: args: pfields with their default values. Only needed if not using inline
+                args
+            init: init (global) code needed by this instr (read soundfiles,
+                load soundfonts, etc)
             kws: any keywords are passed on to the Instr constructor.
                 See the documentation of Instr for more information.
 
         Returns:
             the created Instr. If needed, this instr can be registered
             at any other Renderer/Session
+
+        .. seealso: :class:`~csoundengine.instr.Instr`, :meth:`Session.defInstr <csoundengine.session.Session.defInstr>`
 
         Example
         =======
@@ -538,7 +553,7 @@ class Renderer:
             ...                       tabargs={'ibus': bus, 'kcutoff': 1000})
             >>> filt.automateTable('kcutoff', [3, 1000, 6, 200, 10, 4000])
         """
-        instr = Instr(name=name, body=body, **kws)
+        instr = Instr(name=name, body=body, args=args, init=init, **kws)
         self.registerInstr(instr)
         return instr
 
@@ -556,7 +571,13 @@ class Renderer:
         """
         return self._instrdefs.get(name)
 
-    def addInclude(self, path: str ) -> None:
+    def includeFile(self, path: str) -> None:
+        """
+        Add an #include clause to this offline renderer
+
+        Args:
+            path: the path to the include file
+        """
         if path in self._includes:
             return
         self._includes.add(path)
@@ -831,16 +852,22 @@ class Renderer:
             ext = os.path.splitext(outfile)[1]
             encoding = csoundlib.bestSampleEncodingForExtension(ext[1:])
 
+        # We create a copy so that we can modify encoding/compression/etc
+        if encoding or compressionBitrate:
+            csd = self.csd.copy()
+        else:
+            csd = self.csd
+
         if encoding:
-            self.csd.setSampleEncoding(encoding)
+            csd.setSampleEncoding(encoding)
 
         if compressionBitrate:
-            self.csd.setCompressionBitrate(compressionBitrate)
+            csd.setCompressionBitrate(compressionBitrate)
 
-        proc = self.csd.run(output=outfile,
-                            suppressdisplay=run_suppressdisplay,
-                            nomessages=run_suppressdisplay,
-                            piped=run_piped)
+        proc = csd.run(output=outfile,
+                       suppressdisplay=run_suppressdisplay,
+                       nomessages=run_suppressdisplay,
+                       piped=run_piped)
         if openWhenDone:
             if not wait:
                 logger.info("Waiting for the render to finish...")
@@ -909,17 +936,19 @@ class Renderer:
 
     def strSet(self, s: str, index: int = None) -> int:
         """
-        Set a string in this renderer. The string can be retrieved in any
-        instrument via strget. The index is determined by the Renderer itself,
-        and it is guaranteed that calling strSet with the same string will
-        result in the same index
+        Set a string in this renderer.
+
+        The string can be retrieved in any instrument via strget. The index is
+        determined by the Renderer itself, and it is guaranteed that calling
+        strSet with the same string will result in the same index
 
         Args:
             s: the string to set
+            index: if given, it will force the renderer to use this index.
 
         Returns:
             the string id. This can be passed to any instrument to retrieve
-            the given string
+            the given string via the opcode "strget"
         """
         return self.csd.strset(s, index=index)
 
@@ -975,21 +1004,19 @@ class Renderer:
 
     def makeTable(self,
                   data: np.ndarray | list[float] | None = None,
-                  size=0,
-                  tabnum=0,
-                  sr=0,
-                  delay=0.
+                  size: int = 0,
+                  tabnum: int = 0,
+                  sr: int = 0,
+                  delay: float = 0.
                   ) -> int:
         """
         Create a table with given data or an empty table of the given size
 
         Args:
-            data (np.ndarray | list[float]): the data of the table. Use None
-                if the table should be empty
-            size (int): if not data is given, sets the size of the empty table created
-            tabnum (int): 0 to let csound determine a table number, -1 to self assign
-                a value
-            sr (int): the samplerate of the data, if applicable.
+            data: the data of the table. Use None if the table should be empty
+            size: if not data is given, sets the size of the empty table created
+            tabnum: 0 to self assign a table number
+            sr: the samplerate of the data, if applicable.
             delay: when to create this table
 
         Returns:
@@ -1004,9 +1031,14 @@ class Renderer:
             return tabnum
         else:
             assert size > 0
-            return self.csd.addEmptyTable(size=size, sr=sr)
+            return self.csd.addEmptyTable(size=size, sr=sr, tabnum=tabnum)
 
-    def readSoundfile(self, path: str, tabnum:int=None, chan=0, start=0., skiptime=0.
+    def readSoundfile(self,
+                      path: str,
+                      tabnum: int = None,
+                      chan: int = 0,
+                      start: float = 0.,
+                      skiptime: float = 0.
                       ) -> int:
         """
         Add code to this offline renderer to load a soundfile
@@ -1024,7 +1056,6 @@ class Renderer:
         return self.csd.addSndfile(sndfile=path, tabnum=tabnum,
                                    start=start, skiptime=skiptime,
                                    chan=chan)
-
 
     def playSample(self,
                    source: int|str|tuple[np.ndarray, int],
@@ -1090,9 +1121,13 @@ class Renderer:
                     ixfade=crossfade)
         return self.sched('.playSample', delay=delay, dur=dur, args=args)
 
-    def automatep(self, event: ScoreEvent, param: str,
+    def automatep(self,
+                  event: ScoreEvent,
+                  param: str,
                   pairs: list[float] | np.ndarray,
-                  mode="linear", delay: float = None) -> None:
+                  mode="linear",
+                  delay: float = None
+                  ) -> None:
         """
         Automate a pfield of a scheduled event
 
@@ -1113,7 +1148,7 @@ class Renderer:
         dur = pairs[-2]-pairs[0]
         epsilon = self.csd.ksmps / self.csd.sr * 3
         start = max(0., delay-epsilon)
-        if event.dur>0:
+        if event.dur > 0:
             # we clip the duration of the automation to the lifetime of the automated event
             end = min(event.start+event.dur, start+dur+epsilon)
             dur = end-start
@@ -1123,9 +1158,13 @@ class Renderer:
         args = [event.p1, pindex, tabpairs, modeint]
         self.csd.addEvent("_automatePargViaTable", start=delay, dur=dur, args=args)
 
-    def automateTable(self, event: ScoreEvent, param: str,
+    def automateTable(self,
+                      event: ScoreEvent,
+                      param: str,
                       pairs: list[float]|np.ndarray,
-                      mode="linear", delay: float = None) -> None:
+                      mode="linear",
+                      delay: float = None
+                      ) -> None:
         """
         Automate a slot of an event param table
 
@@ -1183,12 +1222,16 @@ class Renderer:
         self.csd.addEvent("_automateTableViaTable", start=delay, dur=dur, args=args)
 
     def __enter__(self):
+        if not self._exitCallbacks:
+            logger.debug("Called Renderer as context, will render with default values at exit")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self._exitCallbacks:
             for func in self._exitCallbacks:
                 func(self)
+        else:
+            self.render()
 
 
 def cropScore(events: list[ScoreEvent], start=0, end=0) -> list[ScoreEvent]:

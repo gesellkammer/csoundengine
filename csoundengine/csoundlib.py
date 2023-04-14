@@ -243,6 +243,12 @@ class AudioBackend:
 
 
     def audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
+        """
+        Query csound for audio devices for this backend
+
+        Returns:
+            a tuple (inputDevices: list[AudioDevice], outputDevices: list[AudioDevice])
+        """
         logger.info(f"Querying csound's audio devices for backend {self.name}")
         cs = ctcsound.Csound()
         for opt in ['-+rtaudio='+self.name, "-m16", "-odac"]:
@@ -293,7 +299,10 @@ class AudioBackend:
 
     def defaultAudioDevices(self) -> tuple[AudioDevice, AudioDevice]:
         """
-        Returns a tuple (default input device, default output device) for this backend
+        Returns the default audio devices for this backend
+
+        Returns:
+            a tuple ``(inputDevice: AudioDevice, outputDevice: AudioDevice)`` for this backend
         """
         indevs, outdevs = getAudioDevices(self.name)  # self.audioDevices()
         return indevs[0], outdevs[0]
@@ -523,6 +532,7 @@ def getVersion(useApi=True) -> tuple[int, int, int]:
     """
     if useApi:
         return _getVersionViaApi()
+
     csound = findCsound()
     if not csound:
         raise IOError("Csound not found")
@@ -1657,8 +1667,15 @@ class Csd:
         >>> csd.write('out.csd')
     """
 
-    def __init__(self, sr=44100, ksmps=64, nchnls=2, a4=442., options:list[str]=None,
-                 nodisplay=False, carry=False, nchnls_i: int = None,
+    def __init__(self,
+                 sr=44100,
+                 ksmps=64,
+                 nchnls=2,
+                 a4=442.,
+                 options: list[str] = None,
+                 nodisplay=False,
+                 carry=False,
+                 nchnls_i: int = None,
                  reservedTables=0):
         self._strLastIndex = 20
         self._str2index: dict[str, int] = {}
@@ -1666,8 +1683,10 @@ class Csd:
         self.instrs: dict[Union[str, int], str] = {}
         self.globalcodes: list[str] = []
         self.options: list[str] = []
+
         if options:
             self.setOptions(*options)
+
         self.sr = sr
         self.ksmps = ksmps
         self.nchnls = nchnls
@@ -1690,6 +1709,9 @@ class Csd:
             self.score.append(("C", 0))
             
     def copy(self) -> Csd:
+        """
+        Copy this csd
+        """
         out = Csd(sr=self.sr,
                   ksmps=self.ksmps,
                   nchnls=self.nchnls,
@@ -1698,15 +1720,39 @@ class Csd:
                   nodisplay=self.nodisplay,
                   carry=self.enableCarry,
                   nchnls_i=self.nchnls_i)
+
+        out.instrs = self.instrs.copy()
         out.score = self.score.copy()
-        out._encodingFormat = self._encodingFormat
+        out._str2index = self._str2index.copy()
+        out._strLastIndex = self._strLastIndex
+        if self.globalcodes:
+            for code in self.globalcodes:
+                out.addGlobalCode(code)
+
+        out._outfileEncoding = self._outfileEncoding
+        out._outfileFormat = self._outfileFormat
+        out._compressionQuality = self._compressionQuality
+
         out._definedTables = self._definedTables
         out._minTableIndex = self._minTableIndex
         out._maxTableNumber = self._maxTableNumber
-        out.datafiles = self.datafiles.copy()
+
+        if self.datafiles:
+            out.datafiles = self.datafiles.copy()
+
+        if self._outfileEncoding:
+            out.setSampleEncoding(self._outfileEncoding)
+
         return out
 
     def cropScore(self, start=0., end=0.) -> None:
+        """
+        Crop the score at the given boundaries
+
+        Any event starting earlier or ending after the given times will
+        be cropped, any event ending before start or starting before
+        end will be removed
+        """
         score = _cropScore(self.score, start, end)
         self.score = score
 
@@ -1963,12 +2009,23 @@ class Csd:
         self._outfileEncoding = encoding
 
     def setCompressionQuality(self, quality=0.4) -> None:
+        """
+        Set the compression quality
+
+        Args:
+            quality: a value between 0 and 1
+        """
         self._compressionQuality = quality
 
-
     def setCompressionBitrate(self, bitrate=128, format='ogg') -> None:
-        self.setCompressionQuality(compressionBitrateToQuality(bitrate, format))
+        """
+        Set the compression quality by defining a bitrate
 
+        Args:
+            bitrate: the bitrate in kB/s
+            format: the format used (only 'ogg' at the moment)
+        """
+        self.setCompressionQuality(compressionBitrateToQuality(bitrate, format))
 
     def _writeScore(self, stream, datadir='.', dataprefix='') -> None:
         """
@@ -2018,7 +2075,12 @@ class Csd:
         self.globalcodes.append(code)
 
     def setOptions(self, *options: str) -> None:
-        """ Adds options to this csd """
+        """
+        Adds options to this csd
+
+        Options are any command-line options passed to csound itself or which could
+        be used within a <CsOptions> tag. They are not checked for correctness
+        """
         self.options.extend(options)
 
     def dump(self) -> str:
