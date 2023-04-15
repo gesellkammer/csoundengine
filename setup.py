@@ -57,7 +57,7 @@ setup(
         "bpf4>=1.8.4",
         "numpyx>=1.3.1",
         "pitchtools>=1.9.2",
-        "risset>=2.4",
+        "risset>=2.4.2",
     ],
     license="BSD",
     classifiers=[
