@@ -124,7 +124,7 @@ from .errors import *
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Union, Optional, Callable
     from . import session as _session
     import socket
     callback_t = Callable[[str, float], None]
@@ -968,13 +968,13 @@ class Engine:
         """
         Set a callback to be fired when "outvalue" is used in csound
 
-        Register a function ``func(channelname:str, newvalue:float) -> None``,
+        Register a function ``func(channelname:str, newvalue: float) -> None``,
         which will be called whenever the given channel is modified via
         the "outvalue" opcode. Multiple functions per channel can be registered
 
         Args:
             chan: the name of a channel
-            func: a function of the form ``func(chan:str, newvalue:float) -> None``
+            func: a function of the form ``func(chan:str, newvalue: float) -> None``
 
         """
         key = bytes(chan, "ascii")
@@ -1187,7 +1187,7 @@ class Engine:
             code = "return " + code
         return self.csound.evalCode(code)
 
-    def tableWrite(self, tabnum:int, idx:int, value:float, delay:float=0.) -> None:
+    def tableWrite(self, tabnum:int, idx:int, value: float, delay: float=0.) -> None:
         """
         Write to a specific index of a table
 
@@ -1271,14 +1271,10 @@ class Engine:
             ... endin
             ... ''')
             >>> now = e.elapsedTime()
-            # Schedule 5 events per second for 60 seconds. Without a time
-            # reference the events would fall out of sync
             >>> for t in np.arange(0, 60, 0.2):
             ...     e.sched(100, t+now, 0.15, args=[1000], relative=False)
             ...     e.sched(100, t+now, 0.15, args=[800], relative=False)
-
-        The same result can be achieved by locking the elapsed-time clock::
-
+            >>> # The same result can be achieved by locking the elapsed-time clock:
             >>> with e.lockedClock():
             ...     for t in np.arange(0, 10, 0.2):
             ...         e.sched(100, t, 0.15, args=[1000])
@@ -1516,7 +1512,8 @@ class Engine:
             self._perfThread.scoreEvent(1, "i", pargs)
         return instrfrac
 
-    def _queryNamedInstrs(self, names:list[str], timeout=0.1, callback=None, delay=0.) -> None:
+    def _queryNamedInstrs(self, names: list[str], timeout=0.1, callback=None, delay=0.
+                          ) -> None:
         """
         Query assigned instr numbers
 
@@ -1628,7 +1625,7 @@ class Engine:
             self._instrNumCache[instrname] = out
         return out
 
-    def unsched(self, p1: float | str, delay:float = 0) -> None:
+    def unsched(self, p1: Union[float, str], delay: float = 0) -> None:
         """
         Stop a playing event
 
@@ -1670,7 +1667,7 @@ class Engine:
         pfields = [self.builtinInstrs['turnoff'], delay, 0, p1, mode]
         self._perfThread.scoreEvent(0, "i", pfields)
 
-    def unschedFuture(self, p1: float | str) -> None:
+    def unschedFuture(self, p1: Union[float, str]) -> None:
         """
         Stop a future event
 
@@ -1800,7 +1797,7 @@ class Engine:
         return tabnum
 
     def makeTable(self,
-                  data: list[float] | np.ndarray,
+                  data: Sequence[float] | np.ndarray,
                   tabnum: int = 0,
                   sr: int = 0,
                   block=True,
@@ -1889,7 +1886,7 @@ class Engine:
             return False
         return True
 
-    def setTableMetadata(self, tabnum:int, sr:int, numchannels:int = 1,
+    def setTableMetadata(self, tabnum: int, sr: int, numchannels: int = 1,
                          check=True) -> None:
         """
         Set metadata for a table holding sound samples.
@@ -1927,7 +1924,7 @@ class Engine:
         self._responseCallbacks[token] = lambda token, q=q, t=table: q.put(t[token])
         return q
 
-    def schedCallback(self, delay:float, callback:Callable) -> None:
+    def schedCallback(self, delay: float, callback: Callable) -> None:
         """
         Call callback after delay, triggered by csound scheduler
 
@@ -1964,9 +1961,15 @@ class Engine:
         except _queue.Empty:
             raise TimeoutError(f"{token=}, {pargs=}")
 
-    def plotTableSpectrogram(self, tabnum: int, fftsize=2048, mindb=-90,
-                             maxfreq:int=None, overlap:int=4, minfreq:int=0,
-                             sr:int=44100, chan=0
+    def plotTableSpectrogram(self,
+                             tabnum: int,
+                             fftsize=2048,
+                             mindb=-90,
+                             maxfreq: int = None,
+                             overlap: int = 4,
+                             minfreq: int = 0,
+                             sr: int = 44100,
+                             chan=0
                              ) -> None:
         """
         Plot a spectrogram of the audio data in the given table
@@ -2007,7 +2010,7 @@ class Engine:
                                  maxfreq=maxfreq, minfreq=minfreq, overlap=overlap,
                                  show=True)
 
-    def plotTable(self, tabnum: int, sr: int=0) -> None:
+    def plotTable(self, tabnum: int, sr: int = 0) -> None:
         """
         Plot the content of the table via matplotlib.pyplot
 
@@ -2076,10 +2079,10 @@ class Engine:
                 plotting.plt.show()
 
     def schedSync(self,
-                  instr: int | float | str,
+                  instr: Union[int, float, str],
                   delay: float = 0,
                   dur: float = -1,
-                  args: np.ndarray | Sequence[float | str] = None,
+                  args: Union[np.ndarray, Sequence[Union[float, str]]] = None,
                   timeout=-1
                   ):
         """
@@ -2166,8 +2169,8 @@ class Engine:
         self._perfThread.scoreEvent(0, "i", pargs)
         return None
 
-    def _inputMessageWait(self, token:int, inputMessage:str,
-                          timeout:float=None) -> float | None:
+    def _inputMessageWait(self, token: int, inputMessage: str,
+                          timeout: float=None) -> Optional[float]:
         """
         This function passes the str inputMessage to csound and waits for
         the instr to notify us with a "__sync__" outvalue
@@ -2221,7 +2224,7 @@ class Engine:
         return None
 
     def _makeTableNotify(self,
-                         data: list[float] | np.ndarray | None = None,
+                         data: Sequence[float] | np.ndarray | None = None,
                          size=0,
                          tabnum=0,
                          callback=None,
@@ -2332,7 +2335,7 @@ class Engine:
         assert ptr is not None
         return ptr
 
-    def setChannel(self, channel: str, value: float | str | np.ndarray,
+    def setChannel(self, channel: str, value: Union[float, str] | np.ndarray,
                    method: str = None, delay=0.
                    ) -> None:
         """
@@ -2409,7 +2412,7 @@ class Engine:
             raise ValueError(f"method {method} not supported "
                              f"(choices: 'api', 'score', 'udp'")
 
-    def initChannel(self, channel: str, value: float | str | np.ndarray=0, kind='',
+    def initChannel(self, channel: str, value: Union[float, str] | np.ndarray=0, kind='',
                     mode="r") -> None:
         """
         Create a channel and set its initial value
@@ -2696,7 +2699,7 @@ class Engine:
             self._perfThread.inputMessage(msg)
         return tabnum
 
-    def soundfontPlay(self, index: int, pitch:float, amp:float=0.7, delay=0.,
+    def soundfontPlay(self, index: int, pitch: float, amp: float=0.7, delay=0.,
                       dur=-1., vel:int=None, chan=1
                       ) -> float:
         """
@@ -2924,7 +2927,7 @@ class Engine:
         self._perfThread.inputMessage(msg)
         return p1
 
-    def setp(self, p1:float, *pairs, delay=0.) -> None:
+    def setp(self, p1: float, *pairs, delay=0.) -> None:
         """
         Modify a parg of an active synth.
 
@@ -3336,7 +3339,7 @@ class Engine:
         assert self._subgainsTable is not None
         self._subgainsTable[idx] = gain
 
-    def writeBus(self, bus:int, value:float, delay=0.) -> None:
+    def writeBus(self, bus:int, value: float, delay=0.) -> None:
         """
         Set the value of a control bus
 
@@ -3366,7 +3369,7 @@ class Engine:
             busidx = self._busIndex(bus, create=True)
             self._kbusTable[busidx] = value
 
-    def readBus(self, bus:int, default:float=0.) -> float:
+    def readBus(self, bus:int, default: float=0.) -> float:
         """
         Read the current value of a control bus
 
@@ -3492,6 +3495,7 @@ class Engine:
         Modulate one instr with another, at k-rate. **NB: control buses act like global
         variables, the are not cleared at the end of each cycle**.
 
+        >>> e = Engine(...)
         >>> e.compile(r'''
         ... instr 130
         ...   ibus = p4

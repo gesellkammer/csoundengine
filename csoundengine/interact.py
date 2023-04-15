@@ -1,7 +1,7 @@
 from __future__ import annotations
 import dataclasses
 import emlib.misc
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Optional
 
 if TYPE_CHECKING:
     from . import engine
@@ -77,7 +77,7 @@ def _stepToFormat(step: float) -> str:
 
 
 def _jupySlider(name:str, startvalue: float, minvalue: float, maxvalue: float,
-                callback:Callable, step:float=None, width='80%', log=False):
+                callback: Callable, step:float=None, width='80%', log=False):
     import ipywidgets as ipy
     if step is None:
         step = _guessStep(minvalue, maxvalue)

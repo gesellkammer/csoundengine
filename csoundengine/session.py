@@ -110,7 +110,7 @@ Pfields are modified via the opcode ``pwrite``, which writes directly to
 the memory where the event holds its parameter values. A Session provides
 an alternative way to provide dynamic, named parameters, by defining a table
 (an actual csound table) attached to each created event. Such tables define
-names and default values for each parameters. The param table and the instrument
+names and default values for each parameter. The param table and the instrument
 instance are created in tandem and the event reads the value from the table. ``p4``
 is always reserved for a param table and should not be used for any other parameter,
 even if the :class:`~csoundengine.instr.Instr` does not define a parameter table.
@@ -182,7 +182,8 @@ from . import jupytertools
 from .offline import Renderer
 import bpf4
 import numpy as np
-from typing import Callable
+from typing import Callable, Union, Optional
+
 
 
 __all__ = [
@@ -300,7 +301,7 @@ class Session:
     .. code::
 
         s = Engine().session()
-        s.defInstr('sine', args={'kamp': 0.1, 'kfreq': 1000, body=r'''
+        s.defInstr('sine', args={'kamp': 0.1, 'kfreq': 1000}, body=r'''
             kamp = p5
             kfreq = p6
             a0 = oscili:a(kamp, kfreq)
@@ -425,7 +426,7 @@ class Session:
         self._tabnumToTabproxy: dict[int, TableProxy] = {}
         self._pathToTabproxy: dict[str, TableProxy] = {}
         self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
-        self._schedCallback: Callable | None = None
+        self._schedCallback: Union[Callable, None] = None
 
         if config['define_builtin_instrs']:
             self._defBuiltinInstrs()
@@ -531,7 +532,7 @@ class Session:
             logger.debug(f"Making table with init values: {values} ({overrides})")
             return self.engine.makeTable(data=values, block=wait)
 
-    def setSchedCallback(self, callback: Callable) -> Callable | None:
+    def setSchedCallback(self, callback: Callable) -> Optional[Callable]:
         """
         Set the schedule callback
 
@@ -910,11 +911,11 @@ class Session:
         """
         renderer = self.makeRenderer()
 
-        def exit(r: Renderer, outfile=outfile):
+        def _exit(r: Renderer, outfile=outfile):
             r.render(outfile=outfile)
 
         if outfile:
-            renderer._registerExitCallback(exit)
+            renderer._registerExitCallback(_exit)
 
         return renderer
 
@@ -942,7 +943,7 @@ class Session:
             args: pfields passed to the instrument (p5, p6, ...) or a dict of the
                 form {'pfield': value}, where pfield can be any px string or the name
                 of the variable (for example, if the instrument has a line
-                'kfreq = p5', then 'kfreq' can be used as key here.
+                'kfreq = p5', then 'kfreq' can be used as key here).
             tabargs: args to set the initial state of the associated table. Any
                 arguments here will override the defaults in the instrument definition
             whenfinished: a function of the form f(synthid) -> None
@@ -1002,7 +1003,7 @@ class Session:
             raise ValueError(f"Instrument {instrname} not defined")
         table: ParamTable | None
         if instr._tableDefaultValues is not None:
-            # the instruments has an associated table
+            # the instruments have an associated table
             tableidx = self._makeInstrTable(instr, overrides=tabargs, wait=True)
             table = ParamTable(engine=self.engine, idx=tableidx,
                                mapping=instr._tableNameToIndex)
@@ -1206,9 +1207,11 @@ class Session:
             sr (int): the samplerate of the data, if applicable.
             freeself (bool): if True, the underlying csound table will be freed
                 whenever the returned TableProxy ceases to exist.
+            unique: if False, do not create a table if there is a table with the same data
             _instrnum (float): private, used internally for argument tables to
                 keep record of the instrument instance a given table is assigned
                 to
+
 
         Returns:
             a TableProxy object
@@ -1233,13 +1236,15 @@ class Session:
                 datahash = _tools.ndarrayhash(data)
                 if (tabproxy := self._ndarrayHashToTabproxy.get(datahash)) is not None:
                     return tabproxy
+            else:
+                datahash = None
             numframes = len(data)
             tabnum = self.engine.makeTable(data=data, tabnum=tabnum,
                                            _instrnum=_instrnum, block=block,
                                            callback=callback, sr=sr)
             tabproxy = TableProxy(tabnum=tabnum, sr=sr, nchnls=nchnls, numframes=numframes,
                                   engine=self.engine, freeself=freeself)
-            if not unique:
+            if datahash is not None:
                 self._ndarrayHashToTabproxy[datahash] = tabproxy
 
         self._registerTable(tabproxy)

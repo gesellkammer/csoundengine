@@ -25,7 +25,7 @@ datafiles = package_files('csoundengine/data')
 
 setup(
     name='csoundengine',
-    python_requires=">=3.10",
+    python_requires=">=3.9",
     version=".".join(map(str, version)),
     description='A synthesis framework using csound',
     long_description=long_description,
