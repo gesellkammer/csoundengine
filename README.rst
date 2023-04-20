@@ -176,3 +176,9 @@ Documentation
 -------------
 
 https://csoundengine.readthedocs.io
+
+
+Usage in other projects
+-----------------------
+
+* **csoundengine** is used as the audio engine in `maelzel <https://github.com/gesellkammer/maelzel>`_
