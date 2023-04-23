@@ -116,8 +116,8 @@ from . import tools
 from .csoundlib import (dumpAudioDevices, dumpAudioBackends,
                         getAudioBackend, audioBackends)
 
-import emlib.misc
-if emlib.misc.inside_ipython():
+import emlib.envir
+if emlib.envir.inside_ipython():
     from . import magic
     if config['ipython_load_magics_at_startup']:
         from IPython.core.getipython import get_ipython
