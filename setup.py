@@ -4,7 +4,7 @@
 from setuptools import setup
 import os
 
-version = (1, 20, 2)
+version = (1, 21, 0)
 
 from os import path
 this_directory = path.abspath(path.dirname(__file__))
@@ -52,7 +52,7 @@ setup(
 
         "ctcsound7>=0.3.0",
         "sndfileio>=1.9.0",
-        "emlib>=1.8.1",
+        "emlib>=1.9.0",
         "configdict>=2.6.0",
         "bpf4>=1.8.4",
         "numpyx>=1.3.1",

@@ -665,7 +665,8 @@ class Renderer:
         return self._schedEvent(p1=p1, start=float(delay), dur=float(dur), args=args,
                                 instrname=instrname, priority=priority)
 
-    def _schedEvent(self, p1: float|int, start: float, dur: float, args: list[float|str],
+    def _schedEvent(self, p1: float|int, start: float, dur: float, 
+                    args: list[float|str],
                     instrname: str = '', priority=0
                     ) -> ScoreEvent:
         self.csd.addEvent(p1, start=start, dur=dur, args=args)
@@ -826,7 +827,8 @@ class Renderer:
         outfiledir = os.path.split(outfile)[0]
         if not os.path.isdir(outfiledir) or not os.path.exists(outfiledir):
             raise FileNotFoundError(f"The path '{outfiledir}' where the rendered soundfile should "
-                                    f"be generated does not exist (outfile: '{outfile}')")
+                                    f"be generated does not exist "
+                                    f"(outfile: '{outfile}')")
         scorestart, scoreend = self.scoreTimeRange()
         renderend = endtime if endtime > 0 else scoreend
         if renderend == float('inf'):

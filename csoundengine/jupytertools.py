@@ -1,8 +1,8 @@
 from __future__ import annotations
-import emlib.misc as _misc
+from emlib.envir import inside_jupyter
 from typing import Callable
 
-if _misc.inside_jupyter():
+if inside_jupyter():
     import ipywidgets as _ipywidgets
     from IPython.display import display as _ipythonDisplay
 
@@ -31,8 +31,8 @@ def displayButton(buttonText: str, callback: Callable[[], None]
         callback: the function to call when the button is pressed. This function
             takes no arguments and should not return anything
     """
-    assert _misc.inside_jupyter(), ("This function is only available when"
-                                         "running inside a jupyter notebook")
+    assert inside_jupyter(), ("This function is only available when"
+                              "running inside a jupyter notebook")
     button = _ipywidgets.Button(description=buttonText)
     output = _ipywidgets.Output()
 

@@ -2,6 +2,7 @@ from emlib import numpytools
 import emlib.misc
 
 from scipy import signal
+from emlib.envir import inside_jupyter
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -68,7 +69,7 @@ def matplotlibIsInline():
 
     https://stackoverflow.com/questions/15341757/how-to-check-that-pylab-backend-of-matplotlib-runs-inline
     """
-    return emlib.misc.inside_jupyter() and 'inline' in matplotlib.get_backend()
+    return inside_jupyter() and 'inline' in matplotlib.get_backend()
 
 
 def plotSamples(samples: np.ndarray, samplerate: int, profile: str= 'auto',

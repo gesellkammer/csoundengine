@@ -1,11 +1,10 @@
 from __future__ import annotations
 import dataclasses
-import emlib.misc
-from typing import TYPE_CHECKING, Callable, Optional
+from emlib.envir import inside_jupyter
 
+from typing import TYPE_CHECKING, Callable, Optional
 if TYPE_CHECKING:
     from . import engine
-    import ipywidgets as ipy
 
 
 def _guessStep(minval: float, maxval: float):
@@ -189,7 +188,7 @@ def interactPargs(engine: engine.Engine,
         allspecs.update(specs)
     if namedSpecs:
         allspecs.update(namedSpecs)
-    if emlib.misc.inside_jupyter():
+    if inside_jupyter():
         return _jupyInteractPargs(engine=engine, p1=p1, specs=allspecs)
     else:
         raise RuntimeError("interact is only supporte inside a jupyter session at the"

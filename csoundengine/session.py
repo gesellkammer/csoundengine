@@ -166,7 +166,6 @@ UI generated when using the terminal:
 
 from __future__ import annotations
 from dataclasses import dataclass
-import emlib.misc
 import emlib.dialogs
 from .engine import Engine, getEngine, CsoundError
 from . import engineorc
@@ -446,7 +445,7 @@ class Session:
 
     def _repr_html_(self):
         active = len(self.activeSynths())
-        if active and emlib.misc.inside_jupyter():
+        if active and jupytertools.inside_jupyter():
             jupytertools.displayButton("Stop Synths", self.unschedAll)
         name = jupytertools.htmlName(self.name)
         return f"Session({name}, synths={active})"
@@ -997,7 +996,7 @@ class Session:
         if instrname == "?":
             instrname = emlib.dialogs.selectItem(list(self.instrs.keys()),
                                                  title="Select Instr",
-                                                 ensureSelection=True)
+                                                  ensureSelection=True)
         instr: Instr = self.getInstr(instrname)
         if instr is None:
             raise ValueError(f"Instrument {instrname} not defined")

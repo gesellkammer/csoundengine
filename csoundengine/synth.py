@@ -276,7 +276,7 @@ class AbstrSynth(baseevent.BaseEvent):
         """
         If inside jupyter, display the html representation of self
         """
-        if emlib.misc.inside_jupyter():
+        if jupytertools.inside_jupyter():
             from IPython.display import display
             display(self)
 
@@ -398,7 +398,7 @@ class Synth(AbstrSynth):
         return '<span style="font-size:12px;">Synth('+', '.join(parts)+')</span>'
 
     def _repr_html_(self) -> str:
-        if emlib.misc.inside_jupyter():
+        if jupytertools.inside_jupyter():
             if self.playing():
                 if config['jupyter_synth_repr_stopbutton']:
                     jupytertools.displayButton("Stop", self.stop)
@@ -943,7 +943,7 @@ class SynthGroup(AbstrSynth):
         return '\n'.join(lines)
 
     def _repr_html_(self) -> str:
-        if config['jupyter_synth_repr_stopbutton'] and emlib.misc.inside_jupyter():
+        if config['jupyter_synth_repr_stopbutton'] and jupytertools.inside_jupyter():
             jupytertools.displayButton("Stop", self.stop)
         now = self.synths[0].engine.elapsedTime()
         start = min(max(0., s.start - now) for s in self.synths)
