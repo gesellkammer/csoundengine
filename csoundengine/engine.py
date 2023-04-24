@@ -1881,7 +1881,7 @@ class Engine:
         """
 
         try:
-            tabinfo = self.tableInfo(tabnum)
+            _ = self.tableInfo(tabnum)
         except TableNotFoundError:
             return False
         return True

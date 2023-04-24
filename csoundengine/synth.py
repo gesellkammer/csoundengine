@@ -10,10 +10,9 @@ import weakref as _weakref
 from . import jupytertools
 from abc import abstractmethod
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union, Set
 
 if TYPE_CHECKING:
-    from typing import *
     from .engine import Engine
     from .instr import Instr
     from .paramtable import ParamTable
@@ -326,6 +325,7 @@ class Synth(AbstrSynth):
         synths[1].automatep('ktransp', [0, 0, 10, -1])
 
     """
+    __slots__ = ('instr', 'table', 'group', '_playing')
 
     def __init__(self,
                  engine: Engine,
@@ -339,10 +339,6 @@ class Synth(AbstrSynth):
                  table: ParamTable = None,
                  priority: int = 1,
                  ) -> None:
-        """
-
-        """
-        __slots__ = ('instr', 'table', 'group', '_playing')
 
         AbstrSynth.__init__(self, p1=p1, start=start, dur=dur, engine=engine, autostop=autostop, priority=priority)
 
@@ -498,7 +494,7 @@ class Synth(AbstrSynth):
                     self.table[key] = value
 
     def get(self, slot: Union[int, str], default: float = None
-            ) -> Optional[float]:
+            ) -> Union[float, None]:
         if not self._playing:
             logger.error("Synth not playing")
             return
@@ -513,7 +509,7 @@ class Synth(AbstrSynth):
         else:
             return default
 
-    def namedPfields(self) -> Optional[Set[str]]:
+    def namedPfields(self) -> Union[Set[str], None]:
         name2idx = self.instr.pargsNameToIndex
         return set(name2idx.keys()) if name2idx else None
 
@@ -579,7 +575,7 @@ class Synth(AbstrSynth):
         pairs = iterlib.flatdict(pairsd)
         self.engine.setp(self.p1, *pairs, delay=delay)
 
-    def getp(self, pfield: Union[int, str]) -> Optional[float]:
+    def getp(self, pfield: Union[int, str]) -> Union[float, None]:
         """
         Get the current value of a pfield
 
@@ -601,7 +597,7 @@ class Synth(AbstrSynth):
         idx = pfield if isinstance(pfield, int) else self.instr.pargIndex(pfield)
         return self.engine.getp(self.p1, idx)
 
-    def ui(self, **specs: dict[str, Tuple[float, float]]) -> None:
+    def ui(self, **specs: dict[str, tuple[float, float]]) -> None:
         """
         Modify dynamic (named) arguments through an interactive user-interface
 
@@ -707,7 +703,7 @@ class Synth(AbstrSynth):
         return self.engine.automateTable(self.table.tableIndex, paramidx, pairs,
                                          mode=mode, delay=delay, overtake=overtake)
 
-    def paramMode(self) -> Optional[str]:
+    def paramMode(self) -> Union[str, None]:
         return self.instr.paramMode()
 
     def automate(self, param: str, pairs: Union[list[float, np.ndarray]], mode='linear',
@@ -907,7 +903,7 @@ class SynthGroup(AbstrSynth):
     def hasParamTable(self) -> bool:
         return any(s.hasParamTable() is not None for s in self.synths)
 
-    def paramMode(self) -> Optional[str]:
+    def paramMode(self) -> Union[str, None]:
         modes = set(mode for synth in self.synths
                     if (mode:=synth.paramMode()) is not None)
         if len(modes) == 0:
@@ -917,7 +913,7 @@ class SynthGroup(AbstrSynth):
         else:
             raise ValueError("This group has multiple param modes")
 
-    def tableState(self) -> Optional[dict[str, float]]:
+    def tableState(self) -> Union[dict[str, float], None]:
         dicts = [d for s in self.synths if (d:=s.tableState())]
         if not dicts:
             return None
@@ -930,7 +926,7 @@ class SynthGroup(AbstrSynth):
         instr0 = self.synths[0].instr
         return all(synth.instr == instr0 for synth in self.synths if synth.playing())
 
-    def _htmlTable(self) -> Optional[str]:
+    def _htmlTable(self) -> Union[str, None]:
         subgroups = iterlib.classify(self.synths, lambda synth: synth.instr.name)
         lines = []
         instrcol = jupytertools.defaultPalette["name.color"]
@@ -989,7 +985,7 @@ class SynthGroup(AbstrSynth):
         for synth in self.synths:
             synth.setTable(*args, delay=delay, **kws)
 
-    def get(self, idx: Union[int, str], default=None) -> list[Optional[float]]:
+    def get(self, idx: Union[int, str], default=None) -> list[Union[float, None]]:
         """
         Get the value of a named parameter
 
