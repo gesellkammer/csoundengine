@@ -26,13 +26,16 @@ def displayButton(buttonText: str, callback: Callable[[], None]
     """
     Create and display an html button inside a jupyter notebook
 
+    If not inside a jupyter notebook this function will raise RuntimeError
+
     Args:
         buttonText: the text of the button
         callback: the function to call when the button is pressed. This function
             takes no arguments and should not return anything
     """
-    assert inside_jupyter(), ("This function is only available when"
-                              "running inside a jupyter notebook")
+    if not inside_jupyter():
+        raise RuntimeError("This function is only available when running inside a jupyter notebook")
+
     button = _ipywidgets.Button(description=buttonText)
     output = _ipywidgets.Output()
 
@@ -45,6 +48,10 @@ def displayButton(buttonText: str, callback: Callable[[], None]
 
 
 def htmlName(text: str, palette='light') -> str:
+    """A name as html
+
+    It will use the colors as defined in the palette
+    """
     colors = palettes.get(palette)
     return f'<strong style="color:{colors["name.color"]}">{text}</strong>'
 
@@ -65,7 +72,23 @@ safeColors = {
 }
 
 
-def htmlSpan(text, color: str = '', fontsize: str = '', italic=False, bold=False) -> str:
+def htmlSpan(text: str, color='', fontsize='', italic=False, bold=False) -> str:
+    """
+    Create a html span with the given attributes
+
+    Args:
+        text: the text inside the span
+        color: a valid css color. If it starts with ':', one of the 'safe' colors as
+            defined in `safeColors` (blue1, blue2, red1, red2, green1, green2, cyan, grey1, grey2,
+            grey3, magenta1, magenta2). For example, ':blue1' will use the blue1 safe color
+        fontsize: a valid size, such as '12px'.
+        italic: if True, use italic text
+        bold: if True, use bold text
+
+    Returns:
+        the resulting html
+
+    """
     if color.startswith(':'):
         color = safeColors[color[1:]]
     styleitems = {}

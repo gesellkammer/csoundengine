@@ -1,6 +1,11 @@
 csoundengine
 ============
 
+|sh-month|
+
+.. |sh-month| image:: https://static.pepy.tech/badge/csoundengine/month
+
+
 This package implements an intuitive interface to run and control a csound process
 
 

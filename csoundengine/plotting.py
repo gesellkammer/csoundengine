@@ -1,14 +1,12 @@
-from emlib import numpytools
-import emlib.misc
-
 from scipy import signal
-from emlib.envir import inside_jupyter
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+
+from emlib import numpytools
+from emlib.envir import inside_jupyter
 from . import internalTools
 from .config import config
-from typing import Tuple
 
 
 def _envelope(x: np.ndarray, hop:int):
@@ -26,7 +24,7 @@ def _frames_to_samples(frames:np.ndarray, hop_length=512, n_fft:int=None) -> np.
     return (np.asanyarray(frames) * hop_length + offset).astype(int)
 
 
-def _figsizeAsTuple(figsize) -> Tuple[int, int]:
+def _figsizeAsTuple(figsize) -> tuple[int, int]:
     if isinstance(figsize, tuple):
         return figsize
     elif isinstance(figsize, list):
