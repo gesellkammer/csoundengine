@@ -47,11 +47,8 @@ class AbstrSynth(baseevent.BaseEvent):
         "The priority of this synth. Lower priorities are evaluated first in the chain"
 
     def __del__(self):
-        try:
-            if self.autostop:
-                self.stop(stopParent=False)
-        except:
-            pass
+        if self.autostop:
+            self.stop(stopParent=False)
 
     @abstractmethod
     def stop(self, delay=0., stopParent=False) -> None:
@@ -334,7 +331,7 @@ class Synth(AbstrSynth):
                  start: float,
                  dur: float = -1,
                  args: list[float] | None = None,
-                 synthgroup: SynthGroup = None,
+                 synthgroup: SynthGroup | None = None,
                  autostop=False,
                  table: ParamTable = None,
                  priority: int = 1,
@@ -348,7 +345,7 @@ class Synth(AbstrSynth):
         self.table: ParamTable | None = table
         """A ParamTable used to define parameters if using a table"""
 
-        self.group = synthgroup
+        self.group = _weakref.ref(synthgroup) if synthgroup else None
         """The group this synth belongs to, if any"""
 
         self.args = args
@@ -752,7 +749,8 @@ class Synth(AbstrSynth):
         if self.finished():
             return
         if self.group is not None and stopParent:
-            self.group.stop(delay=delay)
+            if group := self.group():
+                group.stop(delay=delay)
         else:
             self.session.unsched(self.p1, delay=delay)
 
@@ -841,7 +839,7 @@ class SynthGroup(AbstrSynth):
             else:
                 flatsynths.append(synth)
         for synth in flatsynths:
-            synth.synthgroup = groupref
+            synth.group = groupref
         self.synths: list[Synth] = flatsynths
 
     def extend(self, synths: list[Synth]) -> None:
@@ -850,7 +848,7 @@ class SynthGroup(AbstrSynth):
         """
         groupref = self.synths[0].group
         for synth in synths:
-            synth.synthgroup = groupref
+            synth.group = groupref
         self.synths.extend(synths)
 
     def stop(self, delay=0, stopParent=False) -> None:
