@@ -76,7 +76,8 @@ def _stepToFormat(step: float) -> str:
 
 
 def _jupySlider(name:str, startvalue: float, minvalue: float, maxvalue: float,
-                callback: Callable, step:float=None, width='80%', log=False):
+                callback: Callable, step: float | None = None, width='80%',
+                log=False):
     import ipywidgets as ipy
     if step is None:
         step = _guessStep(minvalue, maxvalue)
@@ -91,8 +92,7 @@ def _jupySlider(name:str, startvalue: float, minvalue: float, maxvalue: float,
         s = ipy.FloatLogSlider(value=startvalue, min=minvalue, max=maxvalue,
                                step=step, description=name, layout=layout,
                                readout_format=fmt)
-    if callback:
-        s.observe(lambda change:callback(change['new']), names='value')
+    s.observe(lambda change: callback(change['new']), names='value')
     return s
 
 
@@ -102,8 +102,7 @@ def _jupyEntry(name: str, startvalue: float, minvalue:float, maxvalue: float,
     step = 0.001
     w = ipy.BoundedFloatText(value=startvalue, min=minvalue, max=maxvalue,
                              step=step, description=name)
-    if callback:
-        w.observe(lambda change:print(change), names='value')
+    w.observe(lambda change: callback(change['new']), names='value')
     return w
 
 
@@ -150,7 +149,7 @@ def interact(**sliders: dict[str, tuple[float, float, float, Callable]]):
 
 def interactPargs(engine: engine.Engine, 
                   p1: float | str,
-                  specs: dict[int|str, ParamSpec]=None,
+                  specs: dict[int|str, ParamSpec] | None = None,
                   **namedSpecs):
     """
     Interact with pfields of an event
@@ -197,7 +196,7 @@ def interactPargs(engine: engine.Engine,
 
 def _jupyInteractPargs(engine: engine.Engine,
                        p1: float|str,
-                       specs: dict[int|str, ParamSpec] = None,
+                       specs: dict[int|str, ParamSpec] | None = None,
                        stopbutton=True,
                        width='80%'):
     """
@@ -235,7 +234,7 @@ def _jupyInteractPargs(engine: engine.Engine,
 
     for key, spec in specs.items():
         idx = key if isinstance(key, int) else int(key[1:])
-        value0 = engine.getp(p1,idx) if spec.startvalue is None else spec.startvalue
+        value0 = engine.getp(p1, idx) if spec.startvalue is None else spec.startvalue
         if spec.widgetHint == 'slider':
             w = _jupySlider(spec.descr, startvalue=value0,
                             minvalue=spec.minvalue, maxvalue=spec.maxvalue,

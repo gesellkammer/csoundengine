@@ -1012,7 +1012,7 @@ class Session:
         # tableidx is always p4
         if pkws:
             for k in pkws.keys():
-                if not k in instr.pargsNameToIndex:
+                if k not in instr.pargsNameToIndex:
                     raise KeyError(f"arg '{k}' not known for instr '{instr.name}'. "
                                    f"Possible args: {instr.pargsNameToIndex.keys()}")
 

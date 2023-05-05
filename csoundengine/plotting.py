@@ -14,21 +14,23 @@ def _envelope(x: np.ndarray, hop:int):
                                          frame_length=hop).max(axis=0)
 
 
-def _frames_to_time(frames, sr:int, hop_length:int, n_fft:int=None):
+def _frames_to_time(frames, sr:int, hop_length:int, n_fft=0):
     samples = _frames_to_samples(frames, hop_length=hop_length, n_fft=n_fft)
     return samples / sr
 
 
-def _frames_to_samples(frames:np.ndarray, hop_length=512, n_fft:int=None) -> np.ndarray:
+def _frames_to_samples(frames:np.ndarray, hop_length=512, n_fft=0) -> np.ndarray:
     offset = int(n_fft // 2) if n_fft else 0
     return (np.asanyarray(frames) * hop_length + offset).astype(int)
 
 
 def _figsizeAsTuple(figsize) -> tuple[int, int]:
     if isinstance(figsize, tuple):
+        assert isinstance(figsize[0], int) and isinstance(figsize[1], int)
         return figsize
     elif isinstance(figsize, list):
         assert len(figsize) == 2
+        assert isinstance(figsize[0], int) and isinstance(figsize[1], int)
         return tuple(figsize)
     elif isinstance(figsize, str):
         parts = figsize.split(":")

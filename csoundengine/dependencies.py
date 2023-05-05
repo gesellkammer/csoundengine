@@ -89,7 +89,7 @@ def csoundInstalled() -> bool:
     return shutil.which("csound") is not None
 
 
-def downloadLatestPluginForPlatform(destFolder: Path = None) -> Path:
+def downloadLatestPluginForPlatform(destFolder: Path | None = None) -> Path:
     """
     Downloads the latest release for a given platform
 
@@ -199,7 +199,7 @@ def _installPluginsFromDist(apiversion=6) -> None:
         'windows': ('windows', '*.dll'),
         'linux': ('linux', '*.so')
     }.get(sys.platform, (None, None))
-    if subfolder is None:
+    if subfolder is None or globpattern is None:
         raise RuntimeError(f"Platform {sys.platform} not supported")
     pluginspath = rootfolder/f'data/plugins{apiversion}'/subfolder
     if not pluginspath.exists():

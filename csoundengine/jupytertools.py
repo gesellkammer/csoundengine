@@ -53,6 +53,8 @@ def htmlName(text: str, palette='light') -> str:
     It will use the colors as defined in the palette
     """
     colors = palettes.get(palette)
+    if not colors:
+        raise ValueError(f"palette {palette} not known. Possible palettes: {palettes.keys()}")
     return f'<strong style="color:{colors["name.color"]}">{text}</strong>'
 
 

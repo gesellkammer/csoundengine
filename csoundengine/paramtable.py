@@ -1,8 +1,8 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Dict, Optional as Opt, Union as U
 import numpy as np
 from .config import config
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .engine import Engine
 
@@ -26,15 +26,15 @@ class ParamTable:
 
     Attributes:
         tableIndex (int): the table number of the csound table
-        mapping (Dict[str, int]): a dict mapping slot name to index
+        mapping (dict[str, int]): a dict mapping slot name to index
         instrName (str): the name of the instrument which defines this table
         engine (Engine): the engine where this table exists
         deallocated (bool): has this table been deallocated?
     """
     def __init__(self,
                  idx: int,
-                 engine: Engine = None,
-                 mapping: Dict[str, int] = None,
+                 engine: Engine | None = None,
+                 mapping: dict[str, int] = None,
                  instrName: str = None):
         """
 
@@ -48,10 +48,10 @@ class ParamTable:
                 communication channel)
         """
         self.tableIndex: int = int(idx)
-        self.mapping: Dict[str, int] = mapping or {}
+        self.mapping: dict[str, int] = mapping or {}
         self.instrName = instrName
-        self.engine: Engine = engine
-        self._array: Opt[np.ndarray] = None
+        self.engine: Engine | None = engine
+        self._array: np.ndarray | None = None
         self.deallocated = False
         self._failSilently = config['unknown_parameter_fail_silently']
 
@@ -65,7 +65,7 @@ class ParamTable:
     def getSize(self) -> int:
         return len(self.array)
 
-    def paramIndex(self, param: str) -> Opt[int]:
+    def paramIndex(self, param: str) -> int | None:
         """
         Returns the index corresponding to the named parameter
 
@@ -115,7 +115,7 @@ class ParamTable:
         else:
             self.array[idx] = value
 
-    def get(self, key: str, default=None) -> Opt[float]:
+    def get(self, key: str, default=None) -> float | None:
         """
         Get the value of a named slot. If key is not found, return default
         (similar to dict.get)

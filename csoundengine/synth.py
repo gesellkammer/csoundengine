@@ -6,7 +6,6 @@ from . import internalTools
 from . import baseevent
 from emlib import iterlib
 import emlib.misc
-import weakref as _weakref
 from . import jupytertools
 from abc import abstractmethod
 
@@ -24,6 +23,9 @@ __all__ = (
     'Synth',
     'SynthGroup'
 )
+
+#
+_EMPTYSET = set()
 
 
 class AbstrSynth(baseevent.BaseEvent):
@@ -122,7 +124,7 @@ class AbstrSynth(baseevent.BaseEvent):
         """
         raise NotImplementedError()
 
-    def get(self, slot: Union[int, str], default: float = None) -> float | None:
+    def get(self, slot: Union[int, str], default: float | None = None) -> float | None:
         """
         Get the value of a named parameter
 
@@ -295,7 +297,6 @@ class Synth(AbstrSynth):
         starttime: start time of the synth, relative to the engine's elapsedTime
         dur: duration of the event (can be -1 for infinite)
         args: the pfields used to create this synth (starting at p4)
-        synthgroup: the group this synth belongs to (if any)
         autostop: should this synth autostop? If True, the lifetime of the csound note
             is associated with this Synth object, so if this Synth goes out of
             scope or is deleted, the underlying note is unscheduled
@@ -331,7 +332,6 @@ class Synth(AbstrSynth):
                  start: float,
                  dur: float = -1,
                  args: list[float] | None = None,
-                 synthgroup: SynthGroup | None = None,
                  autostop=False,
                  table: ParamTable = None,
                  priority: int = 1,
@@ -344,9 +344,6 @@ class Synth(AbstrSynth):
 
         self.table: ParamTable | None = table
         """A ParamTable used to define parameters if using a table"""
-
-        self.group = _weakref.ref(synthgroup) if synthgroup else None
-        """The group this synth belongs to, if any"""
 
         self.args = args
         """The args used to schedule this synth"""
@@ -476,12 +473,18 @@ class Synth(AbstrSynth):
             if args:
                 for key, value in iterlib.pairwise(args):
                     slotidx = self.table.paramIndex(key)
-                    self.engine.tableWrite(self.table.tableIndex, slotidx, value, delay=delay)
+                    if slotidx is None:
+                        logger.debug(f"Param {key} unknown")
+                    else:
+                        self.engine.tableWrite(self.table.tableIndex, slotidx, value, delay=delay)
             if kws:
                 for key, value in kws.items():
                     slotidx = self.table.paramIndex(key)
-                    self.engine.tableWrite(self.table.tableIndex, slotidx, value,
-                                           delay=delay)
+                    if slotidx is None:
+                        logger.debug(f"Param {key} unknown")
+                    else:
+                        self.engine.tableWrite(self.table.tableIndex, slotidx, value,
+                                               delay=delay)
         else:
             if args:
                 for key, value in iterlib.pairwise(args):
@@ -506,9 +509,9 @@ class Synth(AbstrSynth):
         else:
             return default
 
-    def namedPfields(self) -> Union[Set[str], None]:
+    def namedPfields(self) -> set[str]:
         name2idx = self.instr.pargsNameToIndex
-        return set(name2idx.keys()) if name2idx else None
+        return set(name2idx.keys()) if name2idx else _EMPTYSET
 
     def setp(self, *args, delay=0., **kws) -> None:
         """
@@ -668,7 +671,8 @@ class Synth(AbstrSynth):
         """ Returns True if this synth has an associated parameter table """
         return self.table is not None
 
-    def automateTable(self, param: str, pairs: Union[list[float], np.ndarray],
+    def automateTable(self,
+                      param: str, pairs: Union[list[float], np.ndarray],
                       mode="linear", delay=0., overtake=False) -> float:
         """
         Automate a table parameter. Time stamps are relative to the start
@@ -703,8 +707,13 @@ class Synth(AbstrSynth):
     def paramMode(self) -> Union[str, None]:
         return self.instr.paramMode()
 
-    def automate(self, param: str, pairs: Union[list[float, np.ndarray]], mode='linear',
-                 delay=0., overtake=False) -> float:
+    def automate(self,
+                 param: str,
+                 pairs: Union[list[float], np.ndarray],
+                 mode='linear',
+                 delay=0.,
+                 overtake=False
+                 ) -> float:
         """
         Automate any named parameter of this Synth
 
@@ -748,11 +757,7 @@ class Synth(AbstrSynth):
     def stop(self, delay=0., stopParent=False) -> None:
         if self.finished():
             return
-        if self.group is not None and stopParent:
-            if group := self.group():
-                group.stop(delay=delay)
-        else:
-            self.session.unsched(self.p1, delay=delay)
+        self.session.unsched(self.p1, delay=delay)
 
 
 def _synthsCreateHtmlTable(synths: list[Synth]) -> str:
@@ -768,7 +773,7 @@ def _synthsCreateHtmlTable(synths: list[Synth]) -> str:
         synths = synths[:maxrows]
     else:
         limitSynths = False
-    rows = [[] for _ in synths]
+    rows: list[list[str]] = [[] for _ in synths]
     now = synth0.engine.elapsedTime()
     for row, synth in zip(rows, synths):
         row.append(f'{synth.p1} <b>{_synthStatusIcon[synth.playStatus()]}</b>')
@@ -831,24 +836,18 @@ class SynthGroup(AbstrSynth):
         AbstrSynth.__init__(self, p1=0, start=start, dur=dur,
                             engine=synths[0].engine, autostop=autostop,
                             priority=priority)
-        groupref = _weakref.ref(self)
         flatsynths: list[Synth] = []
         for synth in synths:
             if isinstance(synth, SynthGroup):
                 flatsynths.extend(synth)
             else:
                 flatsynths.append(synth)
-        for synth in flatsynths:
-            synth.group = groupref
         self.synths: list[Synth] = flatsynths
 
     def extend(self, synths: list[Synth]) -> None:
         """
         Add the given synths to the synths in this group
         """
-        groupref = self.synths[0].group
-        for synth in synths:
-            synth.group = groupref
         self.synths.extend(synths)
 
     def stop(self, delay=0, stopParent=False) -> None:
@@ -924,7 +923,7 @@ class SynthGroup(AbstrSynth):
         instr0 = self.synths[0].instr
         return all(synth.instr == instr0 for synth in self.synths if synth.playing())
 
-    def _htmlTable(self) -> Union[str, None]:
+    def _htmlTable(self) -> str:
         subgroups = iterlib.classify(self.synths, lambda synth: synth.instr.name)
         lines = []
         instrcol = jupytertools.defaultPalette["name.color"]

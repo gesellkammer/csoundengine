@@ -407,8 +407,10 @@ class _PortaudioBackend(AudioBackend):
         indevices, outdevices = [], []
         proc = csoundSubproc(['-+rtaudio=pa_cb', '-odac', '--devices'], wait=True)
         if sys.platform == 'win32':
+            assert proc.stdout is not None
             lines = proc.stdout.readlines()
         else:
+            assert proc.stderr is not None
             lines = proc.stderr.readlines()
         for line in lines:
             line = line.decode("utf-8")
@@ -483,7 +485,7 @@ _backendsByPlatform: dict[str, list[AudioBackend]] = {
 }
 
 
-_cache = {
+_cache: dict[str, Any] = {
     'opcodes': None,
     'versionTriplet': None
 }
@@ -787,7 +789,7 @@ def runCsd(csdfile:str,
     return csoundSubproc(args, piped=piped)
     
 
-def joinCsd(orc: str, sco="", options:list[str] = None) -> str:
+def joinCsd(orc: str, sco="", options: list[str] | None = None) -> str:
     """
     Joins an orc and a score (both as str), returns a csd as string
 
@@ -842,7 +844,7 @@ class CsoundProc:
     csdstr: str = ""
 
 
-def testCsound(dur=8., nchnls=2, backend:str=None, device="dac", sr:int=None,
+def testCsound(dur=8., nchnls=2, backend='', device="dac", sr=0,
                verbose=True
                ) -> CsoundProc:
     """
@@ -909,8 +911,9 @@ class TableDataFile:
         size: the size of the table
     """
     tabnum: int
-    data: Sequence[float]
+    data: Union[Sequence[float], np.ndarray, str]
     """the data itself or a path to a file"""
+
     fmt: str = 'gen23'  # One of 'wav', 'gen23'
     start: float = 0
     size: int = 0
@@ -990,7 +993,7 @@ def parseScore(sco: str) -> Generator[ScoreEvent, None, None]:
         yield ScoreEvent(kind, p1, t0, dur, args)
 
 
-def opcodesList(cached=True, opcodedir: str = None) -> list[str]:
+def opcodesList(cached=True, opcodedir: str = '') -> list[str]:
     """
     Return a list of the opcodes present
 
@@ -1003,7 +1006,7 @@ def opcodesList(cached=True, opcodedir: str = None) -> list[str]:
     Returns:
         a list of all available opcodes
     """
-    if opcodedir is not None:
+    if opcodedir:
         cached = False
     if cached and _cache.get('opcodes') is not None:
         return _cache['opcodes']
@@ -1047,7 +1050,10 @@ def _opcodesList(opcodedir=None) -> list[str]:
     return allopcodes
 
    
-def saveAsGen23(data: Sequence[float], outfile:str, fmt="%.12f", header=""
+def saveAsGen23(data: Union[Sequence[float], np.ndarray],
+                outfile: str,
+                fmt="%.12f",
+                header=""
                 ) -> None:
     """
     Saves the data to a gen23 table
@@ -1110,11 +1116,12 @@ def _metadataAsComment(d: dict[str, Any], maxSignificantDigits=10,
     return sep.join(parts)
 
 
-def saveMatrixAsMtx(outfile: str, data: np.ndarray,
-                    metadata:dict[str, Union[str, float]]=None,
+def saveMatrixAsMtx(outfile: str,
+                    data: np.ndarray,
+                    metadata: dict[str, Union[str, float]] | None = None,
                     encoding="float32",
-                    title:str='',
-                    sr:int=44100) -> None:
+                    title='',
+                    sr: int = 44100) -> None:
     """
     Save `data` in wav format using the mtx extension
 
@@ -1175,9 +1182,11 @@ def saveMatrixAsMtx(outfile: str, data: np.ndarray,
 
     import sndfileio
     header = [3, data.shape[0], data.shape[1]]
-    allmeta = {'headerSize': 3,
-               'numRows': data.shape[0],
-               'numColumns': data.shape[1]}
+    allmeta: dict[str, Any] = {
+        'headerSize': 3,
+        'numRows': data.shape[0],
+        'numColumns': data.shape[1]
+    }
     columns = ['headerSize', 'numRows', 'numColumns']
 
     if metadata:
@@ -1207,7 +1216,9 @@ def saveMatrixAsMtx(outfile: str, data: np.ndarray,
     sndwriter.close()
 
 
-def saveMatrixAsGen23(outfile: str, mtx: np.ndarray, extradata:list[float]=None,
+def saveMatrixAsGen23(outfile: str,
+                      mtx: np.ndarray,
+                      extradata: list[float] | None = None,
                       include_header=True
                       ) -> None:
     """
@@ -1288,18 +1299,20 @@ class AudioDevice:
 
 
 @_cachetools.cached(cache=_cachetools.TTLCache(10, 20))
-def getDefaultAudioDevices(backend:str=None) -> tuple[AudioDevice, AudioDevice]:
+def getDefaultAudioDevices(backend: str = None) -> tuple[AudioDevice, AudioDevice]:
     """
     Returns the default audio devices for a given backend
 
     .. note:: Results are cached for a period of time
     """
     backendDef = getAudioBackend(backend)
+    if backendDef is None:
+        raise ValueError(f"Backend {backend} not known")
     return backendDef.defaultAudioDevices()
 
 
 @_cachetools.cached(cache=_cachetools.TTLCache(10, 20))
-def getAudioDevices(backend:str=None) -> tuple[list[AudioDevice], list[AudioDevice]]:
+def getAudioDevices(backend: str | None = None) -> tuple[list[AudioDevice], list[AudioDevice]]:
     """
     Returns (indevices, outdevices), where each of these lists is an AudioDevice.
 
@@ -1334,10 +1347,12 @@ def getAudioDevices(backend:str=None) -> tuple[list[AudioDevice], list[AudioDevi
     ======== ==== =====  ==== ==================  =======================
     """
     backendDef = getAudioBackend(backend)
+    if backendDef is None:
+        raise ValueError(f"Backend '{backend}' not supported")
     return backendDef.audioDevices()
 
 
-def getSamplerateForBackend(backend: str = None) -> Optional[int]:
+def getSamplerateForBackend(backend: str | None = None) -> Optional[int]:
     """
     Returns the samplerate reported by the given backend
 
@@ -1348,6 +1363,8 @@ def getSamplerateForBackend(backend: str = None) -> Optional[int]:
         the samplerate for the given backend or None if failed
     """
     backendDef = getAudioBackend(backend)
+    if backendDef is None:
+        raise ValueError(f"Backend {backend} not supported")
     if not backendDef.isAvailable():
         raise RuntimeError(f"Audiobackend {backendDef.name} is not available")
     return backendDef.getSystemSr()
@@ -1358,7 +1375,7 @@ def _csoundTestJackRunning():
     return b'could not connect to JACK server' not in proc.stderr.read()
 
 
-def audioBackends(available=False, platform:str=None) -> list[AudioBackend]:
+def audioBackends(available=False, platform: str = '') -> list[AudioBackend]:
     """
     Return a list of audio backends for the given platform
     
@@ -1382,11 +1399,11 @@ def audioBackends(available=False, platform:str=None) -> list[AudioBackend]:
         >>> [backend.name for backend in audioBackends(available=True)]
         ['jack', 'pa_cb', 'pa_bl', 'alsa']
     """
-    if platform is not None:
+    if platform:
         platform = normalizePlatform(platform)
     if available:
         platform = sys.platform
-    elif platform is None:
+    elif not platform:
         platform = sys.platform
     if available and platform != sys.platform:
         available = False
@@ -1406,7 +1423,7 @@ def dumpAudioBackends() -> None:
     backends.sort(key=lambda backend:backend.name)
     for b in backends:
         if b.hasSystemSr:
-            sr = b.getSystemSr()
+            sr = str(b.getSystemSr())
         else:
             sr = "-"
         rows.append((b.name, b.longname, sr))
@@ -1414,7 +1431,7 @@ def dumpAudioBackends() -> None:
     print_table(rows, headers=headers, showindex=False)
 
 
-def getAudioBackend(name:str=None) -> Optional[AudioBackend]:
+def getAudioBackend(name: str | None = None) -> Optional[AudioBackend]:
     """ Given the name of the backend, return the AudioBackend structure
 
     Args:
@@ -1527,7 +1544,8 @@ _defaultEncodingForFormat = {
 }
 
 
-def csoundOptionsForOutputFormat(fmt='wav', encoding: str = None
+def csoundOptionsForOutputFormat(fmt='wav',
+                                 encoding: str | None = None
                                  ) -> list[str]:
     """
     Returns the command-line options for the given format+encoding
@@ -1557,6 +1575,8 @@ def csoundOptionsForOutputFormat(fmt='wav', encoding: str = None
                                              f"{_defaultEncodingForFormat.keys()}"
     if encoding is None:
         encoding = _defaultEncodingForFormat.get(fmt)
+        if encoding is None:
+            raise ValueError(f"Default encoding unknown for format {fmt}")
     encodingOption = csoundOptionForSampleEncoding(encoding)
     fmtOption = _optionForSampleFormat[fmt]
     options = [fmtOption]
@@ -1672,10 +1692,10 @@ class Csd:
                  ksmps=64,
                  nchnls=2,
                  a4=442.,
-                 options: list[str] = None,
+                 options: list[str] | None = None,
                  nodisplay=False,
                  carry=False,
-                 nchnls_i: int = None,
+                 nchnls_i: int | None = None,
                  reservedTables=0):
         self._strLastIndex = 20
         self._str2index: dict[str, int] = {}
@@ -1760,7 +1780,7 @@ class Csd:
                  instr: Union[int, float, str],
                  start: float,
                  dur: float,
-                 args: list[Union[float, str]] = None) -> None:
+                 args: list[Union[float, str]] | None = None) -> None:
         """
         Add an instrument ("i") event to the score
 
@@ -1834,8 +1854,12 @@ class Csd:
         self.score.append(scoreline)
         return tabnum
 
-    def addTableFromData(self, data: Union[Sequence[float], np.ndarray],
-                         tabnum:int=0, start=0, filefmt:str=None, sr=0,
+    def addTableFromData(self,
+                         data: Union[Sequence[float], np.ndarray],
+                         tabnum: int = 0,
+                         start=0,
+                         filefmt: str | None = None,
+                         sr=0,
                          ) -> int:
         """
         Add a table definition with the data
@@ -1913,6 +1937,7 @@ class Csd:
                 self.addInstr('_ftnew', _builtinInstrs['_ftnew'])
             args = [tabnum, size, sr, numchannels]
             self.addEvent('_ftnew', start=0, dur=0, args=args)
+            return tabnum
 
     def addSndfile(self, sndfile:str, tabnum=0, start=0., skiptime=0, chan=0,
                    asProjectFile=False) -> int:
@@ -2535,8 +2560,11 @@ def ftsaveRead(path, mode="text") -> list[np.ndarray]:
         raise ValueError(f"mode {mode} not supported")
 
 
-def getNchnls(backend: str=None, outpattern:str=None, inpattern:str=None,
-              defaultin:int=2, defaultout:int=2
+def getNchnls(backend: str | None = None,
+              outpattern: str | None = None,
+              inpattern: str | None = None,
+              defaultin=2,
+              defaultout=2
               ) -> tuple[int, int]:
     """
     Get the default number of channels for a given device
@@ -2557,6 +2585,8 @@ def getNchnls(backend: str=None, outpattern:str=None, inpattern:str=None,
 
     """
     backendDef = getAudioBackend(backend)
+    if not backendDef:
+        raise RuntimeError(f"Backend '{backend}' not found")
     adc, dac = backendDef.defaultAudioDevices()
     if outpattern is None:
         outdev = dac
@@ -3094,8 +3124,10 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                 args = line.strip()[5:].split(",")
                 channels = args[::2]
                 for chans in channels:
-                    if (chan := emlib.misc.asnumber(chans)) is not None:
+                    chan = emlib.misc.asnumber(chans)
+                    if chan is not None and int(chan) == chan:
                         outchannels.add(chan)
+
             restLines.append(line)
 
     return ParsedInstrBody(pfieldsText="\n".join(pfieldLines),
@@ -3231,10 +3263,8 @@ def _soundfontGetInstrumentsAndPresets(sfpath: str
     instruments: list[tuple[int, str]]
     instruments = [(num, instr.name.strip()) for num, instr in enumerate(sf.instruments)
                    if instr.name != 'EOI']
-    presets: list[tuple[int, int, str]]
     presets: list[tuple[int, int, str]] = [(p.bank, p.preset, p.name.strip())
-               for p in sf.presets
-               if p.name != 'EOP']
+                                           for p in sf.presets if p.name != 'EOP']
     presets.sort()
     return instruments, presets
 
@@ -3277,18 +3307,21 @@ def soundfontGetPresets(sfpath: str) -> list[tuple[int, int, str]]:
 
 
 def soundfontSelectPreset(sfpath: str
-                          ) -> tuple[str, int, int]:
+                          ) -> tuple[str, int, int] | None:
     """
     Select a preset from a soundfont interactively
 
     Returns:
-        a tuple (preset name, bank, preset number)
+        a tuple (preset name, bank, preset number) if a selection was made, None
+        otherwise
 
     .. figure:: ../assets/select-preset.png
     """
     presets = soundfontGetPresets(sfpath)
     items = [f'{bank:03d}:{pnum:03d}:{name}' for bank, pnum, name in presets]
     item = emlib.dialogs.selectItem(items, ensureSelection=True)
+    if item is None:
+        return None
     idx = items.index(item)
     preset = presets[idx]
     bank, pnum, name= preset
@@ -3413,7 +3446,9 @@ def _cropScore(events: list, start=0., end=0.) -> list:
         if start <= evstart <= evend:
             cropped.append(ev)
         else:
-            xstart, xend = emlib.mathlib.intersection(start, end, evstart, evend)
+            intersection = emlib.mathlib.intersection(start, end, evstart, evend)
+            assert intersection is not None
+            xstart, xend = intersection
             if xend == float('inf'):
                 dur = -1
             else:

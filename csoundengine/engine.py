@@ -120,16 +120,14 @@ from . import engineorc
 from . import state as _state
 from . import termui as _termui
 from .engineorc import CONSTS
-from .errors import *
+from .errors import TableNotFoundError, CsoundError
 
 from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import Union, Optional, Callable
+if TYPE_CHECKING or 'sphinx' in _sys.modules:
+    from typing import Union, Optional, Callable, Sequence
     from . import session as _session
     import socket
     callback_t = Callable[[str, float], None]
-elif 'sphinx' in _sys.modules:
-    from typing import *
 
 try:
     import ctcsound7 as ctcsound
@@ -311,29 +309,29 @@ class Engine:
     _builtinTables = engineorc.BUILTIN_TABLES
 
     def __init__(self,
-                 name: str = None,
-                 sr: int = None,
-                 ksmps: int = None,
+                 name: str = '',
+                 sr: int | None = None,
+                 ksmps: int | None = None,
                  backend: str = 'default',
-                 outdev: str=None,
-                 indev: str=None,
-                 a4: int = None,
-                 nchnls: int = None,
-                 nchnls_i: int=None,
+                 outdev: str | None = None,
+                 indev: str | None = None,
+                 a4: int | None = None,
+                 nchnls: int | None = None,
+                 nchnls_i: int | None = None,
                  realtime=False,
-                 buffersize: int=None,
-                 numbuffers: int=None,
+                 buffersize: int | None = None,
+                 numbuffers: int | None = None,
                  globalcode: str = "",
-                 numAudioBuses: int = None,
-                 numControlBuses: int = None,
+                 numAudioBuses: int | None = None,
+                 numControlBuses: int | None = None,
                  quiet: bool = None,
                  udpserver: bool = None,
                  udpport: int=0,
                  commandlineOptions: list[str] | None = None,
                  includes: list[str] | None = None,
                  midibackend: str = 'default',
-                 midiin: str = None,
-                 latency: float=None):
+                 midiin: str | None = None,
+                 latency: float | None = None):
         if name is None:
             name = _generateUniqueEngineName()
         elif name in Engine.activeEngines:
@@ -641,7 +639,7 @@ class Engine:
         self.started = False
         self.commandlineOptions: list[str] = []
         self.builtinInstrs: dict[str, int] = {}
-        self._reservedInstrnums: Set[int] = set()
+        self._reservedInstrnums: set[int] = set()
         self._reservedInstrnumRanges: list[tuple[str, int, int]] = [('builtinorc', CONSTS['reservedInstrsStart'], CONSTS['userInstrsStart']-1)]
         self.start()
 
@@ -1050,7 +1048,7 @@ class Engine:
                 if err:
                     logger.error("compileOrc error: ")
                     logger.error(internalTools.addLineNumbers(code))
-                    raise CsoundError(f"Could not compile code")
+                    raise CsoundError("Could not compile code")
             else:
                 logger.debug("Compiling csound code (async):")
                 logger.debug(code)
@@ -1058,7 +1056,7 @@ class Engine:
                 if err:
                     logger.error("compileOrcAsync error: ")
                     logger.error(internalTools.addLineNumbers(code))
-                    raise CsoundError(f"Could not compile async")
+                    raise CsoundError("Could not compile async")
 
     def _compileInstr(self, instrname: str|int, code: str, block=False) -> None:
         self._instrRegistry[instrname] = code
@@ -1214,7 +1212,7 @@ class Engine:
             assert self._perfThread is not None
             self._perfThread.scoreEvent(0, "i", pargs)
 
-    def getTableData(self, idx:int, flat=False) -> None | np.ndarray:
+    def getTableData(self, idx: int, flat=False) -> None | np.ndarray:
         """
         Returns a numpy array pointing to the data of the table.
 
@@ -1236,9 +1234,9 @@ class Engine:
 
         """
         assert self.csound is not None
-        arr = self._tableCache.get(idx)
+        arr: np.ndarray | None = self._tableCache.get(idx)
         if arr is None:
-            arr: np.ndarray = self.csound.table(idx)
+            arr = self.csound.table(idx)
             if not flat:
                 tabinfo = self.tableInfo(idx)
                 if tabinfo.numChannels > 1:
@@ -1504,7 +1502,7 @@ class Engine:
             # 1: we use always absolute time
             self._perfThread.scoreEvent(1, "i", pargsnp)
         else:
-            needsSync = any(isinstance(a, str) and not a in self._strToIndex for a in args)
+            needsSync = any(isinstance(a, str) and a not in self._strToIndex for a in args)
             pargs = [instrfrac, delay, dur]
             pargs.extend(float(a) if not isinstance(a, str) else self.strSet(a) for a in args)
             if needsSync:
@@ -1732,7 +1730,7 @@ class Engine:
         """
         if self._session is None:
             from .session import Session
-            self._session = session = Session(self.name)
+            self._session = Session(self.name)
         return self._session
 
     def reserveInstrRange(self, name: str, mininstrnum: int, maxinstrnum: int) -> None:
@@ -3021,8 +3019,8 @@ class Engine:
         Example
         =======
 
-        >>> e = Engine(...)
-        >>> e.compile(r'''
+        >>> engine = Engine(...)
+        >>> engine.compile(r'''
         ... instr 100
         ...   itab = p4
         ...   kamp  table 0, itab
@@ -3031,13 +3029,12 @@ class Engine:
         ...   ftfree itab, 1  ; free the table when finished
         ... endin
         ... ''')
-        >>> source = e.makeTable([0.1, 1000])
-        >>> eventid = e.sched(100, 0, 10, args=(source,))
-        # automate the frequency (slot 1)
-        >>> e.automateTable(source, 1, [0, 1000, 3, 200, 5, 200])
-
+        >>> source = engine.makeTable([0.1, 1000])
+        >>> eventid = engine.sched(100, 0, 10, args=(source,))
+        >>> # automate the frequency (slot 1)
+        >>> engine.automateTable(source, 1, [0, 1000, 3, 200, 5, 200])
         >>> # Automate from the current value, will produce a fade-out
-        >>> e.automateTable(source, 0, [0, -1, 2, 0], overtake=True, delay=5)
+        >>> engine.automateTable(source, 0, [0, -1, 2, 0], overtake=True, delay=5)
 
         See Also
         ~~~~~~~~
@@ -3623,7 +3620,7 @@ def _cleanup() -> None:
             engine.stop()
 
 
-def activeEngines() -> KeysView[str]:
+def activeEngines() -> list[str]:
     """
     Returns the names of the active engines
 
@@ -3634,9 +3631,9 @@ def activeEngines() -> KeysView[str]:
         >>> ce.Engine(nchnls=2)   # Will receive a generic name
         >>> ce.Engine(name='multichannel', nchnls=8)
         >>> ce.activeEngines()
-        dict_keys(['engine0', 'multichannel'])
+        ['engine0', 'multichannel']
     """
-    return Engine.activeEngines.keys()
+    return list(Engine.activeEngines.keys())
 
 
 def getEngine(name: str) -> Engine | None:

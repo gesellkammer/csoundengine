@@ -353,10 +353,10 @@ class Renderer:
 
     """
     def __init__(self,
-                 sr: int = None,
+                 sr: int | None = None,
                  nchnls: int = 2,
-                 ksmps: int = None,
-                 a4: float = None,
+                 ksmps: int | None = None,
+                 a4: float | None = None,
                  numpriorities=10,
                  numAudioBuses=1000):
         """
@@ -772,11 +772,11 @@ class Renderer:
         self.csd.setEndMarker(time)
 
     def render(self,
-               outfile: str = None,
+               outfile: str | None = None,
                endtime: float = 0,
-               encoding: str = None,
+               encoding: str | None = None,
                wait=True,
-               quiet: bool = None,
+               quiet: bool | None = None,
                openWhenDone=False,
                starttime: float = 0,
                compressionBitrate: int = None

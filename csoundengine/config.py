@@ -33,7 +33,9 @@ def _validateBackend2(key:str, s: str) -> bool:
     possibleBackends = _audioBackendsByPlatform.get(platform)
     if not possibleBackends:
         logger.error(f"Platform {platform} not supported, no audio backends")
-    for backend in (b.strip() for b in s.split(',')):
+        return False
+    backends = [b.strip() for b in s.split(',')]
+    for backend in backends:
         if backend not in possibleBackends:
             logger.error(f"Backend '{backend}' unknown. "
                          f"Possible backends: {possibleBackends}")

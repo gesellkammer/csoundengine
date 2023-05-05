@@ -66,7 +66,7 @@ def unflattenArray(a: np.ndarray, numchannels: int) -> None:
            raise ValueError("Array is not flat but the number of channels"
                             f"diverge (given numchannels={numchannels}, "
                             f"array number of channels: {a.shape[1]}")
-        return a
+        return
     numrows = len(a) / numchannels
     if numrows != int(numrows):
         raise ValueError("The array does not have an integral number of frames. "
@@ -130,8 +130,8 @@ def determineNumbuffers(backend:str, buffersize:int) -> int:
 
 def instrResolveArgs(instr: Instr,
                      p4: int,
-                     pargs: list[float] | dict[str, float] = None,
-                     pkws: dict[str, float] = None,
+                     pargs: list[float] | dict[str, float] | None = None,
+                     pkws: dict[str, float] | None = None,
                      ) -> list[float]:
     """
     Resolves pargs, returns pargs starting from p4
@@ -291,7 +291,8 @@ def instrNameFromP1(p1: Union[float, str]) -> Union[int, str]:
     return int(p1) if isinstance(p1, (int, float)) else p1.split(".")[0]
 
 
-def resolvePfieldIndex(pfield: Union[int, str], pfieldNameToIndex: dict[str, int] = None
+def resolvePfieldIndex(pfield: Union[int, str],
+                       pfieldNameToIndex: dict[str, int] | None = None
                        ) -> int:
     if isinstance(pfield, int):
         return pfield

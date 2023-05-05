@@ -192,9 +192,9 @@ class Instr:
     def __init__(self,
                  name: str,
                  body: str,
-                 args: dict[str, float] = None,
-                 init: str = None,
-                 tabargs: dict[str, float] = None,
+                 args: dict[str, float] | None = None,
+                 init: str = '',
+                 tabargs: dict[str, float] | None = None,
                  numchans: int = 1,
                  preschedCallback=None,
                  freetable=True,
@@ -473,7 +473,7 @@ class Instr:
 
     def pargsTranslate(self, 
                        args: Sequence[float] = (), 
-                       kws: dict[str | int, float] = None
+                       kws: dict[str | int, float] | None = None
                        ) -> list[float]:
         """
         Given pargs as values and keyword arguments, generate a list of
@@ -504,8 +504,12 @@ class Instr:
                 pargs[idx-5] = value
         return pargs
 
-    def asOrc(self, instrid, sr: int = None, ksmps: int = None, nchnls=2,
-              a4: int = None) -> str:
+    def asOrc(self,
+              instrid,
+              sr: int | None = None,
+              ksmps: int | None = None,
+              nchnls=2,
+              a4: int | None = None) -> str:
         """
         Generate a csound orchestra with only this instrument defined
 
@@ -560,14 +564,14 @@ class Instr:
 
     def rec(self,
             dur: float,
-            outfile: str = None,
-            args: list[float] | dict[str, float] = None,
-            sr: int = None,
-            ksmps: int = None,
-            encoding: str = None,
+            outfile: str | None = None,
+            args: list[float] | dict[str, float] | None = None,
+            sr: int | None = None,
+            ksmps: int | None = None,
+            encoding: str | None = None,
             nchnls: int = 2,
             wait=True,
-            a4: int = None,
+            a4: int | None = None,
             delay=0.,
             **kws
             ) -> str:
@@ -632,11 +636,11 @@ class Instr:
 
     def renderSamples(self,
                       dur,
-                      args: list[float] | dict[str, float] = None,
+                      args: list[float] | dict[str, float] | None = None,
                       sr: int = 44100,
-                      ksmps: int = None,
+                      ksmps: int | None = None,
                       nchnls: int = 2,
-                      a4: int = None,
+                      a4: int | None = None,
                       delay=0.,
                       **kws
                       ) -> np.ndarray:
@@ -704,7 +708,7 @@ class Instr:
             return -1
         return idx
 
-    def overrideTable(self, d: dict[str, float] = None, **kws) -> list[float]:
+    def overrideTable(self, d: dict[str, float] | None = None, **kws) -> list[float]:
         """
         Overrides default values in the params table
         Returns the initial values
@@ -789,12 +793,11 @@ def parseDocstring(text: str | list[str]) -> Docstring | None:
     import docstring_parser
     parsed = docstring_parser.parse(docs)
     if parsed.params:
-        args = {param.arg_name: param.description for param in parsed.params}
+        args = {param.arg_name: param.description or '' for param in parsed.params}
     else:
         args = None
-
-    return Docstring(shortdescr=parsed.short_description,
-                     longdescr=parsed.long_description,
+    return Docstring(shortdescr=parsed.short_description or '',
+                     longdescr=parsed.long_description or '',
                      args=args)
 
 

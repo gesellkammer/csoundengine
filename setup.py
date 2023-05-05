@@ -56,7 +56,7 @@ setup(
         "configdict>=2.6.0",
         "bpf4>=1.8.4",
         "numpyx>=1.3.1",
-        "pitchtools>=1.9.2",
+        "pitchtools>=1.10.0",
         "risset>=2.4.2",
     ],
     license="BSD",

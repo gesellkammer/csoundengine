@@ -31,7 +31,7 @@ class BaseEvent:
 
 
     @abstractmethod
-    def automatep(self, param: str, pairs: Union[list[float], np.ndarray],
+    def automatep(self, param: Union[str, int], pairs: Union[list[float], np.ndarray],
                   mode='linear', delay=0.
                   ) -> None:
         """Automate a named parameter of this event"""
