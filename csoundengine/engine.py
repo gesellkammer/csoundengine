@@ -123,11 +123,16 @@ from .engineorc import CONSTS
 from .errors import TableNotFoundError, CsoundError
 
 from typing import TYPE_CHECKING
-if TYPE_CHECKING or 'sphinx' in _sys.modules:
+if TYPE_CHECKING:
     from typing import Union, Optional, Callable, Sequence
     from . import session as _session
     import socket
     callback_t = Callable[[str, float], None]
+elif 'sphinx' in _sys.modules:
+    import socket
+    from typing import Union, Optional, Callable, Sequence
+    callback_t = Callable[[str, float], None]
+
 
 try:
     import ctcsound7 as ctcsound

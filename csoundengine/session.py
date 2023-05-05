@@ -167,6 +167,7 @@ UI generated when using the terminal:
 from __future__ import annotations
 from dataclasses import dataclass
 import emlib.dialogs
+
 from .engine import Engine, getEngine, CsoundError
 from . import engineorc
 from .instr import Instr
@@ -286,6 +287,7 @@ class Session:
 
     .. code::
 
+        >>> from csoundengine import *
         >>> e = Engine(name='foo')
         >>> s = Session('foo')
         >>> s is e.session()
