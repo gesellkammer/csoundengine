@@ -44,7 +44,6 @@ setup(
         "appdirs",
         "pygments",
         "sf2utils",
-        "jupyter",
         "ipywidgets",
         "progressbar2",
         "xxhash",
