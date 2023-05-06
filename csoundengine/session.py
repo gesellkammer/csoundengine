@@ -893,6 +893,15 @@ class Session:
     
     def rendering(self, outfile='') -> Renderer:
         """
+        A context-manager to render offline
+
+        All scheduled events will be rendered to `outfile` when exiting the
+        context. The :class:`~csoundengine.offline.Renderer` returned by the
+        context manager has the same interface as a :class:`Session` and can
+        be used as a drop-in replacement.
+
+        Returns:
+            a :class:`csoundengine.offline.Renderer`
     
         Example
         ~~~~~~~
@@ -909,6 +918,8 @@ class Session:
             >>> with s.rendering('out.wav') as r:
             ...     r.sched('simplesine', 0, dur=2, kfreq=1000)
             ...     r.sched('simplesine', 0.5, dur=1.5, kfreq=1004)
+
+        .. seealso:: :class:`~csoundengine.offline.Renderer`
         """
         renderer = self.makeRenderer()
 
@@ -917,10 +928,8 @@ class Session:
 
         if outfile:
             renderer._registerExitCallback(_exit)
-
         return renderer
 
-    
     def sched(self,
               instrname: str,
               delay=0.,

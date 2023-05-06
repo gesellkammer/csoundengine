@@ -122,6 +122,7 @@ from . import termui as _termui
 from .engineorc import CONSTS
 from .errors import TableNotFoundError, CsoundError
 
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Union, Optional, Callable, Sequence
