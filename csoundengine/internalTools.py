@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import cachetools
 import numpy as np
 import sys
 from . import jacktools
@@ -8,6 +10,7 @@ import textwrap
 from typing import TYPE_CHECKING
 import emlib.dialogs
 import subprocess
+
 
 if TYPE_CHECKING:
     from .instr import Instr
@@ -32,14 +35,18 @@ except ImportError:
         return hashlib.sha1(a).hexdigest()
 
 
+@cachetools.cached(cache=cachetools.TTLCache(1, 20))
 def isrunning(prog: str) -> bool:
     "True if prog is running"
-    failed = subprocess.call(['pgrep', '-f', prog],
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return not failed
+    if sys.platform == 'linux':
+        failed = subprocess.call(['pgrep', '-f', prog],
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return not failed
+    else:
+        raise RuntimeError(f"Platform {sys.platform} not supported")
 
 
-def m2f(midinote: float, a4:float) -> float:
+def m2f(midinote: float, a4: float) -> float:
     """
     Convert a midi-note to a frequency
     """
@@ -119,7 +126,7 @@ def removeSigintHandler():
     _registry['sigint_handler_set'] = False
 
 
-def determineNumbuffers(backend:str, buffersize:int) -> int:
+def determineNumbuffers(backend: str, buffersize: int) -> int:
     if backend == 'jack':
         info = jacktools.getInfo()
         numbuffers = int(math.ceil(info.blocksize / buffersize))
