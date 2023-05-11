@@ -2636,8 +2636,8 @@ class Engine:
             if abspath == f:
                 return
         self.includes.append(abspath)
-    
-    def readSoundfile(self, path:str="?", tabnum:int = None, chan=0,
+
+    def readSoundfile(self, path="?", tabnum: int = None, chan=0,
                       callback=None, block=False) -> int:
         """
         Read a soundfile into a table (via GEN1), returns the table number

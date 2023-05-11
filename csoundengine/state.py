@@ -52,7 +52,7 @@ def saveSoundfile(filter="Soundfiles (*.wav, *.flac, *.aif, *.aiff)",
     return out
 
 
-def openSoundfile(filter="Soundfiles (*.wav, *.flac, *.aif, *.aiff)",
+def openSoundfile(filter="Soundfiles (*.wav, *.flac, *.aif, *.aiff, *.mtx)",
                   title="Open Soundfile",
                   ensureSelection=False):
     out = openFile("soundfile_last_dir", filter=filter, title=title)

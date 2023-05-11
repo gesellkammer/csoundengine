@@ -165,8 +165,12 @@ UI generated when using the terminal:
 """
 
 from __future__ import annotations
+import os
 from dataclasses import dataclass
+import numpy as np
+
 import emlib.dialogs
+import bpf4
 
 from .engine import Engine, getEngine, CsoundError
 from . import engineorc
@@ -180,8 +184,6 @@ from .sessioninstrs import builtinInstrs
 from . import state as _state
 from . import jupytertools
 from .offline import Renderer
-import bpf4
-import numpy as np
 from typing import Callable, Union, Optional
 
 
@@ -1281,6 +1283,104 @@ class Session:
             raise ValueError(f"mode {mode} is invalid. Possible modes are 'noise', 'sine'")
         return self.sched('.testAudio', dur=dur,
                           args=dict(imode=imode, iperiod=period, igain=gain))
+
+    def playPartials(self,
+                     source: int | TableProxy | str | np.ndarray,
+                     delay=0.,
+                     dur=-1,
+                     speed=1.,
+                     loop=False,
+                     chan=1,
+                     start=0.,
+                     stop=0.,
+                     minfreq=0,
+                     maxfreq=0,
+                     maxpolyphony=50
+                     ) -> Synth:
+        """
+        Play a packed spectrum
+
+        A packed spectrum is a 2D numpy array representing a fixed set of
+        oscillators. After partial tracking analysis, all partials are arranged
+        into such a matrix where each row represents the state of all oscillators
+        over time.
+
+        The **loristrck** packge is needed for both partial-tracking analysis and
+        packing. It can be installed via ``pip install loristrck`` (see
+        https://github.com/gesellkammer/loristrck)
+
+
+        Args:
+            source: a table number, TableProxy, path to a .mtx or .sdif file, or
+                a numpy array containing the partials data
+            delay: when to start the playback
+            dur: duration of the synth (-1 will play indefinitely if looping or until
+                the end of the last partial or the end of the selection
+            speed: speed of playback (does not affect pitch)
+            loop: if True, loop the selection or the entire spectrum
+            chan: channel to send the output to
+            start: start of the time selection
+            stop: stop of the time selection (0 to play until the end)
+            minfreq: lowest frequency to play
+            maxfreq: highest frequency to play
+            maxpolyphony: if a sdif is passed, compress the partials to max. this
+                number of simultaneous oscillators
+
+        Returns:
+            the playing Synth
+
+        Example
+        ~~~~~~~
+
+            >>> import loristrck as lt
+            >>> import csoundengine as ce
+            >>> samples, sr = lt.util.sndread("/path/to/soundfile")
+            >>> partials = lt.analyze(samples, sr, resolution=50)
+            >>> lt.util.partials_save_matrix(partials, outfile='packed.mtx')
+            >>> session = ce.Engine().session()
+            >>> session.playPartials(source='packed.mtx', speed=0.5)
+
+        """
+        if isinstance(source, int):
+            tabnum = source
+        elif isinstance(source, TableProxy):
+            tabnum = source.tabnum
+        elif isinstance(source, str):
+            # a .mtx file
+            ext = os.path.splitext(source)[1]
+            if ext == '.mtx':
+                table = self.readSoundfile(source, free=False)
+                tabnum = table.tabnum
+            elif ext == '.sdif':
+                try:
+                    import loristrck as lt
+                    partials, labels = lt.read_sdif(source)
+                    matrix = lt.util.partials_save_matrix(partials, maxtracks=maxpolyphony)
+                    tabnum = self.makeTable(matrix)
+                except ImportError:
+                    raise ImportError("loristrck is needed in order to play a .sdif file"
+                                      ". Install it via `pip install loristrck`")
+            else:
+                raise ValueError(f"Expected a .mtx file or .sdif file, got {source}")
+
+        elif isinstance(source, tuple) and isinstance(source[0], np.ndarray):
+            table = self.makeTable(source[0], sr=source[1])
+            tabnum =table.tabnum
+        else:
+            raise TypeError(f"Expected int, TableProxy or str, got {source}")
+
+        return self.sched('.playPartials',
+                          delay=delay,
+                          dur=dur,
+                          args=dict(ifn=tabnum,
+                                    kspeed=speed,
+                                    kloop=int(loop),
+                                    kminfreq=minfreq,
+                                    kmaxfreq=maxfreq,
+                                    ichan=chan,
+                                    istart=start,
+                                    istop=stop,
+                                    kfreqscale=1))
 
     def playSample(self,
                    source: int | TableProxy | str | tuple[np.ndarray, int],

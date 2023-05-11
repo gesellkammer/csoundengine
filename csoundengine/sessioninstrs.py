@@ -29,8 +29,7 @@ builtinInstrs = [
             println "Channel: %d / %d", kchan+1, nchnls
         endif
     '''),
-    Instr('.playSample',
-          body=r"""
+    Instr('.playSample', body=r"""
         |isndtab=0, istart=0, ifadein=0, ifadeout=0, igaingroup=0, kchan=1, kspeed=1, kgain=1, kpan=-1, ixfade=-1|
         ; Play a sample loaded via GEN01
         ; Args:
@@ -130,6 +129,56 @@ builtinInstrs = [
             endif
         endif
         """),
+    Instr('.playPartials', body=r'''
+        |ifn, kspeed=1, kloop=0, kminfreq=0, kmaxfreq=0, iflags=0, istart=0, istop=0, kfreqscale=1, ichan=1|
+        ifade = 0.02
+        kplayhead init istart
+        
+        iskip      tab_i 0, ifn
+        inumrows   tab_i 1, ifn
+        inumcols   tab_i 2, ifn
+        it0 = tab_i(iskip, ifn)
+        it1 = tab_i(iskip+inumcols, ifn)
+        idt = it1 - it0
+        inumpartials = (inumcols-1) / 3 
+        imaxrow = inumrows - 2
+        it = ksmps / sr
+        igain init 1
+        idur = imaxrow * idt
+        istop = istop > 0 ? istop : idur
+        
+        prints "skip: %d, numcols: %d, numrows: %d, idt: %f \n", iskip, inumcols, inumrows, idt
+        
+        krow = kplayhead / idt
+        
+        ; each row has the format frametime, freq0, amp0, bandwidth0, freq1, amp1, bandwidth1, ...
+        kF[] getrowlin krow, ifn, inumcols, iskip, 1, 0, 3
+        kA[] getrowlin krow, ifn, inumcols, iskip, 2, 0, 3
+        kB[] getrowlin krow, ifn, inumcols, iskip, 3, 0, 3
+        kSel[] init inumcols / 3
+        
+        if kmaxfreq > 0 || kminfreq > 0 then
+          kmaxfreq = kmaxfreq > 0 ? kmaxfreq : sr / 2
+          kSel cmp kminfreq, "<=", kF, "<=", kmaxfreq
+          kA *= kSel
+        endif
+        
+        aout beadsynt kF, kA, kB, -1, iflags, kfreqscale
+        
+        aenv cossegr 0, ifade, igain, ifade, 0
+        aout *= aenv
+        outch ichan, aout
+        
+        kplayhead += ksmps/sr * kspeed
+        if kplayhead >= istop then
+          kplayhead = istart
+          if kloop == 0 && release() == 0 then  
+            turnoff
+          endif
+        endif
+      
+    endin
+    '''),
     Instr('.dummy', body="")
 ]
 
