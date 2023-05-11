@@ -175,9 +175,7 @@ builtinInstrs = [
           if kloop == 0 && release() == 0 then  
             turnoff
           endif
-        endif
-      
-    endin
+        endif  
     '''),
     Instr('.dummy', body="")
 ]

@@ -1355,7 +1355,7 @@ class Session:
                 try:
                     import loristrck as lt
                     partials, labels = lt.read_sdif(source)
-                    matrix = lt.util.partials_save_matrix(partials, maxtracks=maxpolyphony)
+                    tracks, matrix = lt.util.partials_save_matrix(partials=partials, maxtracks=maxpolyphony)
                     tabnum = self.makeTable(matrix)
                 except ImportError:
                     raise ImportError("loristrck is needed in order to play a .sdif file"
