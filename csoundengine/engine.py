@@ -943,6 +943,7 @@ class Engine:
             return
         if valptr is not None:
             val = _ctypes.cast(valptr, _MYFLTPTR).contents.value
+            logger.debug(f'outvalue triggered for channel {channelName}, calling func {func} with val {val}')
             func(channelName, val)
         else:
             logger.warning(f"outcallback: {channelName=} called with null pointer, skipping")
@@ -1038,7 +1039,9 @@ class Engine:
         # self._perfThread.flushMessageQueue()
         token = self._getSyncToken()
         pargs = [self.builtinInstrs['pingback'], 0, 0, token]
+        logger.debug("Syncing...")
         self._eventWait(token, pargs, timeout=timeout)
+        logger.debug("... sync end OK")
 
     def _compileCode(self, code: str, block=False) -> None:
         if self.udpPort and config['prefer_udp']:
@@ -1922,10 +1925,9 @@ class Engine:
                 logger.debug(f"setTableMetadata: table {tabnum} was not created by this Engine")
         self._perfThread.scoreEvent(0, "i", pargs)
 
-    def _registerSync(self, token:int) -> _queue.Queue:
-        table = self._responsesTable
+    def _registerSync(self, token: int) -> _queue.Queue:
         q = _queue.Queue()
-        self._responseCallbacks[token] = lambda token, q=q, t=table: q.put(t[token])
+        self._responseCallbacks[token] = lambda token, q=q, table=self._responsesTable: q.put(table[token])
         return q
 
     def schedCallback(self, delay: float, callback: Callable) -> None:
@@ -1952,7 +1954,7 @@ class Engine:
         pargs = [self.builtinInstrs['pingback'], delay, 0.01, token]
         self._eventWithCallback(token, pargs, lambda token: callback())
 
-    def _eventWait(self, token:int, pargs:Sequence[float], timeout: float = None
+    def _eventWait(self, token: int, pargs: Sequence[float], timeout: float = None
                    ) -> float | None:
         if timeout is None:
             timeout = config['timeout']

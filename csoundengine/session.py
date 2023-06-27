@@ -709,12 +709,8 @@ class Session:
 
     def _registerReifiedInstr(self, name: str, priority: int, rinstr: _ReifiedInstr
                               ) -> None:
-        registry = self._reifiedInstrDefs.get(name)
-        if registry:
-            registry[priority] = rinstr
-        else:
-            registry = {priority:rinstr}
-            self._reifiedInstrDefs[name] = registry
+        registry = self._reifiedInstrDefs.setdefault(name, {})
+        registry[priority]  = rinstr
 
     def _makeReifiedInstr(self, name: str, priority: int, block=True) -> _ReifiedInstr:
         """
@@ -763,8 +759,26 @@ class Session:
             return None
         return registry.get(priority)
 
-    def prepareSched(self, instrname: str, priority: int = 1, block=False
-                     ) -> _ReifiedInstr:
+    def isInstrPrepared(self, instrname: str, priority: int = 1) -> bool:
+        """
+        Is an instrument with the given name prepared for the given priorty=
+
+        Args:
+            instrname: the name of the instrument
+            priority: the priority to use
+
+        Returns:
+            True if the instrument is prepared
+        """
+        if registry := self._reifiedInstrDefs.get(instrname):
+            return priority in registry
+        return False
+
+    def prepareSched(self,
+                     instr: str | Instr,
+                     priority: int = 1,
+                     block=False
+                     ) -> tuple[_ReifiedInstr, bool]:
         """
         Prepare an instrument template for being scheduled
 
@@ -774,17 +788,23 @@ class Session:
         is called, since this first call implies compiling the code in csound.
 
         Args:
-            instrname: the name of the instrument to send to the csound engine
+            instr: the name of the instrument to send to the csound engine or the Instr itself
             priority: the priority of the instr
             block: if True, this method will block until csound is ready to
                 schedule the given instr at the given priority
+
+        Returns:
+            a tuple (_ReifiedInstr, needssync: bool)
         """
-        rinstr = self._getReifiedInstr(instrname, priority)
+        rinstr = self._getReifiedInstr(instr if isinstance(instr, str) else instr.name, priority)
+        needssync = False
         if rinstr is None:
-            rinstr = self._makeReifiedInstr(instrname, priority, block=block)
+            rinstr = self._makeReifiedInstr(instr, priority, block=block)
             if block:
                 self.engine.sync()
-        return rinstr
+            else:
+                needssync = True
+        return rinstr, needssync
 
     def instrnum(self, instrname: str, priority: int = 1) -> int:
         """
@@ -813,7 +833,7 @@ class Session:
         """
         assert isinstance(priority, int) and 1<=priority<=10
         assert instrname in self.instrs
-        rinstr = self.prepareSched(instrname, priority)
+        rinstr, needssync = self.prepareSched(instrname, priority)
         return rinstr.instrnum
 
     def assignBus(self, kind='audio', persist=False) -> int:
@@ -941,6 +961,7 @@ class Session:
               tabargs: dict[str, float] = None,
               whenfinished=None,
               relative=True,
+              syncifneeded=True,
               **pkws
               ) -> Synth:
         """
@@ -961,6 +982,8 @@ class Session:
             whenfinished: a function of the form f(synthid) -> None
                 if given, it will be called when this instance stops
             relative: if True, delay is relative to the start time of the Engine.
+            syncifneeded: if True, a .sync call is performed if the instrument needs to
+                be synched in order to ensure that compilation has been performed
             pkws: any keyword argument is interpreted as a named pfield
 
         Returns:
@@ -1030,7 +1053,9 @@ class Session:
                                    f"Possible args: {instr.pargsNameToIndex.keys()}")
 
         p4args = _tools.instrResolveArgs(instr, p4=tableidx, pargs=args, pkws=pkws)
-        rinstr = self.prepareSched(instrname, priority, block=True)
+        rinstr, needssync = self.prepareSched(instrname, priority, block=True)
+        if needssync and syncifneeded:
+            self.engine.sync()
         synthid = self.engine.sched(rinstr.instrnum, delay=delay, dur=dur, args=p4args,
                                     relative=False)
         if whenfinished is not None:
@@ -1289,13 +1314,20 @@ class Session:
                      delay=0.,
                      dur=-1,
                      speed=1.,
+                     freqscale=1.,
+                     gain=1.,
+                     bwscale=1.,
                      loop=False,
                      chan=1,
                      start=0.,
                      stop=0.,
                      minfreq=0,
                      maxfreq=0,
-                     maxpolyphony=50
+                     maxpolyphony=50,
+                     gaussian=False,
+                     interpfreq=True,
+                     interposcil=True,
+                     position=0.
                      ) -> Synth:
         """
         Play a packed spectrum
@@ -1323,8 +1355,12 @@ class Session:
             stop: stop of the time selection (0 to play until the end)
             minfreq: lowest frequency to play
             maxfreq: highest frequency to play
+            gaussian: if True, use gaussian noise for residual resynthesis
+            interpfreq: if True, interpolate frequency between cycles
+            interposcil: if True, use linear interpolation for the oscillators
             maxpolyphony: if a sdif is passed, compress the partials to max. this
                 number of simultaneous oscillators
+            position: pan position
 
         Returns:
             the playing Synth
@@ -1341,6 +1377,8 @@ class Session:
             >>> session.playPartials(source='packed.mtx', speed=0.5)
 
         """
+        iskip, inumrows, inumcols = -1, 0, 0
+
         if isinstance(source, int):
             tabnum = source
         elif isinstance(source, TableProxy):
@@ -1363,16 +1401,25 @@ class Session:
             else:
                 raise ValueError(f"Expected a .mtx file or .sdif file, got {source}")
 
-        elif isinstance(source, tuple) and isinstance(source[0], np.ndarray):
-            table = self.makeTable(source[0], sr=source[1])
-            tabnum =table.tabnum
+        elif isinstance(source, np.ndarray):
+            assert len(source.shape) == 2
+            array = source.flatten()
+            table = self.makeTable(array, unique=False)
+            tabnum = table.tabnum
+            iskip = 0
+            inumrows, inumcols = source.shape
+
         else:
             raise TypeError(f"Expected int, TableProxy or str, got {source}")
 
+        flags = 1 * int(gaussian) + 2 * int(interposcil) + 4 * int(interpfreq)
         return self.sched('.playPartials',
                           delay=delay,
                           dur=dur,
                           args=dict(ifn=tabnum,
+                                    iskip=iskip,
+                                    inumrows=inumrows,
+                                    inumcols=inumcols,
                                     kspeed=speed,
                                     kloop=int(loop),
                                     kminfreq=minfreq,
@@ -1380,7 +1427,11 @@ class Session:
                                     ichan=chan,
                                     istart=start,
                                     istop=stop,
-                                    kfreqscale=1))
+                                    kfreqscale=freqscale,
+                                    iflags=flags,
+                                    iposition=position,
+                                    kbwscale=bwscale,
+                                    kgain=gain))
 
     def playSample(self,
                    source: int | TableProxy | str | tuple[np.ndarray, int],
