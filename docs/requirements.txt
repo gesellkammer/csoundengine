@@ -2,7 +2,7 @@ numpy
 scipy
 matplotlib
 JACK-client
-ctcsound
+pygments
 sndfileio
 emlib
 cachetools
@@ -13,5 +13,5 @@ numpyx
 appdirs
 sphinx-autodoc-typehints
 sphinx-automodapi
-sphinx_rtd_theme
+piccolo-theme
 autodocsumm

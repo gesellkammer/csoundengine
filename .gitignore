@@ -2,6 +2,7 @@
 .idea
 docs/_build
 docs/api
+docs/api/*
 *.pyc
 build
 dist

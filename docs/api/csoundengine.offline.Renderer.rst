@@ -14,11 +14,14 @@ Renderer
       ~Renderer.assignBus
       ~Renderer.automateTable
       ~Renderer.automatep
+      ~Renderer.commitInstrument
       ~Renderer.defInstr
       ~Renderer.generateCsdString
       ~Renderer.getEventById
       ~Renderer.getEventsByP1
       ~Renderer.getInstr
+      ~Renderer.hasBusSupport
+      ~Renderer.includeFile
       ~Renderer.isInstrDefined
       ~Renderer.makeTable
       ~Renderer.playSample
@@ -41,11 +44,14 @@ Renderer
    .. automethod:: assignBus
    .. automethod:: automateTable
    .. automethod:: automatep
+   .. automethod:: commitInstrument
    .. automethod:: defInstr
    .. automethod:: generateCsdString
    .. automethod:: getEventById
    .. automethod:: getEventsByP1
    .. automethod:: getInstr
+   .. automethod:: hasBusSupport
+   .. automethod:: includeFile
    .. automethod:: isInstrDefined
    .. automethod:: makeTable
    .. automethod:: playSample

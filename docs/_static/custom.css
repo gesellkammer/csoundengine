@@ -1,3 +1,7 @@
 .wy-nav-content {
     max-width: 920px !important;
 }
+
+.documentwrapper {
+	max-width: 54rem !important;
+}
