@@ -1,4 +1,5 @@
 from __future__ import annotations
+from functools import cache
 from emlib import textlib, iterlib
 from dataclasses import dataclass
 import numpy as np
@@ -47,6 +48,10 @@ class Instr:
             is finished
         doc: some documentation describing what this instr does
         includes: a list of files which need to be included in order for this instr to work
+        aliases: if given, a dict mapping arg names to real argument names. It enables
+            to define named args for an instrument using any kind of name instead of
+            following csound names, or use any kind of name in an instr to avoid possible
+            collisions while exposing a nicer name to the outside as alias
 
     Example
     -------
@@ -75,10 +80,11 @@ class Instr:
             kfreq = p6
             a0 = oscili:a(kamp, kfreq)
             outch 1, a0
-        ''', args={'kamp': 0.1, 'kfreq': 1000}
+        ''', args={'kamp': 0.1, 'kfreq': 1000}, aliases={'frequency': 'kfreq'}
         ).register(s)
         # We schedule an event of sine, kamp will take the default (0.1)
         synth = s.sched('sine', kfreq=440)
+        synth.set(frequency=450, delay=1)   # Use alias
         synth.stop()
 
     **Inline arguments**
@@ -182,11 +188,13 @@ class Instr:
     """
 
     __slots__ = (
-        'body', 'name', 'args', 'init', 'id', '_tableDefaultValues', '_tableNameToIndex',
+        'body', 'name', 'args', 'init', 'id',
         'tabargs', 'numchans', 'instrFreesParamTable', 'doc',
         'pargsIndexToName', 'pargsNameToIndex', 'pargsIndexToDefaultValue',
+        'originalBody', 'includes',
+        '_tableDefaultValues', '_tableNameToIndex',
         '_numpargs', '_recproc', '_check', '_preschedCallback',
-        'originalBody', 'includes'
+        'aliases', '_argToAlias'
     )
 
     def __init__(self,
@@ -200,7 +208,8 @@ class Instr:
                  freetable=True,
                  doc: str = '',
                  userPargsStart=5,
-                 includes: list[str] | None = None
+                 includes: list[str] | None = None,
+                 aliases: dict[str, str] = None,
                  ) -> None:
 
         assert isinstance(name, str)
@@ -295,6 +304,11 @@ class Instr:
         self.instrFreesParamTable = freetable
         "does this instr frees its parameter table?"
 
+        self.aliases = aliases
+        """Maps alias argument names to their real argument names"""
+
+        self._argToAlias = {name: alias for alias, name in aliases.items()} if aliases else None
+
         self._numpargs: int | None = None
         self._recproc = None
         self._check = config['check_pargs']
@@ -328,8 +342,14 @@ class Instr:
         if not pargs:
             return ""
         if self.pargsIndexToDefaultValue:
-            return ", ".join(f"{pname}:{i}={self.pargsIndexToDefaultValue.get(i, 0)}"
-                             for i, pname in sorted(pargs.items()) if i != 4)
+            parts = []
+            for i, pname in sorted(pargs.items()):
+                if i == 4:
+                    continue
+                if self.aliases and (alias := self._argToAlias.get(pname)) is not None:
+                    pname = f"{alias}({pname})"
+                parts.append(f"{pname}:{i}={self.pargsIndexToDefaultValue.get(i, 0):.6g}")
+            return ", ".join(parts)
         else:
             return ", ".join(
                     f"{pname}:{i}" for i, pname in sorted(pargs.items()) if i != 4)
@@ -348,10 +368,12 @@ class Instr:
                 htmls = []
                 for idx in group:
                     pname = self.pargsIndexToName[idx]
+                    if self.aliases and (alias := self._argToAlias.get(pname)):
+                        pname = f'{alias}({pname})'
                     # parg = _(f'p{idx}', fontsize='90%')
                     parg = f'p{idx}'
                     html = f"<b>{pname}</b>:{parg}=" \
-                           f"<code>{self.pargsIndexToDefaultValue.get(idx, 0)}</code>"
+                           f"<code>{self.pargsIndexToDefaultValue.get(idx, 0):.6g}</code>"
                     html = _(html, fontsize='90%')
                     htmls.append(html)
                 line = "&nbsp&nbsp&nbsp&nbsp" + ", ".join(htmls) + "<br>"
@@ -395,12 +417,17 @@ class Instr:
         sections.append(self.body)
         return "\n".join(sections)
 
-    def namedParams(self) -> dict[str, float]:
+    @cache
+    def namedParams(self, includeRealNames=False) -> dict[str, float]:
         """
         Returns named dynamic parameters and their defaults
 
         This method is independent of the parameter mode used (whether a param table or
         named pargs)
+
+        Args:
+            includeRealNames: if True and this instrument has defined aliases, included
+                the real parameters in the returned dict.
 
         Returns:
             a dict of named dynamic parameters to this instr and their associated
@@ -410,8 +437,13 @@ class Instr:
         if paramMode == 'table':
             return self.tabargs
         elif paramMode == 'parg':
-            return {key: self.pargsIndexToDefaultValue.get(idx)
-                    for key, idx in self.pargsNameToIndex.items()}
+            d = {key: self.pargsIndexToDefaultValue.get(idx)
+                 for key, idx in self.pargsNameToIndex.items()}
+            if self.aliases:
+                for alias, realname in self.aliases.items():
+                    d[alias] = d[realname]
+                    if not includeRealNames:
+                        del d[realname]
         return {}
 
     def register(self, renderer) -> Instr:
@@ -456,20 +488,53 @@ class Instr:
             renderer.registerInstr(self)
         return self
 
-    def pargIndex(self, parg: str) -> int:
+    def pargName(self, index: int, alias=True) -> str:
+        """
+        Given the pfield index, get the name, if given
+
+        Args:
+            index: the pfield index (starts with 1)
+            alias: if True, return the corresponding alias, if defined
+
+        Returns:
+            the corresponding pfield name, or an empty string if the
+            index is not used
+        """
+        name = self.pargsIndexToName.get(index)
+        if name is None:
+            logger.debug(f"Arg index {index} not used for instr {self.name}")
+            return ''
+        if alias and self.aliases and (name2 := self._argToAlias.get(name)):
+            return name2
+        return name
+
+    def pargIndex(self, name: str) -> int:
         """
         Helper function, returns the index corresponding to the given parg.
 
         Args:
-            parg: the index or the name of the p-field.
+            name: the index or the name of the p-field.
 
         Returns:
             the index of the parg
         """
-        assert isinstance(parg, str)
-        if (idx := self.pargsNameToIndex.get(parg)) is None:
-            raise KeyError(f"parg {parg} not known. Defined named pargs: {self.pargsNameToIndex.keys()}")
-        return idx
+        assert isinstance(name, str)
+        if self.aliases and name in self.aliases:
+            name = self.aliases[name]
+        if (idx := self.pargsNameToIndex.get(name)) is not None:
+            return idx
+
+        # try with a k-
+        if name[0] != 'k':
+            idx = self.pargsNameToIndex.get('k' + name)
+            if idx:
+                return idx
+
+        errormsg = (f"parg {name} not known. "
+                    f"Defined named pargs: {self.pargsNameToIndex.keys()}")
+        if self.aliases:
+            errormsg += f" Aliases: {self.aliases}"
+        raise KeyError(errormsg)
 
     def pargsTranslate(self, 
                        args: Sequence[float] = (), 
@@ -500,7 +565,8 @@ class Instr:
             pargs[:len(args)] = args
         if kws:
             for pname, value in kws.items():
-                idx = pname if isinstance(pname, int) else _pargIndex(pname, n2i)
+                # idx = pname if isinstance(pname, int) else _pargIndex(pname, n2i)
+                idx = pname if isinstance(pname, int) else self.pargIndex(pname)
                 pargs[idx-5] = value
         return pargs
 
@@ -959,7 +1025,10 @@ def _pfieldsMergeDeclaration(args: dict[str, float],
     return pfields
 
 
-def _updatePfieldsCode(body: str, idx2name: dict[int, str], placeDocstringOnTop=True) -> str:
+def _updatePfieldsCode(body: str,
+                       idx2name: dict[int, str],
+                       placeDocstringOnTop=True
+                       ) -> str:
     """
     Generate pfield code
 
@@ -1001,38 +1070,25 @@ def _updatePfieldsCode(body: str, idx2name: dict[int, str], placeDocstringOnTop=
 
 
     """
-    bodylines = body.splitlines()
     parsedCode = csoundlib.instrParseBody(body)
     newPfieldCode = _pfieldsGenerateCode(idx2name)
     if not placeDocstringOnTop:
         parts = [newPfieldCode, " ", parsedCode.body]
     else:
-        docstringLocation = csoundlib.locateDocstring(parsedCode.body)
+        bodylines = parsedCode.body.splitlines()
+        docstringLocation = csoundlib.locateDocstring(bodylines)
         if docstringLocation is None:
-            parts = [newPfieldCode, " ", parsedCode.body]
+            parts = [newPfieldCode, " "]
+            parts.extend(bodylines)
         else:
-            bodylines = parsedCode.body.splitlines()
             start, end = docstringLocation
-            docstring = '\n'.join(bodylines[start:end])
-            rest = '\n'.join(bodylines[end:])
+            lines = bodylines
+            docstring = '\n'.join(lines[start:end])
+            rest = '\n'.join(lines[end:])
             parts = [docstring, newPfieldCode, " ", rest]
     out = textlib.joinPreservingIndentation(parts)
-    return textwrap.dedent(out)
-
-
-def _pargIndex(parg: str, pargMapping: dict[str, int]) -> int:
-    idx = pargMapping.get(parg)
-    if idx is None:
-        # try with a k-
-        if parg[0] != 'k':
-            idx = pargMapping.get('k' + parg)
-            if idx:
-                return idx
-        keys = [k for k in pargMapping.keys() if not k[0] == "p"]
-        raise KeyError(f"parg '{parg}' not found for instr. "
-                       f"Possible pargs: {keys} (mapping: {pargMapping})")
-    assert idx > 0
-    return idx
+    out = textwrap.dedent(out)
+    return out
 
 
 def _detectInlineArgs(lines: list[str]) -> tuple[str, int | None]:
@@ -1064,7 +1120,9 @@ def _detectInlineArgs(lines: list[str]) -> tuple[str, int | None]:
     return "", None
 
 
-def _pfieldsGenerateCode(pfields: dict[int, str], strmethod='strget') -> str:
+def _pfieldsGenerateCode(pfields: dict[int, str],
+                         strmethod='strget',
+                         unifyIndentation=True) -> str:
     """
     Generate code for the given pfields
 
@@ -1079,7 +1137,7 @@ def _pfieldsGenerateCode(pfields: dict[int, str], strmethod='strget') -> str:
     Example
     =======
 
-        >>> print(_pfieldsGenerateCode({4: 'ichan', 5:'kfreq', '6': 'Sname'}))
+        >>> print(_pfieldsGenerateCode({4: 'ichan', 5: 'kfreq', '6': 'Sname'}))
         ichan = p4
         kfreq = p5
         Sname = strget(p6)
@@ -1087,8 +1145,12 @@ def _pfieldsGenerateCode(pfields: dict[int, str], strmethod='strget') -> str:
     """
     pairs = list(pfields.items())
     pairs.sort()
+    maxwidth = max(len(name) for name in pfields.values())
     lines = []
     for idx, name in pairs:
+        if unifyIndentation:
+            name = name.ljust(maxwidth)
+
         if name[0] == 'S':
             if strmethod == 'strget':
                 lines.append(f"{name} strget p{idx}")

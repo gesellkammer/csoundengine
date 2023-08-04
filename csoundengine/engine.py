@@ -3102,6 +3102,8 @@ class Engine:
         :meth:`~Engine.automateTable`
         """
         # table will be freed by the instr itself
+        # TODO: Another possibility would be to split the pairs into groups of less
+        #       than the limit and schedule multiple automation events
         if len(pairs) < 1900:
             args = [p1, pidx, self.strSet(mode), int(overtake), len(pairs)]
             args.extend(pairs)

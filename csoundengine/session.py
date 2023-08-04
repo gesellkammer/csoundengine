@@ -1032,8 +1032,8 @@ class Session:
         if instrname == "?":
             instrname = emlib.dialogs.selectItem(list(self.instrs.keys()),
                                                  title="Select Instr",
-                                                  ensureSelection=True)
-        instr: Instr = self.getInstr(instrname)
+                                                 ensureSelection=True)
+        instr = self.getInstr(instrname)
         if instr is None:
             raise ValueError(f"Instrument {instrname} not defined")
         table: ParamTable | None
@@ -1047,10 +1047,11 @@ class Session:
             table = None
         # tableidx is always p4
         if pkws:
+            params = instr.namedParams(includeRealNames=True)
             for k in pkws.keys():
-                if k not in instr.pargsNameToIndex:
+                if k not in params:
                     raise KeyError(f"arg '{k}' not known for instr '{instr.name}'. "
-                                   f"Possible args: {instr.pargsNameToIndex.keys()}")
+                                   f"Possible args: {params}")
 
         p4args = _tools.instrResolveArgs(instr, p4=tableidx, pargs=args, pkws=pkws)
         rinstr, needssync = self.prepareSched(instrname, priority, block=True)

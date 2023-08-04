@@ -3013,13 +3013,13 @@ def lastAssignmentToVariable(varname: str, lines: list[str]) -> Optional[int]:
     return None
 
 
-def locateDocstring(code: str | list[str]) -> tuple[int, int] | None:
+def locateDocstring(lines: list[str]) -> tuple[int, int] | None:
     """
     Locate the docstring in this instr code
 
     Args:
-        code: the code to analyze, tipically the code inside of an instr
-            (between instr/endin)
+        lines: the code to analyze, tipically the code inside an instr
+            (between instr/endin), split into lines
 
     Returns:
         a tuple (first line, last line) indicating the location of the docstring
@@ -3028,7 +3028,6 @@ def locateDocstring(code: str | list[str]) -> tuple[int, int] | None:
     """
     docstringStart = None
     docstringKind = ''
-    lines = code if isinstance(code, list) else code.splitlines()
     for i, line in enumerate(lines):
         line = line.strip()
         if not line:
@@ -3052,7 +3051,7 @@ def locateDocstring(code: str | list[str]) -> tuple[int, int] | None:
     return None
 
 
-@_functools.lru_cache(maxsize=2000)
+@_functools.cache
 def instrParseBody(body: str) -> ParsedInstrBody:
     """
     Parses the body of an instrument, returns pfields used, output channels, etc.
@@ -3085,8 +3084,9 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                         pfieldsNameToIndex={'ibus': 4, 'kfreq': 5})
     """
     pfieldLines = []
-    restLines = []
+    bodyLines = []
     values = None
+    insideComment = False
     pargsUsed = set()
     pfields: dict[int, str] = {}
     outchannels: set[int] = set()
@@ -3096,14 +3096,29 @@ def instrParseBody(body: str) -> ParsedInstrBody:
         if pargsInLine:
             for p in pargsInLine:
                 pargsUsed.add(int(p[1:]))
-        if m := _re.search(r"\bpassign\s+(\d+)", line):
-            pfieldLines.append(line)
-            pstart = int(m.group(1))
-            argsstr, rest = line.split("passign")
-            args = argsstr.split(",")
-            for i, name in enumerate(args, start=pstart):
-                pargsUsed.add(i)
-                pfields[i] = name.strip()
+        if _re.match(r"^\s*(;|\/\/)", line):
+            # A comment
+            bodyLines.append(line)
+        elif _re.match(r"^\s*\/\*", line):
+            insideComment = True
+            bodyLines.append(line)
+        elif _re.match(r"\*\/", line) and insideComment:
+            insideComment = False
+            bodyLines.append(line)
+        elif insideComment:
+            bodyLines.append(line)
+        elif m := _re.search(r"\bpassign\s+(\d+)", line):
+            if "[" in line:
+                # array form, iarr[] passign 4, 6
+                bodyLines.append(line)
+            else:
+                pfieldLines.append(line)
+                pstart = int(m.group(1))
+                argsstr, rest = line.split("passign")
+                args = argsstr.split(",")
+                for i, name in enumerate(args, start=pstart):
+                    pargsUsed.add(i)
+                    pfields[i] = name.strip()
         elif _re.search(r"^\s*pset\s+([+-]?([0-9]*[.])?[0-9]+)", line):
             defaultsStr = line.strip()[4:]
             values = {i: float(v)
@@ -3128,14 +3143,14 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                     if chan is not None and int(chan) == chan:
                         outchannels.add(chan)
 
-            restLines.append(line)
+            bodyLines.append(line)
 
     return ParsedInstrBody(pfieldsText="\n".join(pfieldLines),
                            pfieldsDefaults=values,
                            pfieldsIndexToName=pfields,
                            pfieldsUsed=pargsUsed,
                            outChannels=outchannels,
-                           body="\n".join(restLines),
+                           body="\n".join(bodyLines),
                            lines=lines)
 
 
@@ -3458,6 +3473,3 @@ def _cropScore(events: list, start=0., end=0.) -> list:
             ev[2] = dur
             cropped.append(ev)
     return cropped
-
-
-del dataclass

@@ -173,8 +173,10 @@ def addNotifycationAtStop(body: str, notifyDeallocInstrnum: int) -> str:
     return out
 
 
-def instrWrapBody(body:str, instrid:Union[int, str, Sequence[str]], comment:str= '',
-                  notifyDeallocInstrnum: int = 0
+def instrWrapBody(body: str,
+                  instrid: int | str | Sequence[str],
+                  comment='',
+                  notifyDeallocInstrnum=0
                   ) -> str:
     s = r"""
 instr {instrnum}  {commentstr}

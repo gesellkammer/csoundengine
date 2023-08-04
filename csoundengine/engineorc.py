@@ -156,6 +156,16 @@ instr ${automatePargViaPargs}
     imode = p6;  interpolation method
     iovertake = p7
     ilenpairs = p8
+    
+    ; special case: simple line, two pairs
+    if ilenpairs == 4 && p9 == 0 && iovertake == 0 then
+        iy0 = p10
+        ix1 = p11
+        iy1 = p12
+        ky linseg iy0, ix1, iy1
+        goto end 
+    endif
+    
     ipairs[] passign 9, 9+ilenpairs
     iXs[] slicearray ipairs, 0, ilenpairs-1, 2
     iYs[] slicearray ipairs, 1, ilenpairs-1, 2
@@ -169,6 +179,8 @@ instr ${automatePargViaPargs}
     kt timeinsts
     kidx bisect kt, iXs
     ky interp1d kidx, iYs, Sinterpmethod
+
+end:
     pwrite ip1, ipindex, ky
 endin
 

@@ -81,7 +81,7 @@ class AbstrSynth(baseevent.BaseEvent):
             raise
         internalTools.removeSigintHandler()
 
-    def set(self, *args, **kws) -> None:
+    def set(self, *args, delay=0., **kws) -> None:
         """
         Set a value of a named parameter
 
@@ -89,7 +89,7 @@ class AbstrSynth(baseevent.BaseEvent):
         """
         mode = self.paramMode()
         if self.paramMode() == 'parg':
-            return self.setp(*args, **kws)
+            return self.setp(*args, delay=delay, **kws)
         elif mode == 'table':
             return self.setTable(*args, **kws)
         else:
@@ -370,13 +370,17 @@ class Synth(AbstrSynth):
                            if n.startswith('k'))
             for i, parg in enumerate(pargs, start=4):
                 if i > maxi:
-                    argsstrs.append("...")
+                    argsstrs.append("…")
                     break
                 name = i2n.get(i)
                 if not isinstance(parg, str):
                     parg = f'{parg:.6g}'
                 if name:
-                    s = f"{i}:<b>{name}</b>=<code>{parg}</code>"
+                    idxstr = str(i)
+                    if self.instr.aliases and (alias := self.instr.aliases.get(name)):
+                        s = f"{idxstr}:<b>{alias}({name})</b>=<code>{parg}</code>"
+                    else:
+                        s = f"{idxstr}:<b>{name}</b>=<code>{parg}</code>"
                 else:
                     # s = f"<b>p{i + 4}</b>=<code>{parg:.6g}</code>"
                     s = f"<b>{i}</b>=<code>{parg}</code>"
@@ -996,10 +1000,6 @@ class SynthGroup(AbstrSynth):
     def setp(self, *args, delay=0., **kws) -> None:
         for synth in self.synths:
             synth.setp(*args, delay=delay, **kws)
-        #now = self.engine.elapsedTime()
-        #for synth in self.synths:
-        #    if synth.start <= now + delay <= synth.end:
-        #        synth.setp(*args, delay=delay, **kws)
 
     def tableParams(self) -> Set[str]:
         """
