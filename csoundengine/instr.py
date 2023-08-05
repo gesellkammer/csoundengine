@@ -444,7 +444,9 @@ class Instr:
                     d[alias] = d[realname]
                     if not includeRealNames:
                         del d[realname]
-        return {}
+            return d
+        else:
+            raise ValueError(f"Param mode {self.paramMode()} not supported")
 
     def register(self, renderer) -> Instr:
         """
