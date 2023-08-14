@@ -639,6 +639,7 @@ class Engine:
         self._soundfontPresetCount = 0
         self._startTime = 0.
         self._lockedElapsedTime = 0.
+        self._realElapsedTime = (0., -float('inf'))
         # A stack holding locked states
         self._clockStatesStack: list[bool] = []
 
@@ -1255,6 +1256,27 @@ class Engine:
             self._tableCache[idx] = arr
         return arr
 
+    def realElapsedTime(self, threshold=0.1) -> float:
+        """
+        Reports the elapsed time of the engine, independent of any locking
+
+        Args:
+            threhsold: the reporting threshold. If this method is called multiple times
+                during this time interval the engine time is extrapolated from the
+                time reported by python and no call to csound is made
+
+        Returns:
+            the time elapsed since start of the engine.
+        """
+        reportedTime, lastTime = self._realElapsedTime
+        now = time.time()
+        if now - lastTime > threshold:
+            reportedTime = self.csound.currentTimeSamples() / self.sr
+            self._realElapsedtime = (reportedTime, now)
+        else:
+            reportedTime += now - lastTime
+        return reportedTime
+
     def elapsedTime(self) -> float:
         """
         Returns the elapsed time since start of the engine
@@ -1288,7 +1310,8 @@ class Engine:
             ...         e.sched(100, t, 0.15, args=[800])
 
         """
-        return self._lockedElapsedTime or self.csound.currentTimeSamples() / self.sr
+        return self._lockedElapsedTime or self.realElapsedTime()
+        # return self._lockedElapsedTime or self.csound.currentTimeSamples() / self.sr
 
     def lockClock(self, lock=True):
         """

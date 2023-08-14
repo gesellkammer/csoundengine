@@ -417,6 +417,30 @@ class Instr:
         sections.append(self.body)
         return "\n".join(sections)
 
+    def dynamicParams(self, includeRealNames=False) -> dict[str, float]:
+        """
+        A dict with all dynamic parameters defined in this instr
+
+        Args:
+            includeRealNames: if True and this instrument has defined aliases, include
+                the real parameters in the returned dict. Aliased parameters will be
+                included twice
+
+        Returns:
+            a dict with all dynamic parameters and their default values
+        """
+        if self.paramMode() == 'parg':
+            d = {key: self.pargsIndexToDefaultValue.get(idx)
+                 for key, idx in self.pargsNameToIndex.items()
+                 if key.startswith('k')}
+            if self.aliases:
+                for alias, realname in self.aliases.items():
+                    if realname.startswith('k'):
+                        d[alias] = d[realname]
+                        if not includeRealNames:
+                            del d[realname]
+            return d
+
     @cache
     def namedParams(self, includeRealNames=False) -> dict[str, float]:
         """
@@ -426,8 +450,9 @@ class Instr:
         named pargs)
 
         Args:
-            includeRealNames: if True and this instrument has defined aliases, included
-                the real parameters in the returned dict.
+            includeRealNames: if True and this instrument has defined aliases, include
+                the real parameters in the returned dict. Aliased parameters will be
+                included twice
 
         Returns:
             a dict of named dynamic parameters to this instr and their associated
@@ -532,7 +557,7 @@ class Instr:
             if idx:
                 return idx
 
-        errormsg = (f"parg {name} not known. "
+        errormsg = (f"parg {name} not known for instr '{self.name}'."
                     f"Defined named pargs: {self.pargsNameToIndex.keys()}")
         if self.aliases:
             errormsg += f" Aliases: {self.aliases}"

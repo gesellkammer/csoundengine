@@ -52,6 +52,9 @@ class AbstrSynth(baseevent.BaseEvent):
         if self.autostop:
             self.stop(stopParent=False)
 
+    def _repr_html_(self) -> str:
+        raise NotImplementedError
+
     @abstractmethod
     def stop(self, delay=0., stopParent=False) -> None:
         """ Stop this synth """
@@ -142,7 +145,7 @@ class AbstrSynth(baseevent.BaseEvent):
         """
         raise NotImplementedError()
 
-    def tableParams(self) -> Set[str] | None:
+    def tableParams(self) -> set[str]:
         """
         Return a set of all named table parameters
 
@@ -171,17 +174,16 @@ class AbstrSynth(baseevent.BaseEvent):
         """ Does this synth/group have an associated parameter table?"""
         raise NotImplementedError()
 
-    def paramMode(self) -> str | None:
+    def paramMode(self) -> str:
         """
         Returns the dynamic parameter mode, or None
 
-        Returns one of 'parg', 'table' or None if this object does not
-        define any dynamic parameters
+        Returns one of 'parg' or 'table'
         """
-        return None
+        return 'parg'
 
     def automateTable(self, param: str, pairs: Union[list[float], np.ndarray],
-                      mode="linear", delay=0., overtake=False) -> None:
+                      mode="linear", delay=0., overtake=False) -> float:
         """
         Automate a table parameter. Time stamps are relative to the start
         of the automation
@@ -204,13 +206,13 @@ class AbstrSynth(baseevent.BaseEvent):
         """
         raise NotImplementedError()
 
-    def namedPfields(self) -> Set[str] | None:
+    def namedPfields(self) -> set[str]:
         """
         Returns a set of all named pfields
         """
         raise NotImplementedError()
 
-    def namedParams(self) -> Set[str] | None:
+    def namedParams(self) -> set[str]:
         """
         Returns a set of named parameters, or None if this Synth has no named parameters
 
@@ -220,17 +222,15 @@ class AbstrSynth(baseevent.BaseEvent):
         mode = self.paramMode()
         if mode == 'parg':
             return self.namedPfields()
-        elif mode == 'table':
-            return self.tableParams()
         else:
-            return None
-
+            return self.tableParams()
+        
     def automatep(self,
                   param: Union[int, str],
                   pairs: Union[list[float], np.ndarray],
                   mode="linear",
                   delay=0.,
-                  overtake=False) -> AbstrSynth:
+                  overtake=False) -> float:
         """
         Automate the value of a pfield.
 
@@ -254,6 +254,38 @@ class AbstrSynth(baseevent.BaseEvent):
         .. seealso:: :meth:`~AbstrSynth.setp`, :meth:`~AbstrSynth.automate`
         """
         raise NotImplementedError()
+
+    def automate(self,
+                 param: str,
+                 pairs: Union[list[float], np.ndarray],
+                 mode='linear',
+                 delay=0.,
+                 overtake=False
+                 ) -> float:
+        """
+        Automate any named parameter of this Synth
+
+        This method will automate this synth's pfields / param table, depending of
+        how the instrument was defined.
+
+        Args:
+            param: the name of the parameter to automate
+            pairs: automation data as a flat array with the form [time0, value0, time1, value1, ...]
+            mode: one of 'linear', 'cos'. Determines the curve between values
+            delay: when to start the automation
+            overtake: if True, do not use the first value in pairs but overtake the current value
+
+        Returns:
+            the eventid of the automation event
+        """
+        paramMode = self.paramMode()
+        if paramMode == 'table':
+            return self.automateTable(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
+        elif paramMode == 'parg':
+            return self.automatep(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
+        else:
+            raise RuntimeError("This Synth does not define any dynamic parameters")
+
 
     def setp(self, *args, delay=0., **kws) -> None:
         """
@@ -460,7 +492,7 @@ class Synth(AbstrSynth):
             return None
         return self.table.asDict()
 
-    def tableParams(self) -> Set[str] | None:
+    def tableParams(self) -> set[str] | None:
         if self.table is None:
             return None
         return set(self.table.mapping.keys())
@@ -875,8 +907,8 @@ class SynthGroup(AbstrSynth):
                 synth.automateTable(param=param, pairs=pairs, mode=mode, delay=delay,
                                     overtake=overtake)
 
-    def namedPfields(self) -> Set[str]:
-        out: Set[str] = set()
+    def namedPfields(self) -> set[str]:
+        out: set[str] = set()
         for synth in self.synths:
             namedPargs = synth.namedPfields()
             if namedPargs:
@@ -1001,7 +1033,7 @@ class SynthGroup(AbstrSynth):
         for synth in self.synths:
             synth.setp(*args, delay=delay, **kws)
 
-    def tableParams(self) -> Set[str]:
+    def tableParams(self) -> set[str]:
         """
         Returns a set of available table named parameters for this group
         """
