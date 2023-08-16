@@ -9,7 +9,9 @@ import math
 import textwrap
 from typing import TYPE_CHECKING
 import emlib.dialogs
+import emlib.iterlib
 import subprocess
+import bisect
 
 
 if TYPE_CHECKING:
@@ -315,5 +317,106 @@ def resolvePfieldIndex(pfield: Union[int, str],
 def isAscii(s: str) -> bool:
     return all(ord(c)<128 for c in s)
 
+
+def consolidateDelay(pairs: list[float], delay: float
+                     ) -> tuple[list[float], float]:
+    """
+    (2, 20, 3, 30, 4, 40), delay=3
+
+    out = (0, 20, 1, 30, 2, 40), delay=5
+    """
+    t0 = pairs[0]
+    assert t0 >= 0
+    if t0 == 0:
+        return pairs, delay
+    out = []
+    for t, v in emlib.iterlib.window(pairs, 2, 2):
+        out.append(t - t0)
+        out.append(v)
+    return out, delay + t0
+
+
+def cropDelayedPairs(pairs: list[float], delay: float, start: float, end: float
+                     ) -> tuple[list[float], float]:
+    """
+    Crop the given pairs between start and end (inclusive)
+
+    Args:
+        pairs: a flat list of pairs in the form (t0, value0, t1, value1, ...)
+        delay: a time offset to apply to all times
+        start: start cropping at this time
+        end: end cropping at this time
+
+    Returns:
+        a tuple (new pairs, new delay)
+
+    .. code::
+        pairs = (2, 20, 3, 30)
+        delay = 3
+        abspairs = (5, 20, 6, 30)
+        t0 = 4, t1 = 5.5   -> t0 = 5, t1 = 5.5
+
+        outpairs = (2, 20, 2.5, 25)
+        outdelay = 3
+
+        t0 = 5.5, t1 = 6
+        cropPairs(pairs, 5.5-3=2.5, 6-3=3)
+
+        outpairs = (2.5, 25, 3, 30)
+        outdelay = 3
+
+        t0 = 1, t1 = 5.5
+        cropPairs(pairs, 5-3=2, 5.5-3=2.5)
+        outpairs = (2, 20, 2.5, 30)
+        outdelay = 3
+    """
+    pairst0 = pairs[0] + delay
+    if start < pairst0:
+        start = pairst0
+    croppedPairs = cropPairs(pairs, start - delay, end - delay)
+    return croppedPairs, delay
+
+
+def cropPairs(pairs: list[float], t0: float, t1: float) -> list[float]:
+    pairsStart, pairsEnd = pairs[0], pairs[-2]
+
+    if t0 < pairsStart and t1 >= pairsEnd:
+        return pairs
+
+    if t0 >= pairsEnd or t1 <= pairsStart:
+        return []
+
+    def interpolate(t: float, times: list[float], values: list[float]
+                    ) -> tuple[int, float, float]:
+        idx = bisect.bisect(times, t)
+        if times[idx - 1] == t:
+            return idx, t, values[idx - 1]
+        else:
+            t0, v0 = times[idx-1], values[idx-1]
+            t1, v1 = times[idx], values[idx]
+            delta = (t - t0) / (t1 - t0)
+            v = v0  + (v1 - v0) * delta
+            return idx, t, v
+
+    times = pairs[::2]
+    values = pairs[1::2]
+    out: list[float] = []
+    if t0 <= times[0]:
+        chunkstart = 0
+    else:
+        chunkstart, t, v = interpolate(t0, times, values)
+        out.append(t)
+        out.append(v)
+
+    if t1 >= times[-1]:
+        chunkend = len(times)
+        lastbreakpoint = None
+    else:
+        chunkend, t, v = interpolate(t1, times, values)
+        lastbreakpoint = (t, v)
+    out.extend(pairs[chunkstart*2:chunkend*2])
+    if lastbreakpoint is not None:
+        out.extend(lastbreakpoint)
+    return out
 
 

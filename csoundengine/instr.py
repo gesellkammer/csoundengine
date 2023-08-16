@@ -417,6 +417,23 @@ class Instr:
         sections.append(self.body)
         return "\n".join(sections)
 
+    @cache
+    def dynamicParamKeys(self, includeRealNames=False) -> set[str]:
+        """
+        The set of all dynamic parameters accepted by this Instr
+
+        Args:
+            includeRealNames: if True and this instrument has defined aliases, include
+                the real parameters in the returned dict. Aliased parameters will be
+                included twice
+
+        Returns:
+            a set of the dynamic (modifiable) parameters accepted by this Instr
+        """
+        dynparams  = self.dynamicParams(includeRealNames=includeRealNames)
+        return set(dynparams.keys())
+
+    @cache
     def dynamicParams(self, includeRealNames=False) -> dict[str, float]:
         """
         A dict with all dynamic parameters defined in this instr

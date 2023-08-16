@@ -166,12 +166,13 @@ _UNSET = float("-inf")
 
 
 def _generateUniqueEngineName(prefix="engine") -> str:
-    i = 0
-    while True:
+    for i in range(9999):
         name = f"{prefix}{i}"
         if name not in Engine.activeEngines:
             return name
-        i += 1
+
+    import uuid
+    return str(uuid.uuid4())
 
 
 def _asEngine(e: Union[str, Engine]) -> Engine:
@@ -338,10 +339,11 @@ class Engine:
                  midibackend: str = 'default',
                  midiin: str | None = None,
                  latency: float | None = None):
-        if name is None:
+        if not name:
             name = _generateUniqueEngineName()
         elif name in Engine.activeEngines:
-            raise KeyError(f"engine {name} already exists")
+            raise KeyError(f"Engine '{name}' already exists")
+
         if backend == 'portaudio':
             backend = 'pa_cb'
         cfg = config
@@ -1261,12 +1263,14 @@ class Engine:
         Reports the elapsed time of the engine, independent of any locking
 
         Args:
-            threhsold: the reporting threshold. If this method is called multiple times
+            threshold: the reporting threshold. If this method is called multiple times
                 during this time interval the engine time is extrapolated from the
                 time reported by python and no call to csound is made
 
         Returns:
             the time elapsed since start of the engine.
+
+        .. seealso:: :meth:`Engine.elapsedTime`
         """
         reportedTime, lastTime = self._realElapsedTime
         now = time.time()
@@ -1285,7 +1289,8 @@ class Engine:
         itself takes a small but not negligible amount of time, when scheduling
         a great number of events, these will fall out of sync. For this reason
         the elapsed time can be used as a reference to schedule events in
-        absolute time
+        absolute time. Moreover, the elapsed time stays unmodified
+        as long as the engine's clock is locked for scheduling (see example)
 
         Example
         ~~~~~~~
@@ -1310,6 +1315,7 @@ class Engine:
             ...         e.sched(100, t, 0.15, args=[800])
 
         """
+        # _lockedELapsedTime will be a value if this engine is locked, or None otherwise
         return self._lockedElapsedTime or self.realElapsedTime()
         # return self._lockedElapsedTime or self.csound.currentTimeSamples() / self.sr
 
@@ -1342,7 +1348,7 @@ class Engine:
         See Also
         ~~~~~~~~
 
-        :meth:`Engine.lockedElapsedTime`, :meth:`Engine.elapsedTime`
+        :meth:`Engine.elapsedTime`, :meth:`Engine.lockedClock`
 
         """
         if lock:

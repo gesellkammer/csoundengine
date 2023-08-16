@@ -1,6 +1,7 @@
 from __future__ import annotations
 import time
 import numpy as np
+from functools import cache
 from .config import logger, config
 from . import internalTools
 from . import baseevent
@@ -204,13 +205,16 @@ class AbstrSynth(baseevent.BaseEvent):
             * :meth:`~AbstrSynth.get`
 
         """
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def namedPfields(self) -> set[str]:
         """
         Returns a set of all named pfields
         """
-        raise NotImplementedError()
+        raise NotImplementedError
+
+    def dynamicParams(self) -> set[str]:
+        raise NotImplementedError
 
     def namedParams(self) -> set[str]:
         """
@@ -249,7 +253,9 @@ class AbstrSynth(baseevent.BaseEvent):
                 the current value in the running instance
 
         Returns:
-            a Synth representing the automation routine
+            a float with the synthid (p1) of the automation event. A value of 0 indicates
+            that no automation event was scheduled, possibly because there is no
+            intersection between the time of the synth and that of the automation
 
         .. seealso:: :meth:`~AbstrSynth.setp`, :meth:`~AbstrSynth.automate`
         """
@@ -326,7 +332,7 @@ class Synth(AbstrSynth):
         engine: the engine instance where this synth belongs to
         synthid: the synth id inside csound (p1, a fractional instrument number)
         instr: the Instr which originated this Synth
-        starttime: start time of the synth, relative to the engine's elapsedTime
+        start: start time of the synth, relative to the engine's elapsed time
         dur: duration of the event (can be -1 for infinite)
         args: the pfields used to create this synth (starting at p4)
         autostop: should this synth autostop? If True, the lifetime of the csound note
@@ -434,7 +440,7 @@ class Synth(AbstrSynth):
 
     def __repr__(self):
         playstr = _synthStatusIcon[self.playStatus()]
-        parts = [f'{playstr} {self.instr.name}:{self.p1}']
+        parts = [f'{playstr} {self.instr.name}:{self.p1} start:{self.start:.3f} dur:{self.dur:.3f}']
         if self.table is not None:
             parts.append(self.table._mappingRepr())
         if self.args:
@@ -459,7 +465,7 @@ class Synth(AbstrSynth):
                 argsstrs.append(s)
             argsstr = " ".join(argsstrs)
             parts.append(argsstr)
-        lines = ["Synth(" + ", ".join(parts) + ")"]
+        lines = ["Synth(" + " ".join(parts) + ")"]
         # add a line for k- pargs
         return "\n".join(lines)
 
@@ -544,6 +550,18 @@ class Synth(AbstrSynth):
             return self.getp(slot)
         else:
             return default
+
+    def dynamicParams(self) -> set[str]:
+        """
+        The set of all dynamic parameters accepted by this Synth
+
+        If the instrument used in this synth uses aliases, these are
+        also included
+
+        Returns:
+            a set of the dynamic (modifiable) parameters accepted by this synth
+        """
+        return self.instr.dynamicParamKeys(includeRealNames=True)
 
     def namedPfields(self) -> set[str]:
         name2idx = self.instr.pargsNameToIndex
@@ -753,8 +771,7 @@ class Synth(AbstrSynth):
         """
         Automate any named parameter of this Synth
 
-        This method will automate this synth's pfields / param table, depending of
-        how the instrument was defined.
+        Raises KeyError if the parameter is unknown
 
         Args:
             param: the name of the parameter to automate
@@ -764,8 +781,27 @@ class Synth(AbstrSynth):
             overtake: if True, do not use the first value in pairs but overtake the current value
 
         Returns:
-            the eventid of the automation event
+            the eventid of the automation event.
         """
+        now = self.engine.elapsedTime()
+        automStart = now + delay + pairs[0]
+        automEnd = now + delay + pairs[-2]
+        if automEnd <= self.start or automStart >= self.end:
+            # automation line ends before the actual event!!
+            logger.debug(f"Automation times outside of this synth: {param=}, "
+                         f"automation start-end: {automStart} - {automEnd}, "
+                         f"synth: {self}")
+            return 0
+
+        if automStart > self.start or automEnd < self.end:
+            pairs, delay = internalTools.cropDelayedPairs(pairs=pairs, delay=delay+now, start=automStart, end=automEnd)
+            if not pairs:
+                return 0
+            delay = delay - now
+
+        if pairs[0] > 0:
+            pairs, delay = internalTools.consolidateDelay(pairs, delay)
+
         paramMode = self.instr.paramMode()
         if paramMode == 'table':
             return self.automateTable(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
@@ -773,6 +809,7 @@ class Synth(AbstrSynth):
             return self.automatep(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
         else:
             raise RuntimeError("This Synth does not define any dynamic parameters")
+
 
     def automatep(self, param: Union[int, str], pairs: Union[list[float], np.ndarray],
                   mode="linear", delay=0., overtake=False) -> float:
@@ -907,6 +944,15 @@ class SynthGroup(AbstrSynth):
                 synth.automateTable(param=param, pairs=pairs, mode=mode, delay=delay,
                                     overtake=overtake)
 
+    @cache
+    def dynamicParams(self) -> set[str]:
+        out: set[str] = set()
+        for synth in self.synths:
+            dynamicParams = synth.dynamicParams()
+            out.update(dynamicParams)
+        return out
+
+    @cache
     def namedPfields(self) -> set[str]:
         out: set[str] = set()
         for synth in self.synths:
@@ -921,8 +967,52 @@ class SynthGroup(AbstrSynth):
                  mode="linear",
                  delay=0.,
                  overtake=False) -> list[float]:
-        return [synth.automate(param, pairs, mode=mode, delay=delay, overtake=overtake)
-                for synth in self.synths]
+        """
+        Automate the given parameter for all the synths in this group
+
+        If the parameter is not found in a given synth, the automation is skipped
+        for the given synth. This is useful when a group includes synths using
+        different instruments so an automation would only adress those synths
+        which support a given parameter. Synths which have no time overlap with
+        the automation are also skipped.
+
+        Raises KeyError if the param used is not supported by any synth in this group
+        Supported parameters can be checked via :meth:`SynthGroup.dynamicParams`
+
+        Args:
+            param: the parameter to automate
+            pairs: a flat list of pairs (time0, value0, time1, value1, ...)
+            mode: the iterpolation mode
+            delay: the delay to start the automation
+            overtake: if True, the first value is dropped and instead the current
+                value of the given parameter is used. The same effect is achieved
+                if the first value is given as 'nan', in this case also the current
+                value of the synth is overtaken.
+
+        Returns:
+            a list of synthids. There will be one synthid per synth in this group.
+            A synthid of 0 indicates that for that given synth no automation was
+            scheduled, either because that synth does not support the given
+            param or because the automation times have no intersection with the
+            synth
+        """
+        synthids = []
+        allparams = self.dynamicParams()
+        if param not in allparams:
+            lines = [f"Parameter '{param}' unknown. Known parameters: {allparams}",
+                     f"Synths in this group:"]
+            for synth in self.synths:
+                lines.append("    " + repr(synth))
+            logger.error("\n".join(lines))
+            raise KeyError(f"Parameter {param} not supported by any synth in this group. "
+                           f"Possible parameters: {allparams}")
+        for synth in self.synths:
+            if param in synth.instr.dynamicParams():
+                synthid = synth.automate(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
+            else:
+                synthid = 0
+            synthids.append(synthid)
+        return synthids
 
     def automatep(self,
                   param: Union[int, str],
