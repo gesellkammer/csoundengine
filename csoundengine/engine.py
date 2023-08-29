@@ -17,8 +17,7 @@ An :class:`Engine` implements a simple interface to run and control a csound pro
         kfreq = mtof:k(kmidinote)
         asig = vco2:a(kamp, kfreq)
         asig = moogladder2(asig, kcutoff, 0.9)
-        aenv = linsegr:a(0, 0.1, 1, 0.1, 0)
-        asig *= aenv
+        asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
         outs asig, asig
       endin
     ''')
@@ -125,13 +124,13 @@ from .errors import TableNotFoundError, CsoundError
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Union, Optional, Callable, Sequence
+    from typing import Callable, Sequence
     from . import session as _session
     import socket
     callback_t = Callable[[str, float], None]
 elif 'sphinx' in _sys.modules:
     import socket
-    from typing import Union, Optional, Callable, Sequence
+    from typing import Callable, Sequence
     callback_t = Callable[[str, float], None]
 
 
@@ -175,7 +174,7 @@ def _generateUniqueEngineName(prefix="engine") -> str:
     return str(uuid.uuid4())
 
 
-def _asEngine(e: Union[str, Engine]) -> Engine:
+def _asEngine(e: str | Engine) -> Engine:
     if isinstance(e, Engine):
         return e
     out = getEngine(e)
@@ -238,10 +237,7 @@ def _channelMode(kind: str) -> int:
 
 class Engine:
     """
-    An :class:`Engine` implements a simple interface to run and control a csound
-    process.
-
-
+    Implements a simple interface to run and control a csound process.
 
     Args:
         name: the name of the engine
@@ -520,7 +516,10 @@ class Engine:
         self.extraOptions = commandlineOptions
         "Extra options passed to csound"
 
-        self.includes: list[str] = includes if includes else []
+        self.commandlineOptions: list[str] = []
+        """All command line options used to start the engine"""
+
+        self.includes: list[str] = includes if includes is not None else []
         "List of include files"
 
         self.extraLatency = latency if latency is not None else config['sched_latency']
@@ -532,25 +531,33 @@ class Engine:
         self.numControlBuses = numControlBuses if numControlBuses is not None else config['num_control_buses']
         "Number of control buses"
 
-        self._realtime = realtime
+        self.udpPort = 0
+        "UDP port used (0 if no udp port is active)"
+
+        self.csound: None | ctcsound.Csound = None
+        "The csound object"
 
         backendBufferSize, backendNumBuffers = backendDef.bufferSizeAndNum()
-        buffersize = (buffersize or
-                      backendBufferSize or
-                      config['buffersize'] or
-                      max(ksmps * 2, 256))
-        self.bufferSize = max(ksmps*2, buffersize)
+        buffersize = (buffersize or backendBufferSize or config['buffersize'] or 256)
+        buffersize = max(ksmps * 2, buffersize)
+
+        numbuffers = (numbuffers or backendNumBuffers or config['numbuffers'] or
+                      internalTools.determineNumbuffers(self.backend or "portaudio", buffersize=buffersize))
+
+        self.bufferSize = buffersize
         "Buffer size"
 
-        self.numBuffers = (numbuffers or
-                           backendNumBuffers or
-                           config['numbuffers'] or
-                           internalTools.determineNumbuffers(self.backend or "portaudio",
-                                                             buffersize=self.bufferSize))
+        self.numBuffers = numbuffers
         "Number of buffers to fill"
 
         self.midiBackend: None | str = midibackend
         "Midi backend used"
+
+        self.started = False
+        """Has this engine already started?"""
+
+        self.builtinInstrs: dict[str, int] = {}
+        """Dict of built-in instrs, mapping instr name to number"""
 
         if midiin == 'all':
             midiindev = csoundlib.MidiDevice(deviceid='all', name='all')
@@ -562,14 +569,13 @@ class Engine:
             midiindev = csoundlib.MidiDevice(deviceid=midiin, name='')
         else:
             midiindev = None
+
         self.midiin: csoundlib.MidiDevice | None = midiindev
         "Midi input device"
 
         if udpserver is None: udpserver = config['start_udp_server']
         self._uddocket: None | socket.socket = None
         self._sendAddr: None | tuple[str, int] = None
-        self.udpPort = 0
-        "UDP port used (0 if no udp port is active)"
 
         if udpserver:
             self.udpPort = udpport or net.findport()
@@ -577,15 +583,15 @@ class Engine:
             self._sendAddr = ("127.0.0.1", self.udpPort)
 
         self._perfThread: ctcsound.CsoundPerformanceThread
-        self.csound: None | ctcsound.Csound = None            # the csound object
         self._fracnumdigits = 4        # number of fractional digits used for unique instances
         self._exited = False           # are we still running?
+        self._realtime = realtime
 
         # counters to create unique instances for each instrument
         self._instanceCounters: dict[int, int] = {}
 
         # Maps instrname/number: code
-        self._instrRegistry: dict[Union[str, int], str] = {}
+        self._instrRegistry: dict[str | int, str] = {}
 
         # a dict of callbacks, reacting to outvalue opcodes
         self._outvalueCallbacks: dict[bytes, callback_t] = {}
@@ -642,14 +648,13 @@ class Engine:
         self._startTime = 0.
         self._lockedElapsedTime = 0.
         self._realElapsedTime = (0., -float('inf'))
+
         # A stack holding locked states
         self._clockStatesStack: list[bool] = []
 
-        self.started = False
-        self.commandlineOptions: list[str] = []
-        self.builtinInstrs: dict[str, int] = {}
         self._reservedInstrnums: set[int] = set()
         self._reservedInstrnumRanges: list[tuple[str, int, int]] = [('builtinorc', CONSTS['reservedInstrsStart'], CONSTS['userInstrsStart']-1)]
+
         self.start()
 
     @property
@@ -733,7 +738,7 @@ class Engine:
         self._assignedTables[tabnum] = p1
         return tabnum
 
-    def _assignEventId(self, instrnum: Union[int, str]) -> float:
+    def _assignEventId(self, instrnum: int | str) -> float:
         """
         Assign an eventid (fractional instr number) for this instr
 
@@ -1661,7 +1666,7 @@ class Engine:
             self._instrNumCache[instrname] = out
         return out
 
-    def unsched(self, p1: Union[float, str], delay: float = 0) -> None:
+    def unsched(self, p1: float | str, delay: float = 0) -> None:
         """
         Stop a playing event
 
@@ -1703,7 +1708,7 @@ class Engine:
         pfields = [self.builtinInstrs['turnoff'], delay, 0, p1, mode]
         self._perfThread.scoreEvent(0, "i", pfields)
 
-    def unschedFuture(self, p1: Union[float, str]) -> None:
+    def unschedFuture(self, p1: float | str) -> None:
         """
         Stop a future event
 
@@ -2111,22 +2116,21 @@ class Engine:
                 plotting.plt.show()
 
     def schedSync(self,
-                  instr: Union[int, float, str],
+                  instr: int | float | str,
                   delay: float = 0,
                   dur: float = -1,
-                  args: Union[np.ndarray, Sequence[Union[float, str]]] = None,
+                  args: np.ndarray | Sequence[float | str] | None = None,
                   timeout=-1
-                  ):
+                  ) -> tuple[float, float]:
         """
         Schedule an instr, wait for a sync message
 
         Similar to :meth:`~Engine.sched` but waits until the instrument sends a
-        sync message.
+        sync message. The instrument should expect a sync token at p4 (see example)
 
         .. note::
 
-            In this case, args should start with p5 since the sync token
-            is sent as p4
+            args should start with p5 since the sync token is sent as p4
 
         Args:
             instr: the instrument number/name. If it is a fractional number,
@@ -2141,12 +2145,25 @@ class Engine:
                 at most this time and then raise a TimeoutError
 
         Returns:
-            a fractional p1
+            the fractional p1 of the scheduled note, the sync return value (see example)
 
         Example
-        =======
+        ~~~~~~~
 
-        TODO
+            >>> from csoundengine import *
+            >>> e = Engine()
+            >>> e.compile(r'''
+            ... instr readsound
+            ...   itoken = p4
+            ...   Spath strget p5
+            ...   itab ftgen ftgen 0, 0, 0, -1, Spath, 0, 0, 0
+            ...   tabw_i itab, itoken, gi__responses
+            ...   outvalue "__sync__", itoken
+            ...   turnoff
+            ... endin
+            ... ''')
+            >>> eventid, tabnum = e.schedSync('readsound', args=['/path/to/sound.wav'])
+
         """
         assert self.started
         instrfrac = instr if isinstance(instr, float) else self._assignEventId(instr)
@@ -2167,9 +2184,12 @@ class Engine:
             pargs = [instrfrac, delay, dur, token]
             pargs.extend(a if not isinstance(a, str) else self.strSet(a) for a in args)
             self._perfThread.scoreEvent(0, "i", pargs)
+
         try:
             outvalue = q.get(block=True, timeout=timeout)
-            return outvalue if outvalue != _UNSET else None
+            if outvalue == _UNSET:
+                outvalue = None
+            return instrfrac, outvalue
         except _queue.Empty:
             raise TimeoutError(f"{token=}, {instr=}")
 
@@ -2201,14 +2221,17 @@ class Engine:
         self._perfThread.scoreEvent(0, "i", pargs)
         return None
 
-    def _inputMessageWait(self, token: int, inputMessage: str,
-                          timeout: float=None) -> Optional[float]:
+    def _inputMessageWait(self,
+                          token: int,
+                          inputMessage: str,
+                          timeout: float | None = None
+                          ) -> float | None:
         """
-        This function passes the str inputMessage to csound and waits for
-        the instr to notify us with a "__sync__" outvalue
+        This function passes the str `inputMessage` to csound and waits for
+        the instr to notify back via a "__sync__" outvalue
 
         If the instr returned a value via gi__responses, this value
-        is returned. Otherwise None is returned
+        is returned. Otherwise, None is returned
 
         The input message should pass the token:
 
@@ -2265,7 +2288,7 @@ class Engine:
         """
         Create a table with data (or an empty table of the given size).
 
-        Let csound generate a table index if needed.
+        Lets csound generate a table index if needed.
 
         Args:
             data: the data to put in the table
@@ -2281,7 +2304,7 @@ class Engine:
                 determines the size of the table, not the number of frames
 
         Returns:
-            returns the table number
+            the table number
         """
         token = self._getSyncToken()
         maketableInstrnum = self.builtinInstrs['maketable']
@@ -2343,8 +2366,8 @@ class Engine:
 
         If the channel does not exist, it will be created with the given `kind` and set to
         the given mode.
-        The returned numpy arrays are internally cached and are valid as long as this Engine is active.
-        Accessing the channel through the pointer is not thread-safe.
+        The returned numpy arrays are internally cached and are valid as long as this
+        Engine is active. Accessing the channel through the pointer is not thread-safe.
 
         Args:
             channel: the name of the channel
@@ -2355,7 +2378,7 @@ class Engine:
 
         .. seealso:: :meth:`Engine.setChannel`
         """
-        if kind == 'string':
+        if kind != 'control' and kind != 'audio':
             raise NotImplementedError("Only kind 'control' and 'audio' are implemented at the moment")
         ptr = self._channelPointers.get(channel)
         if ptr is None:
@@ -2367,7 +2390,7 @@ class Engine:
         assert ptr is not None
         return ptr
 
-    def setChannel(self, channel: str, value: Union[float, str] | np.ndarray,
+    def setChannel(self, channel: str, value: float | str | np.ndarray,
                    method: str = None, delay=0.
                    ) -> None:
         """
@@ -2442,19 +2465,22 @@ class Engine:
                 ptr[:] = value
         else:
             raise ValueError(f"method {method} not supported "
-                             f"(choices: 'api', 'score', 'udp'")
+                             f"(choices: 'api', 'score', 'udp')")
 
-    def initChannel(self, channel: str, value: Union[float, str] | np.ndarray=0, kind='',
+    def initChannel(self,
+                    channel: str,
+                    value: float | str | np.ndarray = 0,
+                    kind='',
                     mode="r") -> None:
         """
         Create a channel and set its initial value
 
         Args:
-            channel (str): the name of the channel
-            value (float|str|np.ndarray): the initial value of the channel,
+            channel: the name of the channel
+            value: the initial value of the channel,
                 will also determine the type (k, a, S)
-            kind (str): One of 'k', 'S', 'a'. Use None to auto determine the channel type.
-            mode (str): r for read, w for write, rw for both.
+            kind: One of 'k', 'S', 'a'. Use None to auto determine the channel type.
+            mode: r for read, w for write, rw for both.
 
         .. note::
                 the `mode` is set from the perspective of csound. A read (input)
@@ -2503,7 +2529,7 @@ class Engine:
         else:
             raise TypeError("Expected an initial value of type float or string")
 
-    def getControlChannel(self, channel:str) -> float:
+    def getControlChannel(self, channel: str) -> float:
         """
         Get the value of a channel
 
@@ -2540,13 +2566,13 @@ class Engine:
             raise KeyError(f"control channel {channel} not found")
         return value
 
-    def fillTable(self, tabnum:int, data, method='pointer', block=False) -> None:
+    def fillTable(self, tabnum: int, data, method='pointer', block=False) -> None:
         """
         Fill an existing table with data
 
         Args:
+            tabnum: the table number
             data: the data to put into the table
-            source: the table number
             method: the method used, one of 'pointer' or 'api'.
             block: this is only used for the api method
 
@@ -2603,7 +2629,7 @@ class Engine:
         Retrieve information about the given table
 
         Args:
-            source: the table number
+            tabnum: the table number
             cache: if True, query the cache to see if info for this table
                 has already been requested
 
@@ -2659,6 +2685,9 @@ class Engine:
                          numFrames=int(vals[2]), size=int(vals[3]))
 
     def includeFile(self, include: str) -> None:
+        """
+        Add an #include file to this Engine
+        """
         abspath = os.path.abspath(include)
         for f in self.includes:
             if abspath == f:
@@ -2799,7 +2828,6 @@ class Engine:
         return self.sched(self.builtinInstrs['soundfontPlay'], delay=delay, dur=dur,
                           args=args)
 
-
     def soundfontPreparePreset(self, sf2path:str, preset:tuple[int, int]=None) -> int:
         """
         Prepare a soundfont's preset to be used
@@ -2853,7 +2881,7 @@ class Engine:
         self._perfThread.inputMessage(s)
         return tabnum
 
-    def getUniqueInstrInstance(self, instr: Union[int, str]) -> float:
+    def getUniqueInstrInstance(self, instr: int | str) -> float:
         """
         Returns a unique instance number (a float p1) for `instr`
 
@@ -2873,24 +2901,25 @@ class Engine:
         else:
             raise NotImplementedError("str instrs not implemented yet")
 
-    def playSample(self, tabnum:int, delay=0., chan=1, speed=1., gain=1., fade=0.,
-                   starttime=0., gaingroup=0, lagtime=0.01, dur=-1.) -> float:
+    def playSample(self, tabnum: int, delay=0., chan=1, speed=1., gain=1., fade=0.,
+                   starttime=0., gaingroup=0, lagtime=0.01, dur=-1.
+                   ) -> float:
         """
         Play a sample already loaded into a table.
 
         Speed and gain can be modified via setp while playing
 
         Args:
-            source (int): the table where the sample data was loaded
-            delay (float): when to start playback
-            chan (int): the first channel to send output to (channels start with 1)
-            speed (float): the playback speed
-            gain (float): a gain applied to this sample
-            fade (float): fadein/fadeout time in seconds
-            starttime (float): playback can be started from anywhere within the table
-            gaingroup (int): multiple instances can be gain-moulated via gaingroups
-            lagtime (float): a lag value for dynamic pfields (see below)
-            dur (float): the duration of playback. Use -1 to play until the end
+            tabnum: the table where the sample data was loaded
+            delay: when to start playback
+            chan: the first channel to send output to (channels start with 1)
+            speed: the playback speed
+            gain: a gain applied to this sample
+            fade: fadein/fadeout time in seconds
+            starttime: playback can be started from anywhere within the table
+            gaingroup: multiple instances can be gain-moulated via gaingroups
+            lagtime: a lag value for dynamic pfields (see below)
+            dur: the duration of playback. Use -1 to play until the end
 
         Returns:
             the instance number of the playing instrument.
@@ -2902,37 +2931,37 @@ class Engine:
             - **p5**: `speed`
 
         Example
-        =======
+        ~~~~~~~
 
             >>> from csoundengine import *
             >>> e = Engine()
             >>> import sndfileio
             >>> sample, sr = sndfileio.sndread("stereo.wav")
-            >>> # modify the sample in python
+            >>> # modify the samples in python
             >>> sample *= 0.5
-            >>> source = e.makeTable(sample, sr=sr, block=True)
-            >>> eventid = e.playSample(source)
+            >>> tabnum = e.makeTable(sample, sr=sr, block=True)
+            >>> eventid = e.playSample(tabnum)
             ... # gain (p4) and speed (p5) can be modified while playing
-            ... # Play at half speed
-            >>> e.setp(eventid, 5, 0.5)
+            >>> e.setp(eventid, 5, 0.5)   # Play at half speed
+
 
         See Also
         ~~~~~~~~
 
-        :meth:`~Engine.playSoundFromDics`
-        :meth:`~Engine.makeTable`
-        :meth:`~Engine.readSoundfile`
-        :meth:`~Engine.soundfontPlay`
+        * :meth:`~Engine.playSoundFromDisk`
+        * :meth:`~Engine.makeTable`
+        * :meth:`~Engine.readSoundfile`
+        * :meth:`~Engine.soundfontPlay`
 
         """
         args = [gain, speed, tabnum, chan, fade, starttime, gaingroup, lagtime]
         return self.sched(self.builtinInstrs['playgen1'], delay=delay, dur=dur,
                           args=args)
 
-    def playSoundFromDisc(self, path:str, delay=0., chan=0, speed=1., fade=0.01
+    def playSoundFromDisk(self, path: str, delay=0., chan=0, speed=1., fade=0.01
                           ) -> float:
         """
-        Play a soundfile from disc (via diskin2).
+        Play a soundfile from disk via diskin2
 
         Args:
             path: the path to the output
@@ -2947,32 +2976,31 @@ class Engine:
         See Also
         ~~~~~~~~
 
-        :meth:`~Engine.readSoundfile`
-        :meth:`~Engine.playSample`
+        * :meth:`~Engine.readSoundfile`
+        * :meth:`~Engine.playSample`
 
         """
         assert self.started
         p1 = self._assignEventId(self.builtinInstrs['playsndfile'])
-        #pargs = [p1, delay, -1, self.strSet(path), chan, speed, fade]
-        #self._perfThread.scoreEvent(0, "i", pargs)
-        msg = f"i {p1} {delay} -1 \"{path}\" {chan} {speed} {fade}"
+        msg = f'i {p1} {delay} -1 "{path}" {chan} {speed} {fade}'
         self._perfThread.inputMessage(msg)
         return p1
 
     def setp(self, p1: float, *pairs, delay=0.) -> None:
         """
-        Modify a parg of an active synth.
+        Modify a pfield of an active note
 
-        Multiple pargs can be modified simultaneously. If only makes sense to
-        modify a parg if a k-rate variable was assigned to this parg (see example)
+        Multiple pfields can be modified simultaneously. It only makes sense to
+        modify a pfield if a control-rate (k) variable was assigned to this pfield
+        (see example)
 
         Args:
-            p1 (float): the p1 of the instrument to automate
-            *pairs: each pair consists of a parg index and a value
-            delay (float): when to start the automation
+            p1: the p1 of the instrument to automate
+            *pairs: each pair consists of a pfield index and a value
+            delay: when to start the automation
 
         Example
-        =======
+        ~~~~~~~
 
         >>> engine = Engine(...)
         >>> engine.compile(r'''
@@ -2989,8 +3017,8 @@ class Engine:
         See Also
         ~~~~~~~~
 
-        :meth:`~Engine.getp`
-        :meth:`~Engine.automatep`
+        * :meth:`~Engine.getp`
+        * :meth:`~Engine.automatep`
         """
         numpairs = len(pairs) // 2
         assert len(pairs) % 2 == 0 and numpairs <= 5
@@ -3001,13 +3029,14 @@ class Engine:
 
     def getp(self, eventid: float, idx: int) -> float:
         """
-        Get the current pfield value of an active synth.
+        Get the current pfield value of an active note.
 
         .. note::
 
             This action has always a certain latency, since it implies
             scheduling an internal event to read the value and send it
             back to python. The action is blocking
+
 
         Args:
             eventid: the (fractional) id (a.k.a p1) of the event
@@ -3017,7 +3046,7 @@ class Engine:
             the current value of the given pfield
 
         Example
-        -------
+        ~~~~~~~
 
         TODO
 
@@ -3095,7 +3124,8 @@ class Engine:
         Args:
             p1: the fractional instr number of a running event, or an int number
                 to modify all running instances of that instr
-            pidx: the pfield index. If the pfield to modify if p4, pidx should be 4
+            pidx: the pfield index. For example, if the pfield to modify if p4,
+                pidx should be 4. Values of 1, 2, and 3 are not allowed.
             pairs: the automation data is given as a flat data. of pairs (time, value).
                 Times are relative to the start of the automation event
             mode: one of 'linear', 'cos', 'expon(xx)', 'smooth'. See the csound opcode
@@ -3121,15 +3151,9 @@ class Engine:
         >>> eventid = e.sched(100, 0, 10, args=(1000,))
         >>> e.automatep(eventid, 4, [0, 1000, 3, 200, 5, 200])
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~Engine.setp`
-        :meth:`~Engine.automateTable`
+        .. seealso:: :meth:`~Engine.setp`, :meth:`~Engine.automateTable`
         """
-        # table will be freed by the instr itself
-        # TODO: Another possibility would be to split the pairs into groups of less
-        #       than the limit and schedule multiple automation events
+
         if len(pairs) < 1900:
             args = [p1, pidx, self.strSet(mode), int(overtake), len(pairs)]
             args.extend(pairs)
@@ -3137,14 +3161,22 @@ class Engine:
             assert isinstance(dur, float)
             return self.sched(self.builtinInstrs['automatePargViaPargs'], delay=delay,
                               dur=dur, args=args)
-
         else:
-            tabnum = self.makeTable(pairs, tabnum=0, block=False)
-            args = [p1, pidx, tabnum, self.strSet(mode), int(overtake)]
-            dur = pairs[-2]+self.ksmps/self.sr
-            assert isinstance(dur, float)
-            return self.sched(self.builtinInstrs['automatePargViaTable'], delay=delay,
-                              dur=dur, args=args)
+            pairgroups = _splitPairs(pairs, 1900)
+            eventidx = []
+            for pairidx, pairs in enumerate(pairgroups):
+                ev = self.automatep(p1=p1, pidx=pidx, pairs=pairs, mode=mode, delay=delay,
+                                    overtake=overtake if pairidx == 0 else False)
+                eventidx.append(ev)
+            return eventidx[0]
+
+        #else:
+        #    tabnum = self.makeTable(pairs, tabnum=0, block=False)
+        #    args = [p1, pidx, tabnum, self.strSet(mode), int(overtake)]
+        #    dur = pairs[-2]+self.ksmps/self.sr
+        #    assert isinstance(dur, float)
+        #    return self.sched(self.builtinInstrs['automatePargViaTable'], delay=delay,
+        #                      dur=dur, args=args)
 
     def strSet(self, s:str, sync=False) -> int:
         """
@@ -3184,14 +3216,23 @@ class Engine:
         """
         Returns a dict mapping defined strings to their integer id
 
-        These are strings defined via :meth:`~Engine.strSet` via the Engine,
+        These are strings defined via :meth:`~Engine.strSet` by the Engine,
         not internally using csound itself
+
+        .. warning::
+
+            Using strset within an instrument or as global code will probably
+            result in conflicts with the strings defined via the Engine
+            using :meth:`Engine.setStr`
+
+        Returns:
+            a dict mapping defined strings to their corresponding index
         """
         return self._strToIndex
 
     def strGet(self, index: int) -> str | None:
         """
-        Get the string previously set via strSet.
+        Get a string previously set via strSet.
 
         This method will not retrieve any string set internally via the
         `strset` opcode, only strings set via :meth:`~Engine.strSet`
@@ -3205,10 +3246,7 @@ class Engine:
         foo
 
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~Engine.strSet`
+        .. setalso:: :meth:`~Engine.strSet`
 
         """
         return self._indexToStr.get(index)
@@ -3220,22 +3258,25 @@ class Engine:
 
     def _releaseTableNumber(self, tableindex:int) -> None:
         """
-        Mark the given table as freed, so that it can be assigned
-        again. It assumes that the table was deallocated already
-        and the index can be assigned again.
+        Mark the given table as freed, so that it can be assigned again.
+
+        It assumes that the table was deallocated already and the index
+        can be assigned again.
         """
         instrnum = self._assignedTables.pop(tableindex, None)
         if instrnum is not None:
             logger.debug(f"Unassigning table {tableindex} for instr {instrnum}")
             self._tablePool.push(tableindex)
 
-    def freeTable(self, tableindex:int, delay=0.) -> None:
+    def freeTable(self, tableindex: int, delay=0.) -> None:
         """
         Free the table with the given index
 
-        .. seealso::
+        Args:
+            tableindex: the index of the table to free
+            delay: when to free it (0=right now)
 
-            :meth:`~Engine.makeTable`
+        .. seealso:: :meth:`~Engine.makeTable`
 
         """
         logger.debug(f"Freeing table {tableindex}")
@@ -3331,13 +3372,13 @@ class Engine:
         """
         self._udpSend(f"& {scoreline}\n")
 
-    def udpSetChannel(self, channel:str, value:Union[float, str]) -> None:
+    def udpSetChannel(self, channel: str, value: float | str) -> None:
         """
         Set a channel via UDP. The value will determine the kind of channel
 
         Args:
-            channel (str): the channel name
-            value (float|str): the new value
+            channel: the channel name
+            value: the new value
 
         .. seealso::
 
@@ -3691,3 +3732,14 @@ def getEngine(name: str) -> Engine | None:
     return Engine.activeEngines.get(name)
 
 
+def _splitPairs(pairs: Sequence[float], num: int) -> list[Sequence[float]]:
+    l = len(pairs)
+    groups = []
+    start = 0
+    while start < l - 1:
+        end = min(start + num*2, l)
+        group = pairs[start:end]
+        groups.append(group)
+        start = end
+    assert sum(len(group) for group in groups) == len(pairs)
+    return groups
