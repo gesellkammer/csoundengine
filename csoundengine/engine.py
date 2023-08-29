@@ -1793,6 +1793,8 @@ class Engine:
         Example
         =======
 
+        Use a table as an array of buses
+
         >>> from csoundengine import *
         >>> e = Engine()
         >>> source = e.makeEmptyTable(128)
@@ -1823,11 +1825,6 @@ class Engine:
         token = 0
         empty = 1
         pargs = [self.builtinInstrs['maketable'], 0, 0., token, tabnum, size, empty, sr, numchannels]
-        # pargs = [self.builtinInstrs['ftnewmeta'], 0, 0., tabnum, size, numchannels, sr]
-        # pargs = [tabnum, 0, size, -2, 0]
-        # self._perfThread.scoreEvent(0, "f", pargs)
-        # self._perfThread.flushMessageQueue()
-        # self.setTableMetadata(tabnum, numchannels=numchannels, sr=sr)
         self._perfThread.scoreEvent(0, "i", pargs)
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         return tabnum
@@ -2748,7 +2745,7 @@ class Engine:
             pitch (float): the pitch of the played note, as a midinote (can
                 be fractional)
             amp (float): the amplitude. If vel (velocity) is left as None, this
-                is used to determine the velocity. Otherwise set the velocity
+                is used to determine the velocity. Otherwise, set the velocity
                 (this might  be used by the soundfont to play the correct sample)
                 and the amplitude is used to scale the output
             vel (int): the velocity of the played note, used internally to determine
@@ -2766,8 +2763,8 @@ class Engine:
 
             **Dynamic Fields**
 
-            - **p4**: `pitch`
-            - **p5**: `amp`
+            - **p4**: `kpitch`
+            - **p5**: `kamp`
 
         Example
         =======
@@ -2776,15 +2773,15 @@ class Engine:
 
             from csoundengine import *
             e = Engine()
+
             # Since the preset is not specified, this will launch a gui dialog
             # to select a preset from a list of available presets
             idx = e.soundfontPreparePreset('Orgue-de-salon.sf2')
             event = e.soundfontPlay(idx, 60)
 
-            # Automate a major 3rd glissando from the current pitch,
+            # Automate kpitch (p4) a major 3rd glissando from the current pitch,
             offset, glissdur = 2, 8
-            pitch = e.getp(event, 4)
-            event.automatep(event, 4, [offset, pitch, offset+glissdur, pitch+4])
+            e.automatep(event, 4, [offset, 60, offset+glissdur, 64])
 
         .. figure:: assets/select-preset.png
 

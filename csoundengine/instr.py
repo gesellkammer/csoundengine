@@ -68,20 +68,32 @@ class Instr:
         synth = s.sched('sine', kfreq=440, kamp=0.1)
         synth.stop()
 
+    One can create an Instr and register it at a session in one operation:
+
+        s = Engine().session()
+        s.defInstr('sine', r'''
+            kfreq = p5
+            kamp = p6
+            a0 = oscili:a(kamp, kfreq)
+            outch 1, a0
+        ''')
+
+
     **Default Values**
 
-    An Instr can define default values for any of its p-fields:
+    An Instr can define default values for any of its p-fields and define
+    aliases for its names:
 
     .. code-block:: python
 
         s = Engine().session()
-        Instr('sine', r'''
+        s.defInstr('sine', r'''
             kamp = p5
             kfreq = p6
             a0 = oscili:a(kamp, kfreq)
             outch 1, a0
         ''', args={'kamp': 0.1, 'kfreq': 1000}, aliases={'frequency': 'kfreq'}
-        ).register(s)
+        )
         # We schedule an event of sine, kamp will take the default (0.1)
         synth = s.sched('sine', kfreq=440)
         synth.set(frequency=450, delay=1)   # Use alias
@@ -180,9 +192,9 @@ class Instr:
         events = [renderer.sched(ev[0], delay=ev[1], dur=ev[2], pargs=ev[3:])
                   for ev in score]
 
-        # offline events can be modified just like real-time events
-        renderer.automatep(events[0], 'kmidi', pairs=[0, 60, 2, 59])
-        renderer.setp(events[1], 3, 'kmidi', 67.2)
+        # Offline events can be modified just like real-time events
+        renderer.automate(events[0], 'kmidi', pairs=[0, 60, 2, 59])
+        renderer.set(events[1], 3, 'kmidi', 67.2)
         renderer.render("out.wav")
 
     """

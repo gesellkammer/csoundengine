@@ -1,9 +1,15 @@
+from __future__ import annotations
+
 from typing import Union, Sequence
 import numpy as np
 from abc import abstractmethod
 
 
 class BaseEvent:
+    """
+    Base class for all scheduled events (both offline and realtime)
+    """
+
     __slots__ = ('p1', 'start', 'dur', 'args')
 
     def __init__(self, p1: Union[float, str], start: float, dur: float, args: Sequence[float]):
@@ -26,20 +32,32 @@ class BaseEvent:
 
     @abstractmethod
     def setp(self, delay: float, *args, **kws) -> None:
-        """Set the value of a parameter for this event"""
-        raise NotImplementedError
+        """
+        Set the value of a pfield for this event
 
-
-    @abstractmethod
-    def automatep(self, param: Union[str, int], pairs: Union[list[float], np.ndarray],
-                  mode='linear', delay=0.
-                  ) -> None:
-        """Automate a named parameter of this event"""
+        """
         raise NotImplementedError
 
     @abstractmethod
-    def automateTable(self, param: str, pairs: Union[list[float], np.ndarray],
-                      mode='linear', delay=0.
-                      ) -> None:
-        """Automate a table based named parameter of this event"""
+    def set(self, delay: float, *args, **kws) -> None:
+        """
+        Set the value of a parameter for this event
+
+        Args:
+            delay: the time offset at which to schedule the operation
+
+        """
+        return self.setp(delay=delay, *args, **kws)
+
+    @abstractmethod
+    def automate(self,
+                 param: str | int,
+                 pairs: list[float] | np.ndarray,
+                 mode='linear',
+                 delay=0.
+                 ) -> None:
+        """
+        Automate a named parameter of this event
+        """
         raise NotImplementedError
+

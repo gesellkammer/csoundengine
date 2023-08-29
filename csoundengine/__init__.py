@@ -81,18 +81,23 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
     for i, midinote in enumerate(range(60, 72, 2)):
         # for each synth, we create a bus to plug it to an effect, in this case a filter
         bus = session.assignBus()
+
         # start time for synth and effect
         start = i * 1
+
         # Schedule a synth
-        synth = session.sched("synth", delay=start, dur=5, kmidi=midinote, ibus=bus.busnum)
+        synth = session.sched("synth", delay=start, dur=5, kmidi=midinote, ibus=bus)
+
         # Automate the transposition of the pitch so that it goes 2 semitones
-        synth.automatep('ktransp', [0, 0, dur, -2], delay=start)
+        synth.automate('ktransp', [0, 0, dur, -2], delay=start)
+
         # Schedule the filter for this synth, with a priority higher than the
         # synth, so that it is evaluated later in the chain
         filt = session.sched("filter", delay=start, dur=5, priority=synth.priority+1,
-            kcutoff=2000, kresonance=0.92, ibus=bus.busnum)
+                             kcutoff=2000, kresonance=0.92, ibus=bus)
+
         # Automate the cutoff freq. of the filter
-        filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
+        filt.automate('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
 """
 # sndfileio sets numpy's denormal behaviour. If it happens later numpy spits
 # multiple warnings about it

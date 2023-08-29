@@ -1,8 +1,7 @@
 """
-This module implements offline rendering using the same
-interface as a :class:`~csoundengine.session.Session`. Any realtime
-code run via a :class:`~csoundengine.session.Session` can be rendered offline
-by replacing the Session via a :class:`~csoundengine.offline.Renderer`
+Offline rendering is implemented via the class :class:`~csoundengine.offline.Renderer`,
+which has the same interface as a :class:`~csoundengine.session.Session` and
+can be used as a drop-in replacement.
 
 Example
 =======
@@ -12,20 +11,26 @@ Example
     from csoundengine import *
     renderer = Renderer(sr=44100, nchnls=2)
 
-    Instr('saw', r'''
+    renderer.defInstr('saw', r'''
       kmidi = p5
       outch 1, oscili:a(0.1, mtof:k(kfreq))
-    ''').register(renderer)
+    ''')
 
     score = [('saw', 0,   2, 60),
              ('saw', 1.5, 4, 67),
              ('saw', 1.5, 4, 67.1)]
+
     events = [renderer.sched(ev[0], delay=ev[1], dur=ev[2], args=ev[3:])
               for ev in score]
 
     # offline events can be modified just like real-time events
-    renderer.automatep(events[0], 'kmidi', pairs=[0, 60, 2, 59])
-    renderer.setp(events[1], 3, 'kmidi', 67.2)
+    events[0].automate('kmidi', (0, 60, 2, 59))
+
+    # When rendering offline, an event needs to set the time offset
+    # of the set operation. This is a difference from a Synth, in which
+    # the delay value is optional.
+    events[1].set(3, kmidi=67.2)
+    events[2].set(kmidi=80, delay=4)
     renderer.render("out.wav")
 
 """
@@ -64,7 +69,10 @@ if TYPE_CHECKING or "sphinx" in sys.modules:
 logger = logging.getLogger("csoundengine")
 
 
-__all__ = ["Renderer", "ScoreEvent"]
+__all__ = (
+    "Renderer",
+    "ScoreEvent",
+)
 
 
 class ScoreEvent(BaseEvent):
@@ -124,7 +132,7 @@ class ScoreEvent(BaseEvent):
             setattr(out, kw, value)
         return out
 
-    def setp(self, delay:float, *args, **kws) -> None:
+    def setp(self, delay: float, *args, **kws) -> None:
         """
         Modify a parg of this synth (offline).
 
@@ -148,47 +156,27 @@ class ScoreEvent(BaseEvent):
             >>> event.setp(2, kfreq=880)
             >>> event.setp(3, 'kfreq', 660, 'kamp', 0.5)
 
+        .. seealso:: :meth:`ScoreEvent.set`
+
         """
-        assert self.renderer
+        if self.renderer is None:
+            raise RuntimeError("This ScoreEvent is not assigned to a Renderer")
         self.renderer.setp(self, delay=delay, *args, **kws)
 
-    def automatep(self,
-                  param: str,
-                  pairs: list[float]|np.ndarray,
-                  mode="linear",
-                  delay: float = None
-                  ) -> None:
-        """
-        Automate a named parg
-
-        See Also
-        ~~~~~~~~
-
-        * :meth: `csoundengine.offline.Renderer.automatep`
-        """
-        assert self.renderer
-        self.renderer.automatep(self, param=param, pairs=pairs, mode=mode,
-                                delay=delay)
-
-    def automateTable(self,
-                      param: str,
-                      pairs: list[float] | np.ndarray,
-                      mode="linear",
-                      delay=0.
-                      ) -> None:
-        """
-        Automate the event's parameter table with the given pairs
-
-        See Also
-        ~~~~~~~~
-
-        * :meth:`csoundengine.offline.Renderer.automateTable`
-        """
-        self.renderer.automateTable(self, param=param, pairs=pairs, mode=mode,
-                                    delay=delay)
+    def automate(self,
+                 param: str,
+                 pairs: list[float]|np.ndarray,
+                 mode="linear",
+                 delay: float = None
+                 ) -> None:
+        if self.renderer is None:
+            raise RuntimeError("This ScoreEvent is not assigned to a Renderer")
+        self.renderer.automate(self, param=param, pairs=pairs, mode=mode,
+                               delay=delay)
 
     def stop(self, delay=0.) -> None:
-        assert self.renderer
+        if self.renderer is None:
+            raise RuntimeError("This ScoreEvent is not assigned to a Renderer")
         self.renderer.unsched(self, delay=delay)
 
 _prelude = r'''
@@ -347,8 +335,8 @@ class Renderer:
                   for ev in score]
 
         # offline events can be modified just like real-time events
-        renderer.automatep(events[0], 'kmidi', pairs=[0, 60, 2, 59])
-        renderer.setp(events[1], 3, 'kmidi', 67.2)
+        events[0].automate('kmidi', pairs=[0, 60, 2, 59])
+        events[1].set(3, 'kmidi', 67.2)
         renderer.render("out.wav")
 
     """
@@ -490,7 +478,7 @@ class Renderer:
             ...   outch 1, oscili:a(0.1, mtof:k(kmidi))
             ... ''')]
             >>> for instr in instrs:
-            ...     renderer.registerInstr(instr)
+            ...     instr.register(renderer)   # This will call .registerInstr
             >>> renderer.sched('vco', dur=4, kmidi=67)
             >>> renderer.sched('sine', 2, dur=3, kmidi=68)
             >>> renderer.render('out.wav')
@@ -546,12 +534,12 @@ class Renderer:
             ... ''')
 
             >>> bus = renderer.assignBus()
-            >>> event = renderer.sched('sine', 0, dur=10, ibus=bus, kmidi=67)
-            >>> event.setp(kmidi=60, delay=2)
+            >>> event = renderer.sched('synth', 0, dur=10, ibus=bus, kmidi=67)
+            >>> event.set(kmidi=60, delay=2)  # This will set the kmidi param
 
             >>> filt = renderer.sched('filter', 0, dur=event.dur, priority=event.priority+1,
             ...                       tabargs={'ibus': bus, 'kcutoff': 1000})
-            >>> filt.automateTable('kcutoff', [3, 1000, 6, 200, 10, 4000])
+            >>> filt.automate('kcutoff', [3, 1000, 6, 200, 10, 4000])
         """
         instr = Instr(name=name, body=body, args=args, init=init, **kws)
         self.registerInstr(instr)
@@ -815,7 +803,7 @@ class Renderer:
             waited, etc.
         """
         if not self.csd.score:
-            raise ValueError("score is empty")
+            raise ValueError("Score is empty")
 
         if outfile is None:
             import tempfile
@@ -1123,15 +1111,15 @@ class Renderer:
                     ixfade=crossfade)
         return self.sched('.playSample', delay=delay, dur=dur, args=args)
 
-    def automatep(self,
-                  event: ScoreEvent,
-                  param: str,
-                  pairs: list[float] | np.ndarray,
-                  mode="linear",
-                  delay: float = None
-                  ) -> None:
+    def automate(self,
+                 event: ScoreEvent,
+                 param: str,
+                 pairs: list[float] | np.ndarray,
+                 mode="linear",
+                 delay: float = None
+                 ) -> None:
         """
-        Automate a pfield of a scheduled event
+        Automate a parameter of a scheduled event
 
         Args:
             event: the event to automate, as returned by sched
@@ -1146,6 +1134,9 @@ class Renderer:
         if delay is None:
             delay = event.start
         instr = self._instrFromEvent(event)
+        if instr.paramMode() == 'table':
+            return self._automateTable(event=event, param=param, pairs=pairs, mode=mode, delay=delay)
+
         pindex = instr.pargIndex(param)
         dur = pairs[-2]-pairs[0]
         epsilon = self.csd.ksmps / self.csd.sr * 3
@@ -1160,15 +1151,18 @@ class Renderer:
         args = [event.p1, pindex, tabpairs, modeint]
         self.csd.addEvent("_automatePargViaTable", start=delay, dur=dur, args=args)
 
-    def automateTable(self,
-                      event: ScoreEvent,
-                      param: str,
-                      pairs: list[float]|np.ndarray,
-                      mode="linear",
-                      delay: float = None
-                      ) -> None:
+    def _automateTable(self,
+                       event: ScoreEvent,
+                       param: str,
+                       pairs: list[float]|np.ndarray,
+                       mode="linear",
+                       delay: float = None
+                       ) -> None:
         """
         Automate a slot of an event param table
+
+        This is called when :meth:`Renderer.automate` is called for an instrument
+        which defines a parameter table
 
         Args:
             event: the event to modify. Its instrument should define a param table
@@ -1191,13 +1185,13 @@ class Renderer:
         ... outch 1, oscili:a(kamp, kfreq)
         ... ''')
         >>> ev = r.sched('oscili', delay=1, tabargs={'kfreq': 440})
-        >>> r.automateTable(ev, 'kfreq', pairs=[0, 440, 2, 880])
+        >>> r.automate(ev, 'kfreq', pairs=[0, 440, 2, 880])
 
         See Also
         ~~~~~~~~
 
         :meth:`~Renderer.setp`
-        :meth:`~Renderer.automatep`
+        :meth:`~Renderer._automatep`
         """
 
         if delay is None:

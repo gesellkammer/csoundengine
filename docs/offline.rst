@@ -5,5 +5,11 @@ Offline Rendering
 
 
 .. automodapi:: csoundengine.offline
-    :no-inheritance-diagram:
-    
+
+
+.. toctree::
+    :maxdepth: 1
+    :hidden:
+
+    baseevent
+

@@ -12,8 +12,7 @@ Renderer
 
       ~Renderer.addGlobalCode
       ~Renderer.assignBus
-      ~Renderer.automateTable
-      ~Renderer.automatep
+      ~Renderer.automate
       ~Renderer.commitInstrument
       ~Renderer.defInstr
       ~Renderer.generateCsdString
@@ -42,8 +41,7 @@ Renderer
 
    .. automethod:: addGlobalCode
    .. automethod:: assignBus
-   .. automethod:: automateTable
-   .. automethod:: automatep
+   .. automethod:: automate
    .. automethod:: commitInstrument
    .. automethod:: defInstr
    .. automethod:: generateCsdString

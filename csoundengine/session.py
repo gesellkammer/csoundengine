@@ -629,7 +629,7 @@ class Session:
             >>> synth.setp(kmidi=60, delay=2)
             >>> filt = session.sched('filter', 0, dur=synth.dur, priority=synth.priority+1,
             ...                      tabargs={'kbus': bus, 'kcutoff': 1000})
-            >>> filt.automateTable('kcutoff', [3, 1000, 6, 200, 10, 4000])
+            >>> filt.automate('kcutoff', [3, 1000, 6, 200, 10, 4000])
 
         See Also
         ~~~~~~~~
@@ -837,7 +837,8 @@ class Session:
         return rinstr.instrnum
 
     def assignBus(self, kind='audio', persist=False) -> int:
-        """ Creates a bus in the engine
+        """
+        Creates a bus in the engine
 
         This is just a wrapper around Engine.assignBus(). See :meth:`Engine.assignBus` for
         more information
