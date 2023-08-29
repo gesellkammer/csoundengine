@@ -278,8 +278,18 @@ class Engine:
         `Configuration <https://csoundengine.readthedocs.io/en/latest/config.html>`_
 
 
+    Instrument Numbers
+    ------------------
+
+    An :class:`Engine` defines internal instruments to perform some of its
+    tasks (reading tables, sample playback, etc). To avoid clashes between these
+    internal instruments and user instruments, there are some reserved instrument
+    numbers: all instrument numbers from 1 to 99 are reserved for internal use, so
+    the first available instrument number is 100.
+
+
     Example
-    ~~~~~~~
+    -------
 
     .. code::
 
@@ -662,6 +672,23 @@ class Engine:
         self._reservedInstrnumRanges: list[tuple[str, int, int]] = [('builtinorc', CONSTS['reservedInstrsStart'], CONSTS['userInstrsStart']-1)]
 
         self.start()
+
+    def userInstrumentsRange(self) -> tuple[int, int]:
+        """
+        Returns the range of available instrument numbers
+
+        Notice that the first instrument numbers are reserved for internal instruments.
+        If this Engine has an attached Session, the session itself will reserve
+        a range of numbers for its events
+
+        Returns:
+            a tuple (mininstr: int, maxinstr: int) defining a range of available
+            instrument numbers for user instruments.
+        """
+        maxinstr = CONSTS['maxNumInstrs']
+        if len(self._reservedInstrnumRanges) > 1:
+            maxinstr = self._reservedInstrnumRanges[1][1]
+        return CONSTS['userInstrsStart'], maxinstr
 
     @property
     def blockSize(self) -> int:

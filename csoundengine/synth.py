@@ -507,13 +507,13 @@ class Synth(AbstrSynth):
             or 'future' if it has not started
 
         """
-        now = self.engine.elapsedTime()
-        if self.start > now:
-            return "future"
-        elif not self._playing:
-            return "stopped"
-        else:
+        if self._playing:
             return "playing"
+        else:
+            if self.start > self.engine.elapsedTime():
+                return "future"
+            else:
+                return "stopped"
 
     def playing(self) -> bool:
         """ Is this Synth playing """

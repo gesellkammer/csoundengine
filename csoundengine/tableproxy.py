@@ -84,21 +84,28 @@ class TableProxy:
     def __float__(self):
         return float(self.tabnum)
 
-    def getData(self) -> np.ndarray:
+    def data(self) -> np.ndarray:
         """
-        Get the table data as a numpy array. The returned array is a pointer
-        to the csound memory (a view)
+        Get the table data as a numpy array.
+
+        The returned array is a pointer to the csound memory (a view)
+
+        Returns:
+            the data as a numpy array
         """
         if self._array is None:
-            csound = self.engine.csound
-            assert csound is not None
-            self._array = csound.table(self.tabnum)
+            assert self.engine.csound is not None
+            self._array = self.engine.csound.table(self.tabnum)
         return self._array
 
-    def getDuration(self) -> float:
+    def duration(self) -> float:
         """
-        Get the duration of the data in this table. This is only possible if
-        the table holds sample data and the table has a samplerate
+        Duration of the sample data in this table.
+
+        This is only possible if the table holds sample data and the
+        table has a samplerate
+
+        Raises ValueError if the table has no samplerate
 
         Returns:
             the duration of the sample data, in seconds
@@ -120,10 +127,10 @@ class TableProxy:
         """
         from . import plotting
         if self.sr:
-            plotting.plotSamples(self.getData(), self.sr, profile='high')
+            plotting.plotSamples(self.data(), self.sr, profile='high')
         else:
             # TODO: implement generic plotting
-            data = self.getData()
+            data = self.data()
             plotting.plt.plot(data)
 
     def plotSpectrogram(self, fftsize=2048, mindb=-90, maxfreq:int=None, overlap=4,
@@ -144,5 +151,5 @@ class TableProxy:
         if not self.sr:
             raise ValueError("This table has no samplerate, cannot plot")
         from . import plotting
-        plotting.plotSpectrogram(self.getData(), self.sr, fftsize=fftsize, mindb=mindb,
+        plotting.plotSpectrogram(self.data(), self.sr, fftsize=fftsize, mindb=mindb,
                                  maxfreq=maxfreq, minfreq=minfreq, overlap=overlap)

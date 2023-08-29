@@ -70,6 +70,8 @@ class Instr:
 
     One can create an Instr and register it at a session in one operation:
 
+    .. code-block:: python
+
         s = Engine().session()
         s.defInstr('sine', r'''
             kfreq = p5
@@ -103,7 +105,7 @@ class Instr:
 
     An inline args declaration can set both pfield name and default value:
 
-    .. code::
+    .. code-block:: python
 
         s = Engine().session()
         Instr('sine', r'''
@@ -130,7 +132,7 @@ class Instr:
 
     An inline syntax exists also for tables:
 
-    .. code::
+    .. code-block:: python
 
         Intr('sine', r'''
             {amp=0.1, freq=1000}

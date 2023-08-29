@@ -83,7 +83,7 @@ needs to fill the values for those pfields which differ from the given default
 An :class:`~csoundengine.instr.Instr` can set both pfield name and default value
 as inline declaration:
 
-.. code::
+.. code-block:: python
 
     s = Engine().session()
     Intr('sine', r'''
@@ -1193,7 +1193,7 @@ class Session:
             TableProxy(engine='engine0', source=100, sr=44100, nchnls=2,
                        numframes=88200, path='path/to/soundfile.flac',
                        freeself=False)
-            >>> table.getDuration()
+            >>> table.duration()
             2.0
             >>> session.playSample(table)
 
