@@ -11,8 +11,8 @@ A Synth is a wrapper for a unique event scheduled via a Session.
 
 
 **The lifetime of the underlying csound event is not bound to the Synth
-object**. In order to stop a synth :meth:`~csoundengine.Synth.stop` must
-be called explicitely
+object**. In order to stop a synth its :meth:`~csoundengine.synth.Synth.stop` method
+must be called explicitely
 
 
 Examples
@@ -36,7 +36,7 @@ Automate a synth
     synths = [session.sched('vco', kamp=0.2, kmidi=ntom(n)) for n in notes]
     # synths is a list of Synth
     # automate ktransp in synth 1 to produce 10 second gliss of 1 semitone downwards
-    synths[1].automatep('ktransp', [0, 0, 10, -1])
+    synths[1].automate('ktransp', [0, 0, 10, -1])
 
 
 Autogenerate a ui to explore a synth

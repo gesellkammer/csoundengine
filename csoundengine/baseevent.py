@@ -8,11 +8,17 @@ from abc import abstractmethod
 class BaseEvent:
     """
     Base class for all scheduled events (both offline and realtime)
+
+    Args:
+        p1: the event id
+        start: the start time relative to the start of the engine
+        dur: the duration of the synth
+        args: the pfields of this event, beginning with p4
     """
 
     __slots__ = ('p1', 'start', 'dur', 'args')
 
-    def __init__(self, p1: Union[float, str], start: float, dur: float, args: Sequence[float]):
+    def __init__(self, p1: float | str, start: float, dur: float, args: Sequence[float]):
         self.p1 = p1
         """The instrument number/name"""
 

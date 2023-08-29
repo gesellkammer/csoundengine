@@ -5,3 +5,7 @@
 .documentwrapper {
 	max-width: 54rem !important;
 }
+
+table.autosummary {
+	margin-bottom: 2rem;
+}

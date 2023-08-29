@@ -33,11 +33,25 @@ class AbstrSynth(baseevent.BaseEvent):
     """
     A base class for Synth and SynthGroup
 
+    Args:
+        p1: the event id
+        start: the start time relative to the start of the engine
+        dur: the duration of the synth
+        engine: the parent engine
+        autostop: if True, link the lifetime of the csound synth to the lifetime
+            of this object
+        priority: the priority (order of evaluation) of the synth, where events with
+            a low priority are evaluated before events with a higher priority
     """
     __slots__ = ('engine', 'autostop', 'priority')
 
-    def __init__(self, p1: float, start: float, dur: float,
-                 engine: Engine, autostop: bool = False, priority: int = 1):
+    def __init__(self,
+                 p1: float,
+                 start: float,
+                 dur: float,
+                 engine: Engine,
+                 autostop: bool = False,
+                 priority: int = 1):
         super().__init__(p1, start, dur, ())
 
         self.engine: Engine = engine
@@ -89,7 +103,22 @@ class AbstrSynth(baseevent.BaseEvent):
         """
         Set a value of a named parameter
 
-        This method works indistinctly for instrs with named args or a param table.
+        Example
+        ~~~~~~~
+
+            >>> from csoundengine import *
+            >>> s = Engine().session()
+            >>> s.defInstr('osc', r'''
+            ... kfreq = p5
+            ... kamp = p6
+            ... outch 1, oscili:a(kamp, kfreq)
+            ... ''')
+            >>> synth = s.sched('osc', kfreq=1000, kamp=0.5)
+            >>> synth.set('kfreq', 440)
+            >>> # Parameters can be given as keyword args:
+            >>> synth.set(kfreq=440, delay=2.5)
+            >>> # Multiple params can be set at a time
+            >>> synth.set(kfreq=442, kamp=0.1)
         """
         mode = self.paramMode()
         if self.paramMode() == 'parg':
@@ -597,7 +626,7 @@ class Synth(AbstrSynth):
 
         .. seealso::
 
-            - :meth:`Synth.set`
+            - :meth:`AbstrSynth.set`
             - :meth:`Synth.automate`
             - :meth:`Synth.getp`
             - :meth:`Synth.automate`
