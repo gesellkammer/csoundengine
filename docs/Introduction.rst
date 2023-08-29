@@ -77,7 +77,7 @@ Built-in instruments
 An :class:`~csoundengine.engine.Engine` provides built-in functionality to
 perform common tasks, like reading a soundfile (:meth:`~csoundengine.engine.Engine.readSoundfile`),
 playing a sample from a table (:meth:`~csoundengine.engine.Engine.playSample`) or from disk
-(:meth:`~csoundengine.engine.Engine.playSampleFromDisk`)
+(:meth:`~csoundengine.engine.Engine.playSoundFromDisk`)
 
 
 ----------------------------------
@@ -86,7 +86,7 @@ playing a sample from a table (:meth:`~csoundengine.engine.Engine.playSample`) o
 Session (high level interface)
 ------------------------------
 
-Each Engine has an associated :class:`~csoundengine.session.Session`. A Session provides a
+Each Engine can have an associated :class:`~csoundengine.session.Session`. A Session provides a
 higher level interface, allowing to:
 
 * Define instrument templates (an :class:`~csoundengine.instr.Instr`), which can be

@@ -241,22 +241,27 @@ class Engine:
 
     Args:
         name: the name of the engine
-        sr: sample rate
+        sr: sample rate. If not given, the sr of the backend will be used, if possible
         ksmps: samples per k-cycle
-        backend: passed to -+rtaudio (**"?" to select interactively**)
-        outdev: the audio output device, passed to -o (**"?" to select interactively**)
-        indev: the audio input device, passed to -i (**"?" to select interactively**)
+        backend: passed to -+rtaudio (**"?" to select interactively**). If not given, the most
+            appropriate backend will be used.
+        outdev: the audio output device, passed to -o (**"?" to select interactively**). Leave
+            unset to use the default
+        indev: the audio input device, passed to -i (**"?" to select interactively**). Leave
+            unset to use the default
         a4: freq of a4
-        nchnls: number of output channels (passed to nchnls)
-        nchnls_i: number of input channels
+        nchnls: number of output channels (passed to nchnls). Leave unset to use the number of
+            channels defined by the backend (if known)
+        nchnls_i: number of input channels. Similar to nchnls. If not given it will either
+            fallback to the number of input channels provided by the backend, or to nchnls
         buffersize: samples per buffer, corresponds to csound's -b option
         numbuffers: the number of buffers to fill. Together with the buffersize determines
             the latency of csound and any communication between csound and the python
             host
-        globalcode: code to evaluate as instr0
-        includes: a list of files to include
-        numAudioBuses: number of audio buses
-        numControlBuses: number of control buses
+        globalcode: code to evaluate as instr0 (global variables, etc.)
+        includes: a list of files to include. Can be added later via :meth:`Engine.includeFile`
+        numAudioBuses: number of audio buses (see :ref:`Bus Opcodes<busopcodes>`)
+        numControlBuses: number of control buses (see :ref:`Bus Opcodes<busopcodes>`)
         quiet: if True, suppress output of csound (-m 0)
         udpserver: if True, start a udp server for communication (see udpport)
         udpport: the udpport to use for real-time messages. 0=autoassign port
@@ -264,7 +269,8 @@ class Engine:
             csound process when started
         midiin: if given, use this device as midi input. Can be '?' to select
             from a list, or 'all' to use all devices. None indicates no midi input
-        latency: an extra latency added when scheduling events to ensure synchronicity
+        latency: an extra latency added when scheduling events to ensure synchronicity.
+            See also :meth:`Engine.lockClock` and :meth:`Engine.pushClock`
 
     .. note::
         Any option with a default value of None has a corresponding slot in the
@@ -3246,7 +3252,7 @@ class Engine:
         foo
 
 
-        .. setalso:: :meth:`~Engine.strSet`
+        .. seealso:: :meth:`~Engine.strSet`
 
         """
         return self._indexToStr.get(index)
