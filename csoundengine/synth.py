@@ -333,7 +333,7 @@ class AbstrSynth(baseevent.BaseEvent):
     @property
     def session(self) -> Session:
         """
-        Returns the Session which scheduled this Synth
+        Returns the Session which scheduled self
         """
         return self.engine.session()
 
@@ -926,6 +926,25 @@ class SynthGroup(AbstrSynth):
 
     Attributes:
         synths (list[AbstrSynth]): the list of synths in this group
+
+    Example
+    ~~~~~~~
+
+        >>> import csoundengine as ce
+        >>> session = ce.Engine().session()
+        >>> session.defInstr('oscil', r'''
+        ... |kfreq, kamp=0.1, kcutoffratio=5, kresonance=0.9|
+        ... a0 = vco2(kamp, kfreq)
+        ... a0 = moogladder2(a0, kfreq * kcutoffratio, kresonance)
+        ... outch 1, a0
+        ... ''')
+        >>> synths = [session.sched('oscil', kfreq=freq)
+        ...           for freq in range(200, 1000, 75)]
+        >>> group = ce.synth.SynthGroup(synths)
+        >>> group.set(kcutoffratio=3, delay=3)
+        >>> group.automate('kresonance', (1, 0.3, 10, 0.99))
+        >>> group.stop(delay=11)
+
     """
     __slots__ = ('synths', '__weakref__')
 

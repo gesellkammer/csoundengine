@@ -68,10 +68,26 @@ Generated ui inside jupyter:
 
 .. figure:: assets/synthui.png
 
+
+SynthGroup
+==========
+
+A :class:`~csoundengine.synth.SynthGroup` is used to control multiple synths.
+Such multiple synths can be groups of similar synths (as in additive synthesis),
+or processing chains which work as an unity
+
+A :class:`~csoundengine.synth.SynthGroup` behaves very similar to a synth but its
+effects encompass all the synths within it. For example, calling its
+:meth:`~csoundengine.synth.SynthGroup.stop` method will stop all the synths in the
+group. Calling :meth:`~csoundengine.synth.SynthGroup.set` will modify dynamic
+parameters for all the synths in the group which declare such a parameter
+
+
 -----
 
 .. automodule:: csoundengine.synth
     :members:
+    :inherited-members:
     :autosummary:
 
 

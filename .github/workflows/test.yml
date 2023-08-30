@@ -58,14 +58,18 @@ jobs:
 
       - name: linux - test install from git
         run: |
+          set -x
           csound --version
           pip install .
           cd test
           python test1.py -o test1-linux.wav
+          python test2.py
+
           pip uninstall -y csoundengine
 
       - name: linux - test install from pip
         run: |
+          set -x
           csound --version
           pip install -U csoundengine
           cd test

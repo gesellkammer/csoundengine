@@ -3,7 +3,7 @@ A :class:`Session` provides a high-level interface to control an underlying
 csound process. A :class:`Session` is associated with an
 :class:`~csoundengine.engine.Engine` (there is one Session per Engine)
 
-.. contents:: Table of Contents
+.. contents::
    :depth: 3
    :local:
    :backlinks: none
@@ -24,9 +24,9 @@ Overview
 
 In csound (and within an :class:`~csoundengine.engine.Engine`) there is a direct
 mapping between an instrument declaration and its order of evaluation. Within a
-:class:`Session`, on the other hand, it is possible to declare an instrument which
-is used as a template and can be instantiated at any order, making it possibe to
-create chains of processing units.
+:class:`Session`, on the other hand, it is possible to declare an instrument (
+:class:`~csoundengine.instr.Instr`) which  is used as a template and can be
+instantiated at any order, making it possibe to create chains of processing units.
 
 .. code-block:: python
 
@@ -43,14 +43,17 @@ create chains of processing units.
         chnclear Schan
     ''').register(s)
 
-    Intr('myvco', r'''
+    # The same can be achieved via Session.defInstr:
+
+    s.defInstr('myvco', r'''
         kfreq = p5
         kamp = p6
         Schan strget p7
         a0 = vco2:a(kamp, kfreq)
         chnset a0, Schan
-    ''').register(s)
+    ''')
     synth = s.sched('myvco', kfreq=440, kamp=0.1, Schan="chan1")
+
     # The filter is instantiated with a priority higher than the generator and
     # thus is evaluated later in the chain.
     filt = s.sched('filt', priority=synth.priority+1, kcutoff=1000, Schan="chan1")
@@ -94,14 +97,18 @@ as inline declaration:
     synth = s.sched('sine', kfreq=440)
     synth.stop()
 
-This will generate the needed code:
+This will generate the needed code and set defaults for any
+parameter not filled in at start time:
 
 .. code-block:: csound
 
     kamp = p5
     kfreq = p6
 
-And will set the defaults.
+Notice that these are dynamic (k-rate) parameters, which can be modulated
+after the note has started (see `:meth:~maelzel.synth.Synth.set`). Also notice
+that parameters start with ``p5``: ``p4`` is reserved. In fact, declaring an
+:class:`Instr` which uses ``p4`` will raise an exception.
 
 4. Parameter Table
 ~~~~~~~~~~~~~~~~~~
@@ -124,29 +131,42 @@ even if the :class:`~csoundengine.instr.Instr` does not define a parameter table
         outch 1, a0
     ''', tabargs=dict(amp=0.1, freq=1000)
     ).register(s)
-    synth = s.sched('sine', tabargs=dict(amp=0.4, freq=440))
+    synth = s.sched('sine', tabargs=dict(kamp=0.4, kfreq=440))
+    # Modify the kfreq value after 2 seconds
+    synth.set(kfreq=1000, delay=2)
     synth.stop()
 
 In this example, prior to scheduling the event a table is created and filled
 with the values ``[0.4, 440]``. Code is generated to read these values from the table
-(the actual code is somewhat different, for example, variables are mangled to avoid
-any possible name clashes, etc):
 
 .. code-block:: csound
 
-    iparamTabnum = p4
-    kamp  tab 0, iparamTabnum
-    kfreq tab 1, iparamTabnum
+    i_paramTabnum = p4
+    kamp  tab 0, i_paramTabnum
+    kfreq tab 1, i_paramTabnum
 
 An inline syntax exists also for tables:
 
 .. code::
 
     Intr('sine', r'''
-        {amp=0.1, freq=1000}
+        {kamp=0.1, kfreq=1000}
         a0 = oscili:a(kamp, kfreq)
         outch 1, a0
     ''')
+
+In all cases it is of course possible to define named i-time named parameters
+(these cannot be changed after initialization)
+
+.. code::
+
+    session.defIntr('isine', r'''
+        {iamp=0.1, imidi=60}
+        a0 = oscili:a(iamp, mtof(imidi))
+        outch 1, a0
+    ''')
+    session.sched('isine', dur=2, imidi=67)
+
 
 5. User Interface
 ~~~~~~~~~~~~~~~~~
@@ -257,10 +277,15 @@ class Session:
     A Session is associated (exclusively) to a running
     :class:`~csoundengine.engine.Engine` and manages instrument declarations
     and scheduled events. An Engine can be thought of as a low-level interface
-    to managing a csound instance, whereas a Session allows a higher-level control
+    for managing a csound instance, whereas a Session allows a higher-level control
 
-    Once a Session is created for an existing Engine Calling Session(engine.name) will
-    always return the same object.
+    A user normally does not create a Session manually: the normal way to create a
+    Session for a given Engine is to call :meth:`~csoundengine.engine.Engine.session`
+    (see example below)
+
+    Once a Session is created for an existing Engine,
+    calling :meth:`~csoundengine.engine.Engine.session` again will always return the
+    same Session object.
 
     Args:
         name: the name of the Engine. Only one Session per Engine can be created
@@ -268,7 +293,7 @@ class Session:
             determines how deep a chain of effects can effectively be.
 
     Example
-    =======
+    ~~~~~~~
 
     In order to add an instrument to a :class:`~csoundengine.session.Session`,
     an :class:`~csoundengine.instr.Instr` is created and registered with the Session.
