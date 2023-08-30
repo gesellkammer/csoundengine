@@ -7,6 +7,6 @@ logging.basicConfig(level="DEBUG")
 # Test that all dependencies needed are there
 ok = dependencies.checkDependencies(force=True, fix=True)
 if not ok:
-    print("Some dependencies where not met")
+    print("*************** Some dependencies where not met")
     sys.exit(1)
-print("dependencies ok")
+print(":::::::::::::::: Dependencies ok")
