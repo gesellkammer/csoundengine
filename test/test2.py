@@ -4,8 +4,9 @@ import sys
 import logging
 logging.basicConfig(level="DEBUG")
 
-# Test that all opcodes needed are there
-ok = dependencies.pluginsInstalled(cached=False)
+# Test that all dependencies needed are there
+ok = dependencies.checkDependencies(force=True, fix=True)
 if not ok:
-    print("Some plugins with needed opcodes don't seem to be installed")
+    print("Some dependencies where not met")
     sys.exit(1)
+print("dependencies ok")
