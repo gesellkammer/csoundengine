@@ -1013,7 +1013,7 @@ def opcodesList(cached=True, opcodedir: str = '') -> list[str]:
     return _csoundGetInfoViaAPI(opcodedir=opcodedir)['opcodes']
 
 
-def _csoundGetInfoViaAPI(opcodedir:str=None) -> dict:
+def _csoundGetInfoViaAPI(opcodedir='') -> dict:
     cs = ctcsound.Csound()
     cs.setOption("-d")  # supress displays
     if opcodedir:
@@ -1034,7 +1034,7 @@ def _csoundGetInfoViaAPI(opcodedir:str=None) -> dict:
             'versionTriplet': versionTriplet}
 
 
-def _opcodesList(opcodedir=None) -> list[str]:
+def _opcodesList(opcodedir='') -> list[str]:
     options = ["-z"]
     if opcodedir:
         options.append(f'--opcode-dir={opcodedir}')

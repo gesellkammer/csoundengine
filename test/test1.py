@@ -3,6 +3,9 @@ import argparse
 import logging
 logging.basicConfig(level="DEBUG")
 
+
+# Test offline rendering
+
 parser = argparse.ArgumentParser()
 parser.add_argument('-o', '--outfile', default='test1.wav')
 args = parser.parse_args()

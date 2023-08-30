@@ -31,6 +31,7 @@ jobs:
           pip install -U csoundengine
           cd test
           python test1.py -o test1-win.wav
+          python test2.py
 
       - uses: actions/upload-artifact@v3
         with:
@@ -69,6 +70,8 @@ jobs:
           pip install -U csoundengine
           cd test
           python test1.py -o test1-linux-pip.wav
+          python test2.py
+
           pip uninstall -y csoundengine
 
       - uses: actions/upload-artifact@v3
@@ -105,12 +108,14 @@ jobs:
           pip install .
           cd test
           python test1.py -o test1-macos.wav
+          python test2.py
 
       - name: macos - test install from pip
         run: |
           pip install -U csoundengine
           cd test
           python test1.py -o test1-macos-pip.wav
+          python test2.py
 
 
       - uses: actions/upload-artifact@v3

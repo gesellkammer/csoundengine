@@ -673,6 +673,27 @@ class Engine:
 
         self.start()
 
+    def reservedInstrRanges(self) -> list[tuple[str, int, int]]:
+        """
+        A dict containing reserved instr number ranges
+
+        An Engine has some internal instruments for performing tasks like
+        automation, bus support, etc. Moreover, if an Engine has an attached
+        Session, the session will declare a range of instrument numbers
+        as reserved.
+
+        This method returns all those reserved ranges in the form of a
+        list of tuples, where each tuple represents a reserved range.
+        Each tuple has the form ``(rangename: str, minInstrNumber: int, maxInstrNumber: int)``,
+        where ``rangename`` is the name of the range, ``minInstrNumber`` and ``maxInstrNumber``
+        represent the instr numbers reserved
+
+        Any instr number outside of this range can be used. Bear in mind that when an
+        Engine has an attached Session, compiling an instrument using a name instead of a
+        number might
+        """
+        return self._reservedInstrnumRanges
+
     def userInstrumentsRange(self) -> tuple[int, int]:
         """
         Returns the range of available instrument numbers
@@ -1168,7 +1189,7 @@ class Engine:
                         logger.error(f"Instrument number {instrnum} is reserved. Code:")
                         logger.error("\n" + textwrap.indent(codeblock.text, "    "))
                         raise ValueError(f"Cannot use instrument number {instrnum}, "
-                                         f"the range {mininstr} - {maxinstr} is reserved for {rangename}")
+                                         f"the range {mininstr} - {maxinstr} is reserved for '{rangename}'")
 
                 if instrnum in self._reservedInstrnums:
                     raise ValueError("Cannot compile instrument with number "
@@ -1184,8 +1205,7 @@ class Engine:
 
         self._compileCode(code)
 
-        names = [instr.name for instr in instrs
-                 if instr.name[0].isalpha()]
+        names = [instr.name for instr in instrs if instr.name[0].isalpha()]
         if names:
             # if named instrs are defined we sync in order to avoid assigning
             # the same number to different instrs. This should be taken
