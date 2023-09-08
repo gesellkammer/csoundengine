@@ -307,7 +307,8 @@ instr ${readSndfile}
     Spath = strget(p5)
     itab = p6
     ichan = p7
-    itab2 ftgen itab, 0, 0, -1, Spath, 0, 0, ichan
+    iskiptime = p8
+    itab2 ftgen itab, 0, 0, -1, Spath, iskiptime, 0, ichan
     if itoken > 0 then
         tabw_i itab2, itoken, gi__responses
         outvalue "__sync__", itoken

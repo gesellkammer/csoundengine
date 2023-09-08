@@ -911,12 +911,22 @@ class TableDataFile:
         size: the size of the table
     """
     tabnum: int
+    """The assigned table number"""
+
     data: Union[Sequence[float], np.ndarray, str]
     """the data itself or a path to a file"""
 
-    fmt: str = 'gen23'  # One of 'wav', 'gen23'
+    fmt: str   # One of 'wav', 'flac', 'gen23', etc
+    """The format of the data, one of 'wav', flac', 'gen23', etc"""
+
     start: float = 0
+    """Allocation time of the table (p2)"""
+
     size: int = 0
+    """Size of the data"""
+
+    chan: int = 0
+    """Which channel to read, if applicable. 0=all"""
 
     def __post_init__(self):
         assert self.fmt in {'gen23', 'wav', 'aif', 'aiff', 'flac'}, \
@@ -1697,21 +1707,50 @@ class Csd:
                  carry=False,
                  nchnls_i: int | None = None,
                  reservedTables=0):
+        self.score: list[Union[list, tuple]] = []
+        """The score, a list of events of the form (p1, p2, p3, ...)"""
+
+        self.instrs: dict[Union[str, int], str] = {}
+        """The orchestra"""
+
+        self.globalcodes: list[str] = []
+        """Code to evaluate at the instr0 level"""
+
+        self.options: list[str] = []
+        """Command line options"""
+
+        self.sr = sr
+        """Samplerate"""
+
+        self.ksmps = ksmps
+        """Samples per cycle"""
+
+        self.nchnls = nchnls
+        """Number of output channels"""
+
+        self.nchnls_i = nchnls_i
+        """Number of input channels"""
+
+        self.a4 = a4
+        """Reference frequency"""
+
+        self.nodisplay = nodisplay
+        """Disable display opcodes"""
+
+        self.enableCarry = carry
+        """Enable carry in the score"""
+
+        self.datafiles: dict[int, TableDataFile] = {}
+        """Maps assigned table numbers to their metadata"""
+
+        self._datafileIndex: dict[str, TableDataFile] = {}
+        """Maps soundfiles read to their assigned table number"""
+
         self._strLastIndex = 20
         self._str2index: dict[str, int] = {}
-        self.score: list[Union[list, tuple]] = []
-        self.instrs: dict[Union[str, int], str] = {}
-        self.globalcodes: list[str] = []
-        self.options: list[str] = []
 
         if options:
             self.setOptions(*options)
-
-        self.sr = sr
-        self.ksmps = ksmps
-        self.nchnls = nchnls
-        self.nchnls_i = nchnls_i
-        self.a4 = a4
 
         self._outfileFormat = ''
         self._outfileEncoding = ''
@@ -1719,9 +1758,6 @@ class Csd:
 
         self._definedTables: Set[int] = set()
         self._minTableIndex = 1
-        self.nodisplay = nodisplay
-        self.enableCarry = carry
-        self.datafiles: dict[int, TableDataFile] = {}
         self._endMarker: float = 0
         self._numReservedTables = reservedTables
         self._maxTableNumber = reservedTables
@@ -1775,6 +1811,12 @@ class Csd:
         """
         score = _cropScore(self.score, start, end)
         self.score = score
+
+    def dumpScore(self) -> None:
+        from emlib.misc import print_table
+        maxp = max(len(event) for event in self.score)
+        headers = ["#"] + [f'p{n}' for n in range(maxp)]
+        print_table(self.score, headers=headers, floatfmt=".3f")
 
     def addEvent(self,
                  instr: Union[int, float, str],
@@ -1830,7 +1872,6 @@ class Csd:
             self._maxTableNumber = tabnum
         self._definedTables.add(tabnum)
         return tabnum
-
 
     def _addTable(self, pargs) -> int:
         """
@@ -1896,21 +1937,26 @@ class Csd:
         else:
             if not filefmt:
                 filefmt = config['datafile_format']
+
+            tabnum = self._assignTableIndex(tabnum)
+
             if len(data) > sizeThreshold:
                 # If the data is big, we save the data. We will write
                 # it to a file when rendering
-                tabnum = self._assignTableIndex(tabnum)
                 datafile = TableDataFile(tabnum, data, start=start, fmt=filefmt)
-                self._addDataFile(datafile)
+                self._addProjectFile(datafile)
             else:
                 pargs = [tabnum, start, -len(data), -2]
                 pargs.extend(data)
                 tabnum = self._addTable(pargs)
+
         assert tabnum > 0
         return tabnum
 
-    def _addDataFile(self, datafile: TableDataFile) -> None:
+    def _addProjectFile(self, datafile: TableDataFile) -> None:
         self.datafiles[datafile.tabnum] = datafile
+        if isinstance(datafile.data, str):
+            self._datafileIndex[datafile.data] = datafile
         assert datafile.tabnum in self._definedTables
 
     def addEmptyTable(self, size:int, tabnum: int=0, sr: int = 0,
@@ -1939,7 +1985,7 @@ class Csd:
             self.addEvent('_ftnew', start=0, dur=0, args=args)
             return tabnum
 
-    def addSndfile(self, sndfile:str, tabnum=0, start=0., skiptime=0, chan=0,
+    def addSndfile(self, sndfile: str, tabnum=0, start=0., skiptime=0, chan=0,
                    asProjectFile=False) -> int:
         """
         Add a table which will load this sndfile
@@ -1956,16 +2002,24 @@ class Csd:
         Returns:
             the table number
         """
+        sndfmt = _os.path.splitext(sndfile)[1][1:].lower()
+        supportedFormats = ('wav', 'aif', 'aiff', 'flac')
+        if sndfmt not in supportedFormats:
+            raise ValueError(f"Format '{sndfmt}' not supported, "
+                             f"supported formats: {supportedFormats}")
+
+        if datafile := self._datafileIndex.get(sndfile):
+            return datafile.tabnum
 
         tabnum = self._assignTableIndex(tabnum)
+        datafile = TableDataFile(tabnum, data=sndfile, start=start, fmt=sndfmt)
+
         if not asProjectFile:
             pargs = [tabnum, start, 0, -1, sndfile, skiptime, 0, chan]
+            self._datafileIndex[sndfile] = datafile
             self._addTable(pargs)
         else:
-            sndfmt = _os.path.splitext(sndfile)[1][1:].lower()
-            assert sndfmt in {'wav', 'aif', 'aiff', 'flac'}
-            projfile = TableDataFile(tabnum, data=sndfile, start=start, fmt=sndfmt)
-            self.datafiles[tabnum] = projfile
+            self._addProjectFile(datafile)
         assert tabnum > 0
         return tabnum
 
@@ -2001,7 +2055,6 @@ class Csd:
         Remove the end-of-score marker
         """
         self._endMarker = 0
-
 
     def setComment(self, comment:str) -> None:
         """ Add a comment to the renderer output soundfile"""
@@ -2079,6 +2132,21 @@ class Csd:
         if self._endMarker:
             stream.write(f'e {self._endMarker}')
 
+    def scoreDuration(self) -> float:
+        if self._endMarker:
+            return self._endMarker
+
+        endtime = 0
+        for ev in self.score:
+            evstart = ev[2]
+            evdur = ev[3]
+            if evdur < 0:
+                endtime = float('inf')
+                break
+            else:
+                endtime = max(endtime, evstart + evdur)
+        return endtime
+
     def addInstr(self, instr: Union[int, str], body: str) -> None:
         """
         Add an instrument definition to this csd
@@ -2088,8 +2156,8 @@ class Csd:
             body: the body of the instrument (the part between 'instr' / 'endin')
         """
         if _re.search(r"^\s*instr", body):
-            raise ValueError(f"The body should include the instrument definition, the part between"
-                             f"'instr' / 'endin', got: {body}")
+            raise ValueError(f"The body should only include the instrument definition, "
+                             f"the part between 'instr' / 'endin', got: {body}")
 
         self.instrs[instr] = body
 
@@ -3227,7 +3295,7 @@ class SoundFontIndex:
     def __init__(self, soundfont: str):
         assert _os.path.exists(soundfont)
         self.soundfont = soundfont
-        instrs, presets = _soundfontGetInstrumentsAndPresets(soundfont)
+        instrs, presets = _soundfontinstrumentsAndPresets(soundfont)
         self.instrs: list[tuple[int, str]] = instrs
         self.presets: list[tuple[int, int, str]] = presets
         self.nameToIndex: dict[str, int] = {name:idx for idx, name in self.instrs}
@@ -3424,15 +3492,22 @@ def highlightCsoundOrc(code: str, theme:str=None) -> str:
     return html
 
 
-def _eventEnd(event) -> float:
-    start = event[1]
-    dur = event[2]
-    if dur == -1:
-        return float('inf')
-    return start + dur
+def _eventEnd(event) -> float | None:
+    if len(event) >= 4:
+        # 0 1  2  3
+        # i p1 p2 p3
+        start = event[2]
+        dur = event[3]
+        if dur == -1:
+            return float('inf')
+        return start + dur
+    elif len(event) == 2:
+        return event[1]
+    else:
+        return None
 
 
-def _cropScore(events: list, start=0., end=0.) -> list:
+def _cropScore(events: list[Sequence], start=0., end=0.) -> list:
     """
     Crop the score so that no event exceeds the given limits
 
@@ -3442,23 +3517,29 @@ def _cropScore(events: list, start=0., end=0.) -> list:
         start: the min. start time for any event
         end: the max. end time for any event
     """
-    scoreend = max(_eventEnd(ev) for ev in events)
+    scoreend = max(_ for ev in events
+                   if (_:=_eventEnd(ev)) is not None)
+    assert scoreend is not None and scoreend > 0, f"Invalid score duration ({scoreend}): {events}"
     if end == 0:
         end = scoreend
     cropped = []
     for ev in events:
         kind = ev[0]
-        if kind == 'e':
-            continue
-        if kind != "i":
+        if kind == 'e' or kind == 'f':
+            evstart = ev[1]
+            if start <= evstart < end:
+                cropped.append(ev)
+        elif kind != 'i':
             cropped.append(ev)
             continue
-        evstart = ev[1]
-        evend = _eventEnd(ev)
+
+        evstart = ev[2]
+        evdur = ev[3]
+        evend = evstart + evdur if evdur >= 0 else float('inf')
         if evend < start or evstart > end:
             continue
 
-        if start <= evstart <= evend:
+        if start <= evstart and evend <= end:
             cropped.append(ev)
         else:
             intersection = emlib.mathlib.intersection(start, end, evstart, evend)
@@ -3469,7 +3550,7 @@ def _cropScore(events: list, start=0., end=0.) -> list:
             else:
                 dur = xend - xstart
             ev = list(ev)
-            ev[1] = xstart
-            ev[2] = dur
+            ev[2] = xstart
+            ev[3] = dur
             cropped.append(ev)
     return cropped

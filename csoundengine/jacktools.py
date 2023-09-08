@@ -31,8 +31,8 @@ class JackInfo:
     blocksize: int
     numOutChannelsPhysical: int
     numInChannelsPhysical: int
-    systemInput: JackClient
-    systemOutput: JackClient
+    systemInput: str
+    systemOutput: str
     onPipewire: bool = False
 
 
@@ -56,14 +56,18 @@ def getInfo() -> Optional[JackInfo]:
     systemOutput = _buildClients(inports)[0]
     systemInput = _buildClients(outports)[0] if outports else None
     onPipewire = linuxaudio.isPipewireRunning()
-    return JackInfo(running=True,
-                    samplerate=c.samplerate,
-                    blocksize=c.blocksize,
-                    numOutChannelsPhysical=len(inports),
-                    numInChannelsPhysical=len(outports),
-                    systemInput=systemOutput,
-                    systemOutput=systemInput,
-                    onPipewire=onPipewire)
+    sr = c.samplerate
+    blocksize = c.blocksize
+    out = JackInfo(running=True,
+                   samplerate=sr,
+                   blocksize=blocksize,
+                   numOutChannelsPhysical=len(inports),
+                   numInChannelsPhysical=len(outports),
+                   systemInput=systemOutput.name,
+                   systemOutput=systemInput.name,
+                   onPipewire=onPipewire)
+    c.close()
+    return out
 
 
 def bufferSizeAndNum() -> Tuple[int, int]:

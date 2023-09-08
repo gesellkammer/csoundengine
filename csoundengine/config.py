@@ -104,6 +104,8 @@ _('fail_if_unmatched_pargs', False,
   doc='Fail if the # of passed pargs doesnt match the # of pargs'),
 _('set_sigint_handler', True,
   doc='Set a sigint handler to prevent csound crash with CTRL-C')
+_('disable_signals', True,
+  doc='Disable atexit and sigint signal handler')
 _('generalmidi_soundfont', '')
 _('suppress_output', True,
   doc='Suppress csound´s debugging information')

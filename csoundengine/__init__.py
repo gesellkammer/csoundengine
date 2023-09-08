@@ -11,7 +11,7 @@ process.
     from csoundengine import Engine
     # create an engine with default options for the platform
     engine = Engine()
-    engine.defInstr('''
+    engine.compile('''
       instr synth
         kmidinote = p4
         kamp = p5

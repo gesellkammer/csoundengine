@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import cachetools
 import numpy as np
 import sys
@@ -10,6 +11,7 @@ import textwrap
 from typing import TYPE_CHECKING
 import emlib.dialogs
 import emlib.iterlib
+import emlib.misc
 import subprocess
 import bisect
 
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
     from .instr import Instr
     from typing import *
     from csoundlib import AudioDevice, MidiDevice
-    
+
 
 _registry: dict[str, Any] = {}
 
@@ -420,3 +422,118 @@ def cropPairs(pairs: list[float], t0: float, t1: float) -> list[float]:
     return out
 
 
+def splitPairs(pairs: Sequence[float], num: int) -> list[Sequence[float]]:
+    """
+    Split automation pairs
+
+    Args:
+        pairs: automation data of the form time0, value0, time1, value1, ...
+        num: max. number of pairs
+
+    Returns:
+        list of pair lists
+    """
+    l = len(pairs)
+    groups = []
+    start = 0
+    while start < l - 1:
+        end = min(start + num*2, l)
+        group = pairs[start:end]
+        groups.append(group)
+        start = end
+    assert sum(len(group) for group in groups) == len(pairs)
+    return groups
+
+
+def aslist(l: Sequence) -> list:
+    if isinstance(l, list):
+        return l
+    return list(l)
+
+
+def soundfileHtml(sndfile: str,
+                  withHeader=True,
+                  withAudiotag=True,
+                  audiotagMaxDuration=10,
+                  audiotagWidth='100%',
+                  audiotagMaxWidth='1200px',
+                  embedThreshold=2.
+                  ) -> str:
+    """
+    Returns an HTML representation of this Sample
+
+    This can be used within a Jupyter notebook to force the
+    html display. It is useful inside a block were it would
+    not be possible to put this Sample as the last element
+    of the cell to force the html representation
+
+    Args:
+        withHeader: include a header line with repr text ('Sample(...)')
+        withAudiotag: include html for audio playback.
+        audiotagMaxDuration: max duration
+
+    Returns:
+        the HTML repr as str
+
+    """
+    import sndfileio
+    import IPython.display
+    import emlib.img
+    from . import plotting
+    import tempfile
+    pngfile = tempfile.mktemp(suffix=".png", prefix="plot-")
+    samples, info = sndfileio.sndget(sndfile)
+    if info.duration < 20:
+        profile = 'highest'
+    elif info.duration < 40:
+        profile = 'high'
+    elif info.duration < 180:
+        profile = 'medium'
+    else:
+        profile = 'low'
+    plotting.plotSamples(samples, samplerate=info.samplerate, profile=profile, saveas=pngfile)
+    img = emlib.img.htmlImgBase64(pngfile)   # , maxwidth='800px')
+    if info.duration > 60:
+        durstr = emlib.misc.sec2str(info.duration)
+    else:
+        durstr = f"{info.duration:.3g}"
+    if withHeader:
+        s = (f"<b>Soundfile</b>: '{sndfile}', duration: <code>{durstr}</code>, "
+             f"sr: <code>{info.samplerate}</code>, "
+             f"numchannels: <code>{info.channels}</code>)<br>")
+    else:
+        s = ''
+    s += img
+    if withAudiotag and info.duration/60 < audiotagMaxDuration:
+        maxwidth = audiotagMaxWidth
+        # embed short audiofiles, the longer ones are written to disk and read
+        # from there
+        if info.duration < embedThreshold:
+            audioobj = IPython.display.Audio(samples.T, rate=info.samplerate)
+            audiotag = audioobj._repr_html_()
+        else:
+            os.makedirs('tmp', exist_ok=True)
+            outfile = tempfile.mktemp(suffix='.mp3')
+            sndfileio.sndwrite(outfile, samples=samples, sr=info.samplerate)
+            audioobj = IPython.display.Audio(outfile)
+            audiotag = audioobj._repr_html_()
+        audiotag = audiotag.replace('audio  controls="controls"',
+                                    fr'audio controls style="width: {audiotagWidth}; max-width: {maxwidth};"')
+        s += "<br>" + audiotag
+    return s
+
+
+safeColors = {
+    'blue1': '#9090FF',
+    'blue2': '#6666E0',
+    'red1': '#FF9090',
+    'red2': '#E08080',
+    'green1': '#90FF90',
+    'green2': '#8080E0',
+    'magenta1': '#F090F0',
+    'magenta2': '#E080E0',
+    'cyan': '#70D0D0',
+    'grey1': '#BBBBBB',
+    'grey2': '#A0A0A0',
+    'grey3': '#909090'
+}

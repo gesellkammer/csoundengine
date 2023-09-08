@@ -40,7 +40,8 @@ def _figsizeAsTuple(figsize) -> tuple[int, int]:
         raise ValueError(f"Could not interpret {figsize} as a figure size")
 
 
-def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False) -> None:
+def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False
+                     ) -> plt.Figure:
     numch = internalTools.arrayNumChannels(samples)
     numsamples = samples.shape[0]
     dur = numsamples / samplerate
@@ -61,6 +62,7 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False) -> None:
         plt.xlim([0, dur])
     if not matplotlibIsInline() and show:
         plt.show()
+    return f
 
 
 def matplotlibIsInline():
@@ -72,43 +74,8 @@ def matplotlibIsInline():
     return inside_jupyter() and 'inline' in matplotlib.get_backend()
 
 
-def plotSamples(samples: np.ndarray, samplerate: int, profile: str= 'auto',
-                show=False
-                ) -> None:
-    """
-    Plot the samples
-
-    Args:
-        samples: a numpy array holding one or many channels of audio data
-        samplerate: the sampling rate of samples
-        profile: one of 'low', 'medium', 'high', 'highest', 'auto'
-        show: if True, the plot is shown. Otherwise matplotlib.pyplot.show() needs
-            to be called explicitely (when not in inline mode inside jupyter)
-
-    """
-    if profile == 'auto':
-        dur = len(samples)/samplerate
-        if dur > 60*8:
-            profile = 'low'
-        elif dur > 60*2:
-            profile = 'medium'
-        elif dur > 60*1:
-            profile = 'high'
-        else:
-            profile = 'highest'
-    if profile == 'low':
-        maxpoints = 2000
-        maxsr = 300
-    elif profile == 'medium':
-        maxpoints = 4000
-        maxsr = 600
-    elif profile == 'high':
-        undersample = min(32, len(samples) // (1024*8))
-        return _plot_matplotlib(samples[::undersample], samplerate//undersample, show=show)
-    elif profile == 'highest':
-        return _plot_matplotlib(samples, samplerate, show=show)
-    else:
-        raise ValueError("profile should be one of 'low', 'medium' or 'high'")
+def _plot_subsample(samples: np.ndarray, samplerate: int, maxpoints: int,
+                    maxsr: int, show: bool, figsizeFactor=1.) -> plt.Figure:
     targetsr = samplerate
     numch = internalTools.arrayNumChannels(samples)
     numsamples = samples.shape[0]
@@ -116,12 +83,11 @@ def plotSamples(samples: np.ndarray, samplerate: int, profile: str= 'auto',
         targetsr = min(maxsr, (samplerate * numsamples) // maxpoints)
     hop_length = samplerate // targetsr
     figsize = _figsizeAsTuple(config['samplesplot_figsize'])
-    if profile == "medium":
-        figsize = int(figsize[0]*1.4), figsize[1]
+    figsize = (int(figsize[0] * figsizeFactor), figsize[1])
     f = plt.figure(figsize=figsize)
     ax1 = f.add_subplot(numch, 1, 1)
     for i in range(numch):
-        ax = ax1 if i==0 else f.add_subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
+        ax = ax1 if i == 0 else f.add_subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
         if i < numch - 1:
             plt.setp(ax.get_xticklabels(), visible=False)
 
@@ -138,6 +104,57 @@ def plotSamples(samples: np.ndarray, samplerate: int, profile: str= 'auto',
     f.tight_layout(pad=0.1)
     if not matplotlibIsInline() and show:
         plt.show()
+    return f
+
+
+def plotSamples(samples: np.ndarray,
+                samplerate: int,
+                profile='auto',
+                show=False,
+                saveas=''
+                ):
+    """
+    Plot the samples
+
+    Args:
+        samples: a numpy array holding one or many channels of audio data
+        samplerate: the sampling rate of samples
+        profile: one of 'low', 'medium', 'high', 'highest', 'auto'
+        show: if True, the plot is shown. Otherwise matplotlib.pyplot.show() needs
+            to be called explicitely (when not in inline mode inside jupyter)
+
+    """
+    if saveas:
+        profile = 'highest'
+    elif profile == 'auto':
+        dur = len(samples)/samplerate
+        if dur > 60*8:
+            profile = 'low'
+        elif dur > 60*2:
+            profile = 'medium'
+        elif dur > 60*1:
+            profile = 'high'
+        else:
+            profile = 'highest'
+
+    if profile == 'low':
+        fig = _plot_subsample(samples=samples, samplerate=samplerate,
+                              maxpoints=2000, maxsr=300, show=show)
+    elif profile == 'medium':
+        fig = _plot_subsample(samples=samples, samplerate=samplerate, maxpoints=4000,
+                              maxsr=600, show=show, figsizeFactor=1.4)
+    elif profile == 'high':
+        undersample = min(32, len(samples) // (1024*8))
+        fig = _plot_matplotlib(samples[::undersample], samplerate//undersample, show=show)
+    elif profile == 'highest' or saveas:
+        fig = _plot_matplotlib(samples, samplerate, show=show)
+    else:
+        raise ValueError("profile should be one of 'low', 'medium' or 'high'")
+
+    if saveas:
+        plt.close(fig)
+        fig.savefig(saveas, transparent=False, facecolor="white", bbox_inches='tight')
+    return fig
 
 
 def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:str=None,

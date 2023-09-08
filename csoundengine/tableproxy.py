@@ -4,7 +4,6 @@ import numpy as np
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .synth import Synth
     from .engine import Engine
 
 
@@ -51,28 +50,50 @@ class TableProxy:
 
     """
 
-    __slots__ = ('tabnum', 'sr', 'nchnls', 'engine', 'numframes', 'path', 'freeself', '_array')
+    __slots__ = ('tabnum', 'sr', 'nchnls', 'engine', 'numframes', 'path', 'freeself', '_array',
+                 'skiptime')
 
     def __init__(self,
                  tabnum: int,
-                 engine: Engine,
                  numframes: int,
+                 engine: Engine | None = None,
                  sr: int = 0,
                  nchnls: int = 1,
                  path: str = '',
+                 skiptime=0.,
                  freeself=False):
         if path:
             path = os.path.abspath(os.path.expanduser(path))
+
         self.tabnum = tabnum
+        """The table number assigned to this table"""
+
         self.sr = sr
+        """Samplerate"""
+
         self.nchnls = nchnls
+        """Number of channels, of applicable"""
+
         self.engine = engine
+        """The parent engine, if this is a live table (None if rendering offline)"""
+
         self.numframes = numframes
+        """The number of frames (samples = numframes * nchnls)"""
+
         self.path = path
+        """The path to load the data from, if applicable"""
+
         self.freeself = freeself
+        """If True, bind the lifetime of the proxy to the lifetime of the table itself"""
+
+        self.skiptime = skiptime
+        """Skiptime of the table. This applies only to soundfiles"""
+
         self._array: np.ndarray | None = None
+        """The data, if applicable"""
 
     def __repr__(self):
+        enginename = self.engine.name if self.engine else 'none'
         return (f"TableProxy(engine={self.engine.name}, source={self.tabnum}, sr={self.sr},"
                 f" nchnls={self.nchnls},"
                 f" numframes={self.numframes}, path={self.path},"
@@ -84,18 +105,28 @@ class TableProxy:
     def __float__(self):
         return float(self.tabnum)
 
+    def online(self):
+        return self.engine is None
+
     def data(self) -> np.ndarray:
         """
         Get the table data as a numpy array.
 
-        The returned array is a pointer to the csound memory (a view)
+        The returned numpy array is a pointer to the csound memory (a view)
+        if the table is live or the samples read from disk otherwise
 
         Returns:
             the data as a numpy array
         """
         if self._array is None:
-            assert self.engine.csound is not None
-            self._array = self.engine.csound.table(self.tabnum)
+            if self.engine is not None:
+                assert self.engine.csound is not None
+                self._array = self.engine.csound.table(self.tabnum)
+            else:
+                import sndfileio
+                samples, sr = sndfileio.sndread(self.path)
+                self._array = samples
+
         return self._array
 
     def duration(self) -> float:

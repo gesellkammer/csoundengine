@@ -212,17 +212,6 @@ def _getSoundfileInfo(path) -> TableInfo:
                      path=path)
 
 
-class _RefTimeContext:
-    def __init__(self, engine: Engine):
-        self.engine = engine
-
-    def __enter__(self):
-        self.engine.pushLock()
-
-    def __exit__(self, *args, **kws):
-        self.engine.popLock()
-
-
 def _channelMode(kind: str) -> int:
     if kind == 'r':
         return ctcsound.CSOUND_INPUT_CHANNEL
@@ -858,7 +847,8 @@ class Engine:
             options.append(f"--port={self.udpPort}")
 
         # options.append(f"--opcode-dir={csoundlib.userPluginsFolder()}")
-
+        if config['disable_signals']:
+            ctcsound.csoundInitialize(ctcsound.CSOUNDINIT_NO_ATEXIT | ctcsound.CSOUNDINIT_NO_SIGNAL_HANDLER)
         cs = ctcsound.Csound()
         if cs.version() < 6160:
             ver = cs.version() / 1000
@@ -1453,7 +1443,7 @@ class Engine:
     def __exit__(self, *args, **kws):
         self.popLock()
 
-    def lockedClock(self) -> _RefTimeContext:
+    def lockedClock(self) -> Engine:
         """
         Context manager, locks and unlocks the reference time
 
@@ -1489,7 +1479,7 @@ class Engine:
             ...         e.sched(100, t, 0.15, args=[800])
 
         """
-        return _RefTimeContext(self)
+        return self
 
     def sched(self, instr: int|float|str, delay=0., dur=-1.,
               args: np.ndarray|Sequence[float|str] = None,
@@ -1757,7 +1747,7 @@ class Engine:
         if int(p1) == p1:
             mode = 0   # all instances
         else:
-            mode = 0   # exact matching
+            mode = 4   # exact matching
         pfields = [self.builtinInstrs['turnoff'], delay, 0, p1, mode]
         self._perfThread.scoreEvent(0, "i", pfields)
 
@@ -2748,7 +2738,7 @@ class Engine:
         self.includes.append(abspath)
 
     def readSoundfile(self, path="?", tabnum: int = None, chan=0,
-                      callback=None, block=False) -> int:
+                      callback=None, block=False, skiptime=0.) -> int:
         """
         Read a soundfile into a table (via GEN1), returns the table number
 
@@ -2804,7 +2794,7 @@ class Engine:
             # if token is set to 0, no notification takes place
             token = 0
         p1 = self.builtinInstrs['readSndfile']
-        msg = f'i {p1} 0 0. {token} "{path}" {tabnum} {chan}'
+        msg = f'i {p1} 0 0. {token} "{path}" {tabnum} {chan} {skiptime}'
         if callback:
             self._inputMessageWithCallback(token, msg, lambda *args: callback())
         elif block:
@@ -3215,7 +3205,7 @@ class Engine:
             return self.sched(self.builtinInstrs['automatePargViaPargs'], delay=delay,
                               dur=dur, args=args)
         else:
-            pairgroups = _splitPairs(pairs, 1900)
+            pairgroups = internalTools.splitPairs(pairs, 1900)
             eventidx = []
             for pairidx, pairs in enumerate(pairgroups):
                 ev = self.automatep(p1=p1, pidx=pidx, pairs=pairs, mode=mode, delay=delay,
@@ -3785,14 +3775,3 @@ def getEngine(name: str) -> Engine | None:
     return Engine.activeEngines.get(name)
 
 
-def _splitPairs(pairs: Sequence[float], num: int) -> list[Sequence[float]]:
-    l = len(pairs)
-    groups = []
-    start = 0
-    while start < l - 1:
-        end = min(start + num*2, l)
-        group = pairs[start:end]
-        groups.append(group)
-        start = end
-    assert sum(len(group) for group in groups) == len(pairs)
-    return groups

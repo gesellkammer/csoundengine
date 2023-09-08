@@ -192,6 +192,7 @@ import numpy as np
 import emlib.dialogs
 import bpf4
 
+from .abstractrenderer import AbstractRenderer
 from .engine import Engine, getEngine, CsoundError
 from . import engineorc
 from .instr import Instr
@@ -213,29 +214,30 @@ __all__ = [
     'SessionEvent'
 ]
 
+
 @dataclass
 class _ReifiedInstr:
     """
     A _ReifiedInstr is just a marker of a concrete instr sent to the
-    engine for a given Instr template. An Instr is an abstract declaration without
-    a specific instr number and thus without a specific order of execution.
-    To be able to schedule an instrument at different places in the chain,
-    the same instrument is redeclared (lazily) as different instrument numbers
-    depending on the priority. When an instr. is scheduled at a given priority for
-    the first time a ReifiedInstr is created to mark that and the code is sent
-    to the engine
+    engine for a given Instr template.
 
-    Attributes:
-        qname: the qualified name, "{instrname}:{priority}"
-        instrnum: the actual instrument number inside csound
-        priority: the priority of this instr
+    An Instr is an abstract declaration without a specific instr number and thus
+    without a specific order of execution. To be able to schedule an instrument
+    at different places in the chain, the same instrument is redeclared (lazily)
+    as different instrument numbers depending on the priority. When an instr
+    is scheduled at a given priority for the first time a ReifiedInstr is created
+    to mark that and the code is sent to the engine
     """
-    qname: str
+
     instrnum: int
+    """the actual instrument number inside csound"""
+
     priority: int
+    """the priority of this instr"""
 
     def __post_init__(self):
         assert isinstance(self.instrnum, int)
+
 
 
 @dataclass
@@ -272,7 +274,7 @@ class SessionEvent:
     "Keywords passe to the instrument"
 
 
-class Session:
+class Session(AbstractRenderer):
     """
     A Session is associated (exclusively) to a running
     :class:`~csoundengine.engine.Engine` and manages instrument declarations
@@ -422,7 +424,6 @@ class Session:
         self.numpriorities: int = numpriorities
         "Number of priorities in this Session"
 
-
         self.engine: Engine = engine
         """The Engine corresponding to this Session"""
 
@@ -455,6 +456,7 @@ class Session:
         self._pathToTabproxy: dict[str, TableProxy] = {}
         self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
         self._schedCallback: Union[Callable, None] = None
+        self._rendering = False
 
         if config['define_builtin_instrs']:
             self._defBuiltinInstrs()
@@ -463,6 +465,9 @@ class Session:
         mininstr, maxinstr = self._reservedInstrRange()
         engine.reserveInstrRange('session', mininstr, maxinstr)
         engine._session = self
+
+    def renderMode(self) -> str:
+        return 'online'
 
     def _reservedInstrRange(self) -> tuple[int, int]:
         lastinstrnum = self._bucketIndices[-1] + self._bucketSizes[-1]
@@ -494,10 +499,10 @@ class Session:
         if synth is None:
             return
         synth._playing = False
-        if synth.table is not None:
+        if synth._table is not None:
             if not synth.instr.instrFreesParamTable:
-                self.engine.freeTable(synth.table.tableIndex, delay=delay)
-            self.engine._releaseTableNumber(synth.table.tableIndex)
+                self.engine.freeTable(synth._table.tableIndex, delay=delay)
+            self.engine._releaseTableNumber(synth._table.tableIndex)
         if callback := self._whenfinished.pop(synthid, None):
             callback(synthid)
 
@@ -742,7 +747,6 @@ class Session:
         A ReifiedInstr is a version of an instrument with a given priority
         """
         assert isinstance(priority, int) and 1<=priority<=10
-        qname = f"{name}:{priority}"
         instrdef = self.instrs.get(name)
         if instrdef is None:
             raise ValueError(f"instrument {name} not registered")
@@ -756,7 +760,7 @@ class Session:
         except CsoundError as e:
             logger.error(str(e))
             raise CsoundError(f"Could not compile body for instr {name}")
-        rinstr = _ReifiedInstr(qname, instrnum, priority)
+        rinstr = _ReifiedInstr(instrnum, priority)
         self._registerReifiedInstr(name, priority, rinstr)
         return rinstr
 
@@ -939,14 +943,24 @@ class Session:
                           relative=event.relative,
                           **kws)
     
-    def rendering(self, outfile='') -> Renderer:
+    def rendering(self,
+                  outfile: str = '',
+                  sr: int | None = None,
+                  nchnls: int | None = None,
+                  ksmps: int | None = None,
+                  encoding='',
+                  starttime=0.,
+                  endtime=0.,
+                  openWhenDone=False,
+                  redirect=False) -> Renderer:
         """
-        A context-manager to render offline
+        A context-manager for offline rendering
 
-        All scheduled events will be rendered to `outfile` when exiting the
+        All scheduled events are rendered to `outfile` when exiting the
         context. The :class:`~csoundengine.offline.Renderer` returned by the
         context manager has the same interface as a :class:`Session` and can
-        be used as a drop-in replacement.
+        be used as a drop-in replacement. Any instrument or resource declared
+        within this Session is available for offline rendering.
 
         Returns:
             a :class:`csoundengine.offline.Renderer`
@@ -966,16 +980,28 @@ class Session:
             >>> with s.rendering('out.wav') as r:
             ...     r.sched('simplesine', 0, dur=2, kfreq=1000)
             ...     r.sched('simplesine', 0.5, dur=1.5, kfreq=1004)
+            >>> # Generate the corresponding csd
+            >>> r.writeCsd('out.csd')
 
         .. seealso:: :class:`~csoundengine.offline.Renderer`
         """
-        renderer = self.makeRenderer()
+        renderer = self.makeRenderer(sr=sr or self.engine.sr,
+                                     nchnls=nchnls or self.engine.nchnls,
+                                     ksmps=ksmps)
 
-        def _exit(r: Renderer, outfile=outfile):
-            r.render(outfile=outfile)
+        schedCallback = self._schedCallback
+        self._rendering = True
 
-        if outfile:
-            renderer._registerExitCallback(_exit)
+        if redirect:
+            self._schedCallback = renderer.sched
+
+        def _exit(r: Renderer, outfile=outfile, schedCallback=schedCallback):
+            r.render(outfile=outfile, endtime=endtime, encoding=encoding,
+                     starttime=starttime, openWhenDone=openWhenDone)
+            self._schedCallback = schedCallback
+            self._rendering = False
+
+        renderer._registerExitCallback(_exit)
         return renderer
 
     def sched(self,
@@ -1126,6 +1152,10 @@ class Session:
         This will stop an already playing synth or a synth
         which has been scheduled in the future
 
+        Normally the user should not call :meth:`.unsched`. This method
+        is called by a :class:`~csoundengine.synth.Synth` when
+        :meth:`~csoundengine.synth.Synth.stop` is called.
+
         Args:
             synthids: one or many synthids to stop
             delay: how long to wait before stopping them
@@ -1189,7 +1219,8 @@ class Session:
         for i, initcode in enumerate(self._initCodes):
             self.engine.compile(initcode)
 
-    def readSoundfile(self, path="?", chan=0, free=False, force=False) -> TableProxy:
+    def readSoundfile(self, path="?", chan=0, free=False, force=False, skiptime: float=0
+                      ) -> TableProxy:
         """
         Read a soundfile, store its metadata in a :class:`~csoundengine.tableproxy.TableProxy`
 
@@ -1227,7 +1258,7 @@ class Session:
             path = _state.openSoundfile()
         if (table := self._pathToTabproxy.get(path)) is not None and not force:
             return table
-        tabnum = self.engine.readSoundfile(path=path, chan=chan)
+        tabnum = self.engine.readSoundfile(path=path, chan=chan, skiptime=skiptime)
         import sndfileio
         info = sndfileio.sndinfo(path)
         table = TableProxy(tabnum=tabnum,
@@ -1366,7 +1397,7 @@ class Session:
 
         The **loristrck** packge is needed for both partial-tracking analysis and
         packing. It can be installed via ``pip install loristrck`` (see
-        https://github.com/gesellkammer/loristrck)
+        https://github.com/gesellkammer/loristrck). This is an optional dependency
 
 
         Args:
@@ -1543,7 +1574,7 @@ class Session:
                                     kgain=gain,
                                     ixfade=crossfade))
 
-    def makeRenderer(self, sr: int = None, nchnls: int = None, ksmps: int = None
+    def makeRenderer(self, sr: int = None, nchnls: int = None, ksmps: int = None,
                      ) -> Renderer:
         """
         Create a :class:`~csoundengine.offline.Renderer` (to render offline) with

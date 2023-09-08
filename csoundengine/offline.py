@@ -42,36 +42,38 @@ import os
 import sys
 import sndfileio
 import bpf4
+import numpy as np
+from functools import cache
+from dataclasses import dataclass
+
 from .errors import RenderError
-from .config import config
-from . import csoundlib
+from .config import config, logger
 from .instr import Instr
+from .baseevent import BaseEvent
+from .abstractrenderer import AbstractRenderer
+from . import csoundlib
 from . import internalTools
 from . import engineorc
 from . import sessioninstrs
 from . import state as _state
-import logging
+from . import offlineorc
+from . import tableproxy
 
 import emlib.misc
 import emlib.filetools
 import emlib.mathlib
 import emlib.iterlib
-import numpy as np
-import textwrap as _textwrap
-from .baseevent import BaseEvent
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING or "sphinx" in sys.modules:
-    from typing import Callable
+    from typing import Callable, Sequence, Iterator
     import subprocess
-
-
-logger = logging.getLogger("csoundengine")
 
 
 __all__ = (
     "Renderer",
     "ScoreEvent",
+    "EventGroup"
 )
 
 
@@ -86,7 +88,7 @@ class ScoreEvent(BaseEvent):
         are generated when scheduling events
 
     """
-    __slots__ = ('uniqueId', 'paramTable', 'renderer', 'instrname', 'priority')
+    __slots__ = ('uniqueId', 'paramTable', 'renderer', 'instrname', 'priority', 'args', 'p1')
 
     def __init__(self,
                  p1: float | str,
@@ -98,7 +100,14 @@ class ScoreEvent(BaseEvent):
                  renderer: Renderer = None,
                  instrname: str = '',
                  priority: int = 0):
-        super().__init__(p1, start, dur, args)
+        super().__init__(start=start, dur=dur)
+
+        self.p1 = p1
+        """p1 of this event"""
+
+        self.args = args
+        """Args used for this event (p4, p5, ...)"""
+
         self.uniqueId = uniqueId
         """A unique id of this event, as integer"""
 
@@ -113,6 +122,9 @@ class ScoreEvent(BaseEvent):
 
         self.priority = priority
         """The priority of this ScoreEvent, if applicable"""
+
+    def __hash__(self) -> int:
+        return hash((self.p1, self.uniqueId, self.instrname, self.priority, hash(tuple(self.args))))
 
     def __repr__(self):
         parts = [f"p1={self.p1}, start={self.start}, dur={self.dur}, uniqueId={self.uniqueId}"]
@@ -132,7 +144,7 @@ class ScoreEvent(BaseEvent):
             setattr(out, kw, value)
         return out
 
-    def setp(self, delay: float, *args, **kws) -> None:
+    def setp(self, delay=0., strict=True, **kws) -> None:
         """
         Modify a parg of this synth (offline).
 
@@ -154,23 +166,49 @@ class ScoreEvent(BaseEvent):
             ... ''')
             >>> event = r.sched('sine', 0, dur=4, args=[0.1, 440])
             >>> event.setp(2, kfreq=880)
-            >>> event.setp(3, 'kfreq', 660, 'kamp', 0.5)
+            >>> event.setp(3, kfreq=660, kamp=0.5)
 
         .. seealso:: :meth:`ScoreEvent.set`
 
         """
         if self.renderer is None:
             raise RuntimeError("This ScoreEvent is not assigned to a Renderer")
-        self.renderer.setp(self, delay=delay, *args, **kws)
+        if strict:
+            _checkParams(kws.keys(), self.dynamicParams(), obj=self)
+
+        self.renderer.setp(self, delay=delay, pairs=kws)
+
+    def getInstr(self) -> Instr | None:
+        """
+        The Instr corresponding to this Event, if applicable
+        """
+        if self.instrname:
+            return self.renderer.getInstr(self.instrname)
+        try:
+            return self.renderer._instrFromEvent(self)
+        except ValueError:
+            return None
+
+    def namedParams(self) -> set[str]:
+        instr = self.getInstr()
+        return set(instr.namedParams().keys()) if instr else set()
+
+    def dynamicParams(self) -> set[str]:
+        instr = self.getInstr()
+        return instr.dynamicParamKeys() if instr else set()
 
     def automate(self,
                  param: str,
-                 pairs: list[float]|np.ndarray,
+                 pairs: Sequence[float] | np.ndarray,
                  mode="linear",
-                 delay: float = None
+                 delay: float = None,
+                 overtake=False,
+                 strict=True
                  ) -> None:
         if self.renderer is None:
             raise RuntimeError("This ScoreEvent is not assigned to a Renderer")
+        if strict:
+            _checkParams((param,), self.dynamicParams(), obj=self)
         self.renderer.automate(self, param=param, pairs=pairs, mode=mode,
                                delay=delay)
 
@@ -179,122 +217,84 @@ class ScoreEvent(BaseEvent):
             raise RuntimeError("This ScoreEvent is not assigned to a Renderer")
         self.renderer.unsched(self, delay=delay)
 
-_prelude = r'''
-gi__soundfontIndexes dict_new "str:float"
-gi__soundfontIndexCounter init 1000
-; maxNumInstrs  = 10000
-gi__tokenToInstrnum ftgen 0, 0, 10000, -2, 0
- 
-; numtokens = 1000
-gi__responses   ftgen  0, 0, 1000, -2, 0
 
-gi__subgains    ftgen 0, 0, 100, -2, 0
-ftset gi__subgains, 1
+class EventGroup(BaseEvent):
+    """
+    An EventGroup represents a group of offline events
+
+    These events can be controlled together, similar
+    to a SynthGroup
+    """
+    def __init__(self, events: list[ScoreEvent]):
+        if not events:
+            raise ValueError("No events given")
+
+        start = min(ev.start for ev in events)
+        end = max(ev.end for ev in events)
+        dur = end - start
+        super().__init__(start=start, dur=dur)
+        self.events = events
+
+    def __len__(self):
+        return len(self.events)
+
+    def stop(self, delay=0.) -> None:
+        for ev in self.events:
+            ev.stop(delay=delay)
+
+    def setp(self, delay=0., strict=True, **kws) -> None:
+        if strict:
+            _checkParams(kws.keys(), self.dynamicParams(), obj=self)
+
+        for ev in self.events:
+            ev.setp(delay=delay, strict=False, **kws)
+
+    @cache
+    def namedParams(self) -> set[str]:
+        allparams = set()
+        for ev in self.events:
+            allparams.update(ev.namedParams())
+        return allparams
+
+    @cache
+    def dynamicParams(self) -> set[str]:
+        params = set()
+        for ev in self.events:
+            params.update(ev.dynamicParams())
+        return params
+
+    def __hash__(self):
+        return hash(tuple(hash(ev) for ev in self.events))
+
+    def automate(self,
+                 param: str,
+                 pairs: Sequence[float] | np.ndarray,
+                 mode="linear",
+                 delay: float = None,
+                 overtake=False,
+                 strict=True
+                 ) -> None:
+        if strict:
+            _checkParams((param,), self.namedParams(), obj=self)
+
+        for ev in self.events:
+            if param in ev.namedParams():
+                ev.automate(param=param, pairs=pairs, mode=mode, delay=delay, strict=False)
 
 
-chn_k "_soundfontPresetCount", 3
+@dataclass
+class RenderJob:
+    outfile: str
+    samplerate: int
+    encoding: str = ''
+    starttime: float = 0.
+    endtime: float = 0.
 
-opcode _panweights, kk, k
-    kpos xin   
-    kampL = bpf:k(kpos, 0, 1.4142, 0.5, 1, 1, 0)
-    kampR = bpf:k(kpos, 0, 0,      0.5, 1, 1, 1.4142)
-    xout kampL, kampR
-endop 
+    def openOutfile(self, wait=True):
+        emlib.misc.open_with_app(self.outfile, wait=wait)
 
-opcode sfloadonce, i, S
-  Spath xin
-  iidx dict_get gi__soundfontIndexes, Spath, -1
-  if (iidx == -1) then
-      iidx sfload Spath
-      dict_set gi__soundfontIndexes, Spath, iidx
-  endif
-  xout iidx
-endop
 
-opcode sfPresetIndex, i, Sii
-  Spath, ibank, ipresetnum xin
-  isf sfloadonce Spath
-  Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum  
-  iidx dict_get gi__soundfontIndexes, Skey, -1  
-  if iidx == -1 then
-      iidx chnget "_soundfontPresetCount"
-      chnset iidx+1, "_soundfontPresetCount"
-      i0 sfpreset ipresetnum, ibank, isf, iidx
-      if iidx != i0 then
-        prints "???: iidx = %d, i0 = %d\n", iidx, i0
-      endif
-      dict_set gi__soundfontIndexes, Skey, i0
-  endif
-  xout iidx
-endop
-
-'''
-_offlineOrc = r'''
-
-instr _stop
-    ; turnoff inum (match instr number exactly, allow release)
-    inum = p4
-    turnoff2_i inum, 4, 1
-    turnoff
-endin
-
-instr _automatePargViaTable
-  ; automates a parg from a table
-  ip1 = p4
-  ipindex = p5
-  itabpairs = p6  ; a table containing flat pairs t0, y0, t1, y1, ...
-  imode = p7;  interpolation method
-  Sinterpmethod = strget(imode)
-  if ftexists:i(itabpairs) == 0 then
-    initerror sprintf("Table with pairs %d does not exists", itabpairs)
-  endif 
-  ftfree itabpairs, 1
-
-  kt timeinsts
-  kidx bisect kt, itabpairs, 2, 0
-  ky interp1d kidx, itabpairs, Sinterpmethod, 2, 1
-  pwrite ip1, ipindex, ky
-endin 
-
-instr _automateTableViaTable
-  ; automates a slot within a table from another table
-  itabnum = p4
-  ipindex = p5
-  itabpairs = p6
-  imode = p7
-  Sinterpmethod = strget(imode)
-  if ftexists:i(itabpairs) == 0 then
-    initerror sprintf("Table with pairs %d does not exists", itabpairs)
-  endif 
-  ftfree itabpairs, 1
-  kt timeinsts
-  kidx bisect kt, itabpairs, 2, 0
-  ky interp1d kidx, itabpairs, Sinterpmethod, 2, 1
-  tabw ky, ipindex, itabnum
-endin 
-
-instr _pwrite
-  ip1 = p4
-  inumpairs = p5
-  if inumpairs == 1 then
-    pwrite ip1, p(6), p(7)
-  elseif inumpairs == 2 then
-    pwrite ip1, p(6), p(7), p(8), p(9)
-  elseif inumpairs == 3 then
-    pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11)
-  elseif inumpairs == 4 then
-    pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13)
-  elseif inumpairs == 5 then
-    pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13), p(14), p(15)
-  else
-    initerror sprintf("Max. pairs is 5, got %d", inumpairs)
-  endif
-  turnoff
-endin
-
-'''
-
-class Renderer:
+class Renderer(AbstractRenderer):
     """
     A Renderer is used when rendering offline.
 
@@ -347,20 +347,30 @@ class Renderer:
                  a4: float | None = None,
                  numpriorities=10,
                  numAudioBuses=1000):
-        """
 
-        """
-        self.sr = sr
+        self.sr = sr or config['rec_sr']
+        """samplerate"""
+
         self.nchnls = nchnls
-        self.ksmps = ksmps
-        self.a4 = a4
+        """number of output channels"""
+
+        self.ksmps = ksmps or config['rec_ksmps']
+        """samples per cycle"""
+
+        self.a4 = a4 or config['A4']
+        """reference frequency"""
+
         # maps eventid -> ScoreEvent.
         self.scheduledEvents: dict[int, ScoreEvent] = {}
-        self._idCounter = 0
-        a4 = a4 or config['A4']
-        sr = sr or config['rec_sr']
-        ksmps = ksmps or config['rec_ksmps']
+        """All events scheduled in this Renderer, mapps token to event"""
+
+        self.renderedJobs: list[RenderJob] = []
+        """A stack of rendered jobs"""
+
         self.csd = csoundlib.Csd(sr=sr, nchnls=nchnls, ksmps=ksmps, a4=a4)
+        """Csd structure for this renderer (see :class:`~csoundengine.csoundlib.Csd`"""
+
+        self._idCounter = 0
         self._nameAndPriorityToInstrnum: dict[tuple[str, int], int] = {}
         self._instrnumToNameAndPriority: dict[int, tuple[str, int]] = {}
         self._numbuckets = numpriorities
@@ -390,8 +400,9 @@ class Renderer:
         self._stringRegistry: dict[str, int] = {}
         self._includes: set[str] = set()
         self._builtinInstrs: dict[str, int] = {}
+        self._soundfileRegistry: dict[str, tableproxy.TableProxy] = {}
 
-        self.csd.addGlobalCode(_textwrap.dedent(_prelude))
+        self.csd.addGlobalCode(offlineorc.prelude())
 
         if self.hasBusSupport():
             busorc, instrIndex = engineorc.busSupportCode(numAudioBuses=self._numAudioBuses,
@@ -401,7 +412,7 @@ class Renderer:
             self._builtinInstrs.update(instrIndex)
             self.csd.addGlobalCode(busorc)
 
-        self.csd.addGlobalCode(_textwrap.dedent(_offlineOrc))
+        self.csd.addGlobalCode(offlineorc.orchestra())
 
         for instrname in ['.playSample']:
             instr = sessioninstrs.builtinInstrIndex[instrname]
@@ -410,9 +421,12 @@ class Renderer:
         if self.hasBusSupport():
             self.csd.addEvent(self._builtinInstrs['clearbuses_post'], start=0, dur=-1)
 
+    def renderMode(self) -> str:
+        return 'offline'
+
     def commitInstrument(self, instrname: str, priority=1) -> int:
         """
-        Create concrete instrument at the given priority
+        Create concrete instrument at the given priority.
 
         Returns the instr number
 
@@ -464,7 +478,7 @@ class Renderer:
         Register an Instr to be used in this Renderer
 
         Example
-        =======
+        ~~~~~~~
 
             >>> from csoundengine import *
             >>> renderer = Renderer(sr=44100, nchnls=2)
@@ -491,6 +505,8 @@ class Renderer:
                  body: str,
                  args: dict[str, float|str] = None,
                  init: str = None,
+                 priority: int = None,
+                 tabargs: dict[str, float] | None = None,
                  **kws) -> Instr:
         """
         Create an :class:`~csoundengine.instr.Instr` and register it with this renderer
@@ -578,7 +594,7 @@ class Renderer:
         Add global code (instr 0)
 
         Example
-        =======
+        ~~~~~~~
 
         >>> from csoundengine import *
         >>> renderer = Renderer(...)
@@ -600,7 +616,7 @@ class Renderer:
               priority=1,
               args: list[float] | dict[str, float] = None,
               tabargs: dict[str, float] = None,
-              **pkws) -> ScoreEvent:
+              **kws) -> ScoreEvent:
         """
         Schedule an event
 
@@ -614,6 +630,7 @@ class Renderer:
             tabargs: a dict of the form param: value, to initialize
                 values in the parameter table (if defined by the given
                 instrument)
+            kws: any named argument passed to the instr
 
         Returns:
             a ScoreEvent, holding the csound event (p1, start, dur, args)
@@ -648,7 +665,7 @@ class Renderer:
         if instr.hasParamTable():
             tabnum = self.csd.addTableFromData(instr.overrideTable(tabargs),
                                                start=max(0., delay - 2.))
-        args = internalTools.instrResolveArgs(instr, tabnum, args, pkws)
+        args = internalTools.instrResolveArgs(instr, tabnum, args, kws)
         p1 = self._getUniqueP1(instrnum)
         return self._schedEvent(p1=p1, start=float(delay), dur=float(dur), args=args,
                                 instrname=instrname, priority=priority)
@@ -686,15 +703,18 @@ class Renderer:
         """
         return (self._numAudioBuses > 0 or self._numControlBuses > 0)
 
-    def assignBus(self) -> int:
+    def assignBus(self, kind='audio', persist=False) -> int:
         """
         Assign a bus number
 
         Example
-        =======
+        ~~~~~~~
 
         TODO
         """
+        if kind != 'audio':
+            raise ValueError("offline rendering has no control bus support yet...")
+
         assert self.hasBusSupport()
         token = self._busTokenCount
         self._busTokenCount += 1
@@ -725,13 +745,25 @@ class Renderer:
         """
         self.csd.setOptions(*options)
 
+    def renderDuration(self) -> float:
+        """
+        Returns the actual duration of the rendered score
+
+        Returns:
+            the duration of the render, in seconds
+        """
+        _, end = self.scoreTimeRange()
+        if self._endMarker:
+            end = min(end, self._endMarker)
+        return end
+
     def scoreTimeRange(self) -> tuple[float, float]:
         """
         Returns a tuple (score start time, score end time)
 
         If any event is of indeterminate duration (``dur==-1``) the
-        end time will be *infinite* unless the end marker has been set
-        (see :meth:`~Renderer.setEndMarker`)
+        end time will be *infinite*. Notice that the end marker is not taken
+        into consideration here
 
         Returns:
             a tuple (start of the earliest event, end of last event). If no events, returns
@@ -760,13 +792,13 @@ class Renderer:
         self.csd.setEndMarker(time)
 
     def render(self,
-               outfile: str | None = None,
-               endtime: float = 0,
-               encoding: str | None = None,
+               outfile='',
+               endtime=0.,
+               encoding='',
                wait=True,
                quiet: bool | None = None,
                openWhenDone=False,
-               starttime: float = 0,
+               starttime=0.,
                compressionBitrate: int = None
                ) -> tuple[str, subprocess.Popen]:
         """
@@ -805,9 +837,10 @@ class Renderer:
         if not self.csd.score:
             raise ValueError("Score is empty")
 
-        if outfile is None:
+        if not outfile:
             import tempfile
             outfile = tempfile.mktemp(suffix=".wav")
+            logger.info(f"Rendering to temporary file: '{outfile}'. See renderer.renderedJobs")
         elif outfile == '?':
             outfile = _state.saveSoundfile(title="Select soundfile for rendering",
                                            ensureSelection=True)
@@ -818,36 +851,41 @@ class Renderer:
                                     f"be generated does not exist "
                                     f"(outfile: '{outfile}')")
         scorestart, scoreend = self.scoreTimeRange()
-        renderend = endtime if endtime > 0 else scoreend
+        if endtime == 0:
+            endtime = scoreend
+        endmarker = self._endMarker or endtime
+        renderend = min(endtime, scoreend, endmarker)
+
         if renderend == float('inf'):
             raise RenderError("Cannot render an infinite score. Set an endtime when calling "
                               ".render(...) or use ")
         if renderend <= scorestart:
             raise RenderError(f"No score to render (start: {scorestart}, end: {renderend})")
-        if scoreend != renderend:
-            previousEndMarker = self._endMarker
-            self.setEndMarker(renderend)
+
+        if encoding or compressionBitrate or scoreend > renderend:
+            csd = self.csd.copy()
         else:
-            previousEndMarker = None
+            csd = self.csd
+
+        previousEndMarker = self._endMarker
+        if scoreend < renderend:
+            self.setEndMarker(renderend)
+        elif scoreend > renderend:
+            csd.cropScore(end=renderend)
 
         quiet = quiet if quiet is not None else config['rec_suppress_output']
         if quiet:
-            run_suppressdisplay = True
-            run_piped = True
+            runSuppressdisplay = True
+            runPiped = True
         else:
-            run_suppressdisplay = False
-            run_piped = False
+            runSuppressdisplay = False
+            runPiped = False
 
         if encoding is None:
             ext = os.path.splitext(outfile)[1]
             encoding = csoundlib.bestSampleEncodingForExtension(ext[1:])
 
         # We create a copy so that we can modify encoding/compression/etc
-        if encoding or compressionBitrate:
-            csd = self.csd.copy()
-        else:
-            csd = self.csd
-
         if encoding:
             csd.setSampleEncoding(encoding)
 
@@ -855,9 +893,9 @@ class Renderer:
             csd.setCompressionBitrate(compressionBitrate)
 
         proc = csd.run(output=outfile,
-                       suppressdisplay=run_suppressdisplay,
-                       nomessages=run_suppressdisplay,
-                       piped=run_piped)
+                       suppressdisplay=runSuppressdisplay,
+                       nomessages=runSuppressdisplay,
+                       piped=runPiped)
         if openWhenDone:
             if not wait:
                 logger.info("Waiting for the render to finish...")
@@ -865,9 +903,19 @@ class Renderer:
             emlib.misc.open_with_app(outfile, wait=True)
         elif wait:
             proc.wait()
+
         if previousEndMarker is not None:
             self.setEndMarker(previousEndMarker)
+
+        self.renderedJobs.append(RenderJob(outfile=outfile, encoding=encoding, samplerate=self.sr,
+                                           endtime=endtime, starttime=starttime))
         return outfile, proc
+
+    def lastRender(self) -> str | None:
+        """
+        Returns the last rendered soundfile, or None if no jobs were rendered
+        """
+        return self.renderedJobs[-1].outfile if self.renderedJobs else None
 
     def writeCsd(self, outfile: str) -> None:
         """
@@ -949,7 +997,7 @@ class Renderer:
         instr = self._instrdefs[instrNameAndPriority[0]]
         return instr
 
-    def setp(self, event: ScoreEvent, delay: float, *args, **kws):
+    def setp(self, event: ScoreEvent, delay: float, pairs: dict[int|str: float]):
         """
         Modify a pfield of a scheduled event at the given time
 
@@ -965,32 +1013,24 @@ class Renderer:
 
             >>> from csoundengine.offline import Renderer
             >>> renderer = Renderer()
-            >>> instr = Instr("sine", '''
+            >>> renderer.defInstr("sine", '''
             ... |kmidi=60|
             ... outch 1, oscili:a(0.1, mtof:k(kmidi))
             ... ''')
-            >>> renderer.registerInstr(instr)
             >>> event = renderer.sched("sine", args={'kmidi': 62})
-            >>> renderer.setp(event, 10, kmidi=67)
+            >>> renderer.setp(event, 10, {'kmidi': 67})
             >>> renderer.render("outfile.wav")
         """
         instr = self._instrFromEvent(event)
         pairsd = {}
-        if not kws:
-            assert len(args)%2 == 0
-            for i in range(len(args)//2):
-                k = args[i*2]
-                v = args[i*2+1]
-                idx = instr.pargIndex(k)
+        for k, v in pairs.items():
+            if (idx:=instr.pargIndex(k, 0)) > 0:
                 pairsd[idx] = v
-        else:
-            for k, v in kws.items():
-                idx = instr.pargIndex(k)
-                pairsd[idx] = v
-        pairs = emlib.iterlib.flatdict(pairsd)
-        pargs = [event.p1, len(pairs)//2]
-        pargs.extend(pairs)
-        self.csd.addEvent("_pwrite", start=delay, dur=0.1, args=pargs)
+        if pairsd:
+            flatpairs = emlib.iterlib.flatdict(pairsd)
+            pargs = [event.p1, len(pairs)]
+            pargs.extend(flatpairs)
+            self.csd.addEvent("_pwrite", start=delay, dur=0.1, args=pargs)
 
     def makeTable(self,
                   data: np.ndarray | list[float] | None = None,
@@ -1024,28 +1064,50 @@ class Renderer:
             return self.csd.addEmptyTable(size=size, sr=sr, tabnum=tabnum)
 
     def readSoundfile(self,
-                      path: str,
-                      tabnum: int = None,
+                      path: str='?',
                       chan: int = 0,
                       start: float = 0.,
-                      skiptime: float = 0.
-                      ) -> int:
+                      skiptime: float = 0.,
+                      force=False
+                      ) -> tableproxy.TableProxy:
         """
+        def readSoundfile(self, path="?", chan=0, free=False, force=False, skiptime: float=0
+                      ) -> TableProxy:
+
         Add code to this offline renderer to load a soundfile
 
         Args:
-            path: the path of the soundfile to load
-            tabnum: the table number to assign, or None to autoassign a number
+            path: the path of the soundfile to load. Use '?' to select a file using a GUI
+                dialog
             chan: the channel to read, or 0 to read all channels
             start: moment in the score to read this soundfile
             skiptime: skip this time at the beginning of the soundfile
+            force: if True, add the soundfile to this renderer even if the same
+                soundfile has already been added
 
         Returns:
+            an instance of :
             the assigned table number
         """
-        return self.csd.addSndfile(sndfile=path, tabnum=tabnum,
-                                   start=start, skiptime=skiptime,
-                                   chan=chan)
+        if path == "?":
+            path = _state.openSoundfile()
+
+        tabproxy = self._soundfileRegistry.get(path)
+        if tabproxy is not None and tabproxy.skiptime == skiptime:
+            return tabproxy
+
+        tabnum = self.csd.addSndfile(sndfile=path,
+                                     start=start,
+                                     skiptime=skiptime,
+                                     chan=chan)
+        info = sndfileio.sndinfo(path)
+        tabproxy = tableproxy.TableProxy(tabnum=tabnum, engine=None, numframes=info.nframes,
+                                         sr=info.samplerate, nchnls=info.channels, path=path,
+                                         skiptime=skiptime)
+        # TODO: keep registry of tabproxy for given soundfile
+        self._soundfileRegistry[path] = tabproxy
+        return tabproxy
+
 
     def playSample(self,
                    source: int|str|tuple[np.ndarray, int],
@@ -1053,18 +1115,19 @@ class Renderer:
                    chan=1, speed=1., loop=False, pan=-1, gain=1.,
                    fade=0., skip=0.,
                    compensateSamplerate=True,
-                   crossfade=0.02, **kws
+                   crossfade=0.02,
+                   **kws
                    ) -> ScoreEvent:
         """
         Play a table or a soundfile
 
         Adds an instrument definition and an event to play the given
         table as sound (assumes that the table was allocated via
-        :meth:`~Renderer.readSoundFile` or any other GEN1 ftgen
+        :meth:`~Renderer.readSoundFile` or any other GEN1 ftgen)
 
         Args:
             source: the table number to play, the path of a soundfile or a
-                tuple (numpy array, sr)
+                tuple (numpy array, sr). Use '?' to select a file using a GUI dialog
             delay: when to start playback
             chan: the channel to output to. If the sample is stereo/multichannel, this indicates
                 the first of a set of consecutive channels to output to.
@@ -1095,7 +1158,8 @@ class Renderer:
                 dur = (len(data)/sr) / speed
 
         elif isinstance(source, str):
-            tabnum = self.readSoundfile(path=source, start=delay, skiptime=skip)
+            tabproxy = self.readSoundfile(path=source, start=delay, skiptime=skip)
+            tabnum = tabproxy.tabnum
             if dur == 0:
                 dur = sndfileio.sndinfo(source).duration/speed
         else:
@@ -1114,7 +1178,7 @@ class Renderer:
     def automate(self,
                  event: ScoreEvent,
                  param: str,
-                 pairs: list[float] | np.ndarray,
+                 pairs: Sequence[float] | np.ndarray,
                  mode="linear",
                  delay: float = None
                  ) -> None:
@@ -1124,7 +1188,9 @@ class Renderer:
         Args:
             event: the event to automate, as returned by sched
             param (str): the name of the parameter to automate. The instr should
-                have a corresponding line of the sort "kparam = pn"
+                have a corresponding line of the sort "kparam = pn".
+                Call :meth:`ScoreEvent.dynamicParams` to query the set of accepted
+                parameters
             pairs: the automateion data as a flat list ``[t0, y0, t1, y1, ...]``, where
                 the times are relative to the start of the automation event
             mode (str): one of "linear", "cos", "smooth", "exp=xx" (see interp1d)
@@ -1133,9 +1199,33 @@ class Renderer:
         """
         if delay is None:
             delay = event.start
+
+        automStart = delay + pairs[0]
+        automEnd = delay + pairs[-2]
+        if automEnd <= event.start or automStart >= event.end:
+            # automation line ends before the actual event!!
+            logger.debug(f"Automation times outside of this event: {param=}, "
+                         f"automation start-end: {automStart} - {automEnd}, "
+                         f"event: {event}")
+            return
+
+        if automStart > event.start or automEnd < event.end:
+            pairs, delay = internalTools.cropDelayedPairs(pairs=internalTools.aslist(pairs), delay=delay, start=automStart, end=automEnd)
+            if not pairs:
+                return
+
+        if pairs[0] > 0:
+            pairs, delay = internalTools.consolidateDelay(pairs, delay)
+
         instr = self._instrFromEvent(event)
         if instr.paramMode() == 'table':
             return self._automateTable(event=event, param=param, pairs=pairs, mode=mode, delay=delay)
+
+        if len(pairs) > 1900:
+            pairgroups = internalTools.splitPairs(pairs, 1900)
+            for pairs in pairgroups:
+                self.automate(event=event, param=param, pairs=pairs, mode=mode, delay=delay)
+            return
 
         pindex = instr.pargIndex(param)
         dur = pairs[-2]-pairs[0]
@@ -1146,10 +1236,15 @@ class Renderer:
             end = min(event.start+event.dur, start+dur+epsilon)
             dur = end-start
         modeint = self.strSet(mode)
+        args = [event.p1, pindex, modeint, 0, len(pairs)]
+        args.extend(pairs)
+        self.csd.addEvent('_automatePargViaPargs', start=delay, dur=dur, args=args)
+        return
+
         # we schedule the table to be created prior to the start of the automation
-        tabpairs = self.csd.addTableFromData(pairs, start=start)
-        args = [event.p1, pindex, tabpairs, modeint]
-        self.csd.addEvent("_automatePargViaTable", start=delay, dur=dur, args=args)
+        #tabpairs = self.csd.addTableFromData(pairs, start=start)
+        #args = [event.p1, pindex, tabpairs, modeint]
+        #self.csd.addEvent("_automatePargViaTable", start=delay, dur=dur, args=args)
 
     def _automateTable(self,
                        event: ScoreEvent,
@@ -1229,6 +1324,25 @@ class Renderer:
         else:
             self.render()
 
+    def _repr_html_(self) -> str:
+        blue = internalTools.safeColors['blue1']
+
+        def _(s):
+            return f'<code style="color:{blue}">{s}</code>'
+
+        if self.renderedJobs and os.path.exists(self.renderedJobs[-1].outfile):
+            last = self.renderedJobs[-1]
+            sndfile = last.outfile
+            soundfileHtml = internalTools.soundfileHtml(sndfile)
+            info = f'sr={_(self.sr)}, renderedJobs={_(self.renderedJobs)}'
+            htmlparts = (
+                f'<strong>Renderer</strong>({info})',
+                soundfileHtml
+            )
+            return '<br>'.join(htmlparts)
+        else:
+            info = f'sr={_(self.sr)}'
+            return f'<strong>Renderer</strong>({info})'
 
 def cropScore(events: list[ScoreEvent], start=0, end=0) -> list[ScoreEvent]:
     """
@@ -1260,3 +1374,11 @@ def cropScore(events: list[ScoreEvent], start=0, end=0) -> list[ScoreEvent]:
     return cropped
 
 
+def _checkParams(params: Iterator[str], dynamicParams: set[str], obj=None) -> None:
+    for param in params:
+        if param not in dynamicParams:
+            if obj:
+                msg = f"Parameter {param} not known for {obj}. Possible parameters: {params}"
+            else:
+                msg = f"Parameter {param} not known. Possible parameters: {params}"
+            raise KeyError(msg)

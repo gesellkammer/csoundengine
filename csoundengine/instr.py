@@ -566,17 +566,23 @@ class Instr:
             return name2
         return name
 
-    def pargIndex(self, name: str) -> int:
+    def pargIndex(self, name: str, default: int | None = None) -> int:
         """
         Helper function, returns the index corresponding to the given parg.
 
         Args:
             name: the index or the name of the p-field.
+            default: if the name is not known and *default* is not None, this
+                value is returned as the index to indicate that the parg was not
+                found (instead of raising an Exception)
 
         Returns:
             the index of the parg
         """
         assert isinstance(name, str)
+        if name.startswith('p') and name[1:].isdigit():
+            return int(name[1:])
+
         if self.aliases and name in self.aliases:
             name = self.aliases[name]
         if (idx := self.pargsNameToIndex.get(name)) is not None:
@@ -587,6 +593,9 @@ class Instr:
             idx = self.pargsNameToIndex.get('k' + name)
             if idx:
                 return idx
+
+        if default is not None:
+            return default
 
         errormsg = (f"parg {name} not known for instr '{self.name}'."
                     f"Defined named pargs: {self.pargsNameToIndex.keys()}")
@@ -623,7 +632,6 @@ class Instr:
             pargs[:len(args)] = args
         if kws:
             for pname, value in kws.items():
-                # idx = pname if isinstance(pname, int) else _pargIndex(pname, n2i)
                 idx = pname if isinstance(pname, int) else self.pargIndex(pname)
                 pargs[idx-5] = value
         return pargs
