@@ -86,19 +86,19 @@ def platformId() -> PlatformId:
 
 
 def _platformArch() -> str:
-    processor = platform.processor().lower()
+    machine = platform.machine().lower()
     bits, linkage = platform.architecture()
-    if processor == 'arm':
+    if machine == 'arm':
         if bits == '64bit':
             return 'arm64'
         elif bits == '32bit':
             return 'arm32'
-    elif processor == 'x86_64':
+    elif machine == 'x86_64' or machine == 'amd64' or machine.startswith('intel64'):
         return 'x86_64'
-    elif processor == 'i386':
+    elif machine == 'i386':
         if bits == '64bit':
             return 'x86_64'
         elif bits == '32bit':
             return 'x86'
-
-    raise RuntimeError(f"Architecture not supported ({processor}=, {bits=}, {linkage=})")
+        
+    raise RuntimeError(f"Architecture not supported ({machine=}, {bits=}, {linkage=})")
