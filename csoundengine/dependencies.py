@@ -4,6 +4,7 @@ import sys
 import urllib.request, urllib.error
 import re
 from . import csoundlib
+from . import tools
 from .state import state
 from pathlib import Path
 import tempfile
@@ -168,39 +169,19 @@ def _getDownloadsFolder() -> Path:
     return tempdir
 
 
-def _installPluginsFromZipFile(zipped: Path):
-    """
-    install plugins from a zipped file downloaded from github release
-
-    NB: throws RuntimeError if there was an error during installation
-    """
-    assert zipped.exists() and zipped.suffix == ".zip"
-    unzippedFolder = _zipExtract(zipped)
-    pluginsFolder = csoundlib.userPluginsFolder(float64=True)
-    os.makedirs(pluginsFolder, exist_ok=True)
-    if sys.platform == "linux":
-        plugins = [plugin.as_posix() for plugin in unzippedFolder.glob("*.so")]
-    elif sys.platform == "darwin":
-        plugins = [plugin.as_posix() for plugin in unzippedFolder.glob("*.dylib")]
-    elif sys.platform == "win32":
-        plugins = [plugin.as_posix() for plugin in unzippedFolder.glob("*.dll")]
-    else:
-        raise OSError(f"Platform {sys.platform} not supported")
-    _copyFiles(plugins, pluginsFolder, verbose=True)
-    if not pluginsInstalled(cached=False):
-        raise RuntimeError("There was an error in the installation...")
-
-
-def _installPluginsFromDist(apiversion=6) -> None:
+def _installPluginsFromDist(apiversion=6, codesign=True) -> None:
+    platformid = tools.platformId()
     rootfolder = Path(os.path.split(__file__)[0])
     assert rootfolder.exists()
-    subfolder, globpattern = {
-        'darwin': ('macos', '*.dylib'),
-        'windows': ('windows', '*.dll'),
-        'linux': ('linux', '*.so')
-    }.get(sys.platform, (None, None))
-    if subfolder is None or globpattern is None:
-        raise RuntimeError(f"Platform {sys.platform} not supported")
+    globpattern = {
+        'macos': '*.dylib',
+        'windows': '*.dll',
+        'linux': '*.so'
+    }.get(platformid.osname, None)
+    if globpattern is None:
+        raise RuntimeError(f"Platform {platformid} not supported")
+
+    subfolder = str(platformid)
     pluginspath = rootfolder/f'data/plugins{apiversion}'/subfolder
     if not pluginspath.exists():
         raise RuntimeError(f"Could not find own csound plugins. Folder: {pluginspath}")
@@ -213,9 +194,20 @@ def _installPluginsFromDist(apiversion=6) -> None:
     logger.info(f"Installing plugins in folder: {pluginsDest}")
     os.makedirs(pluginsDest, exist_ok=True)
     _copyFiles([plugin.as_posix() for plugin in plugins], pluginsDest, verbose=True)
+    if platformid.osname == 'macos' and codesign:
+        installedBinaries = [os.path.join(pluginsDest, plugin.name)
+                             for plugin in plugins]
+        assert all(os.path.exists(binary) for binary in installedBinaries)
+        try:
+            _codesignBinaries(installedBinaries)
+        except RuntimeError as e:
+            logger.error(f"Could not code-sign the binaries, error: {e}")
+            if platformid.arch == 'arm64':
+                logger.error(f"... The needed plugins will probably not work as is. You can still "
+                             f"manually authorize them via right-click. The paths are: {installedBinaries}")
 
 
-def _installPluginsViaRisset() -> bool:
+def _installPluginsViaRisset(majorversion: int | None = None) -> bool:
     """
     Tries to install plugins via risset
 
@@ -223,14 +215,14 @@ def _installPluginsViaRisset() -> bool:
     """
     logger.info("Trying to install plugins via risset")
     import risset
-    idx = risset.MainIndex(update=True)
+    idx = risset.MainIndex(update=True, majorversion=majorversion)
     for pluginname in ['else', 'beosc', 'klib', 'poly']:
         p = idx.plugins.get(pluginname)
         if p is None:
-            logger.error(f"Plugin {pluginname} not found in risset's index")
+            logger.error(f"Plugin '{pluginname}' not found in risset's index")
             return False
         elif idx.is_plugin_installed(p):
-            logger.debug(f"Plugin {pluginname} already installed, skipping")
+            logger.debug(f"Plugin '{pluginname}' already installed, skipping")
         else:
             errmsg = idx.install_plugin(p)
             if errmsg:
@@ -239,37 +231,44 @@ def _installPluginsViaRisset() -> bool:
     return True
 
 
-def installPlugins(majorversion=6) -> bool:
+def installPlugins(majorversion=6, risset=False) -> bool:
     """
     Install all needed plugins
 
     Will raise RuntimeError if failed
+
+    Args:
+        majorversion: the csound version for which to install plugins. If None,
+            will detect the installed version and use that
+        risset: if True, install plugins via risset (default). Otherwise, uses
+            the bundled plugins
+
+    Returns:
+        True if installation succeeded. Any errors are logged
     """
     logger.info("Installing external plugins via risset")
-    try:
-        ok = _installPluginsViaRisset()
-        pluginsok = pluginsInstalled(cached=False)
-        if ok and pluginsok:
-            logger.info("Plugins installed successfully via risset")
-            return True
-        else:
-            logger.error("Could not install plugins via risset")
-            if not pluginsok:
-                logger.error("Tried to load the plugins but the provided opcodes are not"
-                             " listed by csound")
-                opcodes = csoundlib.opcodesList(cached=False)
-                opcodestr = ', '.join(opcodes)
-                logger.error(f"List of opcodes loaded by csound: {opcodestr}")
-    except Exception as e:
-        logger.error(f"Exception {e} while trying to install plugins via risset")
 
-    # zipped = downloadLatestPluginForPlatform()
-    # _installPluginsFromZipFile(zipped)
-    # return pluginsInstalled(cached=False)
+    if risset:
+        try:
+            ok = _installPluginsViaRisset()
+            pluginsok = pluginsInstalled(cached=False)
+            if ok and pluginsok:
+                logger.info("Plugins installed successfully via risset")
+                return True
+            else:
+                logger.error("Could not install plugins via risset")
+                if not pluginsok:
+                    logger.error("Tried to load the plugins but the provided opcodes are not"
+                                 " listed by csound")
+                    opcodes = csoundlib.opcodesList(cached=False)
+                    opcodestr = ', '.join(opcodes)
+                    logger.error(f"List of opcodes loaded by csound: {opcodestr}")
+        except Exception as e:
+            logger.error(f"Exception {e} while trying to install plugins via risset")
 
     logger.info("Installing plugins from distribution")
     try:
-        _installPluginsFromDist()
+        _installPluginsFromDist(apiversion=majorversion)
         ok = pluginsInstalled(cached=False)
         if ok:
             logger.info("Plugins installed successfully from distribution")
@@ -300,16 +299,17 @@ def _checkDependencies(fix=False, updateState=True, quiet=False) -> Optional[str
             if not quiet:
                 print("** csoundengine: Csound external plugins are not installed or are too old."
                       " I will try to install them now")
-                ok = installPlugins(version[0])
-                if ok:
-                    if not quiet:
-                        print("** csoundengine: csound external plugins installed ok")
-                else:
-                    if not quiet:
-                        print("** csoundengine: csound external plugins could not be installed")
-                    return "csound external plugins could not be installed"
+            ok = installPlugins(version[0])
+            if ok:
+                if not quiet:
+                    print("** csoundengine: csound external plugins installed ok")
+            else:
+                if not quiet:
+                    print("** csoundengine: csound external plugins could not be installed")
+                return "csound external plugins could not be installed"
         else:
-            return ("Some plugins are not installed. Install them via risset "
+            return ("Some plugins are not installed. They can be installed via 'import csoundengine; csoundengine.installDependencies()'. "
+                    "To install the plugins manually you will need risset installed Install them via risset "
                     "(risset install \"*\"), or manually from "
                     "https://github.com/csound-plugins/csound-plugins/releases")
     logger.info("Dependencies OK")
@@ -357,3 +357,14 @@ def checkDependencies(force=False, fix=True) -> bool:
                 logger.error("*** You can try to fix this by calling installDependencies()")
             return False
     return True
+
+
+def _codesignBinaries(binaries: list[str]) -> None:
+    """
+    Calls codesign to sign the binaries with adhoc signature
+
+    Raises RuntimeError on fail
+    """
+    import risset
+    logger.info(f"Codesigning macos binaries: {binaries}")
+    risset.macos_codesign(binaries, signature='-')
