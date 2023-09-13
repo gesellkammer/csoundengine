@@ -25,6 +25,14 @@ jobs:
           Write-Output $Env:PATH
           csound.exe --version
 
+      - name: windows - test install from git
+        run: |
+          $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
+          pip install .
+          cd test
+          python test1.py -o test1-win.wav
+          python test2.py
+
       - name: windows - test install from pip
         run: |
           $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
