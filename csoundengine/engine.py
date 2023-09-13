@@ -655,7 +655,7 @@ class Engine:
         self._realElapsedTime = (0., -float('inf'))
 
         # A stack holding locked states
-        self._clockStatesStack: list[bool] = []
+        self._clockStatesStack: list[tuple[bool, float]] = []
 
         self._reservedInstrnums: set[int] = set()
         self._reservedInstrnumRanges: list[tuple[str, int, int]] = [('builtinorc', CONSTS['reservedInstrsStart'], CONSTS['userInstrsStart']-1)]
@@ -1413,7 +1413,7 @@ class Engine:
         """Returns True if the clock is locked"""
         return self._lockedElapsedTime > 0
 
-    def pushLock(self):
+    def pushLock(self, latency: float | None = None):
         """
         Lock the clock of this engine
 
@@ -1423,9 +1423,13 @@ class Engine:
         .. seealso:: :meth:`Engine.popLock`
         """
         islocked = self.isClockLocked()
-        self._clockStatesStack.append(islocked)
+        oldlatency = self.extraLatency
+        self._clockStatesStack.append((islocked, oldlatency))
+
         if not islocked:
             self.lockClock(True)
+        if latency is not None:
+            self.extraLatency = latency
 
     def popLock(self):
         """
@@ -1433,9 +1437,11 @@ class Engine:
 
         .. seealso:: :meth:`Engine.pushLock`
         """
-        waslocked = self._clockStatesStack.pop()
+        waslocked, latency = self._clockStatesStack.pop()
         if not waslocked:
             self.lockClock(False)
+        if latency is not None:
+            self.extraLatency = latency
 
     def __enter__(self):
         self.pushLock()
@@ -1443,7 +1449,7 @@ class Engine:
     def __exit__(self, *args, **kws):
         self.popLock()
 
-    def lockedClock(self) -> Engine:
+    def lockedClock(self, latency: float | None = None) -> Engine:
         """
         Context manager, locks and unlocks the reference time
 

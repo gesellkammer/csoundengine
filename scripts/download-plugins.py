@@ -58,12 +58,14 @@ for url in asseturls:
     else:
         pluginsfolder = 'plugins6'
 
-    if "linux" in url:
-        subfolder, globpatt = "linux", "*.so"
-    elif "macos" in url:
-        subfolder, globpatt = "macos", "*.dylib"
-    elif "windows" in url or "win64" in url:
-        subfolder, globpatt = "windows", "*.dll"
+    if "linux.zip" in url:
+        subfolder, globpatt = "linux-x86_64", "*.so"
+    elif "macos.zip" in url:
+        subfolder, globpatt = "macos-x86_64", "*.dylib"
+    elif "macos-arm64" in url:
+        subfolder, globpatt = "macos-arm64", "*.dylib"
+    elif "windows.zip" in url or "win64" in url:
+        subfolder, globpatt = "windows-x86_64", "*.dll"
     else:
         print("Url unknown", url)
         continue

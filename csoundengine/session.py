@@ -942,7 +942,7 @@ class Session(AbstractRenderer):
                           whenfinished=event.whenfinished,
                           relative=event.relative,
                           **kws)
-    
+
     def rendering(self,
                   outfile: str = '',
                   sr: int | None = None,

@@ -1,3 +1,4 @@
+.mypy*
 *.egg*
 .idea
 docs/_build

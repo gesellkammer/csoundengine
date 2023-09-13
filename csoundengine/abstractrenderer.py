@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .baseevent import BaseEvent
 from abc import abstractmethod
 from . import instr

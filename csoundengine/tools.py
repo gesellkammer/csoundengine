@@ -4,8 +4,10 @@ import sys
 import os
 import tempfile
 import emlib.misc
-import numpy as np
 from .config import logger
+import platform
+from functools import cache
+from collections import UserString
 
 def makeUniqueFilename(ext:str, prefix='', folder:str='.') -> str:
     """
@@ -54,3 +56,49 @@ def showSoundfontPrograms(sfpath: str, glob="") -> None:
         progs = [p for p in progs
                  if fnmatch.fnmatch(p[2], glob)]
     emlib.misc.print_table(progs, headers=('bank', 'num', 'name'), showindex=False)
+
+
+class PlatformId(UserString):
+    def __init__(self, osname: str, arch: str):
+        assert osname in ('windows', 'linux', 'macos')
+        assert arch in ('x86_64', 'arm64', 'arm32')
+
+        self.osname = osname
+        self.arch = arch
+        super().__init__(osname + "-" + arch)
+
+
+@cache
+def platformId() -> PlatformId:
+    """
+    Query the platform id for the current system
+
+    The paltform id is the duplet <osname>-<architecture>, and is one of
+    'linux-x86_64', 'windows-x86_64', 'macos-x86_64', 'linux-arm64', 'windows-arm64',
+    'macos-arm64', ...
+    """
+    osname = {
+        'linux': 'linux',
+        'darwin': 'macos',
+        'win32': 'windows'
+    }[sys.platform]
+    return PlatformId(osname, _platformArch())
+
+
+def _platformArch() -> str:
+    processor = platform.processor().lower()
+    bits, linkage = platform.architecture()
+    if processor == 'arm':
+        if bits == '64bit':
+            return 'arm64'
+        elif bits == '32bit':
+            return 'arm32'
+    elif processor == 'x86_64':
+        return 'x86_64'
+    elif processor == 'i386':
+        if bits == '64bit':
+            return 'x86_64'
+        elif bits == '32bit':
+            return 'x86'
+
+    raise RuntimeError(f"Architecture not supported ({processor}=, {bits=}, {linkage=})")
