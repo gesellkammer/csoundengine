@@ -100,5 +100,5 @@ def _platformArch() -> str:
             return 'x86_64'
         elif bits == '32bit':
             return 'x86'
-        
+
     raise RuntimeError(f"Architecture not supported ({machine=}, {bits=}, {linkage=})")

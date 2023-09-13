@@ -231,7 +231,7 @@ def _installPluginsViaRisset(majorversion: int | None = None) -> bool:
     return True
 
 
-def installPlugins(majorversion=6, risset=False) -> bool:
+def installPlugins(majorversion=6, risset=True) -> bool:
     """
     Install all needed plugins
 
