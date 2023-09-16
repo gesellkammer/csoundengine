@@ -1,0 +1,32 @@
+container:
+  image: python:latest
+
+test_task:
+
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-ventura-xcode:latest
+
+  binaries_artifacts:
+    path: test/*.wav
+
+  test_script: |
+    set -x
+    ls -l
+    python3 -c 'import platform; print(platform.machine(), platform.uname())'  # , platform.dist())'
+    brew install csound
+    pip install .
+    cd test
+    python3 test1.py -o test1-mac-arm64.wav
+    
+
+
+#
+# OSX
+#
+#osx_task:
+#  auto_cancellation: true
+
+#
+#  check_script:
+#    - python3 -c "import platform; print(platform.machine(), platform.architecture())"
+
