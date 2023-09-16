@@ -93,7 +93,9 @@ def _platformArch() -> str:
             return 'arm64'
         elif bits == '32bit':
             return 'arm32'
-    elif machine == 'x86_64' or machine == 'amd64' or machine.startswith('intel64'):
+    elif machine.startswith('arm64'):
+        return 'arm64'
+    elif machine == 'x86_64' or machine.startswith('amd64') or machine.startswith('intel64'):
         return 'x86_64'
     elif machine == 'i386':
         if bits == '64bit':

@@ -49,14 +49,14 @@ setup(
         "xxhash",
         "docstring-parser",
 
-        "ctcsound7>=0.3.0",
+        "ctcsound7>=0.4.0",
         "sndfileio>=1.9.0",
         "emlib>=1.9.1",
         "configdict>=2.6.0",
         "bpf4>=1.8.4",
         "numpyx>=1.3.1",
         "pitchtools>=1.10.0",
-        "risset>=2.7.6",
+        "risset>=2.7.7",
     ],
     license="BSD",
     classifiers=[
