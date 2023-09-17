@@ -24,4 +24,4 @@ outch 1, a0
 r.sched("sin", 0, 4, args=[60])
 r.sched("sin", 1, 3.5, args=[60.5])
 r.writeCsd("test1.csd")
-r.render(args.outfile)
+r.render(args.outfile, verbose=True)

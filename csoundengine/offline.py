@@ -367,7 +367,7 @@ class Renderer(AbstractRenderer):
         self.renderedJobs: list[RenderJob] = []
         """A stack of rendered jobs"""
 
-        self.csd = csoundlib.Csd(sr=sr, nchnls=nchnls, ksmps=ksmps, a4=a4)
+        self.csd = csoundlib.Csd(sr=self.sr, nchnls=nchnls, ksmps=self.ksmps, a4=self.a4)
         """Csd structure for this renderer (see :class:`~csoundengine.csoundlib.Csd`"""
 
         self._idCounter = 0
@@ -796,10 +796,11 @@ class Renderer(AbstractRenderer):
                endtime=0.,
                encoding='',
                wait=True,
-               quiet: bool | None = None,
+               verbose: bool | None = None,
                openWhenDone=False,
                starttime=0.,
-               compressionBitrate: int = None
+               compressionBitrate: int = None,
+               sr: int = None
                ) -> tuple[str, subprocess.Popen]:
         """
         Render to a soundfile
@@ -862,7 +863,7 @@ class Renderer(AbstractRenderer):
         if renderend <= scorestart:
             raise RenderError(f"No score to render (start: {scorestart}, end: {renderend})")
 
-        if encoding or compressionBitrate or scoreend > renderend:
+        if sr or encoding or compressionBitrate or scoreend > renderend:
             csd = self.csd.copy()
         else:
             csd = self.csd
@@ -873,19 +874,25 @@ class Renderer(AbstractRenderer):
         elif scoreend > renderend:
             csd.cropScore(end=renderend)
 
-        quiet = quiet if quiet is not None else config['rec_suppress_output']
-        if quiet:
-            runSuppressdisplay = True
-            runPiped = True
-        else:
+        verbose = verbose if verbose is not None else not config['rec_suppress_output']
+        if verbose:
             runSuppressdisplay = False
             runPiped = False
+        else:
+            runSuppressdisplay = True
+            runPiped = True
 
         if encoding is None:
             ext = os.path.splitext(outfile)[1]
             encoding = csoundlib.bestSampleEncodingForExtension(ext[1:])
 
         # We create a copy so that we can modify encoding/compression/etc
+        if sr:
+            if csd.sr != sr:
+                logger.warning(f"Rendering with a different sr ({sr}) as the sr of this Renderer "
+                               f"{self.sr}. This might result in unexpected results")
+            csd.sr = sr
+
         if encoding:
             csd.setSampleEncoding(encoding)
 

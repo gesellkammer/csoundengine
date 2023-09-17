@@ -1698,7 +1698,7 @@ class Csd:
     """
 
     def __init__(self,
-                 sr=44100,
+                 sr: int = 44100,
                  ksmps=64,
                  nchnls=2,
                  a4=442.,
@@ -1719,7 +1719,7 @@ class Csd:
         self.options: list[str] = []
         """Command line options"""
 
-        self.sr = sr
+        self._sr = sr
         """Samplerate"""
 
         self.ksmps = ksmps
@@ -1763,7 +1763,17 @@ class Csd:
         self._maxTableNumber = reservedTables
         if not carry:
             self.score.append(("C", 0))
-            
+
+    @property
+    def sr(self) -> int:
+        return self._sr
+
+    @sr.setter
+    def sr(self, value: int):
+        if not isinstance(value, int):
+            raise TypeError(f"Samplerate must be an int, got {value}")
+        self._sr = value
+
     def copy(self) -> Csd:
         """
         Copy this csd
