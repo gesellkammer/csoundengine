@@ -84,7 +84,7 @@ class ScoreEvent(BaseEvent):
     It is used by the offline renderer to keep track of scheduled events
 
     .. note::
-        instances of this class are **NOT** created by the used directly, they
+        instances of this class are **NOT** created by the user directly, they
         are generated when scheduling events
 
     """
@@ -307,16 +307,17 @@ class Renderer(AbstractRenderer):
     the order they are defined (first defined is evaluated first)
 
     Args:
-        sr: the sampling rate
-        nchnls: number of channels
-        ksmps: csound ksmps
-        a4: reference frequency
-        maxpriorities: max. number of priority groups. This will determine
+        sr: the sampling rate. If not given, the value in the config is used (see :ref:`config['rec_sr'] <config_rec_sr>`)
+        nchnls: number of channels.
+        ksmps: csound ksmps. If not given, the value in the config is used (see :ref:`config['ksmps'] <config_ksmps>`)
+        a4: reference frequency. (see :ref:`config['A4'] <config_a4>`)
+        numpriorities: max. number of priority groups. This will determine
             how long an effect chain can be
-        bucketsize: max. number of instruments per priority group
+        numAudioBuses: max. number of audio buses. This is the max. number of simultaneous
+            events using an audio bus
 
     Example
-    =======
+    ~~~~~~~
 
     .. code-block:: python
 
@@ -349,16 +350,16 @@ class Renderer(AbstractRenderer):
                  numAudioBuses=1000):
 
         self.sr = sr or config['rec_sr']
-        """samplerate"""
+        """Samplerate"""
 
         self.nchnls = nchnls
-        """number of output channels"""
+        """Number of output channels"""
 
         self.ksmps = ksmps or config['rec_ksmps']
-        """samples per cycle"""
+        """Samples per cycle"""
 
         self.a4 = a4 or config['A4']
-        """reference frequency"""
+        """Reference frequency"""
 
         # maps eventid -> ScoreEvent.
         self.scheduledEvents: dict[int, ScoreEvent] = {}
@@ -1026,7 +1027,11 @@ class Renderer(AbstractRenderer):
             ... ''')
             >>> event = renderer.sched("sine", args={'kmidi': 62})
             >>> renderer.setp(event, 10, {'kmidi': 67})
+            # setp can be called directly on the event
+            >>> event.setp(delay=10, kmidi=67)
+            # After scheduling all events/automations:
             >>> renderer.render("outfile.wav")
+
         """
         instr = self._instrFromEvent(event)
         pairsd = {}
@@ -1278,7 +1283,7 @@ class Renderer(AbstractRenderer):
             delay: the time delay to start the automation.
 
         Example
-        =======
+        ~~~~~~~
 
         >>> from csoundengine import offline
         >>> r = offline.Renderer()
@@ -1289,11 +1294,6 @@ class Renderer(AbstractRenderer):
         >>> ev = r.sched('oscili', delay=1, tabargs={'kfreq': 440})
         >>> r.automate(ev, 'kfreq', pairs=[0, 440, 2, 880])
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~Renderer.setp`
-        :meth:`~Renderer._automatep`
         """
 
         if delay is None:

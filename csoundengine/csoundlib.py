@@ -1,5 +1,13 @@
 """
-This module provides many utilities based on the csound binary
+This module provides miscellaneous functionality for working with csound.
+
+This functionality includes:
+
+* parse csound code
+* generate a ``.csd`` file
+* inspect the audio environment
+* query different paths used by csound
+* etc.
 
 """
 from __future__ import annotations
@@ -16,7 +24,7 @@ import io as _io
 from pathlib import Path as _Path
 import tempfile as _tempfile
 import cachetools as _cachetools
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
 from . import jacktools
 from . import linuxaudio
 from . import state as _state
@@ -31,8 +39,7 @@ import numpy as np
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Callable, Tuple, Union, Dict, List, Optional, \
-        Sequence, Generator, Any, Set
+    from typing import Callable, Sequence, Iterator, Any, Set
     Curve = Callable[[float], float]
 
 
@@ -152,7 +159,7 @@ def compressionQualityToBitrate(quality: float, format='ogg') -> int:
         raise ValueError(f"Format {format} not supported")
 
 
-@dataclass(unsafe_hash=True)
+@_dataclass(unsafe_hash=True)
 class AudioBackend:
     """
     Holds information about a csound audio backend
@@ -184,7 +191,7 @@ class AudioBackend:
         if not self.audioDeviceRegex:
             self.audioDeviceRegex = _audioDeviceRegex
 
-    def searchAudioDevice(self, pattern:str, kind:str) -> Optional[AudioDevice]:
+    def searchAudioDevice(self, pattern:str, kind:str) -> AudioDevice | None:
         """
         Search a certain audio device from the devices presented by this backend
         """
@@ -206,7 +213,7 @@ class AudioBackend:
         indevices, outdevices = getAudioDevices(backend=self.name)
         return bool(indevices or outdevices)
 
-    def getSystemSr(self) -> Optional[int]:
+    def getSystemSr(self) -> int | None:
         """Get the system samplerate for this backend, if available"""
         if not self.hasSystemSr:
             logger.debug(f"Backend {self.name} does not have a system sr, returning default")
@@ -222,7 +229,7 @@ class AudioBackend:
         cs.stop()
         return int(sr) if sr > 0 else None
 
-    def _getSystemSr(self) -> Optional[int]:
+    def _getSystemSr(self) -> int | None:
         """Get the system samplerate for this backend, if available"""
         if not self.hasSystemSr:
             return 44100
@@ -382,7 +389,7 @@ class _PortaudioBackend(AudioBackend):
                          longname=longname,
                          hasSystemSr=hasSystemSr)
 
-    def getSystemSr(self) -> Optional[int]:
+    def getSystemSr(self) -> int | None:
         if sys.platform == 'linux' and linuxaudio.isPipewireRunning():
             return linuxaudio.pipewireInfo().sr
         return super().getSystemSr()
@@ -444,7 +451,7 @@ class _AlsaBackend(AudioBackend):
                          platforms=('linux',),
                          audioDeviceRegex=r"([0-9]+):\s((?:adc|dac):.*)\((.*)\)")
 
-    def getSystemSr(self) -> Optional[int]:
+    def getSystemSr(self) -> int | None:
         if jacktools.isJackRunning():
             return jacktools.getInfo().samplerate
         if linuxaudio.isPipewireRunning():
@@ -497,7 +504,7 @@ def nextpow2(n:int) -> int:
     
 
 @emlib.misc.runonce
-def findCsound() -> Optional[str]:
+def findCsound() -> str | None:
     """
     Find the csound binary or None if not found
     """
@@ -603,7 +610,7 @@ def csoundSubproc(args: list[str], piped=True, wait=False) -> _subprocess.Popen:
     return proc
     
 
-def getSystemSr(backend: str) -> Optional[float]:
+def getSystemSr(backend: str) -> float | None:
     """
     Get the system samplerate for a given backend
 
@@ -823,7 +830,7 @@ def joinCsd(orc: str, sco="", options: list[str] | None = None) -> str:
     return csd
 
 
-@dataclass
+@_dataclass
 class CsoundProc:
     """
     A CsoundProc wraps a running csound subprocess
@@ -878,30 +885,29 @@ endin
     return CsoundProc(proc=proc, backend=backend, outdev=device, sr=sr,
                       nchnls=nchnls, csdstr=csd)
     
-@dataclass
-class ScoreEvent:
+@_dataclass
+class ScoreLine:
     """
-    A ScoreEvent represent an event line in the score
+    An event line in the score (an instrument, a table declaration, etc.)
 
     Attributes:
-        kind: 'i' for isntrument event, 'f' for table definition
+        kind: 'i' for instrument event, 'f' for table definition
         p1: the p1 of the event
         start: the start time of the event
         dur: the duration of the event
         args: any other args of the event (starting with p4)
     """
     kind: str
-    p1: Union[str, int, float]
+    p1: str | int | float
     start: float
     dur: float
-    args: list[Union[float, str]]
+    args: list[float | str]
 
 
-@dataclass
+@_dataclass
 class TableDataFile:
     """
-    A TableDataFile represents a table, holding either the data
-    or a file to the data
+    A table holding either the data or a file to the data
 
     Attributes:
         tabnum: the f-table number
@@ -913,7 +919,7 @@ class TableDataFile:
     tabnum: int
     """The assigned table number"""
 
-    data: Union[Sequence[float], np.ndarray, str]
+    data: Sequence[float] | np.ndarray | str
     """the data itself or a path to a file"""
 
     fmt: str   # One of 'wav', 'flac', 'gen23', etc
@@ -968,11 +974,17 @@ class TableDataFile:
         raise ValueError(f"Unknown format {self.fmt}")
 
 
-def parseScore(sco: str) -> Generator[ScoreEvent, None, None]:
+def parseScore(sco: str) -> Iterator[ScoreLine]:
     """
-    Parse a score given as string, returns a data. of :class:`ScoreEvent`
+    Parse a score given as string, returns a data. of :class:`ScoreLine`
+    
+    Args:
+        sco: the score to parse, as string
+        
+    Returns:
+        a generator of ScoreLines
     """
-    p1: Union[str, int]
+    p1: str | int
     for line in sco.splitlines():
         words = line.split()
         w0 = words[0]
@@ -992,7 +1004,7 @@ def parseScore(sco: str) -> Generator[ScoreEvent, None, None]:
             rest = words[3:]
         else:
             continue
-        args: list[Union[float, str]] = []
+        args: list[float | str] = []
         for w in rest:
             if w.startswith('"'):
                 args.append(w)
@@ -1000,7 +1012,7 @@ def parseScore(sco: str) -> Generator[ScoreEvent, None, None]:
                 arg = emlib.misc.asnumber(w)
                 assert isinstance(arg, (int, float))
                 args.append(arg)
-        yield ScoreEvent(kind, p1, t0, dur, args)
+        yield ScoreLine(kind, p1, t0, dur, args)
 
 
 def opcodesList(cached=True, opcodedir: str = '') -> list[str]:
@@ -1060,7 +1072,7 @@ def _opcodesList(opcodedir='') -> list[str]:
     return allopcodes
 
    
-def saveAsGen23(data: Union[Sequence[float], np.ndarray],
+def saveAsGen23(data: Sequence[float] | np.ndarray,
                 outfile: str,
                 fmt="%.12f",
                 header=""
@@ -1128,7 +1140,7 @@ def _metadataAsComment(d: dict[str, Any], maxSignificantDigits=10,
 
 def saveMatrixAsMtx(outfile: str,
                     data: np.ndarray,
-                    metadata: dict[str, Union[str, float]] | None = None,
+                    metadata: dict[str, str | float] | None = None,
                     encoding="float32",
                     title='',
                     sr: int = 44100) -> None:
@@ -1229,7 +1241,7 @@ def saveMatrixAsMtx(outfile: str,
 def saveMatrixAsGen23(outfile: str,
                       mtx: np.ndarray,
                       extradata: list[float] | None = None,
-                      include_header=True
+                      header=True
                       ) -> None:
     """
     Save a numpy 2D array as gen23
@@ -1239,7 +1251,7 @@ def saveMatrixAsGen23(outfile: str,
         mtx (np.ndarray): a 2D array of floats
         extradata: if given, this data will be prependedto the data in `mtx`.
             Implies `include_header=True`
-        include_header: if True, a header of the form [headersize, numrows, numcolumns]
+        header: if True, a header of the form [headersize, numrows, numcolumns]
             is prepended to the data.
 
     .. note::
@@ -1251,7 +1263,7 @@ def saveMatrixAsGen23(outfile: str,
     numrows, numcols = mtx.shape
     mtx = mtx.round(6)
     with open(outfile, "w") as f:
-        if include_header or extradata:
+        if header or extradata:
             header = [3, numrows, numcols]
             if extradata:
                 header.extend(extradata)
@@ -1263,7 +1275,7 @@ def saveMatrixAsGen23(outfile: str,
             f.write(rowstr)
             f.write("\n")
 
-@dataclass
+@_dataclass
 class MidiDevice:
     """
     A MidiDevice holds information about a midi device for a given backend
@@ -1278,7 +1290,7 @@ class MidiDevice:
     kind: str = 'input'
 
 
-@dataclass
+@_dataclass
 class AudioDevice:
     """
     An AudioDevice holds information about a an audio device for a given backend
@@ -1294,7 +1306,7 @@ class AudioDevice:
     name: str
     kind: str
     index: int = -1
-    numchannels: Optional[int] = 0
+    numchannels: int | None = 0
 
     def info(self) -> str:
         """
@@ -1314,6 +1326,12 @@ def getDefaultAudioDevices(backend: str = None) -> tuple[AudioDevice, AudioDevic
     Returns the default audio devices for a given backend
 
     .. note:: Results are cached for a period of time
+
+    Args:
+        backend: the backend to use (None to get the default backend)
+
+    Returns:
+        a tuple (input devices, output devices)
     """
     backendDef = getAudioBackend(backend)
     if backendDef is None:
@@ -1362,7 +1380,7 @@ def getAudioDevices(backend: str | None = None) -> tuple[list[AudioDevice], list
     return backendDef.audioDevices()
 
 
-def getSamplerateForBackend(backend: str | None = None) -> Optional[int]:
+def getSamplerateForBackend(backend: str | None = None) -> int | None:
     """
     Returns the samplerate reported by the given backend
 
@@ -1403,7 +1421,7 @@ def audioBackends(available=False, platform: str = '') -> list[AudioBackend]:
     not be returned in linux if the jack server is not running.
 
     Example
-    =======
+    ~~~~~~~
 
         >>> from csoundengine import *
         >>> [backend.name for backend in audioBackends(available=True)]
@@ -1441,7 +1459,7 @@ def dumpAudioBackends() -> None:
     print_table(rows, headers=headers, showindex=False)
 
 
-def getAudioBackend(name: str | None = None) -> Optional[AudioBackend]:
+def getAudioBackend(name: str | None = None) -> AudioBackend | None:
     """ Given the name of the backend, return the AudioBackend structure
 
     Args:
@@ -1495,14 +1513,14 @@ def getAudioBackendNames(available=False, platform:str=None) -> list[str]:
     return [b.name for b in backends]
 
 
-def _quoteIfNeeded(arg:Union[float, int, str]) -> Union[float, int, str]:
+def _quoteIfNeeded(arg: float | int | str) -> float | int | str:
     if isinstance(arg, str):
         return emlib.textlib.quoteIfNeeded(arg)
     else:
         return arg
 
 
-def _eventStartTime(event:Union[list, tuple]) -> float:
+def _eventStartTime(event: Sequence) -> float:
     kind = event[0]
     if kind == "e":           # end
         return event[1]
@@ -1707,10 +1725,10 @@ class Csd:
                  carry=False,
                  nchnls_i: int | None = None,
                  reservedTables=0):
-        self.score: list[Union[list, tuple]] = []
+        self.score: list[Sequence[int | float | str]] = []
         """The score, a list of events of the form (p1, p2, p3, ...)"""
 
-        self.instrs: dict[Union[str, int], str] = {}
+        self.instrs: dict[str | int, str] = {}
         """The orchestra"""
 
         self.globalcodes: list[str] = []
@@ -1829,10 +1847,10 @@ class Csd:
         print_table(self.score, headers=headers, floatfmt=".3f")
 
     def addEvent(self,
-                 instr: Union[int, float, str],
+                 instr: int | float | str,
                  start: float,
                  dur: float,
-                 args: list[Union[float, str]] | None = None) -> None:
+                 args: list[float | str] | None = None) -> None:
         """
         Add an instrument ("i") event to the score
 
@@ -1906,7 +1924,7 @@ class Csd:
         return tabnum
 
     def addTableFromData(self,
-                         data: Union[Sequence[float], np.ndarray],
+                         data: Sequence[float] | np.ndarray,
                          tabnum: int = 0,
                          start=0,
                          filefmt: str | None = None,
@@ -2157,7 +2175,7 @@ class Csd:
                 endtime = max(endtime, evstart + evdur)
         return endtime
 
-    def addInstr(self, instr: Union[int, str], body: str) -> None:
+    def addInstr(self, instr: int | str, body: str) -> None:
         """
         Add an instrument definition to this csd
 
@@ -2387,8 +2405,8 @@ class Csd:
 
 def mincer(sndfile:str,
            outfile:str,
-           timecurve:Union[Curve, float],
-           pitchcurve:Union[Curve, float],
+           timecurve: Curve | float,
+           pitchcurve: Curve | float,
            dt=0.002, lock=False, fftsize=2048, ksmps=128, debug=False
            ) -> dict:
     """
@@ -2737,7 +2755,7 @@ def _parsePortaudioDeviceName(name:str) -> tuple[str, str, int, int]:
     return devname.strip(), api, inch, outch
 
 
-def _getNchnlsPortaudio(indevice:Optional[str], outdevice:Optional[str]
+def _getNchnlsPortaudio(indevice:str | None, outdevice:str | None
                         ) -> tuple[int, int]:
     indevs, outdevs = getAudioDevices(backend="portaudio")
     assert indevice != "dac" and outdevice != "adc"
@@ -2781,7 +2799,7 @@ def dumpAudioDevices(backend:str=None):
         print("  ", dev)
 
 
-def instrNames(instrdef: str) -> list[Union[int, str]]:
+def instrNames(instrdef: str) -> list[int | str]:
     """
     Returns the list of names/instrument numbers in the instrument definition.
 
@@ -2807,24 +2825,19 @@ def instrNames(instrdef: str) -> list[Union[int, str]]:
         [10, "foo"]
 
     """
-    for line in instrdef.splitlines():
-        line = line.strip()
-        if not line.startswith("instr "):
-            continue
-        names = line[6:].split(",")
-        out: list[Union[str, int]] = []
-        for n in names:
-            asnum = emlib.misc.asnumber(n)
-            if asnum is None:
-                out.append(n)
-            else:
-                assert isinstance(asnum, int)
-                out.append(asnum)
-        return out
-    return []  #  ValueError("No instrument definition found")
+    lines  = instrdef.splitlines()
+    matches = [line for line in lines if _re.match(r"^[\ \t]*\binstr\b", line)]
+    if len(matches) > 1:
+        raise ValueError(f"Expected only one instrument definition, got {matches}")
+    elif len(matches) == 0:
+        return []
+    line = matches[0].strip()
+    names = [name.strip() for name in line[6:].split(",")]
+    return [int(name) if name.isdigit() else name
+            for name in names]
 
 
-@dataclass
+@_dataclass
 class ParsedBlock:
     """
     A ParsedBlock represents a block (an instr, an opcode, etc) in an orchestra
@@ -2846,7 +2859,7 @@ class ParsedBlock:
     startLine: int
     endLine: int = -1
     name: str = ''
-    attrs: Optional[dict[str, str]] = None
+    attrs: dict[str, str] | None = None
 
     def __post_init__(self):
         assert self.kind in ('instr', 'opcode', 'header', 'include', 'instr0')
@@ -2854,7 +2867,7 @@ class ParsedBlock:
             self.endLine = self.startLine
 
 
-@dataclass
+@_dataclass
 class _OrcBlock:
     name: str
     startLine: int
@@ -2997,33 +3010,32 @@ def parseOrc(code: str, keepComments=True) -> list[ParsedBlock]:
     return blocks
 
 
-@dataclass
+@_dataclass
 class ParsedInstrBody:
     """
-    This class holds the result of parsing the body of an instrument
+    The result of parsing the body of an instrument
 
     This is used by :func:`instrParseBody`
 
+    Attributes:
+        pfieldsIndexToName: Map pfield index to arg name
+        pfieldsText: All pfield declarations collected in one string
+        body: The body of the instr without any field declarations
+        lines: The lines of the original instr code
+    r
     """
     pfieldsIndexToName: dict[int, str]
-    "Map pfield index to arg name"
-
     pfieldsText: str
-    "All pfield declarations collected in one string"
-
     body: str
-    "The body of the instr without any field declarations"
-
     lines: list[str]
-    "The lines of the original instr code"
 
-    pfieldsDefaults: Optional[dict[int, float]] = None
+    pfieldsDefaults: dict[int, float] | None = None
     "Default values of the pfields, by pfield index"
 
-    pfieldsUsed: Optional[set[int]] = None
+    pfieldsUsed: set[int] | None = None
     "Which pfields are used"
 
-    outChannels: Optional[set[int]] = None
+    outChannels: set[int] | None = None
     "Which output channels are used"
 
     pfieldsNameToIndex: dict[str, int] = None
@@ -3039,7 +3051,7 @@ class ParsedInstrBody:
         return max(self.pfieldsUsed)
 
 
-def lastAssignmentToVariable(varname: str, lines: list[str]) -> Optional[int]:
+def lastAssignmentToVariable(varname: str, lines: list[str]) -> int | None:
     """
     Line of the last assignment to a variable
 
@@ -3232,7 +3244,7 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                            lines=lines)
 
 
-def bestSampleEncodingForExtension(ext: str) -> Optional[str]:
+def bestSampleEncodingForExtension(ext: str) -> str | None:
     """
     Given an extension, return the best sample encoding.
 
@@ -3255,8 +3267,6 @@ def bestSampleEncodingForExtension(ext: str) -> Optional[str]:
     flac       pcm24
     ========== ================
 
-    .. seealso:: :func:`
-
     """
     if ext[0] == ".":
         ext = ext[1:]
@@ -3271,7 +3281,7 @@ def bestSampleEncodingForExtension(ext: str) -> Optional[str]:
         raise ValueError(f"Format {ext} not supported")
 
 
-def _parsePresetSflistprograms(line:str) -> Optional[tuple[str, int, int]]:
+def _parsePresetSflistprograms(line:str) -> tuple[str, int, int] | None:
     # 012345678
     # xxx:yyy zzzzzzzzzz
     bank = int(line[:3])
@@ -3280,7 +3290,7 @@ def _parsePresetSflistprograms(line:str) -> Optional[tuple[str, int, int]]:
     return (name, bank, num)
 
 
-def _parsePreset(line: str) -> Optional[tuple[str, int, int]]:
+def _parsePreset(line: str) -> tuple[str, int, int] | None:
     match = _re.search(r">> Bank: (\d+)\s+Preset:\s+(\d+)\s+Name:\s*(.+)", line)
     if not match:
         return
@@ -3421,7 +3431,7 @@ def soundfontSelectPreset(sfpath: str
     return (name, bank, pnum)
 
 
-def soundfontInstrument(sfpath: str, name:str) -> Optional[int]:
+def soundfontInstrument(sfpath: str, name:str) -> int | None:
     """
     Get the instrument number from a preset
 
