@@ -14,7 +14,9 @@ test_task:
     python3 -m pip install .
     cd test
     python3 test1.py -o test1-mac-arm64.wav
-    
+    ls -l
+    cd ..
+        
   binaries_artifacts:
     path: test/*.wav
 
