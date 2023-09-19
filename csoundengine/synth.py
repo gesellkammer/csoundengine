@@ -162,7 +162,7 @@ class Synth(AbstrSynth):
         synths[1].automate('ktransp', [0, 0, 10, -1])
 
     """
-    __slots__ = ('instr', '_table', 'group', '_playing', 'priority', 'p1', 'args')
+    __slots__ = ('instr', '_table', 'group', '_playing', 'priority', 'p1', 'args', '_tableslice')
 
     def __init__(self,
                  engine: Engine,
@@ -174,6 +174,7 @@ class Synth(AbstrSynth):
                  autostop=False,
                  table: ParamTable = None,
                  priority: int = 1,
+                 tableslice: int = -1
                  ) -> None:
 
         AbstrSynth.__init__(self, start=start, dur=dur, engine=engine, autostop=autostop)
@@ -195,6 +196,9 @@ class Synth(AbstrSynth):
 
         self.args = args
         """The args used to schedule this synth"""
+
+        self._tableslice = tableslice
+        """Hold the namedargs slice"""
 
         self._playing: bool = True
 

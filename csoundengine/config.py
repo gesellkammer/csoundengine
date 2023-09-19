@@ -157,6 +157,10 @@ _('sched_latency', 0.,
 _('datafile_format', 'gen23',
   choices={'gen23', 'wav'},
   doc='Format used when saving a table as a datafile')
+_('tabargs_method', 'slice',
+  choices=('slice', 'table'),
+  doc='Method use to define named table arguments. "slice" uses a big table and allocates' \
+      'a slice for each synth. "table" allocates an entire table for each event')
 
 # Plotting
 _('spectrogram_colormap', 'inferno', choices={'viridis', 'plasma', 'inferno', 'magma', 'cividis'})

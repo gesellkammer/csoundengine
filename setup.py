@@ -49,7 +49,7 @@ setup(
         "xxhash",
         "docstring-parser",
 
-        "ctcsound7>=0.4.0",
+        "ctcsound7>=0.4.5",
         "sndfileio>=1.9.0",
         "emlib>=1.9.1",
         "configdict>=2.6.0",

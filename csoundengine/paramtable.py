@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .engine import Engine
 
+
 class ParamTable:
     """
     A ParamTable is a csound table used as a multivalue communication channel

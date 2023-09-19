@@ -524,7 +524,7 @@ def _getVersionViaApi() -> tuple[int, int, int]:
     return info['versionTriplet']
 
 
-def getVersion(useApi=True) -> tuple[int, int, int]:
+def getVersion(useApi=True) -> tuple[int, int, int | str]:
     """
     Returns the csound version as tuple (major, minor, patch)
 
@@ -534,7 +534,7 @@ def getVersion(useApi=True) -> tuple[int, int, int]:
             differ
 
     Returns:
-        the versions as a tuple (major:int, minor:int, patch:int)
+        the versions as a tuple (major:int, minor:int, patch:int|str)
 
     Raises RuntimeError if csound is not present or its version
     can't be parsed
@@ -550,26 +550,22 @@ def getVersion(useApi=True) -> tuple[int, int, int]:
     proc.wait()
     if proc.stderr is None:
         return (0, 0, 0)
-    lines = proc.stderr.readlines()
-    if not lines:
+    output = proc.stderr.read()
+    if not output:
         raise RuntimeError("Could not read csounds output")
-    for bline in lines:
-        if bline.startswith(b"Csound version"):
-            line = bline.decode('utf8')
-            matches = _re.findall(r"(\d+\.\d+(\.\d+)?)", line)
-            if matches:
-                version = matches[0]
-                if isinstance(version, tuple):
-                    version = version[0]
-                points = version.count(".")
-                if points == 1:
-                    major, minor = list(map(int, version.split(".")))
-                    patch = 0
-                else:
-                    major, minor, patch = list(map(int, version.split(".")[:3]))
-                return (major, minor, patch)
+    lines = output.decode('utf8').splitlines()
+    for line in lines:
+        if match := _re.search(r"Csound\s+version\s+(\d+)\.(\d+)(\.\w+)?", line):
+            major = int(match.group(1))
+            minor = int(match.group(2))
+            patch = match.group(3)
+            if patch is None:
+                patch = 0
+            elif patch.isdigit():
+                patch = int(patch)
+            return (major, minor, patch)
     else:
-        raise RuntimeError("Did not found a csound version")
+        raise RuntimeError(f"Did not find a csound version, csound output: '{output}'")
 
 
 def csoundSubproc(args: list[str], piped=True, wait=False) -> _subprocess.Popen:

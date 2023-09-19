@@ -228,6 +228,12 @@ class Instr:
 
         assert isinstance(name, str)
 
+        if tabargs:
+            if args:
+                if not args.keys().isdisjoint(tabargs.keys()):
+                    duplicates = set(args.keys()).intersection(tabargs.keys())
+                    raise ValueError(f"Duplicate names arguments: {duplicates}")
+
         if errmsg := _checkInstr(body):
             raise CsoundError(errmsg)
 
@@ -949,6 +955,9 @@ def parseInlineArgs(body: str | list[str]
     """
     Parse an instr body with a possible args declaration (see below).
 
+    An exception is raised if there are inline args and also direct
+    access to args in the form of p4, p5, etc.
+
     Args:
         body: the body of the instrument as a string or as a list of lines
 
@@ -989,9 +998,17 @@ def parseInlineArgs(body: str | list[str]
     """
     lines = body if isinstance(body, list) else body.splitlines()
     delimiters, linenum = _detectInlineArgs(lines)
+
     if not delimiters:
         return None
+
     assert linenum is not None
+
+    # check direct usage of pargs
+    for i, line in enumerate(lines):
+        if re.search(r"\b(p[4-9]|p\d{2,})\b", line):
+            raise ValueError(f"Cannot access pfields directly when using inline args, line "
+                             f"{i}, '{line}'")
     args = {}
     line2 = lines[linenum].strip()
     parts = line2[1:-1].split(",")
@@ -1003,6 +1020,26 @@ def parseInlineArgs(body: str | list[str]
             args[part.strip()] = 0
     bodyWithoutArgs = "\n".join(lines[linenum+1:])
     return InlineArgs(delimiters, args=args, body=bodyWithoutArgs, linenum=linenum)
+
+
+def _bigtableGenerateCode(tabargs: dict) -> str:
+    lines = []
+    lines.append(fr'''
+    ; --- start generated table code
+    islicestart_ = p4
+    itabnum_ chnget ".tabargsTabnum"
+    if itabnum_ == 0 then
+        initerror sprintf("Params table (%d) does not exist (p1: %f)", itabnum_, p1)
+        goto __exit
+    endif
+    ''')
+    idx = 0
+    for key, value in tabargs.items():
+        lines.append(f"    {key} tab islicestart_ + {idx}, itabnum_")
+        idx += 1
+    lines.append("    ; --- end generated table code\n")
+    out = textlib.stripLines(textlib.joinPreservingIndentation(lines))
+    return out
 
 
 def _tabargsGenerateCode(tabargs: dict, freetable=True) -> str:

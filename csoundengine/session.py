@@ -187,6 +187,7 @@ UI generated when using the terminal:
 from __future__ import annotations
 import os
 from dataclasses import dataclass
+from collections import deque
 import numpy as np
 
 import emlib.dialogs
@@ -458,10 +459,18 @@ class Session(AbstractRenderer):
         self._schedCallback: Union[Callable, None] = None
         self._rendering = False
 
-        if config['define_builtin_instrs']:
-            self._defBuiltinInstrs()
+        self._tabargsSliceSize = 10
+        self._tabargsNumSlices = 1000
+        self._tabargsTabnum = engine.makeEmptyTable(size=self._tabargsSliceSize * self._tabargsNumSlices)
+        self._tabargsArray = engine.getTableData(self._tabargsTabnum)
+        # We don't use slice 0. We use a deque as pool instead of a list, this helps
+        # debugging
+        self._tabargsSlicePool: deque[int] = deque(range(1, self._tabargsNumSlices))
+        engine.setChannel(".tabargsTable", self._tabargsTabnum)
 
         engine.registerOutvalueCallback("__dealloc__", self._deallocCallback)
+        if config['define_builtin_instrs']:
+            self._defBuiltinInstrs()
         mininstr, maxinstr = self._reservedInstrRange()
         engine.reserveInstrRange('session', mininstr, maxinstr)
         engine._session = self
@@ -503,6 +512,12 @@ class Session(AbstractRenderer):
             if not synth.instr.instrFreesParamTable:
                 self.engine.freeTable(synth._table.tableIndex, delay=delay)
             self.engine._releaseTableNumber(synth._table.tableIndex)
+        elif synth.args[0]:
+            # The synth has a tableslice
+            assert config['tabargs_method'] == 'slice'
+            slicenum = int(synth.args[0])
+            self._tabargsReleaseSlice(slicenum)
+
         if callback := self._whenfinished.pop(synthid, None):
             callback(synthid)
 
@@ -630,7 +645,7 @@ class Session(AbstractRenderer):
 
 
         Example
-        =======
+        ~~~~~~~
 
             >>> session = Engine().session()
             # An Instr with named pfields
@@ -1004,6 +1019,18 @@ class Session(AbstractRenderer):
         renderer._registerExitCallback(_exit)
         return renderer
 
+    def _tabargsAssignSlice(self) -> int:
+        try:
+            return self._tabargsSlicePool.pop()
+        except IndexError:
+            raise IndexError("Tried to assign a slice for dynamic controls but the pool"
+                             " is empty.")
+
+    def _tabargsReleaseSlice(self, slicenum: int) -> None:
+        assert 1 <= slicenum < self._tabargsNumSlices
+        assert slicenum not in self._tabargsSlicePool   # Remove this after testing
+        self._tabargsSlicePool.appendleft(slicenum)
+
     def sched(self,
               instrname: str,
               delay=0.,
@@ -1088,15 +1115,7 @@ class Session(AbstractRenderer):
         instr = self.getInstr(instrname)
         if instr is None:
             raise ValueError(f"Instrument {instrname} not defined")
-        table: ParamTable | None
-        if instr._tableDefaultValues is not None:
-            # the instruments have an associated table
-            tableidx = self._makeInstrTable(instr, overrides=tabargs, wait=True)
-            table = ParamTable(engine=self.engine, idx=tableidx,
-                               mapping=instr._tableNameToIndex)
-        else:
-            tableidx = 0
-            table = None
+
         # tableidx is always p4
         if pkws:
             params = instr.namedParams(includeRealNames=True)
@@ -1104,9 +1123,42 @@ class Session(AbstractRenderer):
                 if k not in params:
                     raise KeyError(f"arg '{k}' not known for instr '{instr.name}'. "
                                    f"Possible args: {params}")
+            kwargs, kwtabargs = _tools.distributeNamedArgs(pkws,
+                                                           pargKeys=instr.pargsNameToIndex.keys(),
+                                                           tabargsKeys=instr.tabargs.keys())
+            if args:
+                args.update(kwargs)
+            else:
+                args = kwargs
 
-        p4args = _tools.instrResolveArgs(instr, p4=tableidx, pargs=args, pkws=pkws)
+            if tabargs:
+                tabargs.update(kwtabargs)
+            else:
+                tabargs = kwtabargs
+
         rinstr, needssync = self.prepareSched(instrname, priority, block=True)
+
+        table: ParamTable | None = None
+
+        if instr._tableDefaultValues is not None:
+            # the instruments have an associated table
+            if config['tabargs_method'] == 'table':
+                tableidx = self._makeInstrTable(instr, overrides=tabargs, wait=True)
+                table = ParamTable(engine=self.engine, idx=tableidx,
+                                   mapping=instr._tableNameToIndex)
+                p4 = tableidx
+            else:
+                slicenum = self._tabargsAssignSlice()
+                # table = ParamTable(idx=slicenum, mapping=instr._tableNameToIndex)
+                p4 = slicenum * self._tabargsSliceSize
+                values = instr.overrideTable(tabargs)
+                idx0 = slicenum * self._tabargsSliceSize
+                self._tabargsArray[idx0:idx0+len(values)] = values
+
+        else:
+            p4 = 0
+
+        p4args = _tools.instrResolveArgs(instr, p4=p4, pargs=args, pkws=pkws)
         if needssync and syncifneeded:
             self.engine.sync()
         synthid = self.engine.sched(rinstr.instrnum, delay=delay, dur=dur, args=p4args,

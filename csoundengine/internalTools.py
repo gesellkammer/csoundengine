@@ -139,6 +139,21 @@ def determineNumbuffers(backend: str, buffersize: int) -> int:
     return numbuffers
 
 
+def distributeNamedArgs(namedargs: dict[str, float],
+                        pargKeys: Sequence[str] | KeysView,
+                        tabargsKeys: Sequence[str] | KeysView
+                        ) -> tuple[dict[str, float], dict[str, float]]:
+    pargs = {}
+    tabargs = {}
+    for k, v in namedargs:
+        if k in pargKeys:
+            pargs[k] = v
+        else:
+            assert k in tabargsKeys
+            tabargs[k] = v
+    return pargs, tabargs
+
+
 def instrResolveArgs(instr: Instr,
                      p4: int,
                      pargs: list[float] | dict[str, float] | None = None,

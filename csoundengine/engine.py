@@ -1297,6 +1297,8 @@ class Engine:
         arr: np.ndarray | None = self._tableCache.get(idx)
         if arr is None:
             arr = self.csound.table(idx)
+            if arr is None:
+                return None
             if not flat:
                 tabinfo = self.tableInfo(idx)
                 if tabinfo.numChannels > 1:
@@ -1840,12 +1842,12 @@ class Engine:
         """
         self._reservedInstrnumRanges.append((name, mininstrnum, maxinstrnum))
 
-    def makeEmptyTable(self, size, numchannels=1, sr=0, instrnum=-1) -> int:
+    def makeEmptyTable(self, size, numchannels=1, sr=0, instrnum=-1, isaudio=True) -> int:
         """
         Create an empty table, returns the index of the created table
 
         Example
-        =======
+        ~~~~~~~
 
         Use a table as an array of buses
 
