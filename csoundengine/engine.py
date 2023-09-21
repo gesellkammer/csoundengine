@@ -1091,9 +1091,7 @@ class Engine:
         # self._perfThread.flushMessageQueue()
         token = self._getSyncToken()
         pargs = [self.builtinInstrs['pingback'], 0, 0, token]
-        logger.debug("Syncing...")
         self._eventWait(token, pargs, timeout=timeout)
-        logger.debug("... sync end OK")
 
     def _compileCode(self, code: str, block=False) -> None:
         if self.udpPort and config['prefer_udp']:
@@ -1842,7 +1840,7 @@ class Engine:
         """
         self._reservedInstrnumRanges.append((name, mininstrnum, maxinstrnum))
 
-    def makeEmptyTable(self, size, numchannels=1, sr=0, instrnum=-1, isaudio=True) -> int:
+    def makeEmptyTable(self, size, numchannels=1, sr=0, eventid: float = -1.) -> int:
         """
         Create an empty table, returns the index of the created table
 
@@ -1877,12 +1875,11 @@ class Engine:
             :meth:`~Engine.automateTable`
 
         """
-        tabnum = self._assignTableNumber(p1=instrnum)
-        token = 0
-        empty = 1
-        pargs = [self.builtinInstrs['maketable'], 0, 0., token, tabnum, size, empty, sr, numchannels]
-        self._perfThread.scoreEvent(0, "i", pargs)
+        tabnum = self._assignTableNumber(p1=eventid)
+        self._perfThread.scoreEvent(0, "f", [tabnum, 0, -size, -2, 0])
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
+        if sr != 0:
+            self.setTableMetadata(tabnum, sr=sr, numchannels=numchannels)
         return tabnum
 
     def makeTable(self,
@@ -2613,8 +2610,8 @@ class Engine:
         """
         assert self.csound is not None
         value, errorCode = self.csound.controlChannel(channel)
-        if errorCode != 0:
-            raise KeyError(f"control channel {channel} not found")
+        if errorCode.value != 0:
+            raise KeyError(f"control channel {channel} not found, error: {errorCode}, value: {value}")
         return value
 
     def fillTable(self, tabnum: int, data, method='pointer', block=False) -> None:

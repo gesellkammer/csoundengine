@@ -44,8 +44,6 @@ class Instr:
             a note is scheduled with
             this instrument. Can be used to allocate a table or a dict and pass
             the resulting index to the instrument as parg
-        freetable: if ``True``, the associated table is freed in csound when the note
-            is finished
         doc: some documentation describing what this instr does
         includes: a list of files which need to be included in order for this instr to work
         aliases: if given, a dict mapping arg names to real argument names. It enables
@@ -203,7 +201,7 @@ class Instr:
 
     __slots__ = (
         'body', 'name', 'args', 'init', 'id',
-        'tabargs', 'numchans', 'instrFreesParamTable', 'doc',
+        'tabargs', 'numchans', '_instrFreesParamTable', 'doc',
         'pargsIndexToName', 'pargsNameToIndex', 'pargsIndexToDefaultValue',
         'originalBody', 'includes',
         '_tableDefaultValues', '_tableNameToIndex',
@@ -219,11 +217,11 @@ class Instr:
                  tabargs: dict[str, float] | None = None,
                  numchans: int = 1,
                  preschedCallback=None,
-                 freetable=True,
                  doc: str = '',
                  userPargsStart=5,
                  includes: list[str] | None = None,
                  aliases: dict[str, str] = None,
+                 maxNamedArgs: int = 0
                  ) -> None:
 
         assert isinstance(name, str)
@@ -260,11 +258,17 @@ class Instr:
             self._tableNameToIndex = {paramname: idx for idx, paramname in
                                       enumerate(tabargs.keys())}
             defaultvals = list(tabargs.values())
-            minsize = config['associated_table_min_size']
-            if len(defaultvals) < minsize:
-                defaultvals += [0.] * (minsize - len(defaultvals))
+            if maxNamedArgs > 0 and len(defaultvals) > maxNamedArgs:
+                raise ValueError(f"Too many named args, the maximum is {maxNamedArgs}, "
+                                 f"got {tabargs}")
+            if config['tabargs_method'] == 'table':
+                minsize = config['associated_table_min_size']
+                if len(defaultvals) < minsize:
+                    defaultvals += [0.] * (minsize - len(defaultvals))
+                tabcode = _tabargsGenerateCode(tabargs, freetable=True)
+            else:
+                tabcode = _bigtableGenerateCode(tabargs)
             self._tableDefaultValues = defaultvals
-            tabcode = _tabargsGenerateCode(tabargs, freetable=freetable)
             body = textlib.joinPreservingIndentation((tabcode, body))
             needsExitLabel = True
         else:
@@ -321,11 +325,12 @@ class Instr:
         self.pargsIndexToDefaultValue: dict[int, float] = pargsDefaultValues
         "a dict mapping parg index to its default value"
 
-        self.instrFreesParamTable = freetable
-        "does this instr frees its parameter table?"
 
         self.aliases = aliases
         """Maps alias argument names to their real argument names"""
+
+        self._instrFreesParamTable = True
+        "does this instr frees its parameter table from csound?"
 
         self._argToAlias = {name: alias for alias, name in aliases.items()} if aliases else None
 
@@ -1029,7 +1034,7 @@ def _bigtableGenerateCode(tabargs: dict) -> str:
     islicestart_ = p4
     itabnum_ chnget ".tabargsTabnum"
     if itabnum_ == 0 then
-        initerror sprintf("Params table (%d) does not exist (p1: %f)", itabnum_, p1)
+        initerror sprintf("Params table does not exist (p1: %f)", p1)
         goto __exit
     endif
     ''')

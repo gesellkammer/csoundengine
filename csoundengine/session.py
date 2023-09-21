@@ -462,11 +462,13 @@ class Session(AbstractRenderer):
         self._tabargsSliceSize = 10
         self._tabargsNumSlices = 1000
         self._tabargsTabnum = engine.makeEmptyTable(size=self._tabargsSliceSize * self._tabargsNumSlices)
+        engine.sync()
+        engine.setChannel(".tabargsTabnum", self._tabargsTabnum)
         self._tabargsArray = engine.getTableData(self._tabargsTabnum)
+
         # We don't use slice 0. We use a deque as pool instead of a list, this helps
         # debugging
         self._tabargsSlicePool: deque[int] = deque(range(1, self._tabargsNumSlices))
-        engine.setChannel(".tabargsTable", self._tabargsTabnum)
 
         engine.registerOutvalueCallback("__dealloc__", self._deallocCallback)
         if config['define_builtin_instrs']:
@@ -509,14 +511,17 @@ class Session(AbstractRenderer):
             return
         synth._playing = False
         if synth._table is not None:
-            if not synth.instr.instrFreesParamTable:
+            if not synth.instr._instrFreesParamTable:
                 self.engine.freeTable(synth._table.tableIndex, delay=delay)
-            self.engine._releaseTableNumber(synth._table.tableIndex)
+            else:
+                self.engine._releaseTableNumber(synth._table.tableIndex)
         elif synth.args[0]:
             # The synth has a tableslice
             assert config['tabargs_method'] == 'slice'
-            slicenum = int(synth.args[0])
-            self._tabargsReleaseSlice(slicenum)
+            slicestart = int(synth.args[0])
+            slicenum = slicestart / self._tabargsSliceSize
+            assert slicenum == int(slicenum)
+            self._tabargsReleaseSlice(int(slicenum))
 
         if callback := self._whenfinished.pop(synthid, None):
             callback(synthid)
@@ -1123,9 +1128,14 @@ class Session(AbstractRenderer):
                 if k not in params:
                     raise KeyError(f"arg '{k}' not known for instr '{instr.name}'. "
                                    f"Possible args: {params}")
-            kwargs, kwtabargs = _tools.distributeNamedArgs(pkws,
-                                                           pargKeys=instr.pargsNameToIndex.keys(),
-                                                           tabargsKeys=instr.tabargs.keys())
+            if instr.tabargs:
+                kwargs, kwtabargs = _tools.distributeNamedArgs(pkws,
+                                                               pargKeys=instr.pargsNameToIndex.keys(),
+                                                               tabargsKeys=instr.tabargs.keys())
+            else:
+                kwargs = pkws
+                kwtabargs = None
+
             if args:
                 args.update(kwargs)
             else:
