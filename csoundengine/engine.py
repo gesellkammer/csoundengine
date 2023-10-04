@@ -1243,7 +1243,7 @@ class Engine:
             code = "return " + code
         return self.csound.evalCode(code)
 
-    def tableWrite(self, tabnum:int, idx:int, value: float, delay: float=0.) -> None:
+    def tableWrite(self, tabnum: int, idx: int, value: float, delay=0.) -> None:
         """
         Write to a specific index of a table
 
@@ -1487,8 +1487,11 @@ class Engine:
         """
         return self
 
-    def sched(self, instr: int|float|str, delay=0., dur=-1.,
-              args: np.ndarray|Sequence[float|str] = None,
+    def sched(self,
+              instr: int | float | str,
+              delay=0.,
+              dur=-1.,
+              args: np.ndarray | Sequence[float | str] = None,
               relative=True
               ) -> float:
         """
@@ -1584,7 +1587,7 @@ class Engine:
                             f"got {instr} (type {type(instr)})")
         if not args:
             pargs = [instrfrac, delay, dur]
-            self._perfThread.scoreEvent(0 if relative else 1, "i", pargs)
+            self._perfThread.scoreEvent(1, "i", pargs)
         elif isinstance(args, np.ndarray):
             pargsnp = np.empty((len(args)+3,), dtype=float)
             pargsnp[0] = instrfrac
@@ -1791,15 +1794,33 @@ class Engine:
         self.csound.rewindScore()
         self._setupGlobalInstrs()
 
-    def session(self) -> _session.Session:
+    def session(self,
+                priorities: int = None,
+                dynamicArgsPerInstr: int = None,
+                dynamicArgsSlots: int = None
+                ) -> _session.Session:
         """
         Return the Session corresponding to this Engine
+
+        Since each Engine can have only one associated Session,
+        the parameters passed are only valid for the creation of
+        the Session. Any subsequent call to this method returns the
+        already created Session, and the arguments passed are not
+        taken into consideration.
+
+        Args:
+            priorities: the max. number of priorities for scheduled instrs
+            dynamicArgsSlots: the total number of slots allocated for
+                dynamic args. The default is determined by the config
+                'dynamic_args_num_slots'
+            dynamicArgsPerInstr: the max. number of dynamic args per instr
+                (the default is set in the config 'max_dynamic_args_per_instr')
 
         Returns:
             the corresponding Session
 
         Example
-        =======
+        ~~~~~~~
 
         >>> from csoundengine import *
         >>> session = Engine().session()
@@ -1822,7 +1843,23 @@ class Engine:
         """
         if self._session is None:
             from .session import Session
-            self._session = Session(self.name)
+            self._session = Session(engine=self,
+                                    priorities=priorities,
+                                    dynamicArgsSlots=dynamicArgsSlots,
+                                    dynamicArgsPerInstr=dynamicArgsPerInstr)
+        else:
+            if dynamicArgsPerInstr is not None and dynamicArgsPerInstr != self._session.maxDynamicArgsPerInstr:
+                logger.info(f"Asking to create a session with dynamicArgsPerInstr={dynamicArgsPerInstr}, "
+                            f"which differs from the value of the current session "
+                            f"({self._session.maxDynamicArgsPerInstr}). The old value will be kept")
+            if dynamicArgsSlots is not None and dynamicArgsSlots != self._session._dynargsNumSlices:
+                logger.info(f"Asking to create a session with dynamicArgsSlices={dynamicArgsSlots}, "
+                            f"which differs from the value of the current session "
+                            f"({self._session._dynargsNumSlices}). The old value will be kept")
+            if priorities is not None and priorities != self._session.numPriorities:
+                logger.info(f"Asking to create a session with priorites={priorities}, "
+                            f"which differs from the value of the current session "
+                            f"({self._session.numPriorities}). The old value will be kept")
         return self._session
 
     def reserveInstrRange(self, name: str, mininstrnum: int, maxinstrnum: int) -> None:
@@ -1850,9 +1887,9 @@ class Engine:
         Use a table as an array of buses
 
         >>> from csoundengine import *
-        >>> e = Engine()
-        >>> source = e.makeEmptyTable(128)
-        >>> e.compile(r'''
+        >>> engine = Engine()
+        >>> source = engine.makeEmptyTable(128)
+        >>> engine.compile(r'''
         ... instr 100
         ...   imidi = p4
         ...   iamptab = p5
@@ -1862,11 +1899,9 @@ class Engine:
         ...   outch 1, asig
         ... endin
         ... ''')
-        >>> tabarray = e.getTableData(source)
+        >>> tabarray = engine.getTableData(source)
         >>> tabarray[0] = 0.5
-        >>> eventid = e.sched(100, args=[67, source, 0])
-        >>> # fade out
-        >>> e.automateTable(source=source, idx=0, pairs=[1, 0.5, 5, 0.])
+        >>> eventid = engine.sched(100, args=[67, source, 0])
 
         .. seealso::
 
@@ -2717,9 +2752,10 @@ class Engine:
         pargs.extend(toks)
         q = _queue.Queue()
 
-        def callback(tok0, q=q, t=self._responsesTable, toks=toks):
-            values = [t[tok] for tok in toks]
-            q.put(values)
+        # noinspection PyDefaultArgument
+        def callback(tok0, _q=q, t=self._responsesTable, _toks=toks):
+            values = [t[_tok] for _tok in _toks]
+            _q.put(values)
 
         self._responseCallbacks[toks[0]] = callback
         self._perfThread.scoreEvent(0, "i", pargs)
@@ -2735,6 +2771,9 @@ class Engine:
     def includeFile(self, include: str) -> None:
         """
         Add an #include file to this Engine
+
+        Args:
+            include: the path to the include file
         """
         abspath = os.path.abspath(include)
         for f in self.includes:
@@ -2755,16 +2794,17 @@ class Engine:
             block: if True, wait until output is read, then return
             callback: if given, this function () -> None, will be called when
                 output has been read.
+            skiptime: time to skip at the beginning of the soundfile.
 
         Returns:
             the index of the created table
 
         >>> from csoundengine import *
-        >>> e = Engine()
-        >>> source = e.readSoundfile("stereo.wav", block=True)
-        >>> eventid = e.playSample(source)
-        >>> # Reduce the gain to 0.8 and playback speed to 0.5 after 2 seconds
-        >>> e.setp(eventid, 4, 0.8, 5, 0.5, delay=2)
+        >>> engine = Engine()
+        >>> source = engine.readSoundfile("stereo.wav", block=True)
+        >>> eventid = engine.playSample(source)
+        >>> # Reduce the gain to 0.8 after 2 seconds
+        >>> engine.setp(eventid, 4, 0.8, delay=2)
 
         See Also
         ~~~~~~~~
@@ -2808,8 +2848,8 @@ class Engine:
             self._perfThread.inputMessage(msg)
         return tabnum
 
-    def soundfontPlay(self, index: int, pitch: float, amp: float=0.7, delay=0.,
-                      dur=-1., vel:int=None, chan=1
+    def soundfontPlay(self, index: int, pitch: float, amp=0.7, delay=0.,
+                      dur=-1., vel: int = None, chan=1
                       ) -> float:
         """
         Play a note of a previously loaded soundfont
@@ -2876,7 +2916,9 @@ class Engine:
         return self.sched(self.builtinInstrs['soundfontPlay'], delay=delay, dur=dur,
                           args=args)
 
-    def soundfontPreparePreset(self, sf2path:str, preset:tuple[int, int]=None) -> int:
+    def soundfontPreparePreset(self,
+                               sf2path: str,
+                               preset: tuple[int, int] = None) -> int:
         """
         Prepare a soundfont's preset to be used
 
@@ -2921,7 +2963,10 @@ class Engine:
         self._perfThread.inputMessage(s)
         return idx
 
-    def _readSoundfileAsync(self, path:str, tabnum:int=None, chan=0) -> int:
+    def _readSoundfileAsync(self,
+                            path: str,
+                            tabnum: int = None,
+                            chan=0) -> int:
         assert self.started
         if tabnum is None:
             tabnum = self._assignTableNumber()
@@ -2987,8 +3032,8 @@ class Engine:
             >>> sample, sr = sndfileio.sndread("stereo.wav")
             >>> # modify the samples in python
             >>> sample *= 0.5
-            >>> tabnum = e.makeTable(sample, sr=sr, block=True)
-            >>> eventid = e.playSample(tabnum)
+            >>> table = e.makeTable(sample, sr=sr, block=True)
+            >>> eventid = e.playSample(table)
             ... # gain (p4) and speed (p5) can be modified while playing
             >>> e.setp(eventid, 5, 0.5)   # Play at half speed
 
@@ -3060,7 +3105,7 @@ class Engine:
         ... endin
         ... ''')
         >>> p1 = engine.sched(100, args=[0.1, 440])
-        >>> engine.setp(p1, 5, 0.2, 6, 880, delay=0.5)
+        >>> engine.setp(p1, 5, 0.2, delay=0.5)
 
         See Also
         ~~~~~~~~
@@ -3108,8 +3153,13 @@ class Engine:
         value = self._eventWait(token, pargs)
         return value
 
-    def automateTable(self, tabnum:int, idx:int, pairs: Sequence[float],
-                      mode='linear', delay=0., overtake=False) -> float:
+    def automateTable(self,
+                      tabnum: int,
+                      idx: int,
+                      pairs: Sequence[float],
+                      mode='linear',
+                      delay=0.,
+                      overtake=False) -> float:
         """
         Automate a table slot
 
@@ -3152,16 +3202,39 @@ class Engine:
 
         :meth:`~Engine.setp`
         :meth:`~Engine.automatep`
-        """
-        # tabpairs table will be freed by the instr itself
-        tabpairs = self.makeTable(pairs, tabnum=0, block=False)
-        args = [tabnum, idx, tabpairs, self.strSet(mode), 2, 1, int(overtake)]
-        dur = pairs[-2]+self.ksmps/self.sr
-        return self.sched(self.builtinInstrs['automateTableViaTable'], delay=delay,
-                          dur=dur, args=args)
 
-    def automatep(self, p1: float, pidx: int, pairs:Sequence[float], mode='linear',
-                  delay=0., overtake=False
+
+        """
+        if len(pairs) < 1900:
+            # iargtab = p4
+            # iargidx = p5
+            # imode = p6
+            # iovertake = p7
+            # ilenpairs = p8
+            args = [tabnum, idx, self.strSet(mode), int(overtake), len(pairs)]
+            args.extend(pairs)
+            return self.sched(self.builtinInstrs['automateTableViaPargs'],
+                              delay=delay,
+                              dur=pairs[-2] + self.ksmps / self.sr,
+                              args=args)
+        else:
+            pairgroups = internalTools.splitPairs(pairs, 1900)
+            events = [self.automateTable(tabnum=tabnum,
+                                         idx=idx,
+                                         pairs=pairs,
+                                         mode=mode,
+                                         delay=delay,
+                                         overtake=overtake if idx == 0 else False)
+                      for idx, pairs in enumerate(pairgroups)]
+            return events[0]
+
+    def automatep(self,
+                  p1: float,
+                  pidx: int,
+                  pairs: Sequence[float],
+                  mode='linear',
+                  delay=0.,
+                  overtake=False
                   ) -> float:
         """
         Automate a pfield of a running event
@@ -3187,7 +3260,7 @@ class Engine:
             the p1 associated with the automation synth
 
         Example
-        =======
+        ~~~~~~~
 
         >>> e = Engine()
         >>> e.compile(r'''
@@ -3201,32 +3274,21 @@ class Engine:
 
         .. seealso:: :meth:`~Engine.setp`, :meth:`~Engine.automateTable`
         """
-
         if len(pairs) < 1900:
             args = [p1, pidx, self.strSet(mode), int(overtake), len(pairs)]
             args.extend(pairs)
-            dur = pairs[-2] + self.ksmps / self.sr
-            assert isinstance(dur, float)
-            return self.sched(self.builtinInstrs['automatePargViaPargs'], delay=delay,
-                              dur=dur, args=args)
+            return self.sched(self.builtinInstrs['automatePargViaPargs'],
+                              delay=delay,
+                              dur=pairs[-2] + self.ksmps / self.sr,
+                              args=args)
         else:
             pairgroups = internalTools.splitPairs(pairs, 1900)
-            eventidx = []
-            for pairidx, pairs in enumerate(pairgroups):
-                ev = self.automatep(p1=p1, pidx=pidx, pairs=pairs, mode=mode, delay=delay,
-                                    overtake=overtake if pairidx == 0 else False)
-                eventidx.append(ev)
-            return eventidx[0]
+            events = [self.automatep(p1=p1, pidx=pidx, pairs=pairs, mode=mode, delay=delay,
+                                     overtake=overtake if idx == 0 else False)
+                      for idx, pairs in enumerate(pairgroups)]
+            return events[0]
 
-        #else:
-        #    tabnum = self.makeTable(pairs, tabnum=0, block=False)
-        #    args = [p1, pidx, tabnum, self.strSet(mode), int(overtake)]
-        #    dur = pairs[-2]+self.ksmps/self.sr
-        #    assert isinstance(dur, float)
-        #    return self.sched(self.builtinInstrs['automatePargViaTable'], delay=delay,
-        #                      dur=dur, args=args)
-
-    def strSet(self, s:str, sync=False) -> int:
+    def strSet(self, s: str, sync=False) -> int:
         """
         Assign a numeric index to a string to be used inside csound
 
@@ -3723,7 +3785,7 @@ class Engine:
         specs = {}
         instr = internalTools.instrNameFromP1(eventid)
         body = self._instrRegistry.get(instr)
-        pfieldsNameToIndex = csoundlib.instrParseBody(body).pfieldsNameToIndex if body else None
+        pfieldsNameToIndex = csoundlib.instrParseBody(body).pfieldNameToIndex if body else None
         for pfield, spec in pargs.items():
             minval, maxval = spec
             idx = internalTools.resolvePfieldIndex(pfield, pfieldsNameToIndex)

@@ -55,6 +55,8 @@ except Exception as e:
         raise e
 
 logger = _logging.getLogger("csoundengine")
+_EMPTYDICT = {}
+_EMPTYLIST = []
 
 
 @_cachetools.cached(cache=_cachetools.TTLCache(1, 10))
@@ -3006,6 +3008,10 @@ def parseOrc(code: str, keepComments=True) -> list[ParsedBlock]:
     return blocks
 
 
+def _hashdict(d: dict) -> int:
+    return hash((frozenset(d.keys()), frozenset(d.values())))
+
+
 @_dataclass
 class ParsedInstrBody:
     """
@@ -3013,38 +3019,68 @@ class ParsedInstrBody:
 
     This is used by :func:`instrParseBody`
 
-    Attributes:
-        pfieldsIndexToName: Map pfield index to arg name
-        pfieldsText: All pfield declarations collected in one string
-        body: The body of the instr without any field declarations
-        lines: The lines of the original instr code
-    r
     """
-    pfieldsIndexToName: dict[int, str]
-    pfieldsText: str
-    body: str
-    lines: list[str]
+    pfieldIndexToName: dict[int, str]
+    """Maps pfield index to assigned name"""
 
-    pfieldsDefaults: dict[int, float] | None = None
+    pfieldLines: list[str]
+    """List of lines where pfields are defined"""
+
+    body: str
+    """The body parsed"""
+
+    lines: list[str]
+    """The body, split into lines"""
+
+    pfieldIndexToValue: dict[int, float] | None = None
     "Default values of the pfields, by pfield index"
 
     pfieldsUsed: set[int] | None = None
-    "Which pfields are used"
+    "Which pfields are accessed"
 
     outChannels: set[int] | None = None
     "Which output channels are used"
 
-    pfieldsNameToIndex: dict[str, int] = None
-    "Map pfield name to index"
+    @_functools.cached_property
+    def pfieldsText(self) -> str:
+        """The text containing pfield definitions"""
+        return "\n".join(self.pfieldLines)
 
-    def __post_init__(self):
-        self.pfieldsNameToIndex = {name:idx for idx, name in self.pfieldsIndexToName.items()}
+    @_functools.cached_property
+    def pfieldNameToIndex(self):
+        """Maps pfield name to its index"""
+        return {name: idx for idx, name in self.pfieldIndexToName.items()}
 
     def numPfields(self) -> int:
         """ Returns the number of pfields in this instrument """
-        if not self.pfieldsUsed:
-            return 3
-        return max(self.pfieldsUsed)
+        return 3 if not self.pfieldsUsed else max(self.pfieldsUsed)
+
+    @_functools.cached_property
+    def pfieldNameToValue(self) -> dict[str, float]:
+        """
+        Dict mapping pfield name to default value
+
+        If a pfield has no explicit name assigned, p## is used
+
+        Example
+        ~~~~~~~
+
+        Given a csound instr:
+
+        >>> parsed = instrParseBody(r'''
+        ... pset 0, 0, 0, 0.1, 400, 0.5
+        ... iamp = p4
+        ... kfreq = p5
+        ... ''')
+        >>> parsed.pfieldNameToValue
+        {'iamp': 0.1, 'kfreq': 400, 'p6': 0.5}
+
+        """
+        if not self.pfieldNameToIndex:
+            return _EMPTYDICT
+
+        return {(self.pfieldIndexToName.get(idx) or f"p{idx}"): value
+                for idx, value in self.pfieldIndexToValue.items()}
 
 
 def lastAssignmentToVariable(varname: str, lines: list[str]) -> int | None:
@@ -3133,7 +3169,7 @@ def locateDocstring(lines: list[str]) -> tuple[int, int] | None:
                 pass
             elif not line.startswith(docstringKind):
                 # end of docstring
-                return (docstringStart, i)
+                return docstringStart, i
     return None
 
 
@@ -3162,26 +3198,34 @@ def instrParseBody(body: str) -> ParsedInstrBody:
         ... '''
         >>> csoundlib.instrParseBody(body)
         ParsedInstrBody(pfieldsIndexToName={4: 'ibus', 5: 'kfreq'},
-                        pfieldsText='ibus = p4\\nkfreq = p5', body='\\na0 = busin(ibus)\\n
+                        pfieldLines=['ibus = p4', ['kfreq = p5'], 
+                        body='\\na0 = busin(ibus)\\n
                           a1 = oscili:a(0.5, kfreq) * a0\\noutch 1, a1',
                         pfieldsDefaults={1: 0.0, 2: 0.0, 3: 0.0, 4: 1.0, 5: 1000.0},
                         pfieldsUsed={4, 5},
                         outChannels={1},
                         pfieldsNameToIndex={'ibus': 4, 'kfreq': 5})
     """
+    if not body.strip():
+        return ParsedInstrBody(pfieldIndexToValue=_EMPTYDICT,
+                               pfieldLines=_EMPTYLIST,
+                               body='',
+                               lines=_EMPTYLIST,
+                               pfieldIndexToName=_EMPTYDICT)
+
     pfieldLines = []
     bodyLines = []
-    values = None
+    pfieldIndexToValue = {}
     insideComment = False
-    pargsUsed = set()
-    pfields: dict[int, str] = {}
+    pfieldsUsed = set()
+    pfieldIndexToName: dict[int, str] = {}
     outchannels: set[int] = set()
     lines = body.splitlines()
     for i, line in enumerate(lines):
-        pargsInLine = _re.findall(r"\bp\d+", line)
-        if pargsInLine:
-            for p in pargsInLine:
-                pargsUsed.add(int(p[1:]))
+        pfieldsInLine = _re.findall(r"\bp\d+", line)
+        if pfieldsInLine:
+            for p in pfieldsInLine:
+                pfieldsUsed.add(int(p[1:]))
         if _re.match(r"^\s*(;|\/\/)", line):
             # A comment
             bodyLines.append(line)
@@ -3202,20 +3246,21 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                 pstart = int(m.group(1))
                 argsstr, rest = line.split("passign")
                 args = argsstr.split(",")
-                for i, name in enumerate(args, start=pstart):
-                    pargsUsed.add(i)
-                    pfields[i] = name.strip()
-        elif _re.search(r"^\s*pset\s+([+-]?([0-9]*[.])?[0-9]+)", line):
-            defaultsStr = line.strip()[4:]
-            values = {i: float(v)
-                      for i, v in enumerate(defaultsStr.split(","), start=1)}
+                for j, name in enumerate(args, start=pstart):
+                    pfieldsUsed.add(j)
+                    pfieldIndexToName[j] = name.strip()
+        elif _re.search(r"^\s*\bpset\b", line):
+            s = line.strip()[4:]
+            psetValues = {j: float(v) for j, v in enumerate(s.split(","), start=1)
+                          if v.strip()[0].isnumeric()}
+            pfieldIndexToValue.update(psetValues)
         elif m := _re.search(r"^\s*\b(\w+)\s*(=|init\s)\s*p(\d+)", line):
             # 'ival = p4' / kval = p4 or 'ival init p4'
             pname = m.group(1)
-            parg = int(m.group(3))
+            pfieldIndex = int(m.group(3))
             pfieldLines.append(line)
-            pfields[parg] = pname.strip()
-            pargsUsed.add(parg)
+            pfieldIndexToName[pfieldIndex] = pname.strip()
+            pfieldsUsed.add(pfieldIndex)
         else:
             if _re.search(r"\bouts\s+", line):
                 outchannels.update((1, 2))
@@ -3231,11 +3276,15 @@ def instrParseBody(body: str) -> ParsedInstrBody:
 
             bodyLines.append(line)
 
-    return ParsedInstrBody(pfieldsText="\n".join(pfieldLines),
-                           pfieldsDefaults=values,
-                           pfieldsIndexToName=pfields,
-                           pfieldsUsed=pargsUsed,
+    for pidx in range(1, 4):
+        pfieldIndexToValue.pop(pidx, None)
+        pfieldIndexToName.pop(pidx, None)
+
+    return ParsedInstrBody(pfieldIndexToValue=pfieldIndexToValue,
+                           pfieldIndexToName=pfieldIndexToName,
+                           pfieldsUsed=pfieldsUsed,
                            outChannels=outchannels,
+                           pfieldLines=pfieldLines,
                            body="\n".join(bodyLines),
                            lines=lines)
 
@@ -3311,7 +3360,7 @@ class SoundFontIndex:
     def __init__(self, soundfont: str):
         assert _os.path.exists(soundfont)
         self.soundfont = soundfont
-        instrs, presets = _soundfontinstrumentsAndPresets(soundfont)
+        instrs, presets = _soundfontInstrumentsAndPresets(soundfont)
         self.instrs: list[tuple[int, str]] = instrs
         self.presets: list[tuple[int, int, str]] = presets
         self.nameToIndex: dict[str, int] = {name:idx for idx, name in self.instrs}
@@ -3347,28 +3396,36 @@ def soundfontIndex(sfpath: str) -> SoundFontIndex:
 
 
 @_functools.cache
-def _soundfontGetInstrumentsAndPresets(sfpath: str
-                                       ) -> tuple[list[tuple[int, str]],
-                                                  list[tuple[int, int, str]]]:
+def _soundfontInstrumentsAndPresets(sfpath: str
+                                    ) -> tuple[list[tuple[int, str]],
+                                               list[tuple[int, int, str]]]:
     """
     Returns a tuple (instruments, presets)
 
     Where instruments is a list of tuples(instridx, instrname) and presets
     is a list of tuples (bank, presetnum, name)
+
+    Args:
+        sfpath: the path to the soundfont
+
+    Returns:
+        a tuple (instruments, presets), where instruments is a list
+        of tuples (instrindex, instrname) and prests is a list of
+        tuples (bank, presetindex, name)
     """
     from sf2utils.sf2parse import Sf2File
     f = open(sfpath, 'rb')
     sf = Sf2File(f)
-    instruments: list[tuple[int, str]]
-    instruments = [(num, instr.name.strip()) for num, instr in enumerate(sf.instruments)
-                   if instr.name != 'EOI']
+    instruments: list[tuple[int, str]] = [(num, instr.name.strip())
+                                          for num, instr in enumerate(sf.instruments)
+                                          if instr.name != 'EOI']
     presets: list[tuple[int, int, str]] = [(p.bank, p.preset, p.name.strip())
                                            for p in sf.presets if p.name != 'EOP']
     presets.sort()
     return instruments, presets
 
 
-def soundfontGetInstruments(sfpath: str) -> list[tuple[int, str]]:
+def soundfontInstruments(sfpath: str) -> list[tuple[int, str]]:
     """
     Get instruments for a soundfont
 
@@ -3385,11 +3442,11 @@ def soundfontGetInstruments(sfpath: str) -> list[tuple[int, str]]:
     """
     if sfpath == "?":
         sfpath = _state.openSoundfont(ensureSelection=True)
-    instrs, _ = _soundfontGetInstrumentsAndPresets(sfpath)
+    instrs, _ = _soundfontInstrumentsAndPresets(sfpath)
     return instrs
 
 
-def soundfontGetPresets(sfpath: str) -> list[tuple[int, int, str]]:
+def soundfontPresets(sfpath: str) -> list[tuple[int, int, str]]:
     """
     Get presets from a soundfont
 
@@ -3401,7 +3458,7 @@ def soundfontGetPresets(sfpath: str) -> list[tuple[int, int, str]]:
     """
     if sfpath == "?":
         sfpath = _state.openSoundfont(ensureSelection=True)
-    _, presets = _soundfontGetInstrumentsAndPresets(sfpath)
+    _, presets = _soundfontInstrumentsAndPresets(sfpath)
     return presets
 
 
@@ -3416,7 +3473,7 @@ def soundfontSelectPreset(sfpath: str
 
     .. figure:: ../assets/select-preset.png
     """
-    presets = soundfontGetPresets(sfpath)
+    presets = soundfontPresets(sfpath)
     items = [f'{bank:03d}:{pnum:03d}:{name}' for bank, pnum, name in presets]
     item = emlib.dialogs.selectItem(items, ensureSelection=True)
     if item is None:
@@ -3481,30 +3538,35 @@ def makeIncludeLine(include: str) -> str:
     return f'#include {s}'
 
 
-def highlightCsoundOrc(code: str, theme:str=None) -> str:
+@_functools.cache
+def _pygmentsOrcLexer():
+    import pygments.lexers.csound
+    return pygments.lexers.csound.CsoundOrchestraLexer()
+
+
+def highlightCsoundOrc(code: str, theme='') -> str:
     """
     Converts csound code to html with syntax highlighting
 
     Args:
         code: the code to highlight
-        theme: the theme used, one of 'light', 'dark'. None to use default
-            (see config['html_theme'])
+        theme: the theme used, one of 'light', 'dark'. If not given, a default
+            is used (see config['html_theme'])
 
     Returns:
         the corresponding html
     """
-    if theme is None:
+    if not theme:
         from .config import config
         theme = config['html_theme']
+
     import pygments
-    import pygments.lexers.csound
     if theme == 'light':
         htmlfmt = pygments.formatters.HtmlFormatter(noclasses=True, wrapcode=True)
     else:
         htmlfmt = pygments.formatters.HtmlFormatter(noclasses=True, style='fruity',
                                                     wrapcode=True)
-    csndlex = pygments.lexers.csound.CsoundOrchestraLexer()
-    html = pygments.highlight(code, lexer=csndlex, formatter=htmlfmt)
+    html = pygments.highlight(code, lexer=_pygmentsOrcLexer(), formatter=htmlfmt)
     return html
 
 

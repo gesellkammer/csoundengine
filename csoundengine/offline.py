@@ -144,7 +144,7 @@ class ScoreEvent(BaseEvent):
             setattr(out, kw, value)
         return out
 
-    def setp(self, delay=0., strict=True, **kws) -> None:
+    def _setp(self, delay=0., strict=True, **kws) -> None:
         """
         Modify a parg of this synth (offline).
 
@@ -165,8 +165,8 @@ class ScoreEvent(BaseEvent):
             ... outch 1, oscili:ar(kamp, freq)
             ... ''')
             >>> event = r.sched('sine', 0, dur=4, args=[0.1, 440])
-            >>> event.setp(2, kfreq=880)
-            >>> event.setp(3, kfreq=660, kamp=0.5)
+            >>> event._setp(2, kfreq=880)
+            >>> event._setp(3, kfreq=660, kamp=0.5)
 
         .. seealso:: :meth:`ScoreEvent.set`
 
@@ -191,11 +191,11 @@ class ScoreEvent(BaseEvent):
 
     def namedParams(self) -> set[str]:
         instr = self.getInstr()
-        return set(instr.namedParams().keys()) if instr else set()
+        return set(instr.paramDefaultValues().keys()) if instr else set()
 
     def dynamicParams(self) -> set[str]:
         instr = self.getInstr()
-        return instr.dynamicParamKeys() if instr else set()
+        return instr.dynamicParamNames() if instr else set()
 
     def automate(self,
                  param: str,
@@ -242,12 +242,12 @@ class EventGroup(BaseEvent):
         for ev in self.events:
             ev.stop(delay=delay)
 
-    def setp(self, delay=0., strict=True, **kws) -> None:
+    def _setp(self, delay=0., strict=True, **kws) -> None:
         if strict:
             _checkParams(kws.keys(), self.dynamicParams(), obj=self)
 
         for ev in self.events:
-            ev.setp(delay=delay, strict=False, **kws)
+            ev._setp(delay=delay, strict=False, **kws)
 
     @cache
     def namedParams(self) -> set[str]:
@@ -663,8 +663,8 @@ class Renderer(AbstractRenderer):
             raise KeyError(f"instrument {instrname} is not defined")
         instrnum = self.commitInstrument(instrname, priority)
         tabnum = 0
-        if instr.hasParamTable():
-            tabnum = self.csd.addTableFromData(instr.overrideTable(tabargs),
+        if instr.hasControls():
+            tabnum = self.csd.addTableFromData(instr.overrideControls(tabargs),
                                                start=max(0., delay - 2.))
         args = internalTools.instrResolveArgs(instr, tabnum, args, kws)
         p1 = self._getUniqueP1(instrnum)
@@ -1026,9 +1026,9 @@ class Renderer(AbstractRenderer):
             ... outch 1, oscili:a(0.1, mtof:k(kmidi))
             ... ''')
             >>> event = renderer.sched("sine", args={'kmidi': 62})
-            >>> renderer.setp(event, 10, {'kmidi': 67})
+            >>> renderer._setp(event, 10, {'kmidi': 67})
             # setp can be called directly on the event
-            >>> event.setp(delay=10, kmidi=67)
+            >>> event._setp(delay=10, kmidi=67)
             # After scheduling all events/automations:
             >>> renderer.render("outfile.wav")
 
@@ -1036,7 +1036,7 @@ class Renderer(AbstractRenderer):
         instr = self._instrFromEvent(event)
         pairsd = {}
         for k, v in pairs.items():
-            if (idx:=instr.pargIndex(k, 0)) > 0:
+            if (idx:=instr.pfieldIndex(k, 0)) > 0:
                 pairsd[idx] = v
         if pairsd:
             flatpairs = emlib.iterlib.flatdict(pairsd)
@@ -1239,7 +1239,7 @@ class Renderer(AbstractRenderer):
                 self.automate(event=event, param=param, pairs=pairs, mode=mode, delay=delay)
             return
 
-        pindex = instr.pargIndex(param)
+        pindex = instr.pfieldIndex(param)
         dur = pairs[-2]-pairs[0]
         epsilon = self.csd.ksmps / self.csd.sr * 3
         start = max(0., delay-epsilon)
@@ -1299,12 +1299,12 @@ class Renderer(AbstractRenderer):
         if delay is None:
             delay = event.start
         instr = self._instrFromEvent(event)
-        if not instr.hasParamTable():
+        if not instr.hasControls():
             raise RuntimeError(f"instr {instr.name} does not define a parameters table")
         if event.paramTable == 0:
             raise RuntimeError(f"instr {instr.name} should have a parameters table, but"
                                f"no table has been assigned (p1: {event.p1}")
-        pindex = instr.paramTableParamIndex(param)
+        pindex = instr.controlIndex(param)
         assert pindex >= 0
         dur = pairs[-2] - pairs[0]
         epsilon = self.csd.ksmps / self.csd.sr * 3

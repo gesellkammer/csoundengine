@@ -14,6 +14,7 @@ import emlib.iterlib
 import emlib.misc
 import subprocess
 import bisect
+import xxhash
 
 
 if TYPE_CHECKING:
@@ -25,29 +26,23 @@ if TYPE_CHECKING:
 _registry: dict[str, Any] = {}
 
 
-try:
-    import xxhash
-    def ndarrayhash(a: np.ndarray) -> str:
-        if a.flags.contiguous:
-            return xxhash.xxh128_hexdigest(a)
-        else:
-            return str(id(a))
-
-except ImportError:
-    import hashlib
-    def ndarrayhash(a: np.ndarray) -> str:
-        return hashlib.sha1(a).hexdigest()
+def ndarrayhash(a: np.ndarray) -> str:
+    """Calculates a str hash for the data in the array"""
+    if a.flags.contiguous:
+        return xxhash.xxh128_hexdigest(a)
+    else:
+        return str(id(a))
 
 
 @cachetools.cached(cache=cachetools.TTLCache(1, 20))
 def isrunning(prog: str) -> bool:
-    "True if prog is running"
+    """True if prog is running"""
     if sys.platform == 'linux':
         failed = subprocess.call(['pgrep', '-f', prog],
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return not failed
     else:
-        raise RuntimeError(f"Platform {sys.platform} not supported")
+        raise RuntimeError(f"This function is not supported for platform '{sys.platform}'")
 
 
 def m2f(midinote: float, a4: float) -> float:
@@ -74,9 +69,9 @@ def unflattenArray(a: np.ndarray, numchannels: int) -> None:
     """
     if len(a.shape) > 1:
         if a.shape[1] != numchannels:
-           raise ValueError("Array is not flat but the number of channels"
-                            f"diverge (given numchannels={numchannels}, "
-                            f"array number of channels: {a.shape[1]}")
+            raise ValueError("Array is not flat but the number of channels"
+                             f"diverge (given numchannels={numchannels}, "
+                             f"array number of channels: {a.shape[1]}")
         return
     numrows = len(a) / numchannels
     if numrows != int(numrows):
@@ -131,6 +126,16 @@ def removeSigintHandler():
 
 
 def determineNumbuffers(backend: str, buffersize: int) -> int:
+    """
+    Calculates the number of buffers needed by a given backend
+
+    Args:
+        backend: the backend
+        buffersize: the buffersize used
+
+    Returns:
+        the number of buffers
+    """
     if backend == 'jack':
         info = jacktools.getInfo()
         numbuffers = int(math.ceil(info.blocksize / buffersize))
@@ -139,19 +144,30 @@ def determineNumbuffers(backend: str, buffersize: int) -> int:
     return numbuffers
 
 
-def distributeNamedArgs(namedargs: dict[str, float],
-                        pargKeys: Sequence[str] | KeysView,
-                        tabargsKeys: Sequence[str] | KeysView
-                        ) -> tuple[dict[str, float], dict[str, float]]:
-    pargs = {}
-    tabargs = {}
-    for k, v in namedargs:
-        if k in pargKeys:
-            pargs[k] = v
+def splitDict(d: dict[str, float],
+              keys1: Sequence[str] | set[str] | KeysView,
+              keys2: Sequence[str] | set[str] | KeysView
+              ) -> tuple[dict[str, float], dict[str, float]]:
+    """
+    Given a dict, distribute its key: value pairs depending on to which group of keys they belong
+
+    Args:
+        d: the dict to split
+        keys1: first set of keys
+        keys2: second set of keys
+
+    Returns:
+        two dicts, corresponding to the keys1 and keys2
+    """
+    out1 = {}
+    out2 = {}
+    for k, v in d.items():
+        if k in keys1:
+            out1[k] = v
         else:
-            assert k in tabargsKeys
-            tabargs[k] = v
-    return pargs, tabargs
+            assert k in keys2
+            out2[k] = v
+    return out1, out2
 
 
 def instrResolveArgs(instr: Instr,
@@ -172,17 +188,17 @@ def instrResolveArgs(instr: Instr,
         pargs passed to csound, **starting with p4**
     """
     allargs: list[float] = [float(p4)]
-    if not pargs and not instr.pargsIndexToDefaultValue and not pkws:
+    if not pargs and not instr.pfieldIndexToValue and not pkws:
         return allargs
     if isinstance(pargs, list):
-        allargs.extend(instr.pargsTranslate(pargs, pkws))
+        allargs.extend(instr.pfieldsTranslate(pargs, pkws))
     else:
         if pkws:
             if pargs:
                 pargs.update(pkws)
             else:
                 pargs = pkws
-        allargs.extend(instr.pargsTranslate(kws=pargs))
+        allargs.extend(instr.pfieldsTranslate(kws=pargs))
     return allargs
 
 

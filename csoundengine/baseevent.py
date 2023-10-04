@@ -42,25 +42,32 @@ class BaseEvent:
         return float('inf') if self.dur < 0 else self.start + self.dur
 
     @abstractmethod
-    def setp(self, delay=0., strict=True, **kws) -> None:
+    def _setp(self, param: str, value: float, delay=0.) -> None:
         """
-        Set the value of a pfield for this event
+        Set the value of a k-rate pfield for this event
         """
         raise NotImplementedError
 
-    def _setTable(self, delay=0., **kws) -> None:
+    @abstractmethod
+    def _setTable(self, param: str, value: float, delay=0.) -> None:
         """
         Set a value of a param table
+
+        Args:
+            param: the parameter to set
+            value: the value
+            delay: when to set it. This is a relative value if the event
+                is in a live renderer, or an absolute value if the
+                event is offline
         """
         raise NotImplementedError
 
-    def set(self, delay=0., strict=True, **kws) -> None:
+    def set(self, delay=0., **kws) -> None:
         """
         Set a value of a named parameter
 
         Args:
             delay: when to set this parameter
-            strict: if True, any mismatched parameter will raise an Exception
             kws: the key should be a named parameter, or p5, p6, etc., if
                 setting a parameter by index. Bear in mind that only parameters
                 assigned to a control variable will see any modification
@@ -71,42 +78,45 @@ class BaseEvent:
             >>> from csoundengine import *
             >>> s = Engine().session()
             >>> s.defInstr('osc', r'''
-            ... kfreq = p5
-            ... kamp = p6
+            ... |kfreq, kamp|
             ... outch 1, oscili:a(kamp, kfreq)
             ... ''')
             >>> synth = s.sched('osc', kfreq=1000, kamp=0.5)
             >>> synth.set(kfreq=440)
             >>> # Parameters can be given as index also:
             >>> synth.set(p5=440, delay=2.5)
-            >>> # Multiple params can be set at a time
+            >>> # Multiple parameters can be set at a time
             >>> synth.set(kfreq=442, kamp=0.1)
         """
-        if strict:
-            params = self.dynamicParams()
-            for param in kws.keys():
-                if param not in params:
-                    raise KeyError(f"Parameter {param} not known. Dynamic parameters: {params}")
+        params = self.dynamicParams()
+        if notfound := next((p for p in kws.keys() if p not in params), None):
+            raise KeyError(f"Parameter '{notfound}' not known. Dynamic parameters: {params}")
 
-        mode = self.paramMode()
-        if mode == 'parg':
-            # We set strict to false since we already checked
-            return self.setp(delay=delay, strict=False, **kws)
-        elif mode == 'table':
-            return self._setTable(delay=delay, **kws)
-        else:
-            logger.error(f"Parameter mode {mode} not supported for {self}")
+        tabkeys = self._tableParams()
+        count = 0
+        if tabkeys:
+            for param, value in kws.items():
+                if param in tabkeys:
+                    self._setTable(param=param, value=value, delay=delay)
+                    count += 1
+            if count == len(kws):
+                return
+        pfields = self._namedPfields()
+        for param, value in kws.items():
+            if param.startswith('p') or param in pfields:
+                self._setp(param=param, value=value, delay=delay)
+                count += 1
+        if count != len(kws):
+            unmatched = set(kws.keys()).difference(self.dynamicParams())
+            raise KeyError(f"Unknown parameters: {unmatched}, "
+                           f"possible parameters for this event: {self.dynamicParams()}")
 
-    def hasParamTable(self) -> bool:
-        """ Does this event have an associated parameter table?"""
-        raise False
-
-    def _automatep(self,
-                   param: int | str,
-                   pairs: list[float] | np.ndarray,
-                   mode="linear",
-                   delay=0.,
-                   overtake=False) -> float:
+    def _automatePfield(self,
+                        param: int | str,
+                        pairs: list[float] | np.ndarray,
+                        mode="linear",
+                        delay=0.,
+                        overtake=False) -> float:
         """
         Automate the value of a pfield.
 
@@ -168,7 +178,6 @@ class BaseEvent:
                  mode='linear',
                  delay=0.,
                  overtake=False,
-                 strict=True
                  ) -> float:
         """
         Automate any named parameter of this Synth
@@ -186,30 +195,20 @@ class BaseEvent:
         Returns:
             the eventid of the automation event
         """
-        if strict:
-            params = self.dynamicParams()
-            if param not in params:
-                raise KeyError(f"Parameter {param} not known. Dynamic parameters: {params}")
+        params = self.dynamicParams()
+        if param not in params:
+            raise KeyError(f"Parameter {param} not known. Dynamic parameters: {params}")
 
-        paramMode = self.paramMode()
-        if paramMode == 'table':
+        if (tabargs := self._tableParams()) and param in tabargs:
             return self._automateTable(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
-        elif paramMode == 'parg':
-            return self._automatep(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
+        elif param.startswith('p') or ((pargs := self._namedPfields()) and param in pargs):
+            return self._automatePfield(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
         else:
-            raise RuntimeError("This Synth does not define any dynamic parameters")
-
-    def paramMode(self) -> str:
-        """
-        Returns the dynamic parameter mode, or None
-
-        Returns one of 'parg' or 'table'
-        """
-        return 'parg'
+            raise KeyError(f"Unknown parameter '{param}', supported parameters: {self.dynamicParams()}")
 
     def dynamicParams(self) -> set[str]:
         """
-        The set of all dynamic parameters accepted by this Synth
+        The set of all dynamic parameters accepted by this event
 
         Returns:
             a set of the dynamic (modifiable) parameters accepted by this event
@@ -223,26 +222,30 @@ class BaseEvent:
         """
         raise NotImplementedError
 
-    def _tableParams(self) -> set[str]:
+    def _tableParams(self) -> set[str] | None:
         """
-        Return a set of all named table parameters
+        Return a set of all table parameters
 
-        Returns None if this synth does not have a parameters table
+        Returns None if this event does not have table parameters
         """
         return None
 
-    def namedParams(self) -> set[str]:
+    def namedParams(self) -> set[str] | None:
         """
-        Returns a set of named parameters, or None if this Synth has no named parameters
+        Returns a set of named parameters, None if this event has no named parameters
 
         These parameters can be modified via :meth:`~AbstrSynth.set` or
         :meth:`~AbstrSynth.automate`
         """
-        mode = self.paramMode()
-        if mode == 'parg':
-            return self._namedPfields()
-        else:
-            return self._tableParams() or set()
+        pargs = self._namedPfields()
+        tableargs = self._tableParams()
+        if not pargs and not tableargs:
+            return None
+        elif pargs:
+            return pargs
+        elif tableargs:
+            return tableargs
+        return pargs | tableargs
 
     def show(self) -> None:
         """

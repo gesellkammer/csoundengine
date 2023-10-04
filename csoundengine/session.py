@@ -14,19 +14,19 @@ Overview
 *   A Session uses instrument templates (:class:`~csoundengine.instr.Instr`), which
     enable an instrument to be instantiated at any place in the evaluation chain.
 *   An instrument template within a Session can also declare default values for pfields
-*   Session instruments can also have an associated table (a parameter table) to pass
-    and modify parameters dynamically without depending on pfields. In fact, all
-    :class:`~csoundengine.instr.Instr` reserve ``p4`` for the table number of this
-    associated table
+*   Session instruments can declare named controls. These are dynamic parameters which
+    can be modified and automated over the lifetime of an event
+    (:meth:`Synth.set <csoundengine.synth.Synth.set>`,
+    :meth:`Synth.automate <csoundengine.synth.Synth.automate>`)
 
 1. Instrument Templates
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-In csound (and within an :class:`~csoundengine.engine.Engine`) there is a direct
+In csound there is a direct
 mapping between an instrument declaration and its order of evaluation. Within a
 :class:`Session`, on the other hand, it is possible to declare an instrument (
-:class:`~csoundengine.instr.Instr`) which  is used as a template and can be
-instantiated at any order, making it possibe to create chains of processing units.
+:class:`~csoundengine.instr.Instr`) and instantiated it at any order,
+making it possibe to create chains of processing units.
 
 .. code-block:: python
 
@@ -62,110 +62,99 @@ instantiated at any order, making it possibe to create chains of processing unit
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 An :class:`~csoundengine.instr.Instr` (also declared via :meth:`~Session.defInstr`)
-can define default values for its pfields. When scheduling an event the user only
-needs to fill the values for those pfields which differ from the given default
+can define default values for its pfields via ``pset``. When scheduling an event the
+user only needs to fill the values for those pfields which differ from the given default.
+Notice that **p4 is reserved and cannot be used**
 
 .. code::
 
     s = Engine().session()
     s.defInstr('sine', r'''
-        kamp = p5
+        pset p1, p2, p3, 0, 0.1, 1000
+        iamp = p5
         kfreq = p6
-        a0 = oscili:a(kamp, kfreq)
+        a0 = oscili:a(iamp, kfreq)
         outch 1, a0
-    ''', args={'kamp': 0.1, 'kfreq': 1000})
-    # We schedule an event of sine, kamp will take the default (0.1)
+    ''')
+    # We schedule an event of sine, iamp will take the default (0.1)
     synth = s.sched('sine', kfreq=440)
-    # pfields can be modified by name
-    synth.setp(kamp=0.5)
+    # pfields assigned to k-variables can be modified by name
+    synth.set(kamp=0.5)
 
-
-3. Inline arguments
+3. Dynamic Controls
 ~~~~~~~~~~~~~~~~~~~
 
-An :class:`~csoundengine.instr.Instr` can set both pfield name and default value
-as inline declaration:
+An Instr can define a number of **named controls**, similar to pfields. These
+controls must have a valid csound name (starting with 'k') and can
+define a default value. They provide a more efficient way of controlling
+dynamic parameters and are the default method to communicate with a running
+event.
+
+.. note::
+
+    Dynamic controls are implemented as one big table. Each time an instr with
+    dynamic controls is scheduled, it is assigned a slice within that table.
+    (the slice number is passed as p4). On the python side that table can be
+    accesses directly, making it very efficient to set it from python without
+    needing to call csound at all.
+
+The same instr as above can be defined using dynamic controls as follows:
+
+.. code::
+
+    s = Engine().session()
+    s.defInstr('sine', r'''
+    outch 1, oscili:a(kamp, kfreq)
+    ''',
+    args={'kamp': 0.1, 'kfreq': 1000})
+
+    synth = s.sched('sine', kfreq=800)
+    # Dynamic controls can also be modified via set
+    synth.set(kfreq=1000)
+    # Automation can be applied with 'automate'
+    synth.automate('freq', (0, 0, 2, 440, 3, 880), overtake=True)
+
+**csoundengine** generates the needed code to access the table slots:
+
+.. code-block:: csound
+
+    i__slicestart__ = p4
+    i__tabnum__ chnget ".dynargsTabnum"
+    kamp  tab i__slicestart__ + 0, i__tabnum__
+    kfreq tab i__slicestart__ + 1, i__tabnum__
+
+
+4. Inline arguments
+~~~~~~~~~~~~~~~~~~~
+
+An :class:`~csoundengine.instr.Instr` can set arguments (both init args
+and dynamic args) as an inline declaration:
 
 .. code-block:: python
 
     s = Engine().session()
-    Intr('sine', r'''
+    s.defInstr('sine', r'''
         |kamp=0.1, kfreq=1000|
         a0 = oscili:a(kamp, kfreq)
         outch 1, a0
-    ''').register(s)
-    synth = s.sched('sine', kfreq=440)
-    synth.stop()
+    ''')
 
-This will generate the needed code and set defaults for any
-parameter not filled in at start time:
+Notice that the generated code used pfields for init-time parameters
+and dynamic controls for k-time arguments.
 
 .. code-block:: csound
 
-    kamp = p5
-    kfreq = p6
-
-Notice that these are dynamic (k-rate) parameters, which can be modulated
-after the note has started (see `:meth:~maelzel.synth.Synth.set`). Also notice
-that parameters start with ``p5``: ``p4`` is reserved. In fact, declaring an
-:class:`Instr` which uses ``p4`` will raise an exception.
-
-4. Parameter Table
-~~~~~~~~~~~~~~~~~~
-
-Pfields are modified via the opcode ``pwrite``, which writes directly to
-the memory where the event holds its parameter values. A Session provides
-an alternative way to provide dynamic, named parameters, by defining a table
-(an actual csound table) attached to each created event. Such tables define
-names and default values for each parameter. The param table and the instrument
-instance are created in tandem and the event reads the value from the table. ``p4``
-is always reserved for a param table and should not be used for any other parameter,
-even if the :class:`~csoundengine.instr.Instr` does not define a parameter table.
+    iamp = p5
+    i__tabnum__ chnget ".dynargsTabnum"
+    kfreq tab i__slicestart__ + 0, i__tabnum__
+    a0 = oscili:a(kamp, kfreq)
+    outch 1, a0
 
 
-.. code::
-
-    s = Engine().session()
-    Intr('sine', r'''
-        a0 = oscili:a(kamp, kfreq)
-        outch 1, a0
-    ''', tabargs=dict(amp=0.1, freq=1000)
-    ).register(s)
-    synth = s.sched('sine', tabargs=dict(kamp=0.4, kfreq=440))
-    # Modify the kfreq value after 2 seconds
-    synth.set(kfreq=1000, delay=2)
-    synth.stop()
-
-In this example, prior to scheduling the event a table is created and filled
-with the values ``[0.4, 440]``. Code is generated to read these values from the table
-
-.. code-block:: csound
-
-    i_paramTabnum = p4
-    kamp  tab 0, i_paramTabnum
-    kfreq tab 1, i_paramTabnum
-
-An inline syntax exists also for tables:
-
-.. code::
-
-    Intr('sine', r'''
-        {kamp=0.1, kfreq=1000}
-        a0 = oscili:a(kamp, kfreq)
-        outch 1, a0
-    ''')
-
-In all cases it is of course possible to define named i-time named parameters
-(these cannot be changed after initialization)
-
-.. code::
-
-    session.defIntr('isine', r'''
-        {iamp=0.1, imidi=60}
-        a0 = oscili:a(iamp, mtof(imidi))
-        outch 1, a0
-    ''')
-    session.sched('isine', dur=2, imidi=67)
+All dynamic (k-rate) parameters can be modulated after the note has started
+(see `:meth:~maelzel.synth.Synth.set`). Also notice that parameters start
+with ``p5``: ``p4`` is reserved. In fact, declaring an :class:`Instr` which
+uses ``p4`` will raise an exception.
 
 
 5. User Interface
@@ -194,12 +183,12 @@ import emlib.dialogs
 import bpf4
 
 from .abstractrenderer import AbstractRenderer
-from .engine import Engine, getEngine, CsoundError
+from .errors import CsoundError
+from .engine import Engine, getEngine
 from . import engineorc
 from .instr import Instr
 from .synth import Synth
 from .tableproxy import TableProxy
-from .paramtable import ParamTable
 from .config import config, logger
 from . import internalTools as _tools
 from .sessioninstrs import builtinInstrs
@@ -207,7 +196,6 @@ from . import state as _state
 from . import jupytertools
 from .offline import Renderer
 from typing import Callable, Union, Optional
-
 
 
 __all__ = [
@@ -238,7 +226,6 @@ class _ReifiedInstr:
 
     def __post_init__(self):
         assert isinstance(self.instrnum, int)
-
 
 
 @dataclass
@@ -282,7 +269,7 @@ class Session(AbstractRenderer):
     and scheduled events. An Engine can be thought of as a low-level interface
     for managing a csound instance, whereas a Session allows a higher-level control
 
-    A user normally does not create a Session manually: the normal way to create a
+    **A user normally does not create a Session manually**: the normal way to create a
     Session for a given Engine is to call :meth:`~csoundengine.engine.Engine.session`
     (see example below)
 
@@ -291,9 +278,16 @@ class Session(AbstractRenderer):
     same Session object.
 
     Args:
-        name: the name of the Engine. Only one Session per Engine can be created
-        numpriorities: the max. number of priorities for this Session. This
-            determines how deep a chain of effects can effectively be.
+        engine: the parent Engine
+        priorities: the max. number of priorities. If not given the default is
+            set via ``config['session_priorities']``
+        dynamicArgsPerInstr: max. number of dynamic args per instr (the default
+            is set via ``config['max_dynamic_args_per_instr']``
+        dynamicArgsSlots: total number of slots allocated for dynamic controls.
+            The default is determined via ``config['dynamic_args_num_slots']``.
+            This effectively sets the max number of events which can access
+            dynamic controls simultaneously.
+
 
     Example
     ~~~~~~~
@@ -306,25 +300,14 @@ class Session(AbstractRenderer):
     .. code::
 
         s = Engine().session()
-        Intr('sine', r'''
-            kfreq = p5
-            kamp = p6
+        s.defInstr('sine', r'''
+            |kfreq=440, kamp=0.1|
             a0 = oscili:a(kamp, kfreq)
             outch 1, a0
-        ''').register(s)
-        synth = s.sched('sine', kfreq=440, kamp=0.1)
+        ''')
+        synth = s.sched('sine', kfreq=500)
         synth.stop()
 
-    .. code::
-
-        >>> from csoundengine import *
-        >>> e = Engine(name='foo')
-        >>> s = Session('foo')
-        >>> s is e.session()
-        True
-        >>> s2 = Session('foo')
-        >>> s2 is s
-        True
 
     An :class:`~csoundengine.instr.Instr` can define default values for any of its
     p-fields:
@@ -333,8 +316,6 @@ class Session(AbstractRenderer):
 
         s = Engine().session()
         s.defInstr('sine', args={'kamp': 0.1, 'kfreq': 1000}, body=r'''
-            kamp = p5
-            kfreq = p6
             a0 = oscili:a(kamp, kfreq)
             outch 1, a0
         ''')
@@ -342,7 +323,7 @@ class Session(AbstractRenderer):
         synth = s.sched('sine', kfreq=440)
         synth.stop()
 
-    An inline args declaration can set both pfield name and default value:
+    An inline args declaration can set both parameter name and default value:
 
     .. code::
 
@@ -355,78 +336,61 @@ class Session(AbstractRenderer):
         synth = s.sched('sine', kfreq=440)
         synth.stop()
 
-    The same can be achieved via an associated table:
-
-    .. code-block:: python
-
-        s = Engine().session()
-        Intr('sine', r'''
-            a0 = oscili:a(kamp, kfreq)
-            outch 1, a0
-        ''', tabargs=dict(amp=0.1, freq=1000
-        ).register(s)
-        synth = s.sched('sine', tabargs=dict(freq=440))
-        synth.stop()
-
-    This will create a table and fill it will the given/default values,
-    and generate code to read from the table and free the table after
-    the event is done. Call :meth:`~csoundengine.instr.Instr.dump` to see
-    the generated code:
-
-    .. code-block:: csound
-
-        i_params = p4
-        if ftexists(i_params) == 0 then
-            initerror sprintf("params table (%d) does not exist", i_params)
-        endif
-        i__paramslen = ftlen(i_params)
-        if i__paramslen < {maxidx} then
-            initerror sprintf("params table is too small (size: %d, needed: {maxidx})", i__paramslen)
-        endif
-        kamp tab 0, i_params
-        kfreq tab 1, i_params
-        a0 = oscili:a(kamp, kfreq)
-        outch 1, a0
-
-    An inline syntax exists also for tables, using ``{...}``:
-
-    .. code::
-
-        Intr('sine', r'''
-            {amp=0.1, freq=1000}
-            a0 = oscili:a(kamp, kfreq)
-            outch 1, a0
-        ''')
     """
-    def __new__(cls, name: str, numpriorities=10):
-        engine = Engine.activeEngines.get(name)
-        if not engine:
-            raise KeyError(f"Engine {name} does not exist!")
+
+    def hasBusSupport(self) -> bool:
+        return self.engine.hasBusSupport()
+
+    def __new__(cls,
+                engine: str | Engine,
+                priorities: int = None,
+                dynamicArgsPerInstr: int = None,
+                dynamicArgsSlots: int = None):
+
+        if isinstance(engine, str):
+            _engine = Engine.activeEngines.get(engine)
+            if not engine:
+                raise KeyError(f"Engine {engine} does not exist!")
+            engine = _engine
         if engine._session:
             return engine._session
         return super().__new__(cls)
 
-    def __init__(self, name: str, numpriorities=10) -> None:
+    def __init__(self,
+                 engine: str | Engine,
+                 priorities: int = None,
+                 dynamicArgsPerInstr: int = None,
+                 dynamicArgsSlots: int = None,
+                 ) -> None:
         """
         A Session controls a csound Engine
+
+        Args:
+            engine: the parent engine
+            priorities: the max. number of priorities for scheduled instrs
+            dynamicArgsPerInstr: the max. number of dynamic args per instr
+            dynamicArgsSlots: the total number of slots allocated for
+                dynamic parameters. Each synth is assigned a slot, used to
+                hold all its dynamic parameters. This is also the max. number
+                of simultaneous events with named args.
         """
-        assert name in Engine.activeEngines, f"Engine {name} does not exist!"
+        if isinstance(engine, str):
+            assert engine in Engine.activeEngines, f"Engine {engine} does not exist!"
+            engine = getEngine(engine)
+            if engine._session is self:
+                return
 
-        engine = getEngine(name)
-        if engine._session is self:
-            return
+        self.engine: Engine = engine
+        """The Engine corresponding to this Session"""
 
-        self.name: str = name
+        self.name: str = engine.name
         """The name of this Session/Engine"""
 
         self.instrs: dict[str, Instr] = {}
         "maps instr name to Instr"
 
-        self.numpriorities: int = numpriorities
+        self.numPriorities: int = priorities if priorities else config['session_priorities']
         "Number of priorities in this Session"
-
-        self.engine: Engine = engine
-        """The Engine corresponding to this Session"""
 
         self._instrIndex: dict[int, Instr] = {}
         """A dict mapping instr id to Instr. This keeps track of defined instruments"""
@@ -434,18 +398,17 @@ class Session(AbstractRenderer):
         self._sessionInstrStart = engineorc.CONSTS['sessionInstrsStart']
         """Start of the reserved instr space for session"""
 
-        bucketSizeCurve = bpf4.expon(0.7, 1, 500, numpriorities, 100)
-        bucketSizes = [int(size) for size in bucketSizeCurve.map(numpriorities)]
-        # startInstr = engineorc.CONSTS['reservedInstrsStart']
+        bucketSizeCurve = bpf4.expon(0.7, 1, 500, self.numPriorities, 100)
+        bucketSizes = [int(size) for size in bucketSizeCurve.map(self.numPriorities)]
         bucketIndices = [self._sessionInstrStart + sum(bucketSizes[:i])
-                         for i in range(numpriorities)]
+                         for i in range(self.numPriorities)]
 
         self._bucketSizes = bucketSizes
         """Size of each bucket, by bucket index"""
 
         self._bucketIndices = bucketIndices   # The start index of each bucket
 
-        self._buckets: list[dict[str, int]] = [{} for _ in range(numpriorities)]
+        self._buckets: list[dict[str, int]] = [{} for _ in range(self.numPriorities)]
 
         # A dict of the form: {instrname: {priority: reifiedInstr }}
         self._reifiedInstrDefs: dict[str, dict[int, _ReifiedInstr]] = {}
@@ -459,16 +422,18 @@ class Session(AbstractRenderer):
         self._schedCallback: Union[Callable, None] = None
         self._rendering = False
 
-        self._tabargsSliceSize = 10
-        self._tabargsNumSlices = 1000
-        self._tabargsTabnum = engine.makeEmptyTable(size=self._tabargsSliceSize * self._tabargsNumSlices)
+        self.maxDynamicArgsPerInstr = dynamicArgsPerInstr or config['max_dynamic_args_per_instr']
+        """The max. number of dynamic parameters per instr"""
+
+        self._dynargsNumSlices = dynamicArgsSlots or config['dynamic_args_num_slots']
+        self._dynargsTabnum = engine.makeEmptyTable(size=self.maxDynamicArgsPerInstr * self._dynargsNumSlices)
         engine.sync()
-        engine.setChannel(".tabargsTabnum", self._tabargsTabnum)
-        self._tabargsArray = engine.getTableData(self._tabargsTabnum)
+        engine.setChannel(".dynargsTabnum", self._dynargsTabnum)
+        self._dynargsArray = engine.getTableData(self._dynargsTabnum)
 
         # We don't use slice 0. We use a deque as pool instead of a list, this helps
         # debugging
-        self._tabargsSlicePool: deque[int] = deque(range(1, self._tabargsNumSlices))
+        self._dynargsSlicePool: deque[int] = deque(range(1, self._dynargsNumSlices))
 
         engine.registerOutvalueCallback("__dealloc__", self._deallocCallback)
         if config['define_builtin_instrs']:
@@ -477,7 +442,44 @@ class Session(AbstractRenderer):
         engine.reserveInstrRange('session', mininstr, maxinstr)
         engine._session = self
 
+    def automateDynamicParam(self,
+                             synth: Synth,
+                             param: str,
+                             pairs: list[float],
+                             mode="linear",
+                             overtake=False,
+                             delay=0.) -> float:
+        """
+        Automate a dynamic parameter of a synth
+
+        Args:
+            synth: the synth to automate
+            param: the parameter name
+            pairs: a flat sequence of the form (t0, value0, t1, value1, ...)
+                where times are relative to the start of the automation line.
+                Normally t0 is 0.
+            mode: interpolation mode, one of 'linear' or 'cos'
+            overtake: if True, the first value is not used and instead the
+                current value of the parameter is used. This same overtake can
+            delay: when to start the automation line.
+
+        Returns:
+            the id of the automation event, as float
+        """
+        slot = synth.instr.controlIndex(param)
+        if slot is None:
+            raise KeyError(f"Unknown parameter '{param}' for instr {synth.instr.name}. "
+                           f"Possible parameters: {synth.instr.dynamicParamNames()}")
+        idx = synth.controlsSlot * self.maxDynamicArgsPerInstr + slot
+        return self.engine.automateTable(tabnum=self._dynargsTabnum,
+                                         idx=idx,
+                                         pairs=pairs,
+                                         mode=mode,
+                                         delay=delay,
+                                         overtake=overtake)
+
     def renderMode(self) -> str:
+        """The render mode of this Renderer"""
         return 'online'
 
     def _reservedInstrRange(self) -> tuple[int, int]:
@@ -510,18 +512,9 @@ class Session(AbstractRenderer):
         if synth is None:
             return
         synth._playing = False
-        if synth._table is not None:
-            if not synth.instr._instrFreesParamTable:
-                self.engine.freeTable(synth._table.tableIndex, delay=delay)
-            else:
-                self.engine._releaseTableNumber(synth._table.tableIndex)
-        elif synth.args[0]:
-            # The synth has a tableslice
-            assert config['tabargs_method'] == 'slice'
-            slicestart = int(synth.args[0])
-            slicenum = slicestart / self._tabargsSliceSize
-            assert slicenum == int(slicenum)
-            self._tabargsReleaseSlice(int(slicenum))
+        if synth.controlsSlot:
+            assert synth.controlsSlot * self.maxDynamicArgsPerInstr == synth.args[0]
+            self._dynargsReleaseSlot(int(synth.controlsSlot))
 
         if callback := self._whenfinished.pop(synthid, None):
             callback(synthid)
@@ -542,9 +535,9 @@ class Session(AbstractRenderer):
         Returns:
             the instrument number (an integer)
         """
-        if not 1 <= priority <= self.numpriorities:
+        if not 1 <= priority <= self.numPriorities:
             raise ValueError(f"Priority {priority} out of range (allowed range: 1 - "
-                             f"{self.numpriorities})")
+                             f"{self.numPriorities})")
         bucketidx = priority - 1
         bucket = self._buckets[bucketidx]
         instrnum = bucket.get(instrname)
@@ -574,11 +567,11 @@ class Session(AbstractRenderer):
         Returns:
             the index of the created table
         """
-        values = instr._tableDefaultValues
+        values = instr._controlsDefaultValues
         if overrides:
-            values = instr.overrideTable(overrides)
+            values = instr.overrideControls(overrides)
         assert values is not None
-        if len(values)<1:
+        if len(values) < 1:
             logger.warning(f"instr table with no init values (instr={instr})")
             return self.engine.makeEmptyTable(size=config['associated_table_min_size'])
         else:
@@ -613,8 +606,10 @@ class Session(AbstractRenderer):
                  body: str,
                  args: dict[str, float] = None,
                  init: str = None,
-                 tabargs: dict[str, float] = None,
                  priority: int = None,
+                 doc: str = '',
+                 includes: list[str] | None = None,
+                 aliases: dict[str, str] = None,
                  **kws) -> Instr:
         """
         Create an :class:`~csoundengine.instr.Instr` and register it at this session
@@ -628,9 +623,13 @@ class Session(AbstractRenderer):
             args: pfields with their default values
             init: init (global) code needed by this instr (read soundfiles,
                 load soundfonts, etc)
-            tabargs: an instrument can have an associated table with named slots (see example)
             priority: if given, the instrument is prepared to be executed
                 at this priority
+            doc: documentation describing what this instr does
+            includes: list of files to be included in order for this instr to work
+            aliases: a dict mapping arg names to real argument names. It enables
+                to define named args for an instrument using any kind of name instead of
+                following csound name
             kws: any keywords are passed on to the Instr constructor.
                 See the documentation of Instr for more information.
 
@@ -676,7 +675,7 @@ class Session(AbstractRenderer):
             ... ''')
             >>> bus = session.engine.assignBus()
             >>> synth = session.sched('sine', 0, dur=10, ibus=bus, kmidi=67)
-            >>> synth.setp(kmidi=60, delay=2)
+            >>> synth._setp(kmidi=60, delay=2)
             >>> filt = session.sched('filter', 0, dur=synth.dur, priority=synth.priority+1,
             ...                      tabargs={'kbus': bus, 'kcutoff': 1000})
             >>> filt.automate('kcutoff', [3, 1000, 6, 200, 10, 4000])
@@ -687,7 +686,9 @@ class Session(AbstractRenderer):
         :meth:`~Session.sched`
         """
         oldinstr = self.instrs.get(name)
-        instr = Instr(name=name, body=body, args=args, init=init, tabargs=tabargs,
+        instr = Instr(name=name, body=body, args=args, init=init,
+                      doc=doc, includes=includes, aliases=aliases,
+                      maxNamedArgs=self.maxDynamicArgsPerInstr,
                       **kws)
         if oldinstr and oldinstr == instr:
             return oldinstr
@@ -760,13 +761,13 @@ class Session(AbstractRenderer):
     def _registerReifiedInstr(self, name: str, priority: int, rinstr: _ReifiedInstr
                               ) -> None:
         registry = self._reifiedInstrDefs.setdefault(name, {})
-        registry[priority]  = rinstr
+        registry[priority] = rinstr
 
     def _makeReifiedInstr(self, name: str, priority: int, block=True) -> _ReifiedInstr:
         """
         A ReifiedInstr is a version of an instrument with a given priority
         """
-        assert isinstance(priority, int) and 1<=priority<=10
+        assert isinstance(priority, int) and 1 <= priority <= 10
         instrdef = self.instrs.get(name)
         if instrdef is None:
             raise ValueError(f"instrument {name} not registered")
@@ -880,7 +881,7 @@ class Session(AbstractRenderer):
 
         :meth:`~Session.defInstr`
         """
-        assert isinstance(priority, int) and 1<=priority<=10
+        assert isinstance(priority, int) and 1 <= priority <= 10
         assert instrname in self.instrs
         rinstr, needssync = self.prepareSched(instrname, priority)
         return rinstr.instrnum
@@ -1015,34 +1016,36 @@ class Session(AbstractRenderer):
         if redirect:
             self._schedCallback = renderer.sched
 
-        def _exit(r: Renderer, outfile=outfile, schedCallback=schedCallback):
-            r.render(outfile=outfile, endtime=endtime, encoding=encoding,
+        def _exit(r: Renderer, _outfile=outfile, _schedCallback=schedCallback):
+            r.render(outfile=_outfile, endtime=endtime, encoding=encoding,
                      starttime=starttime, openWhenDone=openWhenDone)
-            self._schedCallback = schedCallback
+            self._schedCallback = _schedCallback
             self._rendering = False
 
         renderer._registerExitCallback(_exit)
         return renderer
 
-    def _tabargsAssignSlice(self) -> int:
+    def _dynargsAssignSlot(self) -> int:
+        """
+        Assign a slice for the dynamic args of a synth
+        """
         try:
-            return self._tabargsSlicePool.pop()
+            return self._dynargsSlicePool.pop()
         except IndexError:
             raise IndexError("Tried to assign a slice for dynamic controls but the pool"
                              " is empty.")
 
-    def _tabargsReleaseSlice(self, slicenum: int) -> None:
-        assert 1 <= slicenum < self._tabargsNumSlices
-        assert slicenum not in self._tabargsSlicePool   # Remove this after testing
-        self._tabargsSlicePool.appendleft(slicenum)
+    def _dynargsReleaseSlot(self, slicenum: int) -> None:
+        assert 1 <= slicenum < self._dynargsNumSlices
+        assert slicenum not in self._dynargsSlicePool   # Remove this after testing
+        self._dynargsSlicePool.appendleft(slicenum)
 
     def sched(self,
               instrname: str,
               delay=0.,
               dur=-1.,
               priority: int = 1,
-              args: list[float] | dict[str, float] = None,
-              tabargs: dict[str, float] = None,
+              args: dict[str, float] = None,
               whenfinished=None,
               relative=True,
               syncifneeded=True,
@@ -1055,14 +1058,12 @@ class Session(AbstractRenderer):
             instrname: the name of the instrument, as defined via defInstr.
                 **Use "?" to select an instrument interactively**
             delay: time offset of the scheduled instrument
-            dur: duration (-1 = for ever)
+            dur: duration (-1 = forever)
             priority: the priority (1 to 10)
-            args: pfields passed to the instrument (p5, p6, ...) or a dict of the
-                form {'pfield': value}, where pfield can be any px string or the name
+            args: arguments passed to the instrument, a dict of the
+                form {'argname': value}, where argname can be any px string or the name
                 of the variable (for example, if the instrument has a line
                 'kfreq = p5', then 'kfreq' can be used as key here).
-            tabargs: args to set the initial state of the associated table. Any
-                arguments here will override the defaults in the instrument definition
             whenfinished: a function of the form f(synthid) -> None
                 if given, it will be called when this instance stops
             relative: if True, delay is relative to the start time of the Engine.
@@ -1104,12 +1105,11 @@ class Session(AbstractRenderer):
                                        dur=dur,
                                        priority=priority,
                                        args=args,
-                                       tabargs=tabargs,
                                        whenfinished=whenfinished,
                                        relative=relative,
                                        **pkws)
             
-        assert isinstance(priority, int) and 1<=priority<=10
+        assert isinstance(priority, int) and 1 <= priority <= 10
         if relative:
             t0 = self.engine.elapsedTime()
             delay = t0 + delay + self.engine.extraLatency
@@ -1121,70 +1121,62 @@ class Session(AbstractRenderer):
         if instr is None:
             raise ValueError(f"Instrument {instrname} not defined")
 
-        # tableidx is always p4
-        if pkws:
-            params = instr.namedParams(includeRealNames=True)
-            for k in pkws.keys():
+        args = pkws if not args else args | pkws
+        kwargs, kwtabargs = args, None
+
+        if args:
+            params = instr.paramDefaultValues(includeRealNames=True)
+            for k in args:
                 if k not in params:
                     raise KeyError(f"arg '{k}' not known for instr '{instr.name}'. "
                                    f"Possible args: {params}")
-            if instr.tabargs:
-                kwargs, kwtabargs = _tools.distributeNamedArgs(pkws,
-                                                               pargKeys=instr.pargsNameToIndex.keys(),
-                                                               tabargsKeys=instr.tabargs.keys())
-            else:
-                kwargs = pkws
-                kwtabargs = None
 
-            if args:
-                args.update(kwargs)
-            else:
-                args = kwargs
-
-            if tabargs:
-                tabargs.update(kwtabargs)
-            else:
-                tabargs = kwtabargs
+            if instr.controls:
+                kwargs, kwtabargs = _tools.splitDict(args,
+                                                     keys1=instr.pfieldNameToIndex.keys(),
+                                                     keys2=instr.controls.keys())
 
         rinstr, needssync = self.prepareSched(instrname, priority, block=True)
 
-        table: ParamTable | None = None
-
-        if instr._tableDefaultValues is not None:
-            # the instruments have an associated table
-            if config['tabargs_method'] == 'table':
-                tableidx = self._makeInstrTable(instr, overrides=tabargs, wait=True)
-                table = ParamTable(engine=self.engine, idx=tableidx,
-                                   mapping=instr._tableNameToIndex)
-                p4 = tableidx
+        if instr.controls:
+            slicenum = self._dynargsAssignSlot()
+            p4 = slicenum * self.maxDynamicArgsPerInstr
+            if kwtabargs:
+                values = instr.overrideControls(kwtabargs)
             else:
-                slicenum = self._tabargsAssignSlice()
-                # table = ParamTable(idx=slicenum, mapping=instr._tableNameToIndex)
-                p4 = slicenum * self._tabargsSliceSize
-                values = instr.overrideTable(tabargs)
-                idx0 = slicenum * self._tabargsSliceSize
-                self._tabargsArray[idx0:idx0+len(values)] = values
+                values = instr._controlsDefaultValues
+            idx0 = slicenum * self.maxDynamicArgsPerInstr
+            self._dynargsArray[idx0:idx0 + len(values)] = values
 
         else:
             p4 = 0
+            slicenum = 0
 
-        p4args = _tools.instrResolveArgs(instr, p4=p4, pargs=args, pkws=pkws)
+        p4args = _tools.instrResolveArgs(instr, p4=p4, pargs=kwargs)
         if needssync and syncifneeded:
             self.engine.sync()
+        # print(f"{p4args=}, {kwargs=}, {kwtabargs=}, {args=}")
         synthid = self.engine.sched(rinstr.instrnum, delay=delay, dur=dur, args=p4args,
                                     relative=False)
-        if whenfinished is not None:
-            self._whenfinished[synthid] = whenfinished
-        synth = Synth(engine=self.engine,
+
+        synth = Synth(session=self,
                       p1=synthid,
                       instr=instr,
                       start=delay,
                       dur=dur,
-                      table=table,
                       args=p4args,
+                      controlsSlot=slicenum,
                       priority=priority)
+
+        if whenfinished is not None:
+            self._whenfinished[synthid] = whenfinished
         self._synths[synthid] = synth
         return synth
+
+    def _setNamedControl(self, slicenum: int, slot: int, value: float):
+        assert slot < self.maxDynamicArgsPerInstr
+        idx0 = slicenum * self.maxDynamicArgsPerInstr
+        self._dynargsArray[idx0 + slot] = value
 
     def activeSynths(self, sortby="start") -> list[Synth]:
         """
@@ -1281,7 +1273,7 @@ class Session(AbstractRenderer):
         for i, initcode in enumerate(self._initCodes):
             self.engine.compile(initcode)
 
-    def readSoundfile(self, path="?", chan=0, free=False, force=False, skiptime: float=0
+    def readSoundfile(self, path="?", chan=0, free=False, force=False, skiptime=0.
                       ) -> TableProxy:
         """
         Read a soundfile, store its metadata in a :class:`~csoundengine.tableproxy.TableProxy`
@@ -1293,6 +1285,7 @@ class Session(AbstractRenderer):
             free: free the table when the returned TableDef is itself deallocated
             force: if True, the soundfile will be read and added to the session even if the
                 same path has already been read before.
+            skiptime: start playback from this time instead of the beginning
 
         Returns:
             a TableProxy, holding information like
@@ -1481,6 +1474,9 @@ class Session(AbstractRenderer):
             maxpolyphony: if a sdif is passed, compress the partials to max. this
                 number of simultaneous oscillators
             position: pan position
+            freqscale: frequency scaling factor
+            gain: playback gain
+            bwscale: bandwidth scaling factor
 
         Returns:
             the playing Synth
@@ -1609,7 +1605,7 @@ class Session(AbstractRenderer):
             tabnum = table.tabnum
         elif isinstance(source, tuple) and isinstance(source[0], np.ndarray):
             table = self.makeTable(source[0], sr=source[1])
-            tabnum =table.tabnum
+            tabnum = table.tabnum
         else:
             raise TypeError(f"Expected int, TableProxy or str, got {source}")
         # isndtab, iloop, istart, ifade
@@ -1665,7 +1661,7 @@ class Session(AbstractRenderer):
             ... ''')
             >>> renderer = s.makeRenderer()
             >>> event = renderer.sched('sine', 0, dur=4, args=[0.1, 440])
-            >>> event.setp(2, kfreq=880)
+            >>> event._setp(2, kfreq=880)
             >>> renderer.render("out.wav")
 
         """
@@ -1680,4 +1676,3 @@ class Session(AbstractRenderer):
     def _defBuiltinInstrs(self):
         for csoundInstr in builtinInstrs:
             self.registerInstr(csoundInstr)
-

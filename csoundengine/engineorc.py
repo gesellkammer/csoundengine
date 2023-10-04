@@ -184,65 +184,38 @@ end:
     pwrite ip1, ipindex, ky
 endin
 
-instr ${automatePargViaTable}
-    ip1 = p4
-    ipindex = p5
-    itabpairs = p6  ; a table containing flat pairs t0, y0, t1, y1, ...
-    imode = p7;  interpolation method
-    iovertake = p8
-    Sinterpmethod = strget(imode)
-    ftfree itabpairs, 1
-    
-    if iovertake == 1 then
-        icurrval pread ip1, ipindex, -1
-        tabw_i icurrval, 1, itabpairs
-    endif
-
-    kt timeinsts
-    kidx bisect kt, itabpairs, 2, 0
-    ky interp1d kidx, itabpairs, Sinterpmethod, 2, 1
-    pwrite ip1, ipindex, ky
-endin
-
-instr ${automateTableViaTable}
+instr ${automateTableViaPargs}
     iargtab = p4
     iargidx = p5
-    idatatab = p6
-    imode = p7
-    idatastep = p8
-    idataoffset = p9
-    iovertake = p10
+    imode = p6
+    iovertake = p7
+    ilenpairs = p8
     
-    ftfree idatatab, 1
-    Smode = strget(imode)
-    
-    if iargtab == 0 || ftexists:i(iargtab) == 0 then
+    if ftexists:i(iargtab) == 0 then
         initerror sprintf("Instr table %d does not exist", iargtab)
         goto exit
     endif
-    if idatatab == 0 || ftexists:i(idatatab) == 0 then
-        initerror sprintf("Automation table %d does not exist", iargtab)
-        goto exit
-    endif
-
-    if ftlen(iargtab) <= iargidx then
-        initerror sprintf("Table too small (%d <= %d)", ftlen(iargtab), iargidx)
-        goto exit
-    endif
+    
+    ipairs[] passign 9, 9+ilenpairs
+    iXs[] slicearray ipairs, 0, ilenpairs-1, 2
+    iYs[] slicearray ipairs, 1, ilenpairs-1, 2
+    Sinterpmethod = strget(imode)
     
     if iovertake == 1 then
         icurrval = tab_i(iargidx, iargtab)
-        tabw_i icurrval, 1, idatatab
+        iYs[0] = icurrval
     endif
-
+    
+    Smode = strget(imode)
+    
     kt timeinsts
-    kidx bisect kt, idatatab, idatastep, 0
-    ky interp1d kidx, idatatab, Smode, idatastep, idataoffset
+    kidx bisect kt, iXs
+    ky interp1d kidx, iYs, Smode
+    
     if ftexists:k(iargtab) == 1 then
         tablew ky, iargidx, iargtab
     else
-        throwerror "warning", sprintf("dest table (%d) was freed, stopping automation", \ 
-                                      iargtab)
+        throwerror "warning", sprintf("Table (%d) was freed during automation, stopping automation", iargtab)
         turnoff
     endif
 exit:

@@ -39,6 +39,7 @@ class AbstrSynth(baseevent.BaseEvent):
         autostop: if True, link the lifetime of the csound synth to the lifetime
             of this object
     """
+
     __slots__ = ('engine', 'autostop')
 
     def __init__(self,
@@ -53,6 +54,9 @@ class AbstrSynth(baseevent.BaseEvent):
 
         self.autostop: bool = autostop
         "If True, stop the underlying csound synth when this object is deleted"
+
+    def stop(self, delay=0.) -> None:
+        raise NotImplementedError
 
     def __del__(self):
         if self.autostop:
@@ -75,40 +79,9 @@ class AbstrSynth(baseevent.BaseEvent):
             sleepfunc: the function to call when sleeping, defaults to time.sleep
         """
         internalTools.setSigintHandler()
-        try:
-            while self.playing():
-                sleepfunc(pollinterval)
-        except:
-            raise
+        while self.playing():
+            sleepfunc(pollinterval)
         internalTools.removeSigintHandler()
-
-    def get(self, slot: int | str, default: float | None = None) -> float | None:
-        """
-        Get the value of a named parameter
-
-        Args:
-            slot (int|str): the slot name/index
-            default (float): if given, this value will be returned if the slot
-                does not exist
-
-        Returns:
-            the current value of the given table slot / named pfield, or default
-            if the key does not match any named parameter
-
-        .. seealso:: :meth:`~Synth.getp`, :meth:`~Synth.set`
-
-        """
-        raise NotImplementedError
-
-
-    def _tableState(self) -> dict[str, float]:
-        """
-        Get the state of all named parameters defined through a param table
-
-        Returns:
-            a dict mapping parameter name to its current value
-        """
-        raise NotImplementedError
 
     @property
     def session(self) -> Session:
@@ -162,45 +135,49 @@ class Synth(AbstrSynth):
         synths[1].automate('ktransp', [0, 0, 10, -1])
 
     """
-    __slots__ = ('instr', '_table', 'group', '_playing', 'priority', 'p1', 'args', '_tableslice')
+    __slots__ = ('instr', 'session', 'group', '_playing', 'priority', 'p1', 'args', 'controlsSlot')
 
     def __init__(self,
-                 engine: Engine,
+                 session: Session,
                  p1: float,
                  instr: Instr,
                  start: float,
                  dur: float = -1,
                  args: list[float] | None = None,
                  autostop=False,
-                 table: ParamTable = None,
                  priority: int = 1,
-                 tableslice: int = -1
+                 controlsSlot: int = -1
                  ) -> None:
 
-        AbstrSynth.__init__(self, start=start, dur=dur, engine=engine, autostop=autostop)
+        AbstrSynth.__init__(self, start=start, dur=dur, engine=session.engine, autostop=autostop)
 
-        self.p1 = p1
+        if controlsSlot < 0 and instr.dynamicParams():
+            raise ValueError("Synth has dynamic args but was not assigned a control slot")
+        elif controlsSlot >= 1 and not instr.dynamicParams():
+            logger.warning("A control slot was assigned but this synth does not have any controls")
+
+        self.session: Session = session
+        """The parent Session of this event"""
+
+        self.p1: float = p1
         """Event id for this synth"""
 
-        self.args = args
-        """Args used for this synth (p4, p5, ...)"""
-
-        self.priority = priority
+        self.priority: int = priority
         """Priority of this synth (lower priority is evaluated first)"""
 
         self.instr: Instr = instr
         """The Instr used to create this synth"""
 
-        self._table: ParamTable | None = table
-        """A ParamTable used to define parameters if using a table"""
-
         self.args = args
         """The args used to schedule this synth"""
 
-        self._tableslice = tableslice
-        """Hold the namedargs slice"""
+        self.controlsSlot: int = controlsSlot
+        """Holds the slot for dynamic controls, 0 if this synth has no assigned slot"""
 
         self._playing: bool = True
+
+    def _tableParams(self) -> set[str] | None:
+        return self.instr.controlNames()
 
     def getInstr(self) -> Instr:
         """
@@ -217,13 +194,12 @@ class Synth(AbstrSynth):
             f'{playstr} <strong style="color:{style["name.color"]}">'
             f'{self.instr.name}</strong>:{self.p1:.4f}',
             ]
-        if self._table is not None:
-            parts.append(self._table._mappingRepr())
+
         if self.args:
-            i2n = self.instr.pargsIndexToName
+            i2n = self.instr.pfieldIndexToName
             argsstrs = []
             pargs = self.args[0:]
-            if any(arg.startswith('k') for arg in self.instr.pargsNameToIndex):
+            if any(arg.startswith('k') for arg in self.instr.pfieldNameToIndex):
                 maxi = max(i+4 for i, n in i2n.items()
                            if n.startswith('k'))
             for i, parg in enumerate(pargs, start=4):
@@ -261,11 +237,10 @@ class Synth(AbstrSynth):
     def __repr__(self):
         playstr = _synthStatusIcon[self.playStatus()]
         parts = [f'{playstr} {self.instr.name}:{self.p1} start:{self.start:.3f} dur:{self.dur:.3f}']
-        if self._table is not None:
-            parts.append(self._table._mappingRepr())
+
         if self.args:
             maxi = config['synth_repr_max_args']
-            i2n = self.instr.pargsIndexToName
+            i2n = self.instr.pfieldIndexToName
             maxi = max((i for i, name in i2n.items() if name.startswith("k")),
                        default=maxi)
             argsstrs = []
@@ -279,7 +254,6 @@ class Synth(AbstrSynth):
                     parg = f'{parg:.6g}'
                 if name:
                     s = f"{name}:{i+4}={parg}"
-                    #s = f"p{i+4}:{name}={parg:.8g}"
                 else:
                     s = f"p{i+4}={parg}"
                 argsstrs.append(s)
@@ -313,64 +287,6 @@ class Synth(AbstrSynth):
     def finished(self) -> bool:
         return self.playStatus() == 'stopped'
 
-    def _tableState(self) -> dict[str, float] | None:
-        if self._table is None:
-            return None
-        return self._table.asDict()
-
-    def _tableParams(self) -> set[str] | None:
-        if self._table is None:
-            return None
-        return set(self._table.mapping.keys())
-
-    def _setTable(self, *args, delay=0., **kws) -> None:
-        if not self._playing:
-            logger.info("synth not playing")
-
-        if not self._table:
-            logger.error("This synth has no associated table, skipping")
-            return
-
-        if delay > 0:
-            if args:
-                for key, value in iterlib.pairwise(args):
-                    slotidx = self._table.paramIndex(key)
-                    if slotidx is None:
-                        logger.debug(f"Param {key} unknown")
-                    else:
-                        self.engine.tableWrite(self._table.tableIndex, slotidx, value, delay=delay)
-            if kws:
-                for key, value in kws.items():
-                    slotidx = self._table.paramIndex(key)
-                    if slotidx is None:
-                        logger.debug(f"Param {key} unknown")
-                    else:
-                        self.engine.tableWrite(self._table.tableIndex, slotidx, value,
-                                               delay=delay)
-        else:
-            if args:
-                for key, value in iterlib.pairwise(args):
-                    self._table[key] = value
-            if kws:
-                for key, value in kws.items():
-                    self._table[key] = value
-
-    def get(self, slot: int | str, default: float = None
-            ) -> float | None:
-        if not self._playing:
-            logger.error("Synth not playing")
-            return
-
-        if self.paramMode() is None:
-            logger.info("This synth has no dynamic parameters")
-            return default
-        if self._table:
-            return self._table.get(slot, default)
-        elif slot in self._namedPfields():
-            return self.getp(slot)
-        else:
-            return default
-
     def dynamicParams(self) -> set[str]:
         """
         The set of all dynamic parameters accepted by this Synth
@@ -381,19 +297,20 @@ class Synth(AbstrSynth):
         Returns:
             a set of the dynamic (modifiable) parameters accepted by this synth
         """
-        return self.instr.dynamicParamKeys(includeRealNames=True)
+        return self.instr.dynamicParamNames(includeRealNames=True)
 
     def _namedPfields(self) -> set[str]:
-        name2idx = self.instr.pargsNameToIndex
-        return set(name2idx.keys()) if name2idx else _EMPTYSET
+        return self.instr.pfieldNames()
 
-    def setp(self, delay=0., strict=True, **kws) -> None:
+    def _sliceStart(self) -> int:
+        return self.controlsSlot * self.session.maxDynamicArgsPerInstr
+
+    def _setp(self, param: str, value: float, delay=0.) -> None:
         """
         Modify a pfield of this synth.
 
-        Multiple pfields can be modified simultaneously. It only makes sense
-        to modify a pfield if a k-rate variable was assigned to it.
-        (see example). A pfield can be referred as 'p4', 'p5', etc., or to the
+        This makes only sense if the pfield is assigned to a krate variable.
+        A pfield can be referred as 'p4', 'p5', etc., or to the
         name of the assigned k-rate variable as a string (for example, if there
         is a line "kfreq = p6", both 'p6' and 'kfreq' refer to the same pfield).
 
@@ -401,7 +318,7 @@ class Synth(AbstrSynth):
         is raised
 
         Example
-        =======
+        ~~~~~~~
 
             >>> session = Engine(...).session()
             >>> session.defInstr("sine",
@@ -412,9 +329,9 @@ class Synth(AbstrSynth):
             '''
             )
             >>> synth = session.sched('sine', args=[0.1, 440])
-            >>> synth.setp(kfreq=880)
-            >>> synth.setp(p5=0.1, p6=1000)
-            >>> synth.setp(kamp=0.2, p6=440)
+            >>> synth._setp(kfreq=880)
+            >>> synth._setp(p5=0.1, p6=1000)
+            >>> synth._setp(kamp=0.2, p6=440)
 
         .. seealso::
 
@@ -425,44 +342,15 @@ class Synth(AbstrSynth):
 
         """
         if self.playStatus() == 'future':
-            # Can we just modify the scheduled value?
+            # TODO: schedule the set operatior
+            # (Can we just modify the scheduled value?)
             return
 
-        pairsd = {}
-        instr = self.instr
-        for k, v in kws.items():
-            idx = instr.pargIndex(k, default=0)
-            if strict and idx == 0:
-                raise KeyError(f"Unknown parameter {k} for synth {self}. "
-                               f"Possible parameters: {self.dynamicParams()}")
-            if idx:
-                pairsd[idx] = v
-
-        if pairsd:
-            pairs = iterlib.flatdict(pairsd)
-            self.engine.setp(self.p1, *pairs, delay=delay)
-
-    def getp(self, pfield: int | str) -> float | None:
-        """
-        Get the current value of a pfield
-
-        Args:
-            pfield: the name/index of the pfield
-
-        Returns:
-            the current value of the given pfield
-
-        .. seealso::
-
-            - :meth:`~Synth.setp`
-            - :meth:`~Synth.automate`
-            - :meth:`~Synth.ui`
-        """
-        if self.playStatus() == 'future':
-            # Can we just modify the scheduled value?
-            return
-        idx = pfield if isinstance(pfield, int) else self.instr.pargIndex(pfield)
-        return self.engine.getp(self.p1, idx)
+        idx = self.instr.pfieldIndex(param, default=0)
+        if idx == 0:
+            raise KeyError(f"Unknown parameter {param} for synth {self}. "
+                           f"Possible parameters: {self.dynamicParams()}")
+        self.engine.setp(self.p1, idx, value, delay=delay)
 
     def ui(self, **specs: dict[str, tuple[float, float]]) -> None:
         """
@@ -504,10 +392,10 @@ class Synth(AbstrSynth):
 
         """
         from . import interact
-        if not self.instr.pargsIndexToName:
+        if not self.instr.pfieldIndexToName:
             logger.info(f"This synth has no named arguments (getInstr='{self.instr.name}')")
             return
-        pairs = list((idx, name) for idx, name in self.instr.pargsIndexToName.items()
+        pairs = list((idx, name) for idx, name in self.instr.pfieldIndexToName.items()
                      if name.startswith('k'))
         if not pairs:
             logger.error("The instrument has no dynamic (k) arguments")
@@ -517,7 +405,7 @@ class Synth(AbstrSynth):
         pargindexes, pargnames = zip(*pairs)
 
         if self.playStatus() == 'future':
-            pvalues = [self.instr.pargsIndexToDefaultValue[idx]
+            pvalues = [self.instr.pfieldIndexToValue[idx]
                        for idx in pargindexes]
         else:
             pvalues = [self.engine.getp(self.p1, idx) for idx in pargindexes]
@@ -533,16 +421,33 @@ class Synth(AbstrSynth):
                                                  startvalue=value)
         return interact.interactPargs(self.engine, self.p1, specs=paramspecs)
 
-    def hasParamTable(self) -> bool:
-        """ Returns True if this synth has an associated parameter table """
-        return self._table is not None
+    def _setTable(self, param: str, value: float, delay=0.) -> None:
+        if self.playStatus() == 'stopped':
+            logger.error(f"Synth {self} has already stopped, cannot "
+                         f"set param '{param}'")
+            return
+
+        if not self.controlsSlot:
+            raise RuntimeError("This synth has no associated slice, skipping")
+
+        slot = self.instr.controlIndex(param)
+        if delay > 0:
+            session = self.session
+            session.engine.tableWrite(tabnum=session._dynargsTabnum,
+                                      idx=self._sliceStart() + slot,
+                                      value=value,
+                                      delay=delay)
+        else:
+            self.session._setNamedControl(slicenum=self.controlsSlot, slot=slot, value=value)
 
     def _automateTable(self,
-                       param: str, pairs: list[float] | np.ndarray,
-                       mode="linear", delay=0., overtake=False) -> float:
+                       param: str,
+                       pairs: list[float] | np.ndarray,
+                       mode="linear",
+                       delay=0.,
+                       overtake=False) -> float:
         """
-        Automate a table parameter. Time stamps are relative to the start
-        of the automation
+        Automate a named parameter, time is relative to the automation start
 
         Args:
             param: the named parameter as defined in the Instr
@@ -560,18 +465,21 @@ class Synth(AbstrSynth):
             * :meth:`~Synth.get`
 
         """
-        if not self._table:
-            raise RuntimeError(f"{self.instr.name} (id={self.p1}) has no parameter table")
-        paramidx = self._table.paramIndex(param)
-        if paramidx is None:
-            raise KeyError(f"Unknown param {param} for synth {self.p1}")
-        if len(pairs)>1900:
-            raise ValueError(f"pairs is too long (max. pairs = 900, got {len(pairs)/2})")
-        return self.engine.automateTable(self._table.tableIndex, paramidx, pairs,
-                                         mode=mode, delay=delay, overtake=overtake)
+        if not self.controlsSlot:
+            raise RuntimeError(f"{self.instr.name} (id={self.p1}) was not assigned "
+                               f"a control slice")
 
-    def paramMode(self) -> str | None:
-        return self.instr.paramMode()
+        if self.playStatus() == 'stopped':
+            logger.error(f"Synth {self} has already stopped, cannot "
+                         f"mset param '{param}'")
+            return 0.
+
+        return self.session.automateDynamicParam(synth=self,
+                                                 param=param,
+                                                 pairs=pairs,
+                                                 mode=mode,
+                                                 overtake=overtake,
+                                                 delay=delay)
 
     def automate(self,
                  param: str,
@@ -579,7 +487,6 @@ class Synth(AbstrSynth):
                  mode='linear',
                  delay=0.,
                  overtake=False,
-                 strict=True
                  ) -> float:
         """
         Automate any named parameter of this Synth
@@ -596,10 +503,9 @@ class Synth(AbstrSynth):
         Returns:
             the eventid of the automation event.
         """
-        if strict:
-            params = self.dynamicParams()
-            if param not in params:
-                raise KeyError(f"Unknown parameter {param} for {self}. Possible parameters: {params}")
+        params = self.dynamicParams()
+        if param not in params:
+            raise KeyError(f"Unknown parameter {param} for {self}. Possible parameters: {params}")
         now = self.engine.elapsedTime()
         automStart = now + delay + pairs[0]
         automEnd = now + delay + pairs[-2]
@@ -619,25 +525,23 @@ class Synth(AbstrSynth):
         if pairs[0] > 0:
             pairs, delay = internalTools.consolidateDelay(pairs, delay)
 
-        paramMode = self.instr.paramMode()
-        if paramMode == 'table':
+        if (tabargs := self._tableParams()) and param in tabargs:
             return self._automateTable(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
-        elif paramMode == 'parg':
-            return self._automatep(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
+        elif param.startswith('p') or ((pargs := self._namedPfields()) and param in pargs):
+            return self._automatePfield(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
         else:
-            raise RuntimeError("This Synth does not define any dynamic parameters")
+            raise KeyError(f"Unknown parameter '{param}', supported parameters: {self.dynamicParams()}")
 
-
-    def _automatep(self, param: int | str, pairs: list[float] | np.ndarray,
-                   mode="linear", delay=0., overtake=False) -> float:
+    def _automatePfield(self, param: int | str, pairs: list[float] | np.ndarray,
+                        mode="linear", delay=0., overtake=False) -> float:
         if self.playStatus() == 'stopped':
             raise RuntimeError("This synth has already stopped, cannot automate")
 
         if isinstance(param, str):
-            pidx = self.instr.pargIndex(param)
+            pidx = self.instr.pfieldIndex(param)
             if not pidx:
                 raise KeyError(f"parg {param} not known. "
-                               f"Known pargs: {self.instr.pargsIndexToName}")
+                               f"Known pargs: {self.instr.pfieldIndexToName}")
         else:
             pidx = param
         synthid = self.engine.automatep(self.p1, pidx=pidx, pairs=pairs,
@@ -682,7 +586,7 @@ def _synthsCreateHtmlTable(synths: list[Synth]) -> str:
 
     if synth0.args:
         maxi = config['synth_repr_max_args']
-        i2n = instr0.pargsIndexToName
+        i2n = instr0.pfieldIndexToName
         maxi = max((i for i, name in i2n.items() if name.startswith("k")),
                    default=maxi)
         for i, parg in enumerate(synth0.args):
@@ -853,40 +757,19 @@ class SynthGroup(AbstrSynth):
             synthids.append(synthid)
         return synthids
 
-    def _automatep(self,
-                   param: int | str,
-                   pairs: list[float] | np.ndarray,
-                   mode="linear",
-                   delay=0.,
-                   overtake=False) -> list[float]:
-        return [synth._automatep(param, pairs, mode=mode, delay=delay, overtake=overtake)
-                for synth in self.synths if synth.paramMode() == 'parg']
-
-    def hasParamTable(self) -> bool:
-        return any(s.hasParamTable() is not None for s in self.synths)
-
-    def paramMode(self) -> str | None:
-        modes = set(mode for synth in self.synths
-                    if (mode:=synth.paramMode()) is not None)
-        if len(modes) == 0:
-            return None
-        elif len(modes) == 1:
-            return modes.pop()
-        else:
-            raise ValueError("This group has multiple param modes")
-
-    def _tableState(self) -> dict[str, float] | None:
-        dicts = [d for s in self.synths if (d:=s._tableState())]
-        if not dicts:
-            return None
-        out = dicts[0]
-        for d in dicts[1:]:
-            out.update(d)
-        return out
-
-    def _uniqueInstr(self) -> bool:
-        instr0 = self.synths[0].instr
-        return all(synth.instr == instr0 for synth in self.synths if synth.playing())
+    def _automatePfield(self,
+                        param: int | str,
+                        pairs: list[float] | np.ndarray,
+                        mode="linear",
+                        delay=0.,
+                        overtake=False) -> list[float]:
+        eventids = [synth._automatePfield(param, pairs, mode=mode, delay=delay, overtake=overtake)
+                    for synth in self.synths
+                    if param in synth.instr.dynamicPfieldNames()]
+        if not eventids:
+            raise ValueError(f"Parameter '{param}' unknown for group, possible "
+                             f"parameters: {self.dynamicParams()}")
+        return eventids
 
     def _htmlTable(self) -> str:
         subgroups = iterlib.classify(self.synths, lambda synth: synth.getInstr.name)
@@ -943,29 +826,22 @@ class SynthGroup(AbstrSynth):
     def __iter__(self):
         return iter(self.synths)
 
-    def _setTable(self, *args, delay=0, **kws) -> None:
+    def _setTable(self, param: str, value: float, delay=0) -> None:
+        count = 0
         for synth in self.synths:
-            synth._setTable(*args, delay=delay, **kws)
-
-    def get(self, idx: int | str, default=None) -> list[float | None]:
-        """
-        Get the value of a named parameter
-
-        If a synth in this group is not playing or hasn't a tabarg
-        with the given name/idx, `default` is returned for that
-        slot. The returned list has the same size as the number of
-        synths in this group
-        """
-        return [synth.get(idx, default=default) for synth in self.synths]
-
-    def setp(self, delay=0., strict=True, **kws) -> None:
-        if strict:
-            allparams = self.dynamicParams()
-            for k in kws.keys():
-                if k not in allparams:
-                    raise KeyError(f"Parameter {k} unknown. Possible parameters: {allparams}")
+            if param in synth.dynamicParams():
+                synth._setTable(param=param, value=value, delay=delay)
+                count += 1
+        if count == 0:
+            raise KeyError(f"Parameter '{param}' unknown. "
+                           f"Possible parameters: {self.dynamicParams()}")
+            
+    def _setp(self, param: str, value: float, delay=0.) -> None:
+        allparams = self.dynamicParams()
+        if param not in allparams:
+            raise KeyError(f"Parameter {param} unknown. Possible parameters: {allparams}")
         for synth in self.synths:
-            synth.setp(delay=delay, strict=False, **kws)
+            synth._setp(param=param, value=value, delay=delay)
 
     def _tableParams(self) -> set[str]:
         """

@@ -157,10 +157,22 @@ _('sched_latency', 0.,
 _('datafile_format', 'gen23',
   choices={'gen23', 'wav'},
   doc='Format used when saving a table as a datafile')
-_('tabargs_method', 'slice',
-  choices=('slice', 'table'),
-  doc='Method use to define named table arguments. "slice" uses a big table and allocates' \
-      'a slice for each synth. "table" allocates an entire table for each event')
+
+_('max_dynamic_args_per_instr', 10,
+  range=(2, 512),
+  doc='Max. number of dynamic parameters per instr')
+
+_('session_priorities', 10,
+  range=(1, 99),
+  doc='Number of priorities within a session')
+
+_('dynamic_args_num_slots', 1000,
+  range=(10, 9999999),
+  doc='Number of slots for dynamic parameters. args slices. Dynamic args are implemented as a big '
+      'array divided in slices. This parameter sets the max. number of '
+      'such slices, and thus the max number of simultaneous events with named '
+      'args which can coexist. The size of the allocated table will be '
+      'size = num_dynamic_args_slices * max_instr_dynamic_args.')
 
 # Plotting
 _('spectrogram_colormap', 'inferno', choices={'viridis', 'plasma', 'inferno', 'magma', 'cividis'})
