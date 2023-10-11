@@ -393,13 +393,17 @@ class Session(AbstractRenderer):
         self.numPriorities: int = priorities if priorities else config['session_priorities']
         "Number of priorities in this Session"
 
+        if not isinstance(self.numPriorities, int) or self.numPriorities < 2:
+            raise ValueError(f"Invalid number of priorites. Expected an int >= 2, got "
+                             f"{self.numPriorities}")
+
         self._instrIndex: dict[int, Instr] = {}
         """A dict mapping instr id to Instr. This keeps track of defined instruments"""
 
         self._sessionInstrStart = engineorc.CONSTS['sessionInstrsStart']
         """Start of the reserved instr space for session"""
 
-        bucketSizeCurve = bpf4.expon(0.7, 1, 500, self.numPriorities, 100)
+        bucketSizeCurve = bpf4.expon(0.7, 1, 500, self.numPriorities, 50)
         bucketSizes = [int(size) for size in bucketSizeCurve.map(self.numPriorities)]
         bucketIndices = [self._sessionInstrStart + sum(bucketSizes[:i])
                          for i in range(self.numPriorities)]
