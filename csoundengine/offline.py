@@ -839,7 +839,12 @@ class Renderer(AbstractRenderer):
                            f"{self._instrdefs.keys()}")
 
         instrnum = self.commitInstrument(instrname, priority)
+
+        if args and isinstance(args, list):
+            args = {5 + i: arg for i, arg in enumerate(args)}
+
         args = kws if not args else args | kws
+
         if args:
             pkws, controlkws = instr.distributeArgs(args)
         else:
@@ -849,7 +854,6 @@ class Renderer(AbstractRenderer):
             # itoken = p4, inumitems = p5
             itoken = self._dynargsAssignToken()
             controlvalues = instr.overrideControls(d=controlkws)
-            print(f"******** {controlkws=}, {controlvalues=}")
             self.csd.addEvent(instr='_setDynamicControls',
                               start=max(delay - self.ksmps/self.sr, 0.),
                               dur=0,

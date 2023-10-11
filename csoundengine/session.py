@@ -466,7 +466,6 @@ class Session(AbstractRenderer):
         while self._acceptingMessages:
             task = self.inbox.get()
             if callable(task):
-                print("Calling func", task)
                 task()
             elif isinstance(task, str):
                 print(f"Message: '{task}'")
@@ -1200,20 +1199,21 @@ class Session(AbstractRenderer):
             raise ValueError(f"Instrument '{instrname}' not defined. Known instruments: "
                              f"{self.instrs}")
 
+        if args and isinstance(args, list):
+            args = {5 + i: arg for i, arg in enumerate(args)}
+
         args = pkws if not args else args | pkws
-        kwargs, kwtabargs = args, None
 
         if args:
-            params = instr.paramDefaultValues(includeRealNames=True)
+            params = instr.paramNames(includeRealNames=True)
             for k in args:
                 if k not in params:
                     raise KeyError(f"arg '{k}' not known for instr '{instr.name}'. "
                                    f"Possible args: {params}")
 
-            if instr.controls:
-                kwargs, kwtabargs = _tools.splitDict(args,
-                                                     keys1=instr.pfieldNames(),
-                                                     keys2=instr.controlNames())
+            kwargs, kwtabargs = instr.distributeArgs(args)
+        else:
+            kwargs, kwtabargs = None, None
 
         rinstr, needssync = self.prepareSched(instrname, priority, block=True)
 

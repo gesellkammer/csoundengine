@@ -1320,7 +1320,7 @@ class AudioDevice:
 
 
 @_cachetools.cached(cache=_cachetools.TTLCache(10, 20))
-def getDefaultAudioDevices(backend: str = None) -> tuple[AudioDevice, AudioDevice]:
+def getDefaultAudioDevices(backend='') -> tuple[AudioDevice, AudioDevice]:
     """
     Returns the default audio devices for a given backend
 
@@ -1339,7 +1339,7 @@ def getDefaultAudioDevices(backend: str = None) -> tuple[AudioDevice, AudioDevic
 
 
 @_cachetools.cached(cache=_cachetools.TTLCache(10, 20))
-def getAudioDevices(backend: str | None = None) -> tuple[list[AudioDevice], list[AudioDevice]]:
+def getAudioDevices(backend='') -> tuple[list[AudioDevice], list[AudioDevice]]:
     """
     Returns (indevices, outdevices), where each of these lists is an AudioDevice.
 
@@ -1379,7 +1379,7 @@ def getAudioDevices(backend: str | None = None) -> tuple[list[AudioDevice], list
     return backendDef.audioDevices()
 
 
-def getSamplerateForBackend(backend: str | None = None) -> int | None:
+def getSamplerateForBackend(backend='') -> int | None:
     """
     Returns the samplerate reported by the given backend
 
@@ -1402,7 +1402,7 @@ def _csoundTestJackRunning():
     return b'could not connect to JACK server' not in proc.stderr.read()
 
 
-def audioBackends(available=False, platform: str = '') -> list[AudioBackend]:
+def audioBackends(available=False, platform='') -> list[AudioBackend]:
     """
     Return a list of audio backends for the given platform
     
@@ -1458,7 +1458,7 @@ def dumpAudioBackends() -> None:
     print_table(rows, headers=headers, showindex=False)
 
 
-def getAudioBackend(name: str | None = None) -> AudioBackend | None:
+def getAudioBackend(name='') -> AudioBackend | None:
     """ Given the name of the backend, return the AudioBackend structure
 
     Args:
@@ -1477,12 +1477,12 @@ def getAudioBackend(name: str | None = None) -> AudioBackend | None:
     coreaudio  alias to auhal         ✗        ✗        ✓
     ========== =================== ======= ========= =======
     """
-    if name is None:
+    if not name:
         return getDefaultBackend()
     return _allAudioBackends.get(name)
 
 
-def getAudioBackendNames(available=False, platform:str=None) -> list[str]:
+def getAudioBackendNames(available=False, platform='') -> list[str]:
     """
     Returns a list with the names of the audio backends for a given platform
 
@@ -1572,7 +1572,7 @@ _defaultEncodingForFormat = {
 
 
 def csoundOptionsForOutputFormat(fmt='wav',
-                                 encoding: str | None = None
+                                 encoding=''
                                  ) -> list[str]:
     """
     Returns the command-line options for the given format+encoding
@@ -1600,9 +1600,9 @@ def csoundOptionsForOutputFormat(fmt='wav',
     """
     assert fmt in _defaultEncodingForFormat, f"Unknown format: {fmt}, possible formats are: " \
                                              f"{_defaultEncodingForFormat.keys()}"
-    if encoding is None:
+    if not encoding:
         encoding = _defaultEncodingForFormat.get(fmt)
-        if encoding is None:
+        if not encoding:
             raise ValueError(f"Default encoding unknown for format {fmt}")
     encodingOption = csoundOptionForSampleEncoding(encoding)
     fmtOption = _optionForSampleFormat[fmt]
@@ -1933,7 +1933,7 @@ class Csd:
                          data: Sequence[float] | np.ndarray,
                          tabnum: int = 0,
                          start=0,
-                         filefmt: str | None = None,
+                         filefmt='',
                          sr=0,
                          ) -> int:
         """
@@ -1944,7 +1944,7 @@ class Csd:
                 table is determined by the size of the seq.
             tabnum: 0 to auto-assign an index
             start: allocation time of the table
-            filefmt: format to use when saving the table as a datafile. If None,
+            filefmt: format to use when saving the table as a datafile. If not given,
                 the default is used. Possible values: 'gen23', 'wav'
             sr: if given and data is a numpy array, it is saved as a soundfile
                 and loaded via gen1
@@ -2662,9 +2662,9 @@ def ftsaveRead(path, mode="text") -> list[np.ndarray]:
         raise ValueError(f"mode {mode} not supported")
 
 
-def getNchnls(backend: str | None = None,
-              outpattern: str | None = None,
-              inpattern: str | None = None,
+def getNchnls(backend='',
+              outpattern='',
+              inpattern='',
               defaultin=2,
               defaultout=2
               ) -> tuple[int, int]:
@@ -2690,7 +2690,7 @@ def getNchnls(backend: str | None = None,
     if not backendDef:
         raise RuntimeError(f"Backend '{backend}' not found")
     adc, dac = backendDef.defaultAudioDevices()
-    if outpattern is None:
+    if not outpattern:
         outdev = dac
     else:
         outdev = backendDef.searchAudioDevice(outpattern, kind='output')
@@ -2700,7 +2700,7 @@ def getNchnls(backend: str | None = None,
             raise ValueError(f"Output device '{outpattern}' not found. Possible devices "
                              f"are: {outdevids}")
     nchnls = outdev.numchannels if outdev.numchannels is not None else defaultout
-    if inpattern is None:
+    if not inpattern:
         indev = adc
     else:
         indev = backendDef.searchAudioDevice(inpattern, kind='input')
@@ -2761,13 +2761,13 @@ def _parsePortaudioDeviceName(name:str) -> tuple[str, str, int, int]:
     return devname.strip(), api, inch, outch
 
 
-def _getNchnlsPortaudio(indevice:str | None, outdevice:str | None
+def _getNchnlsPortaudio(indevice='', outdevice=''
                         ) -> tuple[int, int]:
     indevs, outdevs = getAudioDevices(backend="portaudio")
     assert indevice != "dac" and outdevice != "adc"
-    if indevice is None or indevice == "adc":
+    if not indevice or indevice == "adc":
         indevice = r"\bdefault\b"
-    if outdevice is None or outdevice == "dac":
+    if not outdevice or outdevice == "dac":
         outdevice = r"\bdefault\b"
 
     for indev in indevs:
@@ -2788,7 +2788,7 @@ def _getNchnlsPortaudio(indevice:str | None, outdevice:str | None
     return max_input_channels, max_output_channels
 
 
-def dumpAudioDevices(backend:str=None):
+def dumpAudioDevices(backend=''):
     """
     Print a list of audio devices for the given backend.
 

@@ -654,7 +654,7 @@ class Instr:
         return params
 
     def distributeArgs(self, args: dict[str, float]
-                       ) -> tuple[dict[str, float], dict[str, float]]:
+                       ) -> tuple[dict[str | int, float], dict[str, float]]:
         if not self.controls:
             return (args, _EMPTYDICT)
         else:
@@ -663,7 +663,7 @@ class Instr:
             pfieldNames = self.pfieldNames()
             controlNames = self.controlNames()
             for arg, value in args.items():
-                if arg.startswith('p') or arg in pfieldNames:
+                if isinstance(arg, int) or arg.startswith('p') or arg in pfieldNames:
                     pargs[arg] = value
                 else:
                     assert arg in controlNames

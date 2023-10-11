@@ -172,7 +172,7 @@ def splitDict(d: dict[str, float],
 
 def instrResolveArgs(instr: Instr,
                      p4: int,
-                     pargs: list[float] | dict[str, float] | None = None,
+                     pargs: list[float] | dict[str | int, float] | None = None,
                      pkws: dict[str, float] | None = None,
                      ) -> list[float]:
     """
