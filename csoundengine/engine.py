@@ -223,7 +223,6 @@ def _channelMode(kind: str) -> int:
         raise ValueError(f"Expected r, w or rw, got {kind}")
 
 
-
 class Engine:
     """
     Implements a simple interface to run and control a csound process.
@@ -334,11 +333,12 @@ class Engine:
                  numControlBuses: int | None = None,
                  quiet: bool = None,
                  udpserver: bool = None,
-                 udpport: int=0,
+                 udpport: int = 0,
                  commandlineOptions: list[str] | None = None,
                  includes: list[str] | None = None,
                  midibackend: str = 'default',
                  midiin: str | None = None,
+                 autosync=False,
                  latency: float | None = None):
         if not name:
             name = _generateUniqueEngineName()
@@ -361,7 +361,6 @@ class Engine:
             else:
                 logger.error(f"Backend {backend} not available. Available backends: "
                              f"{availableBackends}")
-
 
         cascadingBackends = [b.strip() for b in backend.split(",")]
         resolvedBackend = internalTools.resolveOption(cascadingBackends,
@@ -542,6 +541,9 @@ class Engine:
         self.csound: None | ctcsound.Csound = None
         "The csound object"
 
+        self.autosync = autosync
+        """If True, call .sync whenever is needed"""
+
         backendBufferSize, backendNumBuffers = backendDef.bufferSizeAndNum()
         buffersize = (buffersize or backendBufferSize or config['buffersize'] or 256)
         buffersize = max(ksmps * 2, buffersize)
@@ -606,6 +608,9 @@ class Engine:
         self._strToIndex: dict[str, int] = {}
         self._strLastIndex = 20
 
+        # Marks the last modification to the state of the engine, to track sync
+        self._lastModification = 0.
+
         # global code added to this engine
         self._globalCode: dict[str, str] = {}
 
@@ -633,9 +638,6 @@ class Engine:
         # feedback from csound
         self._responseCallbacks: dict[int, Callable] = {}
 
-        # a dict mapping tableindex to fractional instr number
-        self._assignedTables: dict[int, float] = {}
-
         self._tableCache: dict[int, np.ndarray] = {}
         self._tableInfo: dict[int, TableInfo] = {}
 
@@ -659,7 +661,6 @@ class Engine:
 
         self._reservedInstrnums: set[int] = set()
         self._reservedInstrnumRanges: list[tuple[str, int, int]] = [('builtinorc', CONSTS['reservedInstrsStart'], CONSTS['userInstrsStart']-1)]
-
         self.start()
 
     def reservedInstrRanges(self) -> list[tuple[str, int, int]]:
@@ -760,26 +761,18 @@ class Engine:
         """ Release token back to pool when done """
         self._tokens.append(token)
 
-    def _assignTableNumber(self, p1=-1.) -> int:
+    def _assignTableNumber(self) -> int:
         """
         Return a free table number and mark that as being used.
         To release the table, call unassignTable
 
-        Args:
-            p1: the p1 of an instr instance if this table is assigned to
-                a specific instance, or -1 to mark is as a free-standing table
-                (the default)
-            
         Returns:
             the table number (an integer)
         """
         if len(self._tablePool) == 0:
             raise RuntimeError("Table pool is empty")
 
-        tabnum = self._tablePool.pop()
-        assert tabnum not in self._assignedTables and tabnum is not None
-        self._assignedTables[tabnum] = p1
-        return tabnum
+        return self._tablePool.pop()
 
     def _assignEventId(self, instrnum: int | str) -> float:
         """
@@ -899,10 +892,9 @@ class Engine:
         self._perfThread = pt
         if config['set_sigint_handler']:
             internalTools.setSigintHandler()
-        # time.sleep(0.05)
+
         self._subgainsTable = self.csound.table(self._builtinTables['subgains'])
         self._responsesTable = self.csound.table(self._builtinTables['responses'])
-
 
         chanptr, err = self.csound.channelPtr("_soundfontPresetCount",
                                               ctcsound.CSOUND_CONTROL_CHANNEL |
@@ -924,11 +916,12 @@ class Engine:
             logger.info("Server started without bus support")
         self._setupCallbacks()
         time.sleep(0.2)
-        self.sync()
+        self.sync(force=True)
 
     def _setupGlobalInstrs(self):
         if self.hasBusSupport():
             self._perfThread.scoreEvent(0, "i", [self.builtinInstrs['clearbuses_post'], 0, -1])
+        self._needsSync()
 
     def stop(self):
         """
@@ -954,6 +947,7 @@ class Engine:
         self._instrRegistry = {}
         self.activeEngines.pop(self.name, None)
         self.started = False
+        self._session = None
 
     def start(self):
         """
@@ -979,6 +973,7 @@ class Engine:
         strsets = ["cos", "linear", "smooth", "smoother"]
         for s in strsets:
             self.strSet(s)
+        self._needsSync()
         self.sync()
 
     def restart(self, wait=1) -> None:
@@ -988,17 +983,17 @@ class Engine:
             _termui.waitWithAnimation(wait)
         self.start()
         
-    def _outcallback(self, _, channelName, valptr, chantypeptr):
+    def _outvalueCallback(self, _, channelName, valptr, chantypeptr):
         func = self._outvalueCallbacks.get(channelName)
         if not func:
             logger.error(f"outvalue: callback not set for channel {channelName}")
             return
         if valptr is not None:
             val = _ctypes.cast(valptr, _MYFLTPTR).contents.value
-            logger.debug(f'outvalue triggered for channel {channelName}, calling func {func} with val {val}')
+            logger.debug(f"Outvalue triggered for channel '{channelName}', calling func {func} with val {val}")
             func(channelName, val)
         else:
-            logger.warning(f"outcallback: {channelName=} called with null pointer, skipping")
+            logger.warning(f"outvalueCallback: {channelName=} called with null pointer, skipping")
 
     def _setupCallbacks(self) -> None:
         assert self.csound is not None
@@ -1018,10 +1013,10 @@ class Engine:
             else:
                 logger.error(f"Unknown sync token: {token}")
 
-        self._outvalueCallbacks[bytes("__sync__", "ascii")] = _syncCallback
-        self.csound.setOutputChannelCallback(self._outcallback)
+        self.registerOutvalueCallback("__sync__", _syncCallback)
+        self.csound.setOutputChannelCallback(self._outvalueCallback)
 
-    def registerOutvalueCallback(self, chan:str, func: callback_t) -> None:
+    def registerOutvalueCallback(self, chan: str, func: callback_t) -> None:
         """
         Set a callback to be fired when "outvalue" is used in csound
 
@@ -1068,18 +1063,21 @@ class Engine:
         """
         return self.ksmps/self.sr * 2
 
-    def sync(self, timeout: float = None) -> None:
+    def sync(self, timeout: float = None, threshold=2., force=False) -> None:
         """
         Block until csound has processed its immediate events
 
         Args:
             timeout: a timeout in seconds; None = use default timeout as defined
                 in the configuration (TODO: add link to configuration docs)
+            threshold: if this time has elapsed from last modification assume
+                that sync is not needed
+            force: if True, sync even if not needed
 
         Raises TimeoutError if the sync operation takes too long
 
         Example
-        =======
+        ~~~~~~~
 
             >>> from csoundengine import *
             >>> e = Engine(...)
@@ -1087,11 +1085,21 @@ class Engine:
             >>> e.sync()
             >>> # do something with the tables
         """
+        if self._lastModification == 0 and not force:
+            return
+
+        t = time.time()
+        if not force and threshold and t - self._lastModification > threshold:
+            self._lastModification = 0
+            return
+
         assert self._perfThread
         # self._perfThread.flushMessageQueue()
         token = self._getSyncToken()
         pargs = [self.builtinInstrs['pingback'], 0, 0, token]
         self._eventWait(token, pargs, timeout=timeout)
+        self._lastModification = 0
+        logger.debug(f"Synched at {t}")
 
     def _compileCode(self, code: str, block=False) -> None:
         if self.udpPort and config['prefer_udp']:
@@ -1116,6 +1124,10 @@ class Engine:
                     logger.error("compileOrcAsync error: ")
                     logger.error(internalTools.addLineNumbers(code))
                     raise CsoundError("Could not compile async")
+        self._needsSync()
+
+    def _needsSync(self, status=True) -> None:
+        self._lastModification = time.time() if status else 0
 
     def _compileInstr(self, instrname: str|int, code: str, block=False) -> None:
         self._instrRegistry[instrname] = code
@@ -1139,8 +1151,6 @@ class Engine:
             code (str): the code to compile
             block (bool): if True, this method will block until the code
                 has been compiled
-            client: who is compiling this code. Some clients have access to
-
 
         Raises :class:`CsoundError` if the compilation failed
 
@@ -1154,7 +1164,7 @@ class Engine:
             circumstances
 
         Example
-        =======
+        ~~~~~~~
 
             >>> e = Engine()
             >>> e.compile("giMelody[] fillarray 60, 62, 64, 65, 67, 69, 71")
@@ -1220,7 +1230,7 @@ class Engine:
         ``self.bufferLatency()``
 
         Example
-        =======
+        ~~~~~~~
 
             >>> e = Engine()
             >>> e.compile(r'''
@@ -1241,7 +1251,9 @@ class Engine:
         words = code.split()
         if words[0] != "return":
             code = "return " + code
-        return self.csound.evalCode(code)
+        out = self.csound.evalCode(code)
+        self._needsSync(False)
+        return out
 
     def tableWrite(self, tabnum: int, idx: int, value: float, delay=0.) -> None:
         """
@@ -1324,7 +1336,7 @@ class Engine:
         now = time.time()
         if now - lastTime > threshold:
             reportedTime = self.csound.currentTimeSamples() / self.sr
-            self._realElapsedtime = (reportedTime, now)
+            self._realElapsedTime = (reportedTime, now)
         else:
             reportedTime += now - lastTime
         return reportedTime
@@ -1564,6 +1576,9 @@ class Engine:
             delay = t0 + delay + self.extraLatency
             relative = False
 
+        if self.autosync:
+            self.sync()
+
         if isinstance(instr, float):
             instrfrac = instr
         elif isinstance(instr, int):
@@ -1630,6 +1645,7 @@ class Engine:
                     self._queryNamedInstrAsync(name, delay=delay)
             else:
                 results = {}
+
                 def mycallback(name, instrnum, n=len(names), results=results, callback=callback):
                     results[name] = instrnum
                     if len(results) == n:
@@ -1716,7 +1732,12 @@ class Engine:
         out = int(out)
         if out > 0:
             self._instrNumCache[instrname] = out
+        self._needsSync(False)
         return out
+
+    def print(self, msg: str, delay=0.) -> None:
+        instrnum = self.builtinInstrs['print']
+        self._perfThread.inputMessage(f'i {instrnum} {delay} 0. "{msg}"')
 
     def unsched(self, p1: float | str, delay: float = 0) -> None:
         """
@@ -1731,7 +1752,7 @@ class Engine:
             delay: if 0, remove the instance as soon as possible
 
         Example
-        =======
+        ~~~~~~~
 
         >>> from csoundengine import *
         >>> e = Engine(...)
@@ -1848,10 +1869,10 @@ class Engine:
                                     dynamicArgsSlots=dynamicArgsSlots,
                                     dynamicArgsPerInstr=dynamicArgsPerInstr)
         else:
-            if dynamicArgsPerInstr is not None and dynamicArgsPerInstr != self._session.maxDynamicArgsPerInstr:
+            if dynamicArgsPerInstr is not None and dynamicArgsPerInstr != self._session.dynamicArgsPerInstr:
                 logger.info(f"Asking to create a session with dynamicArgsPerInstr={dynamicArgsPerInstr}, "
                             f"which differs from the value of the current session "
-                            f"({self._session.maxDynamicArgsPerInstr}). The old value will be kept")
+                            f"({self._session.dynamicArgsPerInstr}). The old value will be kept")
             if dynamicArgsSlots is not None and dynamicArgsSlots != self._session._dynargsNumSlices:
                 logger.info(f"Asking to create a session with dynamicArgsSlices={dynamicArgsSlots}, "
                             f"which differs from the value of the current session "
@@ -1877,9 +1898,17 @@ class Engine:
         """
         self._reservedInstrnumRanges.append((name, mininstrnum, maxinstrnum))
 
-    def makeEmptyTable(self, size, numchannels=1, sr=0, eventid: float = -1.) -> int:
+    def makeEmptyTable(self, size, numchannels=1, sr=0
+                       ) -> int:
         """
         Create an empty table, returns the index of the created table
+
+        Args:
+            size: the size of the table
+            numchannels: if the table will be used to hold audio, the
+                number of channels of the audio
+            sr: the samplerate of the audio, if the table is used to hold audio
+
 
         Example
         ~~~~~~~
@@ -1910,20 +1939,20 @@ class Engine:
             :meth:`~Engine.automateTable`
 
         """
-        tabnum = self._assignTableNumber(p1=eventid)
+        tabnum = self._assignTableNumber()
         self._perfThread.scoreEvent(0, "f", [tabnum, 0, -size, -2, 0])
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         if sr != 0:
             self.setTableMetadata(tabnum, sr=sr, numchannels=numchannels)
+        self._needsSync()
         return tabnum
 
     def makeTable(self,
                   data: Sequence[float] | np.ndarray,
-                  tabnum: int = 0,
+                  tabnum: int = -1,
                   sr: int = 0,
                   block=True,
                   callback=None,
-                  _instrnum=-1.
                   ) -> int:
         """
         Create a new table and fill it with data.
@@ -1931,19 +1960,18 @@ class Engine:
         Args:
             data: the data used to fill the table
             tabnum: the table number. If -1, a number is assigned by the engine.
-                If 0, a number is assigned by csound (only possible in block or
-                callback mode)
+                If 0, a number is assigned by csound (this operation will be blocking
+                if no callback was given)
             block: wait until the table is actually created
             callback: call this function when ready - f(token, tablenumber) -> None
             sr: only needed if filling sample data. If given, it is used to fill the
                 table metadata in csound, as if this table had been read via gen01
-            _instrnum: the instrument this table should be assigned to, if applicable
 
         Returns:
             the index of the new table, if wait is True
 
         Example
-        =======
+        ~~~~~~~
 
         .. code-block:: python
 
@@ -1965,7 +1993,7 @@ class Engine:
 
         """
         if tabnum == -1:
-            tabnum = self._assignTableNumber(p1=_instrnum)
+            tabnum = self._assignTableNumber()
         elif tabnum == 0 and not callback:
             block = True
         if block or callback or len(data) >= 1900:
@@ -1994,6 +2022,7 @@ class Engine:
         arr[4:] = data
         self._perfThread.scoreEvent(0, "f", arr)
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
+        self._needsSync()
         return int(tabnum)
 
     def tableExists(self, tabnum: int) -> bool:
@@ -2038,13 +2067,14 @@ class Engine:
             else:
                 logger.debug(f"setTableMetadata: table {tabnum} was not created by this Engine")
         self._perfThread.scoreEvent(0, "i", pargs)
+        self._needsSync()
 
     def _registerSync(self, token: int) -> _queue.Queue:
         q = _queue.Queue()
         self._responseCallbacks[token] = lambda token, q=q, table=self._responsesTable: q.put(table[token])
         return q
 
-    def schedCallback(self, delay: float, callback: Callable) -> None:
+    def callLater(self, delay: float, callback: Callable) -> None:
         """
         Call callback after delay, triggered by csound scheduler
 
@@ -2056,14 +2086,17 @@ class Engine:
         (~ 2/3 k-cycles after, never before)
 
         Example
-        =======
+        ~~~~~~~
 
         >>> from csoundengine import *
         >>> import time
         >>> e = Engine()
         >>> startTime = time.time()
-        >>> e.schedCallback(2, lambda:print(f"Elapsed time: {time.time() - startTime}"))
+        >>> e.callLater(2, lambda:print(f"Elapsed time: {time.time() - startTime}"))
         """
+        if delay == 0:
+            callback()
+            return
         token = self._getSyncToken()
         pargs = [self.builtinInstrs['pingback'], delay, 0.01, token]
         self._eventWithCallback(token, pargs, lambda token: callback())
@@ -2276,7 +2309,6 @@ class Engine:
         except _queue.Empty:
             raise TimeoutError(f"{token=}, {instr=}")
 
-
     def _eventWithCallback(self, token:int, pargs, callback) -> None:
         """
         Create a csound "i" event with the given pargs with the possibility
@@ -2348,7 +2380,6 @@ class Engine:
         This function passes the str inputMessage to csound and before that
         sets a callback waiting for an outvalue notification. If no callback
         is passed the function will block until the instrument notifies us
-        via outvalue "__sync__"
 
         Args:
             token: a sync token, assigned via _getSyncToken
@@ -2401,6 +2432,7 @@ class Engine:
             pargs = [maketableInstrnum, delay, 0, token, tabnum, size, empty,
                      sr, numchannels]
         else:
+            # Create table with data
             if not isinstance(data, np.ndarray):
                 data = np.asarray(data)
             numchannels = internalTools.arrayNumChannels(data)
@@ -2455,6 +2487,7 @@ class Engine:
         Args:
             channel: the name of the channel
             kind: one of 'control' or 'audio' (string channels are not supported yet)
+            mode: the kind of channel, 'r', 'w' or 'rw'
 
         Returns:
             a numpy array of either 1 or ksmps size
@@ -2481,7 +2514,7 @@ class Engine:
 
         Args:
             channel: the name of the channel
-            value: the new value, should math the type of the channel (a float for
+            value: the new value, should match the type of the channel (a float for
                 a control channel, a string for a string channel or a numpy array
                 for an audio channel)
             method: one of ``'api'``, ``'score'``, ``'udp'``. None will choose the most appropriate
@@ -2489,7 +2522,7 @@ class Engine:
             delay: a delay to set the channel
 
         Example
-        =======
+        ~~~~~~~
 
         >>> from csoundengine import *
         >>> e = Engine()
@@ -2532,6 +2565,7 @@ class Engine:
                 instrnum = self.builtinInstrs['chnsets']
                 s = f'i {instrnum} {delay} 0 "{channel}" "{value}"'
                 self._perfThread.inputMessage(s)
+            self._needsSync()
         elif method == 'udp':
             if not self.udpPort:
                 raise RuntimeError("This server has been started without udp support")
@@ -2572,7 +2606,7 @@ class Engine:
                 and read from the api
 
         Example
-        =======
+        ~~~~~~~
 
         >>> from csoundengine import *
         >>> e = Engine()
@@ -2624,7 +2658,7 @@ class Engine:
             does not exist.
 
         Example
-        =======
+        ~~~~~~~
 
         >>> from csoundengine import *
         >>> e = Engine()
@@ -2702,8 +2736,10 @@ class Engine:
         elif method == 'api':
             if block:
                 self.csound.tableCopyIn(tabnum, data)
+                self._needsSync(False)
             else:
                 self.csound.tableCopyInAsync(tabnum, data)
+                self._needsSync()
         else:
             raise KeyError("Method not supported. Must be pointer or score")
 
@@ -2884,7 +2920,7 @@ class Engine:
             - **p5**: `kamp`
 
         Example
-        =======
+        ~~~~~~~
 
         .. code::
 
@@ -3178,7 +3214,7 @@ class Engine:
             the eventid of the instance performing the automation
 
         Example
-        =======
+        ~~~~~~~
 
         >>> engine = Engine(...)
         >>> engine.compile(r'''
@@ -3294,7 +3330,7 @@ class Engine:
 
         Args:
             s: the string to set
-            sync: if True, block until the csound process receives the message
+            sync: if True, block if needed until the csound process receives the message
 
         Returns:
             the index associated with *s*. When passed to a csound instrument
@@ -3314,12 +3350,13 @@ class Engine:
         stringIndex = self._getStrIndex()
         self._strToIndex[s] = stringIndex
         self._indexToStr[stringIndex] = s
-        # self.csound.compileOrcAsync(f'strset {stringIndex}, "{s}"\n')
         instrnum = self.builtinInstrs['strset']
         msg = f'i {instrnum} 0 0 "{s}" {stringIndex}'
         self._perfThread.inputMessage(msg)
         if sync:
             self.sync()
+        else:
+            self._needsSync()
         return stringIndex
 
     def definedStrings(self) -> dict[str, int]:
@@ -3348,13 +3385,12 @@ class Engine:
         `strset` opcode, only strings set via :meth:`~Engine.strSet`
 
         Example
-        =======
+        ~~~~~~~
 
         >>> e = Engine(...)
         >>> idx = e.strSet("foo")
         >>> e.strGet(idx)
         foo
-
 
         .. seealso:: :meth:`~Engine.strSet`
 
@@ -3366,17 +3402,17 @@ class Engine:
         self._strLastIndex += 1
         return out
 
-    def _releaseTableNumber(self, tableindex:int) -> None:
+    def _releaseTableNumber(self, tableindex: int) -> None:
         """
         Mark the given table as freed, so that it can be assigned again.
 
         It assumes that the table was deallocated already and the index
         can be assigned again.
         """
-        instrnum = self._assignedTables.pop(tableindex, None)
-        if instrnum is not None:
-            logger.debug(f"Unassigning table {tableindex} for instr {instrnum}")
+        if tableindex not in self._tablePool:
             self._tablePool.push(tableindex)
+        else:
+            logger.warning(f"Table number {tableindex} was not assigned by csoundengine")
 
     def freeTable(self, tableindex: int, delay=0.) -> None:
         """
@@ -3421,9 +3457,6 @@ class Engine:
         return self.sched(self.builtinInstrs['testaudio'], dur=dur, delay=delay,
                           args=[modeid, period, pt.db2amp(gaindb)])
 
-
-    # ~~~~~~~~~~~~~~~ UDP ~~~~~~~~~~~~~~~~~~
-
     def _udpSend(self, code: str) -> None:
         if not self.udpPort:
             logger.warning("This csound instance was started without udp")
@@ -3457,13 +3490,14 @@ class Engine:
         for msg in msgs[1:-1]:
             self._udpSocket.sendto(msg, self._sendAddr)
         self._udpSocket.sendto(msgs[-1] + b" }}", self._sendAddr)
+        self._needsSync()
 
     def udpSendScoreline(self, scoreline:str) -> None:
         """
         Send a score line to csound via udp
 
         Example
-        =======
+        ~~~~~~~
 
         >>> e = Engine(udpserver=True)
         >>> e.compile(r'''
@@ -3500,9 +3534,6 @@ class Engine:
         else:
             self._udpSend(f"%{channel} {value}")
 
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-
     def setSubGain(self, idx: int, gain: float) -> None:
         """
         Sets one of the subgains to the given value
@@ -3515,7 +3546,7 @@ class Engine:
             gain: the value of the subgain
 
         Example
-        =======
+        ~~~~~~~
 
         >>> # TODO
         """
@@ -3610,7 +3641,6 @@ class Engine:
         pargs = [self.builtinInstrs['busrelease'], 0, 0, bus]
         self._perfThread.scoreEvent(0, "i", pargs)
 
-
     def assignBus(self, kind='audio', persist=False) -> int:
         """
         Assign one audio/control bus, returns the bus number.
@@ -3648,7 +3678,7 @@ class Engine:
         For more information, see :ref:`Bus Opcodes<busopcodes>`
 
         Example
-        =======
+        ~~~~~~~
 
         Pass audio from one instrument to another. The bus will be released after the events
         are finished.
@@ -3757,7 +3787,7 @@ class Engine:
             **pfields: a dict mapping pfield to a tuple (minvalue, maxvalue)
 
         Example
-        =======
+        ~~~~~~~
 
         .. code::
 

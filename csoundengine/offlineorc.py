@@ -1,13 +1,21 @@
 from __future__ import annotations
 from functools import cache
 import textwrap
+from string import Template
 
 
 _prelude = r'''
+
+gi__dynargsNumSlots = ${controlNumSlots}
+gi__dynargsSliceSize = ${controlArgsPerInstr}
+
+gi__tokenToDynargsSlot dict_new "int:float"
+gi__dynargsSlotsPool pool_gen 1, gi__dynargsNumSlots
+gi__dynargsTableSize = gi__dynargsNumSlots * gi__dynargsSliceSize
+gi__dynargsTable ftgen 0, 0, gi__dynargsTableSize, -2, 0
+
 gi__soundfontIndexes dict_new "str:float"
 gi__soundfontIndexCounter init 1000
-; maxNumInstrs  = 10000
-gi__tokenToInstrnum ftgen 0, 0, 10000, -2, 0
 
 ; numtokens = 1000
 gi__responses   ftgen  0, 0, 1000, -2, 0
@@ -15,8 +23,38 @@ gi__responses   ftgen  0, 0, 1000, -2, 0
 gi__subgains    ftgen 0, 0, 100, -2, 0
 ftset gi__subgains, 1
 
-
 chn_k "_soundfontPresetCount", 3
+
+opcode _assignControlSlot, i, i
+    itoken xin
+    islot pool_pop gi__dynargsSlotsPool, -1
+    if islot == -1 then
+        initerror "control slots pool is empty"
+    endif
+    dict_set gi__tokenToDynargsSlot, itoken, islot
+    xout islot    
+endop
+
+opcode _getControlSlot, i, i
+    itoken xin
+    islot dict_get gi__tokenToDynargsSlot, itoken
+    if islot <= 0 then
+        ; islot = _assignControlSlot(itoken)
+        initerror sprintf("Slot not found for token %d", itoken)
+    endif
+    xout islot
+endop
+
+instr _releaseDynargsToken
+    ; to be called at end of the instr (using atstop) with dur=0
+    itoken = p4
+    islot dict_get gi__tokenToDynargsSlot, itoken
+    if islot <= 0 then
+        initerror sprintf("itoken %d has no slot assigned to it", itoken)
+    endif
+    pool_push gi__dynargsSlotsPool, islot
+    dict_del gi__tokenToDynargsSlot, itoken
+endin
 
 opcode _panweights, kk, k
     kpos xin   
@@ -62,6 +100,35 @@ instr _stop
     turnoff
 endin
 
+instr _automateControlViaPargs
+    itoken = p4
+    iparamindex = p5
+    imode = p6
+    iovertake = p7
+    ilenpairs = p8
+    
+    islot = _getControlSlot(itoken)
+    if islot <= 0 then
+        initerror sprintf("No control slot assigned to token %d", itoken)
+    endif
+    
+    iindex0 = islot * gi__dynargsSliceSize
+    iabsindex = iindex0 + iparamindex
+    
+    ipairs[] passign 9, 9+ilenpairs
+    iXs[] slicearray ipairs, 0, ilenpairs-1, 2
+    iYs[] slicearray ipairs, 1, ilenpairs-1, 2
+    Sinterpmethod = strget(imode)
+    
+    if iovertake == 1 then
+        iYs[0] = tab_i(iabsindex, gi__dynargsTable)
+    endif
+
+    kt timeinsts   ;; TODO: use eventtime
+    kidx bisect kt, iXs
+    ky interp1d kidx, iYs, Sinterpmethod
+    tabw ky, iabsindex, gi__dynargsTable
+endin
 
 instr _automatePargViaPargs
     ip1 = p4
@@ -97,69 +164,60 @@ end:
     pwrite ip1, ipindex, ky
 endin
 
-instr _automatePargViaTable
-  ; automates a parg from a table
-  ip1 = p4
-  ipindex = p5
-  itabpairs = p6  ; a table containing flat pairs t0, y0, t1, y1, ...
-  imode = p7;  interpolation method
-  Sinterpmethod = strget(imode)
-  if ftexists:i(itabpairs) == 0 then
-    initerror sprintf("Table with pairs %d does not exists", itabpairs)
-  endif 
-  ftfree itabpairs, 1
-
-  kt timeinsts
-  kidx bisect kt, itabpairs, 2, 0
-  ky interp1d kidx, itabpairs, Sinterpmethod, 2, 1
-  pwrite ip1, ipindex, ky
-endin 
-
-instr _automateTableViaTable
-  ; automates a slot within a table from another table
-  itabnum = p4
-  ipindex = p5
-  itabpairs = p6
-  imode = p7
-  Sinterpmethod = strget(imode)
-  if ftexists:i(itabpairs) == 0 then
-    initerror sprintf("Table with pairs %d does not exists", itabpairs)
-  endif 
-  ftfree itabpairs, 1
-  kt timeinsts
-  kidx bisect kt, itabpairs, 2, 0
-  ky interp1d kidx, itabpairs, Sinterpmethod, 2, 1
-  tabw ky, ipindex, itabnum
-endin 
-
 instr _pwrite
   ip1 = p4
-  inumpairs = p5
-  if inumpairs == 1 then
-    pwrite ip1, p(6), p(7)
-  elseif inumpairs == 2 then
-    pwrite ip1, p(6), p(7), p(8), p(9)
-  elseif inumpairs == 3 then
-    pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11)
-  elseif inumpairs == 4 then
-    pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13)
-  elseif inumpairs == 5 then
-    pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13), p(14), p(15)
-  else
-    initerror sprintf("Max. pairs is 5, got %d", inumpairs)
-  endif
+  ipindex = p5
+  ivalue = p6
+  pwrite ip1, ipindex, ivalue
   turnoff
 endin
+
+instr _chnset
+    ; to be called with dur 0
+    Schn = p4
+    ival = p5
+    chnset ival, Schn
+endin
+
+instr _setControl
+    itoken = p4
+    iindex = p5
+    ivalue = p6
+    islot = _getControlSlot(itoken)
+    if islot <= 0 then
+        initerror sprintf("Control slot not assigned for token %d", itoken)
+    endif
+    iindex0 = islot * gi__dynargsSliceSize
+    tabw_i ivalue, iindex0 + iindex, gi__dynargsTable
+endin
+
+instr _setDynamicControls
+    ; to be called with dur 0
+    itoken = p4
+    inumitems = p5
+    islot = _assignControlSlot(itoken)
+    ivalues[] passign 6, 6+inumitems
+    iindex = islot * gi__dynargsSliceSize
+    copya2ftab ivalues, gi__dynargsTable, iindex
+endin
+
+; -------------------- end prelude -----------------
 
 '''
 
 
-@cache
-def prelude() -> str:
+# @cache
+def prelude(controlNumSlots: int,
+            controlArgsPerInstr: int,
+            ) -> str:
     """
     Dedented version of _prelude
+
     """
-    return textwrap.dedent(_prelude)
+    return Template(_prelude).substitute(
+        controlNumSlots=controlNumSlots,
+        controlArgsPerInstr=controlArgsPerInstr,
+    )
 
 
 @cache

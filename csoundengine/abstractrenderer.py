@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .baseevent import BaseEvent
 from abc import abstractmethod
-from . import instr
+from . import instr as _instr
 
 
 class AbstractRenderer:
@@ -21,7 +21,6 @@ class AbstractRenderer:
               dur=-1.,
               priority=1,
               args: list[float] | dict[str, float] = None,
-              tabargs: dict[str, float] = None,
               **kws) -> BaseEvent:
         raise NotImplementedError
 
@@ -31,13 +30,12 @@ class AbstractRenderer:
                  body: str,
                  args: dict[str, float] = None,
                  init: str = None,
-                 tabargs: dict[str, float] = None,
                  priority: int = None,
                  **kws) -> instr.Instr:
         raise NotImplementedError
 
     @abstractmethod
-    def registerInstr(self, instr: instr.Instr) -> bool:
+    def registerInstr(self, instr: _instr.Instr) -> bool:
         raise NotImplementedError
 
     @abstractmethod

@@ -202,24 +202,15 @@ def instrResolveArgs(instr: Instr,
     return allargs
 
 
-def addNotifycationAtStop(body: str, notifyDeallocInstrnum: int) -> str:
-    notifystr = f'atstop {notifyDeallocInstrnum}, 0.01, 0.0, p1'
-    out = "\n".join([notifystr, body])
-    return out
-
-
 def instrWrapBody(body: str,
                   instrid: int | str | Sequence[str],
                   comment='',
-                  notifyDeallocInstrnum=0
                   ) -> str:
     s = r"""
 instr {instrnum}  {commentstr}
     {body}
 endin
     """
-    if notifyDeallocInstrnum > 0:
-        body = addNotifycationAtStop(body, notifyDeallocInstrnum)
     commentstr = "; " + comment if comment else ""
     if isinstance(instrid, (list, tuple)):
         instrid = ", ".join([str(i) for i in instrid])
@@ -254,6 +245,7 @@ _normalizedPlatforms = {
     'windows': 'win32',
     'macos': 'darwin'
 }
+
 
 def platformAlias(platform: str) -> str:
     """
@@ -568,3 +560,72 @@ safeColors = {
     'grey2': '#A0A0A0',
     'grey3': '#909090'
 }
+
+
+def updatePfieldsCode(body: str,
+                      idxToName: dict[int, str],
+                      placeDocstringOnTop=True
+                      ) -> str:
+    """
+    Generate pfield code
+
+    Args:
+        body: the body of the instrument
+        idxToName: a dict mapping pfield index to its name (as in iname = p5)
+        placeDocstringOnTop: if True, place the docstring on top, then the generated
+            pfield code and the rest of the code last
+
+    Returns:
+        the resulting csound code
+
+    Example
+    ~~~~~~~
+
+    Given a mapping ``{5: 'ifreq', 6: 'kamp'}`` and a body:
+
+    .. code::
+
+        ; Docstring
+        ; Args:
+        ;   ifreq: the frequency
+        ;   kamp: the ampltidue
+        asig oscili ifreq, kamp
+        outch 1, asig
+
+    Generates the following code (with ``placeDocstringOnTop=True``)
+
+    .. code::
+
+        ; Docstring
+        ; Args:
+        ;   ifreq: the frequency
+        ;   kamp: the ampltidue
+        ifreq = p5
+        kamp = p6
+        asig oscili ifreq, kamp
+        outch 1, asig
+
+
+    """
+    if not idxToName:
+        return body
+
+    parsedCode = csoundlib.instrParseBody(body)
+    newPfieldCode = _pfieldsGenerateCode(idxToName)
+    if not placeDocstringOnTop:
+        parts = [newPfieldCode, " ", parsedCode.body]
+    else:
+        bodylines = parsedCode.body.splitlines()
+        docstringLocation = csoundlib.locateDocstring(bodylines)
+        if docstringLocation is None:
+            parts = [newPfieldCode, " "]
+            parts.extend(bodylines)
+        else:
+            start, end = docstringLocation
+            lines = bodylines
+            docstring = '\n'.join(lines[start:end])
+            rest = '\n'.join(lines[end:])
+            parts = [docstring, newPfieldCode, " ", rest]
+    out = textlib.joinPreservingIndentation(parts)
+    out = textwrap.dedent(out)
+    return out

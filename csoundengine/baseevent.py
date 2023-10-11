@@ -3,9 +3,10 @@ from __future__ import annotations
 from abc import abstractmethod
 import numpy as np
 from typing import Sequence
-from .config import logger
-
 from . import jupytertools
+
+
+_EMPTYSET = frozenset()
 
 
 class BaseEvent:
@@ -62,11 +63,13 @@ class BaseEvent:
         """
         raise NotImplementedError
 
-    def set(self, delay=0., **kws) -> None:
+    def set(self, param='', value: float = 0., delay=0., **kws) -> None:
         """
         Set a value of a named parameter
 
         Args:
+            param: the parameter name. Can also be an unnamed param, like 'p5'
+            value: the value to set
             delay: when to set this parameter
             kws: the key should be a named parameter, or p5, p6, etc., if
                 setting a parameter by index. Bear in mind that only parameters
@@ -88,28 +91,19 @@ class BaseEvent:
             >>> # Multiple parameters can be set at a time
             >>> synth.set(kfreq=442, kamp=0.1)
         """
-        params = self.dynamicParams()
-        if notfound := next((p for p in kws.keys() if p not in params), None):
-            raise KeyError(f"Parameter '{notfound}' not known. Dynamic parameters: {params}")
+        if kws:
+            for k, v in kws.items():
+                self.set(param=k, value=v, delay=delay)
 
-        tabkeys = self._tableParams()
-        count = 0
-        if tabkeys:
-            for param, value in kws.items():
-                if param in tabkeys:
-                    self._setTable(param=param, value=value, delay=delay)
-                    count += 1
-            if count == len(kws):
-                return
-        pfields = self._namedPfields()
-        for param, value in kws.items():
-            if param.startswith('p') or param in pfields:
+        if param:
+            tabkeys = self._controlNames()
+            if param in tabkeys:
+                self._setTable(param=param, value=value, delay=delay)
+            elif param.startswith('p') or param in self._pfieldNames():
                 self._setp(param=param, value=value, delay=delay)
-                count += 1
-        if count != len(kws):
-            unmatched = set(kws.keys()).difference(self.dynamicParams())
-            raise KeyError(f"Unknown parameters: {unmatched}, "
-                           f"possible parameters for this event: {self.dynamicParams()}")
+            else:
+                raise KeyError(f"Unknown parameter: '{param}'. "
+                               f"Possible parameters for this event: {self.dynamicParams()}")
 
     def _automatePfield(self,
                         param: int | str,
@@ -199,9 +193,9 @@ class BaseEvent:
         if param not in params:
             raise KeyError(f"Parameter {param} not known. Dynamic parameters: {params}")
 
-        if (tabargs := self._tableParams()) and param in tabargs:
+        if (tabargs := self._controlNames()) and param in tabargs:
             return self._automateTable(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
-        elif param.startswith('p') or ((pargs := self._namedPfields()) and param in pargs):
+        elif param.startswith('p') or ((pargs := self._pfieldNames()) and param in pargs):
             return self._automatePfield(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
         else:
             raise KeyError(f"Unknown parameter '{param}', supported parameters: {self.dynamicParams()}")
@@ -213,34 +207,36 @@ class BaseEvent:
         Returns:
             a set of the dynamic (modifiable) parameters accepted by this event
         """
-        params = self.namedParams()
+        params = self.paramNames()
         return set(p for p in params if p.startswith('k'))
 
-    def _namedPfields(self) -> set[str]:
+    def _pfieldNames(self) -> frozenset[str]:
         """
         Returns a set of all named pfields
         """
         raise NotImplementedError
 
-    def _tableParams(self) -> set[str] | None:
+    def _controlNames(self) -> frozenset[str]:
         """
-        Return a set of all table parameters
+        The names of all controls for this event
 
-        Returns None if this event does not have table parameters
+        Returns an empty set if this event does not have controls
         """
-        return None
+        raise NotImplementedError
 
-    def namedParams(self) -> set[str] | None:
+    def paramNames(self) -> frozenset[str]:
         """
-        Returns a set of named parameters, None if this event has no named parameters
+        Set of all named parameters
 
-        These parameters can be modified via :meth:`~AbstrSynth.set` or
-        :meth:`~AbstrSynth.automate`
+        .. seealso::
+
+            :meth:`~BaseEvent.dynamicParams`, :meth:`~BaseEvent.set`,
+            :meth:`~BaseEvent.automate`
         """
-        pargs = self._namedPfields()
-        tableargs = self._tableParams()
+        pargs = self._pfieldNames()
+        tableargs = self._controlNames()
         if not pargs and not tableargs:
-            return None
+            return _EMPTYSET
         elif pargs:
             return pargs
         elif tableargs:
@@ -254,4 +250,3 @@ class BaseEvent:
         if jupytertools.inside_jupyter():
             from IPython.display import display
             display(self)
-

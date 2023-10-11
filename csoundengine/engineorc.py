@@ -66,8 +66,15 @@ opcode sfPresetIndex, i, Sii
     xout iidx
 endop
 
+instr ${notifyDeallocOsc}
+    ip1 = p4
+    iport = p5
+    OSCsend 0, "127.0.0.1", iport, "/dealloc", "d", ip1
+endin
+
 instr ${notifyDealloc}
-    outvalue "__dealloc__", p4
+    ip1 init p4
+    outvalue "__dealloc__", ip1
 endin
 
 instr ${pingback}
@@ -84,6 +91,11 @@ endin
 instr ${turnoff_future}
     iwhich = p4
     turnoff3 iwhich
+endin
+
+instr ${print}
+    Smsg = p4
+    prints "csoundengine: '%s'\n", Smsg
 endin
 
 instr ${nstrnumsync}

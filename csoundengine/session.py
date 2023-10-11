@@ -178,8 +178,13 @@ import os
 from dataclasses import dataclass
 from collections import deque
 import numpy as np
+from functools import cache
+import textwrap
+import queue as _queue
+import threading
 
-import emlib.dialogs
+import emlib.dialogs as _dialogs
+import emlib.textlib as _textlib
 import bpf4
 
 from .abstractrenderer import AbstractRenderer
@@ -194,7 +199,10 @@ from . import internalTools as _tools
 from .sessioninstrs import builtinInstrs
 from . import state as _state
 from . import jupytertools
+from . import instrtools
+from . import csoundlib
 from .offline import Renderer
+
 from typing import Callable, Union, Optional
 
 
@@ -249,9 +257,6 @@ class SessionEvent:
     args: list[float] | dict[str, float] | None = None
     "Numbered pfields or a dict of pfield the form `{name: value}`"
 
-    tabargs: dict[str, float] | None = None
-    "Named args passed to an associated table"
-
     whenfinished: Callable = None
     "A callback to be fired when this event is finished"
 
@@ -259,7 +264,7 @@ class SessionEvent:
     "Is the delay expressed in relative time?"
 
     kws: dict[str, float] | None = None
-    "Keywords passe to the instrument"
+    "Keywords passed to the instrument"
 
 
 class Session(AbstractRenderer):
@@ -337,10 +342,6 @@ class Session(AbstractRenderer):
         synth.stop()
 
     """
-
-    def hasBusSupport(self) -> bool:
-        return self.engine.hasBusSupport()
-
     def __new__(cls,
                 engine: str | Engine,
                 priorities: int = None,
@@ -422,11 +423,18 @@ class Session(AbstractRenderer):
         self._schedCallback: Union[Callable, None] = None
         self._rendering = False
 
-        self.maxDynamicArgsPerInstr = dynamicArgsPerInstr or config['max_dynamic_args_per_instr']
+        self.inbox = _queue.Queue()
+        self._acceptingMessages = True
+        self._dispatchingThread: threading.Thread | None = None
+
+        self._notificationUseOsc = False
+        self._notificationOscPort = 0
+
+        self.dynamicArgsPerInstr = dynamicArgsPerInstr or config['max_dynamic_args_per_instr']
         """The max. number of dynamic parameters per instr"""
 
         self._dynargsNumSlices = dynamicArgsSlots or config['dynamic_args_num_slots']
-        self._dynargsTabnum = engine.makeEmptyTable(size=self.maxDynamicArgsPerInstr * self._dynargsNumSlices)
+        self._dynargsTabnum = engine.makeEmptyTable(size=self.dynamicArgsPerInstr * self._dynargsNumSlices)
         engine.sync()
         engine.setChannel(".dynargsTabnum", self._dynargsTabnum)
         self._dynargsArray = engine.getTableData(self._dynargsTabnum)
@@ -441,6 +449,32 @@ class Session(AbstractRenderer):
         mininstr, maxinstr = self._reservedInstrRange()
         engine.reserveInstrRange('session', mininstr, maxinstr)
         engine._session = self
+
+        # dispatchingThread = threading.Thread(target=self._dispatcher)
+        # dispatchingThread.start()
+        # self._dispatchingThread = dispatchingThread
+
+    def __del__(self):
+        if self._dispatchingThread:
+            self._acceptingMessages = False
+            self._dispatchingThread.join(timeout=1)
+
+    def __hash__(self):
+        return id(self)
+
+    def _dispatcher(self):
+        while self._acceptingMessages:
+            task = self.inbox.get()
+            if callable(task):
+                print("Calling func", task)
+                task()
+            elif isinstance(task, str):
+                print(f"Message: '{task}'")
+            else:
+                print("error", task)
+
+    def hasBusSupport(self) -> bool:
+        return self.engine.hasBusSupport()
 
     def automateDynamicParam(self,
                              synth: Synth,
@@ -470,7 +504,7 @@ class Session(AbstractRenderer):
         if slot is None:
             raise KeyError(f"Unknown parameter '{param}' for instr {synth.instr.name}. "
                            f"Possible parameters: {synth.instr.dynamicParamNames()}")
-        idx = synth.controlsSlot * self.maxDynamicArgsPerInstr + slot
+        idx = synth.controlsSlot * self.dynamicArgsPerInstr + slot
         return self.engine.automateTable(tabnum=self._dynargsTabnum,
                                          idx=idx,
                                          pairs=pairs,
@@ -506,14 +540,18 @@ class Session(AbstractRenderer):
 
         Args:
             synthid: the id (p1) of the synth
-            delay: when to deallocate the csound event.
         """
+        if delay > 0:
+            def callback(session=self, synthid=synthid):
+                session._deallocSynthResources(synthid=synthid)
+            self.engine.callLater(delay, callback=callback)
+
         synth = self._synths.pop(synthid, None)
         if synth is None:
             return
         synth._playing = False
         if synth.controlsSlot:
-            assert synth.controlsSlot * self.maxDynamicArgsPerInstr == synth.args[0]
+            assert synth.controlsSlot * self.dynamicArgsPerInstr == synth.args[0]
             self._dynargsReleaseSlot(int(synth.controlsSlot))
 
         if callback := self._whenfinished.pop(synthid, None):
@@ -652,7 +690,14 @@ class Session(AbstractRenderer):
         ~~~~~~~
 
             >>> session = Engine().session()
-            # An Instr with named pfields
+            # An Instr with named parameters
+            >>> session.defInstr('filter', r'''
+            ... a0 = busin(kbus)
+            ... a0 = moogladder2(a0, kcutoff, kresonance)
+            ... outch 1, a0
+            ... ''', args=dict(kbus=0, kcutoff=1000, kresonance=0.9))
+            # Parameters can be given inline. Parameters do not necessarily need
+            # to define defaults
             >>> session.defInstr('synth', r'''
             ... |ibus, kamp=0.5, kmidi=60|
             ... kfreq = mtof:k(lag:k(kmidi, 1))
@@ -660,24 +705,13 @@ class Session(AbstractRenderer):
             ... a0 *= linsegr:a(0, 0.1, 1, 0.1, 0)
             ... busout ibus, a0
             ... ''')
-            # An instr with named table args
-            >>> session.defInstr('filter', r'''
-            ... a0 = busin(kbus)
-            ... a0 = moogladder2(a0, kcutoff, kresonance)
-            ... outch 1, a0
-            ... ''', tabargs=dict(kbus=0, kcutoff=1000, kresonance=0.9))
-            # The same but with table args inline
-            >>> session.defInstr('filter2', r'''
-            ... {kbus=0, kcutoff=1000, kresonance=0.9}
-            ... a0 = busin(kbus)
-            ... a0 = moogladder2(a0, kcutoff, kresonance)
-            ... outch 1, a0
-            ... ''')
+
             >>> bus = session.engine.assignBus()
+            # Named params can be given as keyword arguments
             >>> synth = session.sched('sine', 0, dur=10, ibus=bus, kmidi=67)
-            >>> synth._setp(kmidi=60, delay=2)
+            >>> synth.set(kmidi=60, delay=2)
             >>> filt = session.sched('filter', 0, dur=synth.dur, priority=synth.priority+1,
-            ...                      tabargs={'kbus': bus, 'kcutoff': 1000})
+            ...                      args={'kbus': bus, 'kcutoff': 1000})
             >>> filt.automate('kcutoff', [3, 1000, 6, 200, 10, 4000])
 
         See Also
@@ -688,7 +722,7 @@ class Session(AbstractRenderer):
         oldinstr = self.instrs.get(name)
         instr = Instr(name=name, body=body, args=args, init=init,
                       doc=doc, includes=includes, aliases=aliases,
-                      maxNamedArgs=self.maxDynamicArgsPerInstr,
+                      maxNamedArgs=self.dynamicArgsPerInstr,
                       **kws)
         if oldinstr and oldinstr == instr:
             return oldinstr
@@ -768,16 +802,15 @@ class Session(AbstractRenderer):
         A ReifiedInstr is a version of an instrument with a given priority
         """
         assert isinstance(priority, int) and 1 <= priority <= 10
-        instrdef = self.instrs.get(name)
-        if instrdef is None:
+        instr = self.instrs.get(name)
+        if instr is None:
             raise ValueError(f"instrument {name} not registered")
         instrnum = self._registerInstrAtPriority(name, priority)
-        instrtxt = _tools.instrWrapBody(instrdef.body, instrnum,
-                                        notifyDeallocInstrnum=self.engine.builtinInstrs['notifyDealloc'])
+        body = self.instrGenerateBody(instr=instr)
+        instrtxt = _tools.instrWrapBody(body=body,
+                                        instrid=instrnum)
         try:
             self.engine._compileInstr(instrnum, instrtxt, block=block)
-            # self.engine.compile(instrtxt)
-
         except CsoundError as e:
             logger.error(str(e))
             raise CsoundError(f"Could not compile body for instr {name}")
@@ -800,7 +833,7 @@ class Session(AbstractRenderer):
         :meth:`~Session.defInstr`
         """
         if name == "?":
-            name = emlib.dialogs.selectItem(list(self.instrs.keys()))
+            name = _dialogs.selectItem(list(self.instrs.keys()))
         return self.instrs.get(name)
 
     def _getReifiedInstr(self, name: str, priority: int) -> _ReifiedInstr | None:
@@ -959,7 +992,6 @@ class Session(AbstractRenderer):
                           dur=event.dur,
                           priority=event.priority,
                           args=event.args,
-                          tabargs=event.tabargs,
                           whenfinished=event.whenfinished,
                           relative=event.relative,
                           **kws)
@@ -1040,6 +1072,52 @@ class Session(AbstractRenderer):
         assert slicenum not in self._dynargsSlicePool   # Remove this after testing
         self._dynargsSlicePool.appendleft(slicenum)
 
+    @cache
+    def instrGenerateBody(self, instr: Instr) -> str:
+        """
+        Generate the actual body for a given instr
+
+        This task is done by a Session/Renderer because the actual
+        body might be different if we are rendering in realtime,
+        as is the case of a session, or if its offline
+
+        Args:
+            instr: the Instr for which to generate the instr body
+
+        Returns:
+            the generated body. This is the text which must be
+            wrapped between instr/endin
+        """
+        body = instr._preprocessedBody
+        parts = []
+        docstring, body = csoundlib.splitDocstring(body)
+        if docstring:
+            parts.append(docstring)
+
+        if instr.controls:
+            code = _namedControlsGenerateCode(instr.controls)
+            parts.append(code)
+
+        if instr.pfieldIndexToName:
+            pfieldstext, body, docstring = instrtools.generatePfieldsCode(body, instr.pfieldIndexToName)
+            if pfieldstext:
+                parts.append(pfieldstext)
+        parts.append(body)
+        if not self._notificationUseOsc:
+            # Use outvalue for deallocation
+            deallocInstr = self.engine.builtinInstrs['notifyDealloc']
+            parts.append(f'atstop {deallocInstr}, 0.01, 0, p1')
+        else:
+            # Use osc
+            assert self._notificationOscPort > 0
+            deallocInstr = self.engine.builtinInstrs['notifyDeallocOsc']
+            parts.append(f'atstop {deallocInstr}, 0.01, 0, p1, {self._notificationOscPort}')
+
+        if instr.controls:
+            parts.append('__exit:')
+        out = _textlib.joinPreservingIndentation(parts)
+        return textwrap.dedent(out)
+
     def sched(self,
               instrname: str,
               delay=0.,
@@ -1076,7 +1154,7 @@ class Session(AbstractRenderer):
             (can be stopped, etc.)
 
         Example
-        =======
+        ~~~~~~~
 
         >>> from csoundengine import *
         >>> s = Engine().session()
@@ -1114,12 +1192,13 @@ class Session(AbstractRenderer):
             t0 = self.engine.elapsedTime()
             delay = t0 + delay + self.engine.extraLatency
         if instrname == "?":
-            instrname = emlib.dialogs.selectItem(list(self.instrs.keys()),
-                                                 title="Select Instr",
-                                                 ensureSelection=True)
+            instrname = _dialogs.selectItem(list(self.instrs.keys()),
+                                            title="Select Instr",
+                                            ensureSelection=True)
         instr = self.getInstr(instrname)
         if instr is None:
-            raise ValueError(f"Instrument {instrname} not defined")
+            raise ValueError(f"Instrument '{instrname}' not defined. Known instruments: "
+                             f"{self.instrs}")
 
         args = pkws if not args else args | pkws
         kwargs, kwtabargs = args, None
@@ -1133,19 +1212,19 @@ class Session(AbstractRenderer):
 
             if instr.controls:
                 kwargs, kwtabargs = _tools.splitDict(args,
-                                                     keys1=instr.pfieldNameToIndex.keys(),
-                                                     keys2=instr.controls.keys())
+                                                     keys1=instr.pfieldNames(),
+                                                     keys2=instr.controlNames())
 
         rinstr, needssync = self.prepareSched(instrname, priority, block=True)
 
         if instr.controls:
             slicenum = self._dynargsAssignSlot()
-            p4 = slicenum * self.maxDynamicArgsPerInstr
+            p4 = slicenum * self.dynamicArgsPerInstr
             if kwtabargs:
                 values = instr.overrideControls(kwtabargs)
             else:
                 values = instr._controlsDefaultValues
-            idx0 = slicenum * self.maxDynamicArgsPerInstr
+            idx0 = slicenum * self.dynamicArgsPerInstr
             self._dynargsArray[idx0:idx0 + len(values)] = values
 
         else:
@@ -1155,7 +1234,6 @@ class Session(AbstractRenderer):
         p4args = _tools.instrResolveArgs(instr, p4=p4, pargs=kwargs)
         if needssync and syncifneeded:
             self.engine.sync()
-        # print(f"{p4args=}, {kwargs=}, {kwtabargs=}, {args=}")
         synthid = self.engine.sched(rinstr.instrnum, delay=delay, dur=dur, args=p4args,
                                     relative=False)
 
@@ -1174,8 +1252,8 @@ class Session(AbstractRenderer):
         return synth
 
     def _setNamedControl(self, slicenum: int, slot: int, value: float):
-        assert slot < self.maxDynamicArgsPerInstr
-        idx0 = slicenum * self.maxDynamicArgsPerInstr
+        assert slot < self.dynamicArgsPerInstr
+        idx0 = slicenum * self.dynamicArgsPerInstr
         self._dynargsArray[idx0 + slot] = value
 
     def activeSynths(self, sortby="start") -> list[Synth]:
@@ -1190,7 +1268,7 @@ class Session(AbstractRenderer):
         """
         synths = [synth for synth in self._synths.values() if synth.playing()]
         if sortby == "start":
-            synths.sort(key=lambda synth:synth.start)
+            synths.sort(key=lambda synth: synth.start)
         return synths
 
     def scheduledSynths(self) -> list[Synth]:
@@ -1220,13 +1298,16 @@ class Session(AbstractRenderer):
 
             if not synth or synth.finished():
                 continue
-            if synth.start > now:
+            elif synth.playing():
+                self.engine.unsched(synthid, delay)
+                # Normally the outvalue callback calls the dealloc sequence itself
+                # But it seems that when the event is turned off (via the turnoff
+                # opcode) the outvalue callback is not triggered.
+                # TODO: this needs to be investigated further.
+                # self._deallocSynthResources(synthid, delay)
+            elif synth.start > now:
                 self.engine.unschedFuture(synth.p1)
                 self._deallocSynthResources(synthid, delay)
-            elif synth.playing():
-                # We just need to unschedule it from csound. If the synth is playing,
-                # it will be deallocated and the callback will be fired
-                self.engine.unsched(synthid, delay)
             else:
                 self._deallocSynthResources(synthid, delay)
 
@@ -1661,7 +1742,7 @@ class Session(AbstractRenderer):
             ... ''')
             >>> renderer = s.makeRenderer()
             >>> event = renderer.sched('sine', 0, dur=4, args=[0.1, 440])
-            >>> event._setp(2, kfreq=880)
+            >>> event.set(delay=2, kfreq=880)
             >>> renderer.render("out.wav")
 
         """
@@ -1676,3 +1757,34 @@ class Session(AbstractRenderer):
     def _defBuiltinInstrs(self):
         for csoundInstr in builtinInstrs:
             self.registerInstr(csoundInstr)
+
+
+def _namedControlsGenerateCode(controls: dict) -> str:
+    """
+    Generates code for an instr to read named controls
+
+    Args:
+        controls: a dict mapping control name to default value. The
+            keys are valid csound k-variables
+
+    Returns:
+        the generated code
+    """
+
+    lines = [fr'''
+    ; --- start generated code for dynamic args
+    i__slicestart__ = p4
+    i__tabnum__ chnget ".dynargsTabnum"
+    if i__tabnum__ == 0 then
+        initerror sprintf("Session table does not exist (p1: %f)", p1)
+        goto __exit
+    endif
+    ''']
+    idx = 0
+    for key, value in controls.items():
+        assert key.startswith('k')
+        lines.append(f"    {key} tab i__slicestart__ + {idx}, i__tabnum__")
+        idx += 1
+    lines.append("    ; --- end generated code\n")
+    out = _textlib.stripLines(_textlib.joinPreservingIndentation(lines))
+    return out

@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Sequence
 if TYPE_CHECKING:
     from .engine import Engine
     from .instr import Instr
-    from .paramtable import ParamTable
     from .session import Session
 
 
@@ -146,7 +145,7 @@ class Synth(AbstrSynth):
                  args: list[float] | None = None,
                  autostop=False,
                  priority: int = 1,
-                 controlsSlot: int = -1
+                 controlsSlot: int = -1,
                  ) -> None:
 
         AbstrSynth.__init__(self, start=start, dur=dur, engine=session.engine, autostop=autostop)
@@ -176,7 +175,11 @@ class Synth(AbstrSynth):
 
         self._playing: bool = True
 
-    def _tableParams(self) -> set[str] | None:
+    @property
+    def body(self) -> str:
+        return self.session.instrGenerateBody(self.instr)
+
+    def _controlNames(self) -> frozenset[str] | None:
         return self.instr.controlNames()
 
     def getInstr(self) -> Instr:
@@ -195,14 +198,16 @@ class Synth(AbstrSynth):
             f'{self.instr.name}</strong>:{self.p1:.4f}',
             ]
 
-        if self.args:
+        if self.args and len(self.args) > 1:
             i2n = self.instr.pfieldIndexToName
             argsstrs = []
-            pargs = self.args[0:]
+            # exclude p4
+            firstpargs = 5
+            pargs = self.args[1:]
             if any(arg.startswith('k') for arg in self.instr.pfieldNameToIndex):
                 maxi = max(i+4 for i, n in i2n.items()
                            if n.startswith('k'))
-            for i, parg in enumerate(pargs, start=4):
+            for i, parg in enumerate(pargs, start=5):
                 if i > maxi:
                     argsstrs.append("…")
                     break
@@ -216,7 +221,6 @@ class Synth(AbstrSynth):
                     else:
                         s = f"{idxstr}:<b>{name}</b>=<code>{parg}</code>"
                 else:
-                    # s = f"<b>p{i + 4}</b>=<code>{parg:.6g}</code>"
                     s = f"<b>{i}</b>=<code>{parg}</code>"
                 argsstrs.append(s)
             argsstr = " ".join(argsstrs)
@@ -299,11 +303,11 @@ class Synth(AbstrSynth):
         """
         return self.instr.dynamicParamNames(includeRealNames=True)
 
-    def _namedPfields(self) -> set[str]:
+    def _pfieldNames(self) -> set[str]:
         return self.instr.pfieldNames()
 
     def _sliceStart(self) -> int:
-        return self.controlsSlot * self.session.maxDynamicArgsPerInstr
+        return self.controlsSlot * self.session.dynamicArgsPerInstr
 
     def _setp(self, param: str, value: float, delay=0.) -> None:
         """
@@ -328,10 +332,10 @@ class Synth(AbstrSynth):
             outch 1, oscili:ar(kamp, kfreq)
             '''
             )
-            >>> synth = session.sched('sine', args=[0.1, 440])
-            >>> synth._setp(kfreq=880)
-            >>> synth._setp(p5=0.1, p6=1000)
-            >>> synth._setp(kamp=0.2, p6=440)
+            >>> synth = session.sched('sine', args=dict(p5=0.1, p6=440))
+            >>> synth.set(kfreq=880)
+            >>> synth.set(p5=0.1, p6=1000)
+            >>> synth.set(kamp=0.2, p6=440)
 
         .. seealso::
 
@@ -364,7 +368,7 @@ class Synth(AbstrSynth):
             specs: a dict mapping named arg to a tuple (minvalue, maxvalue)
 
         Example
-        =======
+        ~~~~~~~
 
         .. code::
 
@@ -428,7 +432,7 @@ class Synth(AbstrSynth):
             return
 
         if not self.controlsSlot:
-            raise RuntimeError("This synth has no associated slice, skipping")
+            raise RuntimeError("This synth has no associated controls slot")
 
         slot = self.instr.controlIndex(param)
         if delay > 0:
@@ -525,9 +529,9 @@ class Synth(AbstrSynth):
         if pairs[0] > 0:
             pairs, delay = internalTools.consolidateDelay(pairs, delay)
 
-        if (tabargs := self._tableParams()) and param in tabargs:
+        if (controlnames := self._controlNames()) and param in controlnames:
             return self._automateTable(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
-        elif param.startswith('p') or ((pargs := self._namedPfields()) and param in pargs):
+        elif param.startswith('p') or ((pargs := self._pfieldNames()) and param in pargs):
             return self._automatePfield(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
         else:
             raise KeyError(f"Unknown parameter '{param}', supported parameters: {self.dynamicParams()}")
@@ -540,8 +544,8 @@ class Synth(AbstrSynth):
         if isinstance(param, str):
             pidx = self.instr.pfieldIndex(param)
             if not pidx:
-                raise KeyError(f"parg {param} not known. "
-                               f"Known pargs: {self.instr.pfieldIndexToName}")
+                raise KeyError(f"pfield '{param}' not known. "
+                               f"Known pfields: {self.instr.pfieldIndexToName}")
         else:
             pidx = param
         synthid = self.engine.automatep(self.p1, pidx=pidx, pairs=pairs,
@@ -675,7 +679,7 @@ class SynthGroup(AbstrSynth):
                        overtake=False) -> None:
         for synth in self.synths:
             if isinstance(synth, Synth):
-                if synth._table and param in synth._tableParams():
+                if synth._table and param in synth._controlNames():
                     synth._automateTable(param, pairs, mode=mode, delay=delay,
                                          overtake=overtake)
             elif isinstance(synth, SynthGroup):
@@ -691,10 +695,10 @@ class SynthGroup(AbstrSynth):
         return out
 
     @cache
-    def _namedPfields(self) -> set[str]:
+    def _pfieldNames(self) -> set[str]:
         out: set[str] = set()
         for synth in self.synths:
-            namedPargs = synth._namedPfields()
+            namedPargs = synth._pfieldNames()
             if namedPargs:
                 out.update(namedPargs)
         return out
@@ -802,7 +806,7 @@ class SynthGroup(AbstrSynth):
             instrcol = jupytertools.defaultPalette["name.color"]
             for instrname, synths in subgroups.items():
                 s = f'<strong style="color:{instrcol}">{instrname}</strong> - {len(synths)} synths'
-                namedparams = synths[0]._namedPfields()
+                namedparams = synths[0]._pfieldNames()
                 kparams = [p for p in namedparams if p[0] == 'k']
                 if kparams:
                     s += ' (' + ', '.join(kparams) + ')'
@@ -843,13 +847,13 @@ class SynthGroup(AbstrSynth):
         for synth in self.synths:
             synth._setp(param=param, value=value, delay=delay)
 
-    def _tableParams(self) -> set[str]:
+    def _controlNames(self) -> set[str]:
         """
         Returns a set of available table named parameters for this group
         """
         allparams = set()
         for synth in self.synths:
-            params = synth._tableParams()
+            params = synth._controlNames()
             if params:
                 allparams.update(params)
         return allparams

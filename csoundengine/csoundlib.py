@@ -882,7 +882,8 @@ endin
     proc = runCsd(tmp, outdev=device, backend=backend)
     return CsoundProc(proc=proc, backend=backend, outdev=device, sr=sr,
                       nchnls=nchnls, csdstr=csd)
-    
+
+
 @_dataclass
 class ScoreLine:
     """
@@ -1680,6 +1681,7 @@ _builtinInstrs = {
     '''
 }
 
+
 class Csd:
     """
     Build a csound script by adding global code, instruments, score events, etc.
@@ -1777,8 +1779,7 @@ class Csd:
         self._endMarker: float = 0
         self._numReservedTables = reservedTables
         self._maxTableNumber = reservedTables
-        if not carry:
-            self.score.append(("C", 0))
+        self.score.append(("C", 0, "    ; Disable carry"))
 
     @property
     def sr(self) -> int:
@@ -1848,7 +1849,8 @@ class Csd:
                  instr: int | float | str,
                  start: float,
                  dur: float,
-                 args: list[float | str] | None = None) -> None:
+                 args: list[float | str] | None = None,
+                 comment='') -> None:
         """
         Add an instrument ("i") event to the score
 
@@ -1857,6 +1859,8 @@ class Csd:
             start: the start time
             dur: the duration of the event
             args: pargs beginning at p4
+            comment: if given, the text is attached as a comment to the event
+                line in the score
         """
         start = round(start, 8)
         dur = round(dur, 8)
@@ -1867,6 +1871,8 @@ class Csd:
                 raise TypeError(f"pargs must be int, float or str, got {', '.join(badargs)} "
                                 f"({instr=}, {args=}, {start=}, {dur=})")
             event.extend(_quoteIfNeeded(arg) for arg in args)
+        if comment:
+            event.append(f"     ; {comment}")
         self.score.append(event)
 
     def strset(self, s: str, index: int | None) -> int:
@@ -1899,9 +1905,9 @@ class Csd:
         self._definedTables.add(tabnum)
         return tabnum
 
-    def _addTable(self, pargs) -> int:
+    def _addTable(self, pargs, comment='') -> int:
         """
-        Adds an ftable to the score
+        Adds a ftable to the score
 
         Args:
             pargs: as passed to csound (without the "f")
@@ -1918,6 +1924,8 @@ class Csd:
             assert tabnum in self._definedTables
         pargs = [_quoteIfNeeded(p) for p in pargs[1:]]
         scoreline = ["f", tabnum] + pargs
+        if comment:
+            scoreline.append(f'    ; {comment}')
         self.score.append(scoreline)
         return tabnum
 
@@ -1985,7 +1993,7 @@ class Csd:
             self._datafileIndex[datafile.data] = datafile
         assert datafile.tabnum in self._definedTables
 
-    def addEmptyTable(self, size:int, tabnum: int=0, sr: int = 0,
+    def addEmptyTable(self, size:int, tabnum: int = 0, sr: int = 0,
                       numchannels=1
                       ) -> int:
         """
@@ -2049,7 +2057,7 @@ class Csd:
         assert tabnum > 0
         return tabnum
 
-    def destroyTable(self, tabnum:int, time:float) -> None:
+    def destroyTable(self, tabnum: int, time: float) -> None:
         """
         Schedule ftable with index `source` to be destroyed at time `time`
 
@@ -2082,7 +2090,7 @@ class Csd:
         """
         self._endMarker = 0
 
-    def setComment(self, comment:str) -> None:
+    def setComment(self, comment: str) -> None:
         """ Add a comment to the renderer output soundfile"""
         self.setOptions(f'-+id_comment="{comment}"')
 
@@ -2156,7 +2164,7 @@ class Csd:
             stream.write(datafile.scoreLine(relpath.as_posix()))
             stream.write('\n')
         if self._endMarker:
-            stream.write(f'e {self._endMarker}')
+            stream.write(f'e {self._endMarker}    ; end marker')
 
     def scoreDuration(self) -> float:
         if self._endMarker:
@@ -3135,7 +3143,7 @@ def lastAssignmentToVariable(varname: str, lines: list[str]) -> int | None:
     return None
 
 
-def locateDocstring(lines: list[str]) -> tuple[int, int] | None:
+def locateDocstring(lines: list[str]) -> tuple[int | None, int]:
     """
     Locate the docstring in this instr code
 
@@ -3144,33 +3152,50 @@ def locateDocstring(lines: list[str]) -> tuple[int, int] | None:
             (between instr/endin), split into lines
 
     Returns:
-        a tuple (first line, last line) indicating the location of the docstring
-        within the given text, or None if no docstring found
+        a tuple (firstline, lastline) indicating the location of the docstring
+        within the given text. firstline will be None if no docstring was found
 
     """
+    assert isinstance(lines, list)
     docstringStart = None
+    docstringEnd = 0
     docstringKind = ''
     for i, line in enumerate(lines):
         line = line.strip()
         if not line:
             continue
         if docstringStart is None:
-            if match := _re.search(r'\s*(;|\/\/|\/\*)', line):
+            if _re.search(r'(;|\/\/|\/\*)', line):
                 docstringStart = i
                 docstringKind = ';' if line[0] == ';' else line[:2]
                 continue
-            else:
-                # no docstring
-                break
         else:
             # inside docstring
             if docstringKind == '/*':
                 # TODO
                 pass
-            elif not line.startswith(docstringKind):
-                # end of docstring
-                return docstringStart, i
-    return None
+            elif line.startswith(docstringKind):
+                docstringEnd = i+1
+            else:
+                break
+    if docstringStart is not None and docstringEnd < docstringStart:
+        docstringEnd = docstringStart + 1
+    return docstringStart, docstringEnd
+
+
+def splitDocstring(body: str | list[str]) -> tuple[str, str]:
+    if isinstance(body, str):
+        lines = body.splitlines()
+    else:
+        lines = body
+    docstart, docend = locateDocstring(lines)
+    if docstart is not None:
+        docstring = '\n'.join(lines[docstart:docend])
+        rest = '\n'.join(lines[docend:])
+    else:
+        docstring = ''
+        rest = body
+    return docstring, rest
 
 
 @_functools.cache
@@ -3632,3 +3657,18 @@ def _cropScore(events: list[Sequence], start=0., end=0.) -> list:
             ev[3] = dur
             cropped.append(ev)
     return cropped
+
+
+def channelTypeFromValue(value: int | float | str) -> str:
+    """
+    Channel type (k, S, a) from value
+    """
+    if isinstance(value, (int, float)):
+        return 'k'
+    elif isinstance(value, str):
+        return 'S'
+    elif isinstance(value, np.ndarray):
+        return 'a'
+    else:
+        raise TypeError(f"Value of type {type(value)} not supported")
+

@@ -29,7 +29,7 @@ Example
     # When rendering offline, an event needs to set the time offset
     # of the set operation. This is a difference from a Synth, in which
     # the delay value is optional.
-    events[1].set(3, kmidi=67.2)
+    events[1].set(delay=3, kmidi=67.2)
     events[2].set(kmidi=80, delay=4)
     renderer.render("out.wav")
 
@@ -45,6 +45,7 @@ import bpf4
 import numpy as np
 from functools import cache
 from dataclasses import dataclass
+import textwrap
 
 from .errors import RenderError
 from .config import config, logger
@@ -58,11 +59,13 @@ from . import sessioninstrs
 from . import state as _state
 from . import offlineorc
 from . import tableproxy
+from . import instrtools
 
 import emlib.misc
 import emlib.filetools
 import emlib.mathlib
 import emlib.iterlib
+import emlib.textlib
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING or "sphinx" in sys.modules:
@@ -77,6 +80,21 @@ __all__ = (
 )
 
 
+_EMPTYDICT =  {}
+
+
+@dataclass
+class ChannelDef:
+    name: str
+    "The name of the channel"
+
+    kind: str
+    "The type, one of k or S"
+
+    mode: str
+    "The mode, one of r, w, rw"
+
+
 class ScoreEvent(BaseEvent):
     """
     A ScoreEvent represent a csound event.
@@ -88,7 +106,9 @@ class ScoreEvent(BaseEvent):
         are generated when scheduling events
 
     """
-    __slots__ = ('uniqueId', 'paramTable', 'renderer', 'instrname', 'priority', 'args', 'p1')
+
+    __slots__ = ('uniqueId', 'renderer', 'instrname', 'priority',
+                 'args', 'p1', 'controlsSlot')
 
     def __init__(self,
                  p1: float | str,
@@ -96,10 +116,10 @@ class ScoreEvent(BaseEvent):
                  dur: float,
                  args: list[float],
                  uniqueId: int,
-                 paramTable: int = 0,
                  renderer: Renderer = None,
                  instrname: str = '',
-                 priority: int = 0):
+                 priority: int = 0,
+                 controlsSlot: int = -1):
         super().__init__(start=start, dur=dur)
 
         self.p1 = p1
@@ -111,10 +131,7 @@ class ScoreEvent(BaseEvent):
         self.uniqueId = uniqueId
         """A unique id of this event, as integer"""
 
-        self.paramTable = paramTable
-        """Table number of a parameter table, if any"""
-
-        self.renderer = renderer
+        self.renderer: Renderer = renderer
         """The Renderer to which this event belongs (can be None)"""
 
         self.instrname = instrname
@@ -122,6 +139,8 @@ class ScoreEvent(BaseEvent):
 
         self.priority = priority
         """The priority of this ScoreEvent, if applicable"""
+
+        self.controlsSlot = controlsSlot
 
     def __hash__(self) -> int:
         return hash((self.p1, self.uniqueId, self.instrname, self.priority, hash(tuple(self.args))))
@@ -144,7 +163,21 @@ class ScoreEvent(BaseEvent):
             setattr(out, kw, value)
         return out
 
-    def _setp(self, delay=0., strict=True, **kws) -> None:
+    def _setTable(self, param: str, value: float, delay=0.) -> None:
+        if not self.start <= delay <= self.end:
+            logger.error(f"This operation's time offset ({delay}) is not within "
+                         f"the time range of the event ({self.start}-{self.end}")
+
+        if not self.controlsSlot:
+            raise RuntimeError("This event has no associated controls slot")
+
+        paramindex = self.instr.controlIndex(param)
+        self.renderer._setNamedControl(token=self.controlsSlot,
+                                       slot=paramindex,
+                                       value=value,
+                                       delay=delay)
+
+    def _setp(self, param: str, value: float, delay=0.) -> None:
         """
         Modify a parg of this synth (offline).
 
@@ -173,28 +206,26 @@ class ScoreEvent(BaseEvent):
         """
         if self.renderer is None:
             raise RuntimeError("This ScoreEvent is not assigned to a Renderer")
-        if strict:
-            _checkParams(kws.keys(), self.dynamicParams(), obj=self)
+        self.renderer.setp(self, delay=delay, param=param, value=value)
 
-        self.renderer.setp(self, delay=delay, pairs=kws)
-
-    def getInstr(self) -> Instr | None:
+    @property
+    def instr(self) -> Instr | None:
         """
         The Instr corresponding to this Event, if applicable
         """
         if self.instrname:
             return self.renderer.getInstr(self.instrname)
+
         try:
             return self.renderer._instrFromEvent(self)
         except ValueError:
             return None
 
-    def namedParams(self) -> set[str]:
-        instr = self.getInstr()
-        return set(instr.paramDefaultValues().keys()) if instr else set()
+    def paramNames(self) -> frozenset[str]:
+        return self.instr.paramNames()
 
-    def dynamicParams(self) -> set[str]:
-        instr = self.getInstr()
+    def dynamicParams(self) -> frozenset[str]:
+        instr = self.instr
         return instr.dynamicParamNames() if instr else set()
 
     def automate(self,
@@ -203,12 +234,9 @@ class ScoreEvent(BaseEvent):
                  mode="linear",
                  delay: float = None,
                  overtake=False,
-                 strict=True
                  ) -> None:
         if self.renderer is None:
             raise RuntimeError("This ScoreEvent is not assigned to a Renderer")
-        if strict:
-            _checkParams((param,), self.dynamicParams(), obj=self)
         self.renderer.automate(self, param=param, pairs=pairs, mode=mode,
                                delay=delay)
 
@@ -216,6 +244,12 @@ class ScoreEvent(BaseEvent):
         if self.renderer is None:
             raise RuntimeError("This ScoreEvent is not assigned to a Renderer")
         self.renderer.unsched(self, delay=delay)
+
+    def _controlNames(self) -> frozenset[str]:
+        return self.instr.controlNames()
+
+    def _pfieldNames(self) -> frozenset[str]:
+        return self.instr.pfieldNames(includeRealNames=True)
 
 
 class EventGroup(BaseEvent):
@@ -225,6 +259,8 @@ class EventGroup(BaseEvent):
     These events can be controlled together, similar
     to a SynthGroup
     """
+
+
     def __init__(self, events: list[ScoreEvent]):
         if not events:
             raise ValueError("No events given")
@@ -242,26 +278,38 @@ class EventGroup(BaseEvent):
         for ev in self.events:
             ev.stop(delay=delay)
 
-    def _setp(self, delay=0., strict=True, **kws) -> None:
-        if strict:
-            _checkParams(kws.keys(), self.dynamicParams(), obj=self)
-
+    def _setp(self, param: str, value: float, delay=0.) -> None:
+        count = 0
         for ev in self.events:
-            ev._setp(delay=delay, strict=False, **kws)
+            if param in ev._pfieldNames():
+                ev._setp(delay=delay, param=param, value=value)
+                count += 1
+        if count == 0:
+            raise KeyError(f"Parameter '{param}' unknown. Possible paramters: {self.dynamicParams()}")
+
+    def _setTable(self, param: str, value: float, delay=0.) -> None:
+        count = 0
+        for ev in self.events:
+            if param in ev._controlNames():
+                ev._setTable(param=param, value=value, delay=delay)
+                count += 1
+        if count == 0:
+            raise KeyError(f"Parameter '{param}' unknown. "
+                           f"Possible parameters: {self.dynamicParams()}")
 
     @cache
-    def namedParams(self) -> set[str]:
+    def paramNames(self) -> frozenset[str]:
         allparams = set()
         for ev in self.events:
-            allparams.update(ev.namedParams())
-        return allparams
+            allparams.update(ev.paramNames())
+        return frozenset(allparams)
 
     @cache
-    def dynamicParams(self) -> set[str]:
+    def dynamicParams(self) -> frozenset[str]:
         params = set()
         for ev in self.events:
             params.update(ev.dynamicParams())
-        return params
+        return frozenset(params)
 
     def __hash__(self):
         return hash(tuple(hash(ev) for ev in self.events))
@@ -272,14 +320,16 @@ class EventGroup(BaseEvent):
                  mode="linear",
                  delay: float = None,
                  overtake=False,
-                 strict=True
                  ) -> None:
-        if strict:
-            _checkParams((param,), self.namedParams(), obj=self)
-
+        count = 0
         for ev in self.events:
-            if param in ev.namedParams():
-                ev.automate(param=param, pairs=pairs, mode=mode, delay=delay, strict=False)
+            if param in ev.dynamicParams():
+                count += 1
+                ev.automate(param=param, pairs=pairs, mode=mode,
+                            delay=delay, overtake=overtake)
+        if count == 0:
+            raise KeyError(f"Param '{param}' not known by any events in this group. "
+                           f"Possible parameters: {self.dynamicParams()}")
 
 
 @dataclass
@@ -311,7 +361,7 @@ class Renderer(AbstractRenderer):
         nchnls: number of channels.
         ksmps: csound ksmps. If not given, the value in the config is used (see :ref:`config['ksmps'] <config_ksmps>`)
         a4: reference frequency. (see :ref:`config['A4'] <config_a4>`)
-        numpriorities: max. number of priority groups. This will determine
+        priorities: max. number of priority groups. This will determine
             how long an effect chain can be
         numAudioBuses: max. number of audio buses. This is the max. number of simultaneous
             events using an audio bus
@@ -346,8 +396,13 @@ class Renderer(AbstractRenderer):
                  nchnls: int = 2,
                  ksmps: int | None = None,
                  a4: float | None = None,
-                 numpriorities=10,
-                 numAudioBuses=1000):
+                 priorities: int = None,
+                 numAudioBuses=1000,
+                 dynamicArgsPerInstr: int = 16,
+                 dynamicArgsSlots: int = None):
+
+        if priorities is None:
+            priorities = config['session_priorities']
 
         self.sr = sr or config['rec_sr']
         """Samplerate"""
@@ -371,11 +426,14 @@ class Renderer(AbstractRenderer):
         self.csd = csoundlib.Csd(sr=self.sr, nchnls=nchnls, ksmps=self.ksmps, a4=self.a4)
         """Csd structure for this renderer (see :class:`~csoundengine.csoundlib.Csd`"""
 
+        self.controlArgsPerInstr = dynamicArgsPerInstr or config['max_dynamic_args_per_instr']
+        """The max. number of dynamic controls per instr"""
+
         self._idCounter = 0
         self._nameAndPriorityToInstrnum: dict[tuple[str, int], int] = {}
         self._instrnumToNameAndPriority: dict[int, tuple[str, int]] = {}
-        self._numbuckets = numpriorities
-        self._bucketCounters = [0] * numpriorities
+        self._numbuckets = priorities
+        self._bucketCounters = [0] * priorities
         self._startUserInstrs = 20
         self._instrdefs: dict[str, Instr] = {}
         self._instanceCounters: dict[int, int] = {}
@@ -383,15 +441,26 @@ class Renderer(AbstractRenderer):
         self._numAudioBuses = numAudioBuses
         self._numControlBuses = 10000
         self._ndarrayHashToTabnum: dict[str, int] = {}
+        self._channelRegistry: dict[str, ChannelDef] = {}
+        """Dict mapping channel name to tuple (valuetype, channeltype)
+        valuetype is one of 'k', 'S'; channeltype is 'r', 'w', 'rw', """
 
-        bucketSizeCurve = bpf4.expon(0.7, 1, 500, numpriorities, 50)
-        bucketSizes = [int(size) for size in bucketSizeCurve.map(numpriorities)]
+        self._dynargsNumSlices = dynamicArgsSlots or config['dynamic_args_num_slots']
+        "Number of dynamic control slices"
+
+        self._dynargsSliceSize = dynamicArgsPerInstr or config['max_dynamic_args_per_instr']
+        """Number of dynamic args per instr"""
+
+        self._dynargsTokenCounter = 0
+
+        bucketSizeCurve = bpf4.expon(0.7, 1, 500, priorities, 50)
+        bucketSizes = [int(size) for size in bucketSizeCurve.map(priorities)]
 
         self._bucketSizes = bucketSizes
         """Size of each bucket, by bucket index"""
 
         self._bucketIndices = [self._startUserInstrs + sum(bucketSizes[:i])
-                               for i in range(numpriorities)]
+                               for i in range(priorities)]
         self._postUserInstrs = self._bucketIndices[-1] + self._bucketSizes[-1]
         """Start of 'post' instruments (instruments at the end of the processing chain)"""
 
@@ -403,7 +472,9 @@ class Renderer(AbstractRenderer):
         self._builtinInstrs: dict[str, int] = {}
         self._soundfileRegistry: dict[str, tableproxy.TableProxy] = {}
 
-        self.csd.addGlobalCode(offlineorc.prelude())
+        prelude = offlineorc.prelude(controlNumSlots=self._dynargsNumSlices,
+                                     controlArgsPerInstr=self._dynargsSliceSize)
+        self.csd.addGlobalCode(prelude)
 
         if self.hasBusSupport():
             busorc, instrIndex = engineorc.busSupportCode(numAudioBuses=self._numAudioBuses,
@@ -419,11 +490,79 @@ class Renderer(AbstractRenderer):
             instr = sessioninstrs.builtinInstrIndex[instrname]
             self.registerInstr(instr)
 
+        self._dynargsTabnum = self.makeTable(size=self.controlArgsPerInstr * self._dynargsNumSlices)
+        self.setChannel('.dynargsTabnum', self._dynargsTabnum)
+
         if self.hasBusSupport():
             self.csd.addEvent(self._builtinInstrs['clearbuses_post'], start=0, dur=-1)
 
     def renderMode(self) -> str:
         return 'offline'
+
+    def initChannel(self,
+                    channel: str,
+                    value: float | str | None = None,
+                    kind='',
+                    mode='rw'):
+        """
+        Create a channel and, optionally set its initial value
+
+        Args:
+            channel: the name of the channel
+            value: the initial value of the channel,
+                will also determine the type (k, S)
+            kind: One of 'k', 'S', 'a'. Leave unset to auto determine the channel type.
+            mode: r for read, w for write, rw for both.
+
+        .. note::
+                the `mode` determines the communication direction between csound and
+                a host when running csound via its api. For offline rendering and when
+                using channels for internal communication this is irrelevant
+
+        """
+        if mode not in ('r', 'w', 'rw'):
+            raise ValueError(f"Invalid mode '{mode}', it should be one of 'r', 'w', 'rw'")
+
+        if not value and not kind:
+            raise ValueError(f"Either a value or a kind must be given")
+
+        if value is not None:
+            valuetype = csoundlib.channelTypeFromValue(value)
+            assert valuetype in 'kS'
+            if kind and kind != valuetype:
+                raise ValueError(f"A value of type '{valuetype}' was given, but it is not "
+                                 f"compatible with kind '{kind}'")
+            kind = valuetype
+
+        channelDef = ChannelDef(name=channel, kind=kind, mode=mode)
+        previousDef = self._channelRegistry.get(channel)
+        if previousDef is not None:
+            logger.warning(f"Channel '{channel}' already defined: {previousDef}. Skipiing")
+            return
+        self._channelRegistry[channel] = channelDef
+        self.addGlobalCode(f'chn_{kind} "{channel}" "{mode}"')
+        if value is not None:
+            self.setChannel(channel=channel, value=value, delay=0.)
+
+    def setChannel(self, channel: str, value: float | str, delay=0.
+                   ) -> None:
+        """
+        Set the value of a software channel
+
+        Args:
+            channel: the name of the channel
+            value: the new value, should match the type of the channel. Audio channels
+                are not allowed offline
+            delay: when to perform the operation. A delay of 0 will generate a chnset
+                instruction at the instr0 level
+        """
+        if delay > 0:
+            self.csd.addEvent(instr='_chnset', start=delay, dur=0., args=[channel, value])
+        else:
+            if isinstance(value, str):
+                self.addGlobalCode(f'chnset "{value}", "{channel}"')
+            else:
+                self.addGlobalCode(f'chnset {value}, "{channel}"')
 
     def commitInstrument(self, instrname: str, priority=1) -> int:
         """
@@ -440,7 +579,7 @@ class Renderer(AbstractRenderer):
             The instr number (as in "instr xx ... endin" in a csound orc)
 
         """
-        assert 1<=priority<=self._numbuckets
+        assert 1 <= priority <= self._numbuckets
 
         instrnum = self._nameAndPriorityToInstrnum.get((instrname, priority))
         if instrnum is not None:
@@ -459,8 +598,29 @@ class Renderer(AbstractRenderer):
         instrnum = self._bucketIndices[priority] + count
         self._nameAndPriorityToInstrnum[(instrname, priority)] = instrnum
         self._instrnumToNameAndPriority[instrnum] = (instrname, priority)
-        self.csd.addInstr(instrnum, instrdef.body)
+        body = self.instrGenerateBody(instr=instrdef)
+        self.csd.addInstr(instrnum, body)
         return instrnum
+
+    @cache
+    def instrGenerateBody(self, instr: Instr) -> str:
+        body = instr._preprocessedBody
+        parts = []
+        docstring, body = csoundlib.splitDocstring(body)
+        if docstring:
+            parts.append(docstring)
+
+        if instr.controls:
+            code = _namedControlsGenerateCodeOffline(instr.controls)
+            parts.append(code)
+
+        if instr.pfieldIndexToName:
+            pfieldstext, body, docstring = instrtools.generatePfieldsCode(body, instr.pfieldIndexToName)
+            if pfieldstext:
+                parts.append(pfieldstext)
+        parts.append(body)
+        out = emlib.textlib.joinPreservingIndentation(parts)
+        return textwrap.dedent(out)
 
     def _registerExitCallback(self, callback) -> None:
         """
@@ -474,9 +634,16 @@ class Renderer(AbstractRenderer):
         """
         return instrname in self._instrdefs
 
-    def registerInstr(self, instr: Instr) -> None:
+    def registerInstr(self, instr: Instr) -> bool:
         """
         Register an Instr to be used in this Renderer
+
+        Args:
+            instr: the insturment to register
+
+        Returns:
+            true if the instrument was registered, False if
+            it was already registered in the current form
 
         Example
         ~~~~~~~
@@ -499,7 +666,10 @@ class Renderer(AbstractRenderer):
             >>> renderer.render('out.wav')
 
         """
+        if instr == self._instrdefs.get(instr.name):
+            return False
         self._instrdefs[instr.name] = instr
+        return True
 
     def defInstr(self,
                  name: str,
@@ -507,7 +677,9 @@ class Renderer(AbstractRenderer):
                  args: dict[str, float|str] = None,
                  init: str = None,
                  priority: int = None,
-                 tabargs: dict[str, float] | None = None,
+                 doc: str = '',
+                 includes: list[str] | None = None,
+                 aliases: dict[str, str] = None,
                  **kws) -> Instr:
         """
         Create an :class:`~csoundengine.instr.Instr` and register it with this renderer
@@ -520,6 +692,11 @@ class Renderer(AbstractRenderer):
                 args
             init: init (global) code needed by this instr (read soundfiles,
                 load soundfonts, etc)
+            priority: has no effect for offline rendering, only here to maintain
+                the same interface with Session
+            doc: documentation describing what this instr does
+            includes: list of files to be included in order for this instr to work
+            aliases: a dict mapping arg names to real argument names.
             kws: any keywords are passed on to the Instr constructor.
                 See the documentation of Instr for more information.
 
@@ -530,7 +707,7 @@ class Renderer(AbstractRenderer):
         .. seealso: :class:`~csoundengine.instr.Instr`, :meth:`Session.defInstr <csoundengine.session.Session.defInstr>`
 
         Example
-        =======
+        ~~~~~~~
 
             >>> from csoundengine import *
             >>> renderer = Renderer()
@@ -555,10 +732,11 @@ class Renderer(AbstractRenderer):
             >>> event.set(kmidi=60, delay=2)  # This will set the kmidi param
 
             >>> filt = renderer.sched('filter', 0, dur=event.dur, priority=event.priority+1,
-            ...                       tabargs={'ibus': bus, 'kcutoff': 1000})
+            ...                       args={'ibus': bus, 'kcutoff': 1000})
             >>> filt.automate('kcutoff', [3, 1000, 6, 200, 10, 4000])
         """
-        instr = Instr(name=name, body=body, args=args, init=init, **kws)
+        instr = Instr(name=name, body=body, args=args, init=init,
+                      includes=includes, aliases=aliases, **kws)
         self.registerInstr(instr)
         return instr
 
@@ -616,8 +794,8 @@ class Renderer(AbstractRenderer):
               dur=-1.,
               priority=1,
               args: list[float] | dict[str, float] = None,
-              tabargs: dict[str, float] = None,
-              **kws) -> ScoreEvent:
+              **kws
+              ) -> ScoreEvent:
         """
         Schedule an event
 
@@ -628,9 +806,6 @@ class Renderer(AbstractRenderer):
             dur: duration of this event. -1: endless
             args: pfields **beginning with p5**
                 (p1: instrnum, p2: delay, p3: duration, p4: reserved)
-            tabargs: a dict of the form param: value, to initialize
-                values in the parameter table (if defined by the given
-                instrument)
             kws: any named argument passed to the instr
 
         Returns:
@@ -638,7 +813,7 @@ class Renderer(AbstractRenderer):
 
 
         Example
-        =======
+        ~~~~~~~
 
             >>> from csoundengine import *
             >>> renderer = Renderer(sr=44100, nchnls=2)
@@ -658,27 +833,60 @@ class Renderer(AbstractRenderer):
             >>> renderer.render('out.wav')
 
         """
-        instr = self._instrdefs.get(instrname)
-        if not instr:
-            raise KeyError(f"instrument {instrname} is not defined")
-        instrnum = self.commitInstrument(instrname, priority)
-        tabnum = 0
-        if instr.hasControls():
-            tabnum = self.csd.addTableFromData(instr.overrideControls(tabargs),
-                                               start=max(0., delay - 2.))
-        args = internalTools.instrResolveArgs(instr, tabnum, args, kws)
-        p1 = self._getUniqueP1(instrnum)
-        return self._schedEvent(p1=p1, start=float(delay), dur=float(dur), args=args,
-                                instrname=instrname, priority=priority)
+        instr = self.getInstr(instrname)
+        if instr is None:
+            raise KeyError(f"Instrument '{instrname}' is not defined. Known instruments: "
+                           f"{self._instrdefs.keys()}")
 
-    def _schedEvent(self, p1: float|int, start: float, dur: float, 
-                    args: list[float|str],
-                    instrname: str = '', priority=0
-                    ) -> ScoreEvent:
+        instrnum = self.commitInstrument(instrname, priority)
+        args = kws if not args else args | kws
+        if args:
+            pkws, controlkws = instr.distributeArgs(args)
+        else:
+            pkws, controlkws = _EMPTYDICT, _EMPTYDICT
+
+        if instr.hasControls():
+            # itoken = p4, inumitems = p5
+            itoken = self._dynargsAssignToken()
+            controlvalues = instr.overrideControls(d=controlkws)
+            print(f"******** {controlkws=}, {controlvalues=}")
+            self.csd.addEvent(instr='_setDynamicControls',
+                              start=max(delay - self.ksmps/self.sr, 0.),
+                              dur=0,
+                              args=[itoken, len(controlvalues), *controlvalues])
+        else:
+            itoken = 0
+
+        args = internalTools.instrResolveArgs(instr=instr, p4=itoken, pkws=pkws)
+        p1 = self._getUniqueP1(instrnum)
+        start = float(delay)
+        dur = float(dur)
+        self.csd.addEvent(p1, start=start, dur=dur, args=args)
+        eventid = self._generateEventId()
+        event = ScoreEvent(p1, start=start, dur=dur, args=args, uniqueId=eventid,
+                           renderer=self, priority=priority, instrname=instrname,
+                           controlsSlot=itoken)
+        self.scheduledEvents[eventid] = event
+        return event
+
+    def _dynargsAssignToken(self) -> int:
+        self._dynargsTokenCounter = (self._dynargsTokenCounter + 1) % 2**32
+        return self._dynargsTokenCounter
+
+    def _schedEvent_old(self,
+                        p1: float | int,
+                        start: float,
+                        dur: float,
+                        args: list[float | str],
+                        instrname: str = '',
+                        priority=0,
+                        controlsSlot=0
+                        ) -> ScoreEvent:
         self.csd.addEvent(p1, start=start, dur=dur, args=args)
         eventid = self._generateEventId()
         event = ScoreEvent(p1, start=start, dur=dur, args=args, uniqueId=eventid, renderer=self,
-                           priority=priority, instrname=instrname)
+                           priority=priority, instrname=instrname,
+                           controlsSlot=controlsSlot)
         self.scheduledEvents[eventid] = event
         return event
 
@@ -734,7 +942,7 @@ class Renderer(AbstractRenderer):
             *options (str): any option will be passed directly to csound when rendering
 
         Examples
-        ========
+        ~~~~~~~~
 
             >>> from csoundengine.offline import Renderer
             >>> renderer = Renderer()
@@ -820,7 +1028,7 @@ class Renderer(AbstractRenderer):
                 ('pcm16', 'float32', etc). If no encoding is given a suitable default for
                 the sample format is chosen
             wait: if True this method will block until the underlying process exits
-            quiet: if True, all output from the csound subprocess is supressed
+            verbose: if True, all output from the csound subprocess is logged
             endtime: stop rendering at the given time. This will either extend or crop
                 the rendering.
             starttime: start rendering at the given time. Any event ending previous to
@@ -1005,7 +1213,12 @@ class Renderer(AbstractRenderer):
         instr = self._instrdefs[instrNameAndPriority[0]]
         return instr
 
-    def setp(self, event: ScoreEvent, delay: float, pairs: dict[int|str: float]):
+    def _setNamedControl(self, token: int, slot: int, value: float, delay: float
+                         ) -> None:
+        self.csd.addEvent("_setControl", start=delay, dur=0., args=[token, slot, value])
+
+    def setp(self, event: ScoreEvent, delay: float, param: str, value: float
+             ) -> None:
         """
         Modify a pfield of a scheduled event at the given time
 
@@ -1022,11 +1235,11 @@ class Renderer(AbstractRenderer):
             >>> from csoundengine.offline import Renderer
             >>> renderer = Renderer()
             >>> renderer.defInstr("sine", '''
-            ... |kmidi=60|
+            ... kmidi = p5
             ... outch 1, oscili:a(0.1, mtof:k(kmidi))
             ... ''')
             >>> event = renderer.sched("sine", args={'kmidi': 62})
-            >>> renderer._setp(event, 10, {'kmidi': 67})
+            >>> renderer.setp(event, 10, 'kmidi', 67)
             # setp can be called directly on the event
             >>> event._setp(delay=10, kmidi=67)
             # After scheduling all events/automations:
@@ -1034,15 +1247,17 @@ class Renderer(AbstractRenderer):
 
         """
         instr = self._instrFromEvent(event)
-        pairsd = {}
-        for k, v in pairs.items():
-            if (idx:=instr.pfieldIndex(k, 0)) > 0:
-                pairsd[idx] = v
-        if pairsd:
-            flatpairs = emlib.iterlib.flatdict(pairsd)
-            pargs = [event.p1, len(pairs)]
-            pargs.extend(flatpairs)
-            self.csd.addEvent("_pwrite", start=delay, dur=0.1, args=pargs)
+        if param not in instr.dynamicPfieldNames():
+            if param not in instr.pfieldNames():
+                raise ValueError(f"'{param}' is not a known pfield. Known pfields for "
+                                 f"instr '{instr.name}' are: {instr.pfieldNames()}")
+            else:
+                raise logger.error(f"'{param}' is not a dynamic pfield. Modifying its "
+                                   f"value via setp (pwrite) will have no effect")
+
+        pfieldIndex = instr.pfieldIndex(param, 0)
+        self.csd.addEvent("_pwrite", start=delay, dur=0.,
+                          args=[event.p1, pfieldIndex, value])
 
     def makeTable(self,
                   data: np.ndarray | list[float] | None = None,
@@ -1076,16 +1291,13 @@ class Renderer(AbstractRenderer):
             return self.csd.addEmptyTable(size=size, sr=sr, tabnum=tabnum)
 
     def readSoundfile(self,
-                      path: str='?',
+                      path='?',
                       chan: int = 0,
-                      start: float = 0.,
                       skiptime: float = 0.,
+                      start: float = 0.,
                       force=False
                       ) -> tableproxy.TableProxy:
         """
-        def readSoundfile(self, path="?", chan=0, free=False, force=False, skiptime: float=0
-                      ) -> TableProxy:
-
         Add code to this offline renderer to load a soundfile
 
         Args:
@@ -1098,15 +1310,16 @@ class Renderer(AbstractRenderer):
                 soundfile has already been added
 
         Returns:
-            an instance of :
-            the assigned table number
+            a TableProxy, representing the table holding the soundfile
         """
         if path == "?":
             path = _state.openSoundfile()
 
         tabproxy = self._soundfileRegistry.get(path)
-        if tabproxy is not None and tabproxy.skiptime == skiptime:
-            return tabproxy
+        if tabproxy is not None:
+            logger.warning(f"Soundfile '{path}' has already been added to this project")
+            if not force and tabproxy.skiptime == skiptime:
+                return tabproxy
 
         tabnum = self.csd.addSndfile(sndfile=path,
                                      start=start,
@@ -1116,17 +1329,20 @@ class Renderer(AbstractRenderer):
         tabproxy = tableproxy.TableProxy(tabnum=tabnum, engine=None, numframes=info.nframes,
                                          sr=info.samplerate, nchnls=info.channels, path=path,
                                          skiptime=skiptime)
-        # TODO: keep registry of tabproxy for given soundfile
         self._soundfileRegistry[path] = tabproxy
         return tabproxy
 
-
     def playSample(self,
-                   source: int|str|tuple[np.ndarray, int],
-                   delay=0., dur=0,
-                   chan=1, speed=1., loop=False, pan=-1, gain=1.,
-                   fade=0., skip=0.,
-                   compensateSamplerate=True,
+                   source: int | str | tuple[np.ndarray, int],
+                   delay=0.,
+                   dur=0,
+                   chan=1,
+                   gain=1.,
+                   speed=1.,
+                   loop=False,
+                   pan=-1,
+                   skip=0.,
+                   fade: float | tuple[float, float] = 0.,
                    crossfade=0.02,
                    **kws
                    ) -> ScoreEvent:
@@ -1154,9 +1370,6 @@ class Renderer(AbstractRenderer):
             dur: duration of playback. -1=indefinite duration, will stop at the end of the
                 sample if no looping was set; 0=definite duration, the event is scheduled
                 with dur=sampledur/speed
-            compensateSamplerate: if True, adjust playback rate in order to preserve
-                the sample's original pitch if there is a sr mismatch between the
-                sample and the engine.
             crossfade: if looping, this indicates the length of the crossfade
         """
         if loop and dur == 0:
@@ -1181,8 +1394,17 @@ class Renderer(AbstractRenderer):
         assert tabnum > 0
         if not loop:
             crossfade = -1
+
+        if isinstance(fade, (int, float)):
+            fadein = fadeout = fade
+        elif isinstance(fade, tuple):
+            fadein, fadeout = fade
+        else:
+            raise TypeError(f"fade should be a fade time or a tuple (fadein, fadeout), "
+                            f"got {fade}")
+
         args = dict(isndtab=tabnum, istart=skip,
-                    ifade=fade, icompensatesr=int(compensateSamplerate),
+                    ifadein=fadein, ifadeout=fadeout,
                     kchan=chan, kspeed=speed, kpan=pan, kgain=gain,
                     ixfade=crossfade)
         return self.sched('.playSample', delay=delay, dur=dur, args=args)
@@ -1192,7 +1414,8 @@ class Renderer(AbstractRenderer):
                  param: str,
                  pairs: Sequence[float] | np.ndarray,
                  mode="linear",
-                 delay: float = None
+                 delay: float = None,
+                 overtake=False
                  ) -> None:
         """
         Automate a parameter of a scheduled event
@@ -1208,7 +1431,15 @@ class Renderer(AbstractRenderer):
             mode (str): one of "linear", "cos", "smooth", "exp=xx" (see interp1d)
             delay: start time of the automation event. If None is given, the start
                 time of the automated event will be used.
+            overtake: if True, the first value is not used, the current value
+                for the given parameter is used in its place.
         """
+        instr = event.instr
+        params = instr.dynamicParamNames()
+        if param not in params:
+            raise KeyError(f"Unknown parameter '{param}' for {event}. Possible "
+                           f"parameters: {params}")
+
         if delay is None:
             delay = event.start
 
@@ -1230,8 +1461,6 @@ class Renderer(AbstractRenderer):
             pairs, delay = internalTools.consolidateDelay(pairs, delay)
 
         instr = self._instrFromEvent(event)
-        if instr.paramMode() == 'table':
-            return self._automateTable(event=event, param=param, pairs=pairs, mode=mode, delay=delay)
 
         if len(pairs) > 1900:
             pairgroups = internalTools.splitPairs(pairs, 1900)
@@ -1239,7 +1468,28 @@ class Renderer(AbstractRenderer):
                 self.automate(event=event, param=param, pairs=pairs, mode=mode, delay=delay)
             return
 
-        pindex = instr.pfieldIndex(param)
+        if isinstance(param, int):
+            param = f'p{param}'
+
+        if instr.hasControls() and param in instr.controlNames():
+            self._automateTable(event=event, param=param, pairs=pairs, mode=mode, delay=delay,
+                                overtake=overtake)
+        else:
+            assert param.startswith('p') or param in instr.pfieldNames()
+            self._automatePfield(event=event, param=param, pairs=pairs, mode=mode, delay=delay,
+                                 overtake=overtake)
+
+    def _automatePfield(self,
+                        event: ScoreEvent,
+                        param: str,
+                        pairs: Sequence[float] | np.ndarray,
+                        mode="linear",
+                        delay: float = None,
+                        overtake=False
+                        ) -> None:
+        assert len(pairs) < 1900
+        instr = event.instr
+        pfieldindex = instr.pfieldIndex(param)
         dur = pairs[-2]-pairs[0]
         epsilon = self.csd.ksmps / self.csd.sr * 3
         start = max(0., delay-epsilon)
@@ -1247,77 +1497,36 @@ class Renderer(AbstractRenderer):
             # we clip the duration of the automation to the lifetime of the automated event
             end = min(event.start+event.dur, start+dur+epsilon)
             dur = end-start
-        modeint = self.strSet(mode)
-        args = [event.p1, pindex, modeint, 0, len(pairs)]
-        args.extend(pairs)
+        imode = self.strSet(mode)
+        # ip1:4, ipindex:5, imode:6, iovertake:7, ilenpairs:8
+        args = [event.p1, pfieldindex, imode, int(overtake), len(pairs), *pairs]
         self.csd.addEvent('_automatePargViaPargs', start=delay, dur=dur, args=args)
-        return
-
-        # we schedule the table to be created prior to the start of the automation
-        #tabpairs = self.csd.addTableFromData(pairs, start=start)
-        #args = [event.p1, pindex, tabpairs, modeint]
-        #self.csd.addEvent("_automatePargViaTable", start=delay, dur=dur, args=args)
 
     def _automateTable(self,
                        event: ScoreEvent,
                        param: str,
                        pairs: list[float]|np.ndarray,
                        mode="linear",
-                       delay: float = None
+                       delay: float = None,
+                       overtake=False
                        ) -> None:
         """
-        Automate a slot of an event param table
-
-        This is called when :meth:`Renderer.automate` is called for an instrument
-        which defines a parameter table
-
-        Args:
-            event: the event to modify. Its instrument should define a param table
-            param: the named slot to modify
-            pairs: the automation data is given as a flat sequence of pairs (time,
-              value). Times are relative to the start of the automation event.
-              The very first value can be a NAN, in which case the current value
-              in the table is used.
-            mode: one of 'linear', 'cos', 'expon(xx)', 'smooth'. See the opcode
-              `interp1d` for more information
-            delay: the time delay to start the automation.
-
-        Example
-        ~~~~~~~
-
-        >>> from csoundengine import offline
-        >>> r = offline.Renderer()
-        >>> r.defInstr('oscili', r'''
-        ... {kamp=0.1, kfreq=1000}
-        ... outch 1, oscili:a(kamp, kfreq)
-        ... ''')
-        >>> ev = r.sched('oscili', delay=1, tabargs={'kfreq': 440})
-        >>> r.automate(ev, 'kfreq', pairs=[0, 440, 2, 880])
-
+        Automate a named control of an event
         """
-
-        if delay is None:
-            delay = event.start
-        instr = self._instrFromEvent(event)
-        if not instr.hasControls():
-            raise RuntimeError(f"instr {instr.name} does not define a parameters table")
-        if event.paramTable == 0:
-            raise RuntimeError(f"instr {instr.name} should have a parameters table, but"
-                               f"no table has been assigned (p1: {event.p1}")
-        pindex = instr.controlIndex(param)
-        assert pindex >= 0
+        assert len(pairs) < 1900 and len(pairs) % 2 == 0
+        instr = event.instr
+        paramindex = instr.controlIndex(param)
         dur = pairs[-2] - pairs[0]
         epsilon = self.csd.ksmps / self.csd.sr * 3
         start = max(0., delay - epsilon)
         if event.dur > 0:
-            # we clip the duration of the automation to the lifetime of the automated event
+            # we clip the duration of the automation to the lifetime of the event
             end = min(event.start + event.dur, start + dur + epsilon)
             dur = end - start
-        modeint = self.strSet(mode)
-        # we schedule the table to be created prior to the start of the automation
-        tabpairs = self.csd.addTableFromData(pairs, start=start)
-        args = [event.paramTable, pindex, tabpairs, modeint]
-        self.csd.addEvent("_automateTableViaTable", start=delay, dur=dur, args=args)
+        imode = self.strSet(mode)
+        # itoken = p4, iparamindex = p5, imode = p6, iovertake = p7, ilenpairs = p8
+        args = [event.controlsSlot, paramindex, imode, int(overtake), len(pairs), *pairs]
+        self.csd.addEvent('_automateControlViaPargs', start=delay, dur=dur, args=args)
 
     def __enter__(self):
         if not self._exitCallbacks:
@@ -1351,7 +1560,8 @@ class Renderer(AbstractRenderer):
             info = f'sr={_(self.sr)}'
             return f'<strong>Renderer</strong>({info})'
 
-def cropScore(events: list[ScoreEvent], start=0, end=0) -> list[ScoreEvent]:
+
+def cropScore(events: list[ScoreEvent], start=0., end=0.) -> list[ScoreEvent]:
     """
     Crop the score so that no event exceeds the given limits
 
@@ -1359,6 +1569,9 @@ def cropScore(events: list[ScoreEvent], start=0, end=0) -> list[ScoreEvent]:
         events: a list of ScoreEvents
         start: the min. start time for any event
         end: the max. end time for any event
+
+    Returns:
+        a list with the cropped events
     """
     scoreend = max(ev.end for ev in events)
     if end == 0:
@@ -1389,3 +1602,33 @@ def _checkParams(params: Iterator[str], dynamicParams: set[str], obj=None) -> No
             else:
                 msg = f"Parameter {param} not known. Possible parameters: {params}"
             raise KeyError(msg)
+
+
+def _namedControlsGenerateCodeOffline(controls: dict) -> str:
+    """
+    Generates code for an instr to read named controls offline
+
+    Args:
+        controls: a dict mapping control name to default value. The
+            keys are valid csound k-variables
+
+    Returns:
+        the generated code
+    """
+
+    lines = [fr'''
+    ; --- start generated code for dynamic args
+    i__token__ = p4
+    i__tabnum__ = gi__dynargsTable
+    i__slot__ = _getControlSlot(i__token__)
+    i__slicestart__ = i__slot__ * gi__dynargsSliceSize
+    atstop "_releaseDynargsToken", 0, 0, i__token__
+    ''']
+    idx = 0
+    for key, value in controls.items():
+        assert key.startswith('k')
+        lines.append(f"    {key} tab i__slicestart__ + {idx}, i__tabnum__")
+        idx += 1
+    lines.append("    ; --- end generated code\n")
+    out = emlib.textlib.stripLines(emlib.textlib.joinPreservingIndentation(lines))
+    return out
