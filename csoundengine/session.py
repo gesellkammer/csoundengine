@@ -801,7 +801,7 @@ class Session(AbstractRenderer):
         if instr is None:
             raise ValueError(f"instrument {name} not registered")
         instrnum = self._registerInstrAtPriority(name, priority)
-        body = self.instrGenerateBody(instr=instr)
+        body = self.generateInstrBody(instr=instr)
         instrtxt = _tools.instrWrapBody(body=body,
                                         instrid=instrnum)
         try:
@@ -1159,7 +1159,7 @@ class Session(AbstractRenderer):
         self._dynargsSlicePool.appendleft(slicenum)
 
     @cache
-    def instrGenerateBody(self, instr: Instr) -> str:
+    def generateInstrBody(self, instr: Instr) -> str:
         """
         Generate the actual body for a given instr
 
@@ -1762,7 +1762,7 @@ class Session(AbstractRenderer):
             crossfade: if looping, this indicates the length of the crossfade
 
         Returns:
-            A Synth with the following mutable parameters: gain, speed, chan, pan
+            A Synth with the following mutable parameters: kgain, kspeed, kchan, kpan
 
         """
         if isinstance(source, int):
@@ -1878,10 +1878,3 @@ def _namedControlsGenerateCode(controls: dict) -> str:
     return out
 
 
-class FutureSynth(Synth):
-    def __init__(self, event: SessionEvent, session: Session):
-        self.event = event
-        self.session = session
-
-    def set(self, param='', value: float = 0., delay=0., **kws) -> None:
-        pass

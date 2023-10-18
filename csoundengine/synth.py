@@ -5,6 +5,7 @@ from functools import cache
 from .config import logger, config
 from . import internalTools
 from . import baseevent
+from . import sessionevent
 from emlib import iterlib
 import emlib.misc
 from . import jupytertools
@@ -177,7 +178,7 @@ class Synth(AbstrSynth):
 
     @property
     def body(self) -> str:
-        return self.session.instrGenerateBody(self.instr)
+        return self.session.generateInstrBody(self.instr)
 
     def _controlNames(self) -> frozenset[str] | None:
         return self.instr.controlNames()
@@ -863,5 +864,13 @@ class SynthGroup(AbstrSynth):
                 allparams.update(params)
         return allparams
 
+"""
+class FutureSynth(AbstrSynth):
+    def __init__(self, event: sessionevent.SessionEvent, engine: Engine):
+        super().__init__(start=event.delay, dur=event.dur, engine=engine)
+        self.event = event
+        self._session = self.engine.session()
 
-
+    def set(self, param='', value: float = 0., delay=0., **kws) -> None:
+        self.session.
+"""

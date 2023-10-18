@@ -39,6 +39,12 @@ class AbstractRenderer:
         raise NotImplementedError
 
     @abstractmethod
+    def generateInstrBody(self,
+                          instr: _instr.Instr
+                          ) -> str:
+        raise NotImplementedError
+
+    @abstractmethod
     def registerInstr(self, instr: _instr.Instr) -> bool:
         raise NotImplementedError
 

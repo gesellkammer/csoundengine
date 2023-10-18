@@ -1682,6 +1682,15 @@ _builtinInstrs = {
 }
 
 
+@_dataclass
+class _InstrDef:
+    p1: int | str
+    body: str
+    samelineComment: str = ''
+    preComment: str = ''
+    postComment: str = ''
+
+
 class Csd:
     """
     Build a csound script by adding global code, instruments, score events, etc.
@@ -1728,7 +1737,7 @@ class Csd:
         self.score: list[Sequence[int | float | str]] = []
         """The score, a list of events of the form (p1, p2, p3, ...)"""
 
-        self.instrs: dict[str | int, str] = {}
+        self.instrs: dict[str | int, _InstrDef] = {}
         """The orchestra"""
 
         self.globalcodes: list[str] = []
@@ -2182,19 +2191,21 @@ class Csd:
                 endtime = max(endtime, evstart + evdur)
         return endtime
 
-    def addInstr(self, instr: int | str, body: str) -> None:
+    def addInstr(self, instr: int | str, body: str, instrComment='') -> None:
         """
         Add an instrument definition to this csd
 
         Args:
             instr: the instrument number of name
             body: the body of the instrument (the part between 'instr' / 'endin')
+            instrComment: if given, it will be added at the end of the 'instr' line
         """
         if _re.search(r"^\s*instr", body):
             raise ValueError(f"The body should only include the instrument definition, "
                              f"the part between 'instr' / 'endin', got: {body}")
 
-        self.instrs[instr] = body
+        instrdef = _InstrDef(p1=instr, body=body, samelineComment=instrComment)
+        self.instrs[instr] = instrdef
 
     def addGlobalCode(self, code: str, acceptDuplicates=True) -> None:
         """ Add code to the instr 0 """
@@ -2333,9 +2344,21 @@ class Csd:
                 write("\n")
             write("; ----- end global code\n\n")
 
-        for instr, instrcode in self.instrs.items():
-            write(f"instr {instr}\n")
-            body = _textwrap.dedent(instrcode)
+        for instr, instrdef in self.instrs.items():
+            if instrdef.preComment:
+                for line in instrdef.preComment.splitlines():
+                    write(f";;  {line}\n")
+            instrline = f"instr {instr}"
+            if instrdef.samelineComment:
+                instrline += f"  ; {instrdef.samelineComment}\n"
+            else:
+                instrline += "\n"
+            write(instrline)
+            if instrdef.postComment:
+                if instrdef.preComment:
+                    for line in instrdef.preComment.splitlines():
+                        write(f"{tab};;  {line}\n")
+            body = _textwrap.dedent(instrdef.body)
             body = _textwrap.indent(body, tab)
             write(body)
             write("\nendin\n")
@@ -3175,6 +3198,9 @@ def locateDocstring(lines: list[str]) -> tuple[int | None, int]:
                 docstringStart = i
                 docstringKind = ';' if line[0] == ';' else line[:2]
                 continue
+            else:
+                # Not a docstring, so stop looking
+                break
         else:
             # inside docstring
             if docstringKind == '/*':

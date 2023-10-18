@@ -27,9 +27,12 @@ chn_k "_soundfontPresetCount", 3
 
 opcode _assignControlSlot, i, i
     itoken xin
+    iprevslot dict_get gi__tokenToDynargsSlot, itoken, -1
     islot pool_pop gi__dynargsSlotsPool, -1
     if islot == -1 then
-        initerror "control slots pool is empty"
+        initerror "Control slots pool is empty"
+    elseif iprevslot >= 0 then
+        prints sprintf("Warning: the token %d has already an assigned slot %d. New slot: %d\n", itoken, iprevslot, islot)
     endif
     dict_set gi__tokenToDynargsSlot, itoken, islot
     xout islot    
@@ -91,6 +94,8 @@ opcode sfPresetIndex, i, Sii
 endop
 '''
 
+# The order of the named instruments is relevant.
+
 _offlineOrc = r'''
 
 instr _stop
@@ -98,6 +103,28 @@ instr _stop
     inum = p4
     turnoff2_i inum, 4, 1
     turnoff
+endin
+
+instr _setControl
+    itoken = p4
+    iindex = p5
+    ivalue = p6
+    islot = _getControlSlot(itoken)
+    if islot <= 0 then
+        initerror sprintf("Control slot not assigned for token %d", itoken)
+    endif
+    iindex0 = islot * gi__dynargsSliceSize
+    tabw_i ivalue, iindex0 + iindex, gi__dynargsTable
+endin
+
+instr _initDynamicControls
+    ; to be called with dur 0
+    itoken = p4
+    inumitems = p5
+    islot = _assignControlSlot(itoken)
+    ivalues[] passign 6, 6+inumitems
+    iindex = islot * gi__dynargsSliceSize
+    copya2ftab ivalues, gi__dynargsTable, iindex
 endin
 
 instr _automateControlViaPargs
@@ -177,28 +204,6 @@ instr _chnset
     Schn = p4
     ival = p5
     chnset ival, Schn
-endin
-
-instr _setControl
-    itoken = p4
-    iindex = p5
-    ivalue = p6
-    islot = _getControlSlot(itoken)
-    if islot <= 0 then
-        initerror sprintf("Control slot not assigned for token %d", itoken)
-    endif
-    iindex0 = islot * gi__dynargsSliceSize
-    tabw_i ivalue, iindex0 + iindex, gi__dynargsTable
-endin
-
-instr _setDynamicControls
-    ; to be called with dur 0
-    itoken = p4
-    inumitems = p5
-    islot = _assignControlSlot(itoken)
-    ivalues[] passign 6, 6+inumitems
-    iindex = islot * gi__dynargsSliceSize
-    copya2ftab ivalues, gi__dynargsTable, iindex
 endin
 
 ; -------------------- end prelude -----------------

@@ -80,7 +80,8 @@ if TYPE_CHECKING or "sphinx" in sys.modules:
 __all__ = (
     "Renderer",
     "ScoreEvent",
-    "EventGroup"
+    "EventGroup",
+    "RenderJob"
 )
 
 
@@ -342,9 +343,37 @@ class RenderJob:
     encoding: str = ''
     starttime: float = 0.
     endtime: float = 0.
+    process: subprocess.Popen | None = None
 
     def openOutfile(self, wait=True):
+        self.wait()
         emlib.misc.open_with_app(self.outfile, wait=wait)
+
+    def wait(self):
+        if self.process is not None:
+            self.process.wait()
+
+    def _repr_html_(self):
+        self.wait()
+        blue = internalTools.safeColors['blue1']
+
+        def _(s, color=blue):
+            return f'<code style="color:{color}">{s}</code>'
+
+        if not os.path.exists(self.outfile):
+            info = (f"outfile='{self.outfile}' (not found), sr={_(self.samplerate)}, "
+                    f"encoding={self.encoding}")
+            return f'<string>RenderJob</strong>({info})'
+        else:
+            sndfile = self.outfile
+            soundfileHtml = internalTools.soundfileHtml(sndfile, withHeader=False)
+            info = (f"outfile='{_(self.outfile)}' (not found), sr={_(self.samplerate)}, "
+                    f"encoding='{self.encoding}'")
+            htmlparts = (
+                f'<strong>RenderJob</strong>({info})',
+                soundfileHtml
+            )
+            return '<br>'.join(htmlparts)
 
 
 class Renderer(AbstractRenderer):
@@ -437,7 +466,7 @@ class Renderer(AbstractRenderer):
         self._instrnumToNameAndPriority: dict[int, tuple[str, int]] = {}
         self._numbuckets = priorities
         self._bucketCounters = [0] * priorities
-        self._startUserInstrs = 20
+        self._startUserInstrs = 50
         self._instrdefs: dict[str, Instr] = {}
         self._instanceCounters: dict[int, int] = {}
         self._numInstancesPerInstr = 10000
@@ -478,16 +507,17 @@ class Renderer(AbstractRenderer):
         prelude = offlineorc.prelude(controlNumSlots=self._dynargsNumSlices,
                                      controlArgsPerInstr=self._dynargsSliceSize)
         self.csd.addGlobalCode(prelude)
+        self.csd.addGlobalCode(offlineorc.orchestra())
 
         if self.hasBusSupport():
+            # The bus code should make room for the named instruments in the offline
+            # orchestra
             busorc, instrIndex = engineorc.busSupportCode(numAudioBuses=self._numAudioBuses,
                                                           numControlBuses=self._numControlBuses,
                                                           postInstrNum=self._postUserInstrs,
-                                                          startInstr=1)
+                                                          startInstr=20)
             self._builtinInstrs.update(instrIndex)
             self.csd.addGlobalCode(busorc)
-
-        self.csd.addGlobalCode(offlineorc.orchestra())
 
         for instrname in ['.playSample']:
             instr = sessioninstrs.builtinInstrIndex[instrname]
@@ -591,22 +621,22 @@ class Renderer(AbstractRenderer):
         instrdef = self._instrdefs.get(instrname)
         if not instrdef:
             raise KeyError(f"instrument {instrname} is not defined")
-
-        count = self._bucketCounters[priority]
-        if count > self._bucketSizes[priority]:
+        priority0 = priority - 1
+        count = self._bucketCounters[priority0]
+        if count > self._bucketSizes[priority0]:
             raise ValueError(
-                f"Too many instruments ({count}) defined, max. is {self._bucketSizes[priority]}")
+                f"Too many instruments ({count}) defined, max. is {self._bucketSizes[priority0]}")
 
-        self._bucketCounters[priority] += 1
-        instrnum = self._bucketIndices[priority] + count
+        self._bucketCounters[priority0] += 1
+        instrnum = self._bucketIndices[priority0] + count
         self._nameAndPriorityToInstrnum[(instrname, priority)] = instrnum
         self._instrnumToNameAndPriority[instrnum] = (instrname, priority)
-        body = self.instrGenerateBody(instr=instrdef)
-        self.csd.addInstr(instrnum, body)
+        body = self.generateInstrBody(instr=instrdef)
+        self.csd.addInstr(instr=instrnum, body=body, instrComment=instrname)
         return instrnum
 
     @cache
-    def instrGenerateBody(self, instr: Instr) -> str:
+    def generateInstrBody(self, instr: Instr) -> str:
         body = instr._preprocessedBody
         parts = []
         docstring, body = csoundlib.splitDocstring(body)
@@ -866,7 +896,7 @@ class Renderer(AbstractRenderer):
             # itoken = p4, inumitems = p5
             itoken = self._dynargsAssignToken()
             controlvalues = instr.overrideControls(d=controlkws)
-            self.csd.addEvent(instr='_setDynamicControls',
+            self.csd.addEvent(instr='_initDynamicControls',
                               start=max(delay - self.ksmps/self.sr, 0.),
                               dur=0,
                               args=[itoken, len(controlvalues), *controlvalues])
@@ -1066,7 +1096,7 @@ class Renderer(AbstractRenderer):
                starttime=0.,
                compressionBitrate: int = None,
                sr: int = None
-               ) -> tuple[str, subprocess.Popen]:
+               ) -> RenderJob:
         """
         Render to a soundfile
 
@@ -1126,7 +1156,7 @@ class Renderer(AbstractRenderer):
 
         if renderend == float('inf'):
             raise RenderError("Cannot render an infinite score. Set an endtime when calling "
-                              ".render(...) or use ")
+                              ".render(...)")
         if renderend <= scorestart:
             raise RenderError(f"No score to render (start: {scorestart}, end: {renderend})")
 
@@ -1181,9 +1211,11 @@ class Renderer(AbstractRenderer):
         if previousEndMarker is not None:
             self.setEndMarker(previousEndMarker)
 
-        self.renderedJobs.append(RenderJob(outfile=outfile, encoding=encoding, samplerate=self.sr,
-                                           endtime=endtime, starttime=starttime))
-        return outfile, proc
+        renderjob = RenderJob(outfile=outfile, encoding=encoding, samplerate=self.sr,
+                              endtime=endtime, starttime=starttime, process=proc)
+
+        self.renderedJobs.append(renderjob)
+        return renderjob
 
     def lastRender(self) -> str | None:
         """
@@ -1521,12 +1553,12 @@ class Renderer(AbstractRenderer):
         if pairs[0] > 0:
             pairs, delay = internalTools.consolidateDelay(pairs, delay)
 
-        instr = self._instrFromEvent(event)
-
-        if len(pairs) > 1900:
-            pairgroups = internalTools.splitPairs(pairs, 1900)
-            for pairs in pairgroups:
-                self.automate(event=event, param=param, pairs=pairs, mode=mode, delay=delay)
+        instr = event.instr
+        maxDataSize = config['max_pfields'] - 10
+        if len(pairs) > maxDataSize:
+            for subdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize//2):
+                self.automate(event=event, param=param, pairs=subgroup, mode=mode,
+                              delay=delay+subdelay, overtake=overtake)
             return
 
         if isinstance(param, int):
@@ -1548,24 +1580,17 @@ class Renderer(AbstractRenderer):
                         delay: float = None,
                         overtake=False
                         ) -> None:
-        maxDataSize = config['max_pfields'] - 10
-        if len(pairs) <= maxDataSize:
-            instr = event.instr
-            pfieldindex = instr.pfieldIndex(param)
-            dur = pairs[-2]-pairs[0]
-            epsilon = self.csd.ksmps / self.csd.sr * 3
-            start = max(0., delay-epsilon)
-            if event.dur > 0:
-                # we clip the duration of the automation to the lifetime of the automated event
-                end = min(event.start+event.dur, start+dur+epsilon)
-                dur = end-start
-            # ip1:4, ipindex:5, imode:6, iovertake:7, ilenpairs:8
-            args = [event.p1, pfieldindex, self.strSet(mode), int(overtake), len(pairs), *pairs]
-            self.csd.addEvent('_automatePargViaPargs', start=delay, dur=dur, args=args)
-        else:
-            for subdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize//2):
-                self._automatePfield(event=event, param=param, pairs=subgroup,
-                                     mode=mode, delay=delay+subdelay, overtake=overtake)
+        instr = event.instr
+        pfieldindex = instr.pfieldIndex(param)
+        dur = pairs[-2]-pairs[0]
+        epsilon = self.csd.ksmps / self.csd.sr * 3
+        start = max(0., delay-epsilon)
+        if event.dur > 0:
+            # we clip the duration of the automation to the lifetime of the automated event
+            end = min(event.start+event.dur, start+dur+epsilon)
+            dur = end-start
+        args = [event.p1, pfieldindex, self.strSet(mode), int(overtake), len(pairs), *pairs]
+        self.csd.addEvent('_automatePargViaPargs', start=delay, dur=dur, args=args)
 
     def _automateTable(self,
                        event: ScoreEvent,
@@ -1578,26 +1603,20 @@ class Renderer(AbstractRenderer):
         """
         Automate a named control of an event
         """
-        maxDataSize = config['max_pfields'] - 10
-        assert len(pairs) % 2 == 0
-        if len(pairs) <= maxDataSize:
-            instr = event.instr
-            paramindex = instr.controlIndex(param)
-            dur = pairs[-2] - pairs[0]
-            epsilon = self.csd.ksmps / self.csd.sr * 3
-            start = max(0., delay - epsilon)
-            if event.dur > 0:
-                # we clip the duration of the automation to the lifetime of the event
-                end = min(event.start + event.dur, start + dur + epsilon)
-                dur = end - start
-            imode = self.strSet(mode)
-            # itoken = p4, iparamindex = p5, imode = p6, iovertake = p7, ilenpairs = p8
-            args = [event.controlsSlot, paramindex, imode, int(overtake), len(pairs), *pairs]
-            self.csd.addEvent('_automateControlViaPargs', start=delay, dur=dur, args=args)
-        else:
-            for subdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize//2):
-                self._automateTable(event=event, param=param, pairs=subgroup,
-                                    mode=mode, delay=delay+subdelay, overtake=overtake)
+        # splitting is done in automate
+        assert len(pairs) < config['max_pfields'] and len(pairs) % 2 == 0
+        instr = event.instr
+        paramindex = instr.controlIndex(param)
+        dur = pairs[-2] - pairs[0]
+        epsilon = self.csd.ksmps / self.csd.sr * 3
+        start = max(0., delay - epsilon)
+        if event.dur > 0:
+            # we clip the duration of the automation to the lifetime of the event
+            end = min(event.start + event.dur, start + dur + epsilon)
+            dur = end - start
+        imode = self.strSet(mode)
+        args = [event.controlsSlot, paramindex, imode, int(overtake), len(pairs), *pairs]
+        self.csd.addEvent('_automateControlViaPargs', start=delay, dur=dur, args=args)
 
     def __enter__(self):
         if not self._exitCallbacks:

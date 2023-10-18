@@ -92,9 +92,8 @@ def generatePfieldsCode(body: str,
         return pfieldsText, '\n'.join(bodylines), ''
     else:
         start, end = docstringLocation
-        lines = bodylines
-        docstring = '\n'.join(lines[start:end])
-        rest = '\n'.join(lines[end:])
+        docstring = '\n'.join(bodylines[start:end])
+        rest = '\n'.join(bodylines[end:])
         return pfieldsText, rest, docstring
 
 

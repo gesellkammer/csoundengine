@@ -826,8 +826,8 @@ class Instr:
                 dur=dur,
                 args=args,
                 **kws)
-        sndfile, process = r.render(outfile, wait=wait, encoding=encoding)
-        return sndfile
+        renderjob = r.render(outfile, wait=wait, encoding=encoding)
+        return renderjob.outfile
 
     def renderSamples(self,
                       dur,

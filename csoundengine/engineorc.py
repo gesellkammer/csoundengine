@@ -2,9 +2,7 @@ from __future__ import annotations
 from string import Template
 from functools import cache
 from typing import Any
-import re
-
-
+from . import internalTools
 
 
 # In all templates we make the difference between substitutions which
@@ -468,6 +466,8 @@ instr ${soundfontPlay}
     endif
 endin
 
+
+
 instr ${dummy_post}
     ; this instrument is only here to prevent a crash
     ; when named instruments and numbered instruments
@@ -800,11 +800,6 @@ ftset gi__bustable, $$_BUSUNSET
 '''
 
 
-def _extractInstrNames(s:str) -> list[str]:
-    return [match.group(1) for line in s.splitlines()
-            if (match:=re.search(r"\binstr\s+\$\{(\w+)\}", line))]
-
-
 # Constants
 CONSTS = {
     'numtokens': 1000,
@@ -830,21 +825,6 @@ BUSKIND_CONTROL = 1
 _tableNames = ['responses', 'subgains', 'tokenToInstrnum']
 
 BUILTIN_TABLES = {name:i for i, name in enumerate(_tableNames, start=1)}
-
-
-@cache
-def assignBuiltinInstrs(orc: str, startInstr: int, postInstrNum: int) -> dict[str, int]:
-    """
-    Given an orc with quotes instr. names, assign numbers to each instr
-    """
-    names = _extractInstrNames(orc)
-    preInstrs = [name for name in names if not name.endswith('_post')]
-    postInstrs = [name for name in names if name.endswith('_post')]
-
-    instrs = {name: i for i, name in enumerate(preInstrs, start=startInstr)}
-    for i, name in enumerate(postInstrs):
-        instrs[name] = postInstrNum + i
-    return instrs
 
 
 def _joinOrc(busSupport=True) -> str:
@@ -877,9 +857,9 @@ def makeOrc(sr: int,
     withBusSupport = numAudioBuses > 0 or numControlBuses > 0
     orcproto = _joinOrc(busSupport=withBusSupport)
     template = Template(orcproto)
-    instrs = assignBuiltinInstrs(orcproto,
-                                 startInstr=CONSTS['reservedInstrsStart'],
-                                 postInstrNum=CONSTS['postProcInstrnum'])
+    instrs = internalTools.assignInstrNumbers(orcproto,
+                                              startInstr=CONSTS['reservedInstrsStart'],
+                                              postInstrNum=CONSTS['postProcInstrnum'])
     subs: dict[str, Any] = {name:f"{num}  /* {name} */"
                             for name, num in instrs.items()}
     subs.update(BUILTIN_TABLES)
@@ -899,12 +879,25 @@ def makeOrc(sr: int,
     return orc, instrs
 
 
-def busSupportCode(numAudioBuses:int,
-                   numControlBuses:int,
-                   postInstrNum:int,
-                   startInstr:int
+def busSupportCode(numAudioBuses: int,
+                   numControlBuses: int,
+                   postInstrNum: int,
+                   startInstr: int
                    ) -> tuple[str, dict[str, int]]:
-    instrnums = assignBuiltinInstrs(_busOrc, startInstr=startInstr, postInstrNum=postInstrNum)
+    """
+    Generates bus support code
+
+    Args:
+        numAudioBuses: the number of audio buses
+        numControlBuses: the number of control buses
+        postInstrNum: the starting instr number for *post* instrs. A post
+            instr should be run at the end of the evaluation chain. Such
+            instruments should have a _post in their name
+        startInstr: start instrument number for non-post instruments
+    """
+    instrnums = internalTools.assignInstrNumbers(_busOrc,
+                                                 startInstr=startInstr,
+                                                 postInstrNum=postInstrNum)
     subs: dict[str, Any] = {name: f"{num}  /* {name} */"
                             for name, num in instrnums.items()}
     subs['clearbuses'] = f'{postInstrNum} /* clearbuses */'

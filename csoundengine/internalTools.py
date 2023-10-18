@@ -4,6 +4,7 @@ import os
 import cachetools
 import numpy as np
 import sys
+import re
 from . import jacktools
 import signal
 import math
@@ -15,6 +16,7 @@ import emlib.misc
 import subprocess
 import bisect
 import xxhash
+from functools import cache
 
 
 if TYPE_CHECKING:
@@ -628,3 +630,33 @@ def flattenAutomationData(pairs: Sequence[float] | tuple[Sequence[float], Sequen
         raise TypeError(f"Expected a flat list of floats or a tuple of two lists of "
                         f"floats, got {pairs}")
 
+
+@cache
+def assignInstrNumbers(orc: str, startInstr: int, postInstrNum: int) -> dict[str, int]:
+    """
+    Given an orc with quoted instrument names, assign numbers to each instr
+
+    Args:
+        orc: the orchestra code
+        startInstr: the starting instrument number
+        postInstrNum: starting instrument number for 'post' instruments. Post
+            instruments are those which should be placed after all other
+            instruments
+
+    Returns:
+        a dict mapping instrument names to their assigned numbers
+    """
+    names = _extractInstrNames(orc)
+    preInstrs = [name for name in names if not name.endswith('_post')]
+    postInstrs = [name for name in names if name.endswith('_post')]
+
+    instrs = {name: i for i, name in enumerate(preInstrs, start=startInstr)}
+    for i, name in enumerate(postInstrs):
+        instrs[name] = postInstrNum + i
+    return instrs
+
+
+@cache
+def _extractInstrNames(s: str) -> list[str]:
+    return [match.group(1) for line in s.splitlines()
+            if (match := re.search(r"\binstr\s+\$\{(\w+)\}", line))]
