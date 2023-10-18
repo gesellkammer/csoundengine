@@ -90,5 +90,3 @@ parameters for all the synths in the group which declare such a parameter
     :inherited-members:
     :autosummary:
 
-
-

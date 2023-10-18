@@ -115,7 +115,7 @@ from .config import config, setLoggingLevel
 from .session import Session
 from .instr import Instr
 from .offline import Renderer
-from . import synth
+from .synth import SynthGroup
 from . import csoundlib
 from . import tools
 from .csoundlib import (dumpAudioDevices, dumpAudioBackends,

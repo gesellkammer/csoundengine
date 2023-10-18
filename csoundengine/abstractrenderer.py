@@ -4,6 +4,10 @@ from .baseevent import BaseEvent
 from abc import abstractmethod
 from . import instr as _instr
 
+import typing
+if typing.TYPE_CHECKING:
+    from csoundengine import busproxy
+
 
 class AbstractRenderer:
 
@@ -31,7 +35,7 @@ class AbstractRenderer:
                  args: dict[str, float] = None,
                  init: str = None,
                  priority: int = None,
-                 **kws) -> instr.Instr:
+                 **kws) -> _instr.Instr:
         raise NotImplementedError
 
     @abstractmethod
@@ -39,7 +43,24 @@ class AbstractRenderer:
         raise NotImplementedError
 
     @abstractmethod
-    def assignBus(self, kind='audio', persist=False) -> int:
+    def assignBus(self, kind='', value=None, persist=False) -> busproxy.Bus:
+        raise NotImplementedError
+
+    @abstractmethod
+    def _releaseBus(self, bus: busproxy.Bus) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def _writeBus(self, bus: busproxy.Bus, value: float, delay=0.) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def _readBus(self, bus: busproxy.Bus) -> float | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def _automateBus(self, bus: busproxy.Bus, pairs: typing.Sequence[float],
+                     mode='linear', delay=0., overtake=False):
         raise NotImplementedError
 
     @abstractmethod

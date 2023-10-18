@@ -98,17 +98,20 @@ import ctypes as _ctypes
 import atexit as _atexit
 import queue as _queue
 import fnmatch as _fnmatch
-import math
 import re as _re
-import textwrap
+import textwrap as _textwrap
 
+import math
 import time
 
 import emlib.textlib
+import emlib.net
+
+from emlib import iterlib
+
 import numpy as np
 import pitchtools as pt
 
-from emlib import iterlib, net
 from emlib.containers import IntPool
 
 from .config import config, logger
@@ -118,7 +121,7 @@ from . import internalTools
 from . import engineorc
 from . import state as _state
 from . import termui as _termui
-from .engineorc import CONSTS
+from .engineorc import CONSTS, BUSKIND_CONTROL, BUSKIND_AUDIO
 from .errors import TableNotFoundError, CsoundError
 
 
@@ -160,6 +163,7 @@ __all__ = [
     'logger',
     'csoundlib'
 ]
+
 
 _UNSET = float("-inf")
 
@@ -563,7 +567,7 @@ class Engine:
         self.started = False
         """Has this engine already started?"""
 
-        self.builtinInstrs: dict[str, int] = {}
+        self._builtinInstrs: dict[str, int] = {}
         """Dict of built-in instrs, mapping instr name to number"""
 
         if midiin == 'all':
@@ -585,8 +589,8 @@ class Engine:
         self._sendAddr: None | tuple[str, int] = None
 
         if udpserver:
-            self.udpPort = udpport or net.findport()
-            self._udpSocket = net.udpsocket()
+            self.udpPort = udpport or emlib.net.findport()
+            self._udpSocket = emlib.net.udpsocket()
             self._sendAddr = ("127.0.0.1", self.udpPort)
 
         self._perfThread: ctcsound.CsoundPerformanceThread
@@ -650,6 +654,7 @@ class Engine:
         self._soundfontPresetCountPtr: np.ndarray | None = None
         self._kbusTable: np.ndarray | None = None
         self._busIndexes: dict[int, int] = {}
+        self._busTokenToKind: dict[int, str] = {}
         self._soundfontPresets: dict[tuple[str, int, int], int] = {}
         self._soundfontPresetCount = 0
         self._startTime = 0.
@@ -865,7 +870,7 @@ class Engine:
                                           includestr=includestr,
                                           numAudioBuses=self.numAudioBuses,
                                           numControlBuses=self.numControlBuses)
-        self.builtinInstrs = instrmap
+        self._builtinInstrs = instrmap
         self._reservedInstrnums = set(instrmap.values())
         logger.debug("--------------------------------------------------------------\n"
                      "  Starting performance thread. \n"
@@ -920,7 +925,7 @@ class Engine:
 
     def _setupGlobalInstrs(self):
         if self.hasBusSupport():
-            self._perfThread.scoreEvent(0, "i", [self.builtinInstrs['clearbuses_post'], 0, -1])
+            self._perfThread.scoreEvent(0, "i", [self._builtinInstrs['clearbuses_post'], 0, -1])
         self._needsSync()
 
     def stop(self):
@@ -1096,7 +1101,7 @@ class Engine:
         assert self._perfThread
         # self._perfThread.flushMessageQueue()
         token = self._getSyncToken()
-        pargs = [self.builtinInstrs['pingback'], 0, 0, token]
+        pargs = [self._builtinInstrs['pingback'], 0, 0, token]
         self._eventWait(token, pargs, timeout=timeout)
         self._lastModification = 0
         logger.debug(f"Synched at {t}")
@@ -1185,7 +1190,7 @@ class Engine:
                 for rangename, mininstr, maxinstr in self._reservedInstrnumRanges:
                     if mininstr <= instrnum < maxinstr:
                         logger.error(f"Instrument number {instrnum} is reserved. Code:")
-                        logger.error("\n" + textwrap.indent(codeblock.text, "    "))
+                        logger.error("\n" + _textwrap.indent(codeblock.text, "    "))
                         raise ValueError(f"Cannot use instrument number {instrnum}, "
                                          f"the range {mininstr} - {maxinstr} is reserved for '{rangename}'")
 
@@ -1278,7 +1283,7 @@ class Engine:
                 raise ValueError(f"table {tabnum} not found")
             arr[idx] = value
         else:
-            pargs = [self.builtinInstrs['tabwrite'], delay, 0, tabnum, idx, value]
+            pargs = [self._builtinInstrs['tabwrite'], delay, 0, tabnum, idx, value]
             assert self._perfThread is not None
             self._perfThread.scoreEvent(0, "i", pargs)
 
@@ -1655,7 +1660,7 @@ class Engine:
             return
 
         tokens = [self._getSyncToken() for _ in range(len(names))]
-        instr = self.builtinInstrs['nstrnum']
+        instr = self._builtinInstrs['nstrnum']
         for name, token in zip(names, tokens):
             msg = f'i {instr} {delay} 0 {token} "{name}"'
             self._perfThread.inputMessage(msg)
@@ -1690,7 +1695,7 @@ class Engine:
         as `callback(name:str, instrnum:int)`
         """
         synctoken = self._getSyncToken()
-        msg = f'i {self.builtinInstrs["nstrnumsync"]} {delay} 0 {synctoken} "{name}"'
+        msg = f'i {self._builtinInstrs["nstrnumsync"]} {delay} 0 {synctoken} "{name}"'
 
         def _callback(synctoken, instrname=name, func=callback):
             instrnum = int(self._responsesTable[synctoken])
@@ -1726,7 +1731,7 @@ class Engine:
             self._queryNamedInstrAsync(instrname, delay=0, callback=callback)
             return 0
         token = self._getSyncToken()
-        msg = f'i {self.builtinInstrs["nstrnumsync"]} 0 0 {token} "{instrname}"'
+        msg = f'i {self._builtinInstrs["nstrnumsync"]} 0 0 {token} "{instrname}"'
         out = self._inputMessageWait(token, msg)
         assert out is not None
         out = int(out)
@@ -1736,7 +1741,7 @@ class Engine:
         return out
 
     def print(self, msg: str, delay=0.) -> None:
-        instrnum = self.builtinInstrs['print']
+        instrnum = self._builtinInstrs['print']
         self._perfThread.inputMessage(f'i {instrnum} {delay} 0. "{msg}"')
 
     def unsched(self, p1: float | str, delay: float = 0) -> None:
@@ -1778,7 +1783,7 @@ class Engine:
             mode = 0   # all instances
         else:
             mode = 4   # exact matching
-        pfields = [self.builtinInstrs['turnoff'], delay, 0, p1, mode]
+        pfields = [self._builtinInstrs['turnoff'], delay, 0, p1, mode]
         self._perfThread.scoreEvent(0, "i", pfields)
 
     def unschedFuture(self, p1: float | str) -> None:
@@ -1798,7 +1803,7 @@ class Engine:
         if isinstance(p1, str):
             p1 = self.queryNamedInstr(p1)
         dur = self.ksmps/self.sr * 2
-        pfields = [self.builtinInstrs['turnoff_future'], 0, dur, p1]
+        pfields = [self._builtinInstrs['turnoff_future'], 0, dur, p1]
         self._perfThread.scoreEvent(0, "i", pfields)
 
     def unschedAll(self) -> None:
@@ -2056,7 +2061,7 @@ class Engine:
                 the table wass not created via the engine
         """
         logger.info(f"Setting table metadata. {tabnum=}, {sr=}, {numchannels=}")
-        pargs = [self.builtinInstrs['ftsetparams'], 0, 0., tabnum, sr, numchannels]
+        pargs = [self._builtinInstrs['ftsetparams'], 0, 0., tabnum, sr, numchannels]
         tabinfo = self._tableInfo.get(tabnum)
         if tabinfo:
             tabinfo.sr = sr
@@ -2098,7 +2103,7 @@ class Engine:
             callback()
             return
         token = self._getSyncToken()
-        pargs = [self.builtinInstrs['pingback'], delay, 0.01, token]
+        pargs = [self._builtinInstrs['pingback'], delay, 0.01, token]
         self._eventWithCallback(token, pargs, lambda token: callback())
 
     def _eventWait(self, token: int, pargs: Sequence[float], timeout: float = None
@@ -2309,7 +2314,7 @@ class Engine:
         except _queue.Empty:
             raise TimeoutError(f"{token=}, {instr=}")
 
-    def _eventWithCallback(self, token:int, pargs, callback) -> None:
+    def _eventWithCallback(self, token: int, pargs, callback) -> None:
         """
         Create a csound "i" event with the given pargs with the possibility
         of receiving a notification from the instrument
@@ -2332,7 +2337,7 @@ class Engine:
         assert token == pargs[3]
         assert isinstance(token, int)
         table = self._responsesTable
-        self._responseCallbacks[token] = lambda token, t=table, c=callback: c(t[token])
+        self._responseCallbacks[token] = lambda tok, t=table, c=callback: c(t[tok])
         self._perfThread.scoreEvent(0, "i", pargs)
         return None
 
@@ -2421,7 +2426,7 @@ class Engine:
             the table number
         """
         token = self._getSyncToken()
-        maketableInstrnum = self.builtinInstrs['maketable']
+        maketableInstrnum = self._builtinInstrs['maketable']
         delay = 0
         assert tabnum >= 0
         if data is None:
@@ -2558,17 +2563,15 @@ class Engine:
                 self.csound.setAudioChannel(channel, value)
         elif method == 'score':
             if isinstance(value, (int, float)):
-                instrnum = self.builtinInstrs['chnset']
+                instrnum = self._builtinInstrs['chnset']
                 s = f'i {instrnum} {delay} 0 "{channel}" {value}'
                 self._perfThread.inputMessage(s)
             else:
-                instrnum = self.builtinInstrs['chnsets']
+                instrnum = self._builtinInstrs['chnsets']
                 s = f'i {instrnum} {delay} 0 "{channel}" "{value}"'
                 self._perfThread.inputMessage(s)
             self._needsSync()
         elif method == 'udp':
-            if not self.udpPort:
-                raise RuntimeError("This server has been started without udp support")
             assert isinstance(value, (float, str))
             self.udpSetChannel(channel, value)
         elif method == 'pointer':
@@ -2784,7 +2787,7 @@ class Engine:
         if info and cache:
             return info
         toks = [self._getSyncToken() for _ in range(4)]
-        pargs = [self.builtinInstrs['tableInfo'], 0, 0., tabnum]
+        pargs = [self._builtinInstrs['tableInfo'], 0, 0., tabnum]
         pargs.extend(toks)
         q = _queue.Queue()
 
@@ -2874,7 +2877,7 @@ class Engine:
         else:
             # if token is set to 0, no notification takes place
             token = 0
-        p1 = self.builtinInstrs['readSndfile']
+        p1 = self._builtinInstrs['readSndfile']
         msg = f'i {p1} 0 0. {token} "{path}" {tabnum} {chan} {skiptime}'
         if callback:
             self._inputMessageWithCallback(token, msg, lambda *args: callback())
@@ -2949,7 +2952,7 @@ class Engine:
         if vel is None:
             vel = amp/127
         args = [pitch, amp, index, vel, chan]
-        return self.sched(self.builtinInstrs['soundfontPlay'], delay=delay, dur=dur,
+        return self.sched(self._builtinInstrs['soundfontPlay'], delay=delay, dur=dur,
                           args=args)
 
     def soundfontPreparePreset(self,
@@ -2994,7 +2997,7 @@ class Engine:
         idx = self._soundfontPresetCountPtr[0]
         self._soundfontPresetCountPtr[0] += 1
         self._soundfontPresets[tup] = idx
-        instrnum = self.builtinInstrs['sfPresetAssignIndex']
+        instrnum = self._builtinInstrs['sfPresetAssignIndex']
         s = f'i {instrnum} 0 0 "{sf2path}" {bank} {presetnum} {idx}'
         self._perfThread.inputMessage(s)
         return idx
@@ -3022,7 +3025,7 @@ class Engine:
         """
         if isinstance(instr, int):
             token = self._getSyncToken()
-            pargs = [self.builtinInstrs['uniqinstance'], 0, 0.01, token, instr]
+            pargs = [self._builtinInstrs['uniqinstance'], 0, 0.01, token, instr]
             uniqinstr = self._eventWait(token, pargs)
             if uniqinstr is None:
                 raise RuntimeError("failed to get unique instance")
@@ -3084,7 +3087,7 @@ class Engine:
 
         """
         args = [gain, speed, tabnum, chan, fade, starttime, gaingroup, lagtime]
-        return self.sched(self.builtinInstrs['playgen1'], delay=delay, dur=dur,
+        return self.sched(self._builtinInstrs['playgen1'], delay=delay, dur=dur,
                           args=args)
 
     def playSoundFromDisk(self, path: str, delay=0., chan=0, speed=1., fade=0.01
@@ -3110,7 +3113,7 @@ class Engine:
 
         """
         assert self.started
-        p1 = self._assignEventId(self.builtinInstrs['playsndfile'])
+        p1 = self._assignEventId(self._builtinInstrs['playsndfile'])
         msg = f'i {p1} {delay} -1 "{path}" {chan} {speed} {fade}'
         self._perfThread.inputMessage(msg)
         return p1
@@ -3154,7 +3157,7 @@ class Engine:
         # this limit is just the limit of the pwrite instr, not of the opcode
         args = [p1, numpairs]
         args.extend(pairs)
-        self.sched(self.builtinInstrs['pwrite'], delay=delay, dur=0, args=args)
+        self.sched(self._builtinInstrs['pwrite'], delay=delay, dur=0, args=args)
 
     def getp(self, eventid: float, idx: int) -> float:
         """
@@ -3185,7 +3188,7 @@ class Engine:
         """
         token = self._getSyncToken()
         notify = 1
-        pargs = [self.builtinInstrs['pread'], 0, 0, token, eventid, idx, notify]
+        pargs = [self._builtinInstrs['pread'], 0, 0, token, eventid, idx, notify]
         value = self._eventWait(token, pargs)
         return value
 
@@ -3241,27 +3244,20 @@ class Engine:
 
 
         """
-        if len(pairs) < 1900:
-            # iargtab = p4
-            # iargidx = p5
-            # imode = p6
-            # iovertake = p7
-            # ilenpairs = p8
+        maxDataSize = config['max_pfields'] - 10
+        if len(pairs) <= maxDataSize:
+            # iargtab = p4, iargidx = p5, imode = p6, iovertake = p7, ilenpairs = p8
             args = [tabnum, idx, self.strSet(mode), int(overtake), len(pairs)]
             args.extend(pairs)
-            return self.sched(self.builtinInstrs['automateTableViaPargs'],
+            return self.sched(self._builtinInstrs['automateTableViaPargs'],
                               delay=delay,
                               dur=pairs[-2] + self.ksmps / self.sr,
                               args=args)
         else:
-            pairgroups = internalTools.splitPairs(pairs, 1900)
-            events = [self.automateTable(tabnum=tabnum,
-                                         idx=idx,
-                                         pairs=pairs,
-                                         mode=mode,
-                                         delay=delay,
-                                         overtake=overtake if idx == 0 else False)
-                      for idx, pairs in enumerate(pairgroups)]
+            events = [self.automateTable(tabnum=tabnum, idx=idx, pairs=subgroup,
+                                         mode=mode, delay=delay+subdelay,
+                                         overtake=overtake)
+                      for subdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize//2)]
             return events[0]
 
     def automatep(self,
@@ -3310,18 +3306,17 @@ class Engine:
 
         .. seealso:: :meth:`~Engine.setp`, :meth:`~Engine.automateTable`
         """
-        if len(pairs) < 1900:
-            args = [p1, pidx, self.strSet(mode), int(overtake), len(pairs)]
-            args.extend(pairs)
-            return self.sched(self.builtinInstrs['automatePargViaPargs'],
+        maxDataSize = config['max_pfields'] - 10
+        if len(pairs) <= maxDataSize:
+            args = [p1, pidx, self.strSet(mode), int(overtake), len(pairs), *pairs]
+            return self.sched(self._builtinInstrs['automatePargViaPargs'],
                               delay=delay,
                               dur=pairs[-2] + self.ksmps / self.sr,
                               args=args)
         else:
-            pairgroups = internalTools.splitPairs(pairs, 1900)
-            events = [self.automatep(p1=p1, pidx=pidx, pairs=pairs, mode=mode, delay=delay,
-                                     overtake=overtake if idx == 0 else False)
-                      for idx, pairs in enumerate(pairgroups)]
+            events = [self.automatep(p1=p1, pidx=pidx, pairs=subgroup, mode=mode, delay=delay+subdelay,
+                                     overtake=overtake)
+                      for subdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize // 2)]
             return events[0]
 
     def strSet(self, s: str, sync=False) -> int:
@@ -3350,7 +3345,7 @@ class Engine:
         stringIndex = self._getStrIndex()
         self._strToIndex[s] = stringIndex
         self._indexToStr[stringIndex] = s
-        instrnum = self.builtinInstrs['strset']
+        instrnum = self._builtinInstrs['strset']
         msg = f'i {instrnum} 0 0 "{s}" {stringIndex}'
         self._perfThread.inputMessage(msg)
         if sync:
@@ -3427,7 +3422,7 @@ class Engine:
         """
         logger.debug(f"Freeing table {tableindex}")
         self._releaseTableNumber(tableindex)
-        pargs = [self.builtinInstrs['freetable'], delay, 0., tableindex]
+        pargs = [self._builtinInstrs['freetable'], delay, 0., tableindex]
         self._perfThread.scoreEvent(0, "i", pargs)
 
     def testAudio(self, dur=4., delay=0.5, period=1, mode='pink',
@@ -3454,7 +3449,7 @@ class Engine:
         if modeid is None:
             raise ValueError(f"mode must be one of 'pink', 'sine', got {mode}")
 
-        return self.sched(self.builtinInstrs['testaudio'], dur=dur, delay=delay,
+        return self.sched(self._builtinInstrs['testaudio'], dur=dur, delay=delay,
                           args=[modeid, period, pt.db2amp(gaindb)])
 
     def _udpSend(self, code: str) -> None:
@@ -3539,7 +3534,7 @@ class Engine:
         Sets one of the subgains to the given value
 
         Each engine has a set of subgains which can be used by instruments
-        to set the gain as a group. These gains are stored in a table gi__subgains
+        to set the gain as a group.
 
         Args:
             idx: the subgain to set
@@ -3554,7 +3549,7 @@ class Engine:
         assert self._subgainsTable is not None
         self._subgainsTable[idx] = gain
 
-    def writeBus(self, bus:int, value: float, delay=0.) -> None:
+    def writeBus(self, bus: int, value: float, delay=0.) -> None:
         """
         Set the value of a control bus
 
@@ -3564,7 +3559,7 @@ class Engine:
         subsequent operations on the bus are very fast.
 
         Args:
-            bus: the bus token, as returned via assignBus
+            bus: the bus token, as returned via :meth:`Engine.assignBus`
             value: the new value
             delay: if given, the modification is scheduled in the future
 
@@ -3572,26 +3567,112 @@ class Engine:
 
             :meth:`~Engine.readBus`
             :meth:`~Engine.assignBus`
+            :meth:`~Engine.automateBus`
+
+        Example
+        ~~~~~~~
+
+        >>> e = Engine(...)
+        >>> e.compile(r'''
+        ... instr 100
+        ...   ifreqbus = p4
+        ...   kfreq = busin:k(ifreqbus)
+        ...   outch 1, vco2:a(0.1, kfreq)
+        ... endin
+        ... ''')
+        >>> freqbus = e.assignBus(value=1000)
+        >>> e.sched(100, 0, 4, args=[freqbus])
+        >>> e.writeBus(freqbus, 500, delay=0.5)
 
         """
         if not self.hasBusSupport():
             raise RuntimeError("This engine does not have bus support")
-        if delay > 0:
-            dur = self.ksmps / self.sr
-            msg = f'i "_busoutk" {delay} {dur} {bus} {value}'
-            self._perfThread.inputMessage(msg)
-        else:
-            busidx = self._busIndex(bus, create=True)
-            self._kbusTable[busidx] = value
 
-    def readBus(self, bus:int, default: float=0.) -> float:
+        bus = int(bus)
+        kind = self._busTokenToKind.get(bus)
+        if not kind:
+            logger.warning(f"Bus token {bus} not known")
+        elif kind != 'control':
+            raise ValueError(f"Only control buses can be written to, got {kind}")
+
+        if delay == 0:
+            busindex = self._busIndexes.get(bus)
+            if busindex is not None:
+                print("--- direct access", bus, busindex)
+                self._kbusTable[busindex] = value
+            else:
+                self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=0, args=(int(bus), value))
+                self._getBusIndex(bus, blocking=False)
+        else:
+            self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=0, args=(int(bus), value))
+
+    def automateBus(self,
+                    bus: int,
+                    pairs: Sequence[float] | tuple[Sequence[float], Sequence[float]],
+                    mode='linear',
+                    delay=0.,
+                    overtake=False) -> None:
+        """
+        Automate a control bus
+
+        The automation is performed within csound and is thus assured to stay
+        in sync
+
+        Args:
+            bus: the bus token as received via :meth:`Engine.assignBus`
+            pairs: the automation data as a flat sequence (t0, value0, t1, value1, ...)
+                Times are relative to the start of the automation event
+            mode: interpolation mode, one of 'linear', 'expon(xx)', 'cos', 'smooth'.
+                See the csound opcode 'interp1d' for mode information
+                (https://csound-plugins.github.io/csound-plugins/opcodes/interp1d.html)
+            delay: when to start the automation
+            overtake: if True, the first value of pairs is replaced with the current
+                value of the bus. The same effect can be achieved if the first value
+                of the automation line is a nan
+
+        .. seealso:: :meth:`Engine.assignBus`, :meth:`Engine.writeBus`, :meth:`Engine.automatep`
+
+        Example
+        ~~~~~~~
+
+        >>> e = Engine()
+        >>> e.compile(r'''
+        ... instr 100
+        ...   ifreqbus = p4
+        ...   kfreq = busin:k(ifreqbus)
+        ...   outch 1, oscili:a(0.1, kfreq)
+        ... endin
+        ... ''')
+        >>> freqbus = e.assignBus(value=440)
+        >>> eventid = e.sched(100, args=(freqbus,))
+        >>> e.automateBus(freqbus, [0, float('nan'), 3, 200, 5, 200])
+
+        """
+        if not self.hasBusSupport():
+            raise RuntimeError("This engine does not have bus support")
+        maxDataSize = config['max_pfields'] - 10
+        pairs = internalTools.flattenAutomationData(pairs)
+        if len(pairs) <= maxDataSize:
+            args = [int(bus), self.strSet(mode), int(overtake), len(pairs), *pairs]
+            self.sched(self._builtinInstrs['automateBusViaPargs'],
+                       delay=delay,
+                       dur=pairs[-2] + self.ksmps/self.sr,
+                       args=args)
+        else:
+            for subdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize // 2):
+                self.automateBus(bus=bus, pairs=subgroup, delay=delay+subdelay,
+                                 mode=mode, overtake=overtake)
+
+    def readBus(self, bus: int, default=0.) -> float:
         """
         Read the current value of a control bus
 
-        Normally a control bus is modulated by another running instrument,
-        but it is possible to set/read it directly from python. The first
-        time a bus is set or queried there is short delay, all
-        subsequent operations on the bus are very fast.
+        Buses can be used to allow communication between instruments, or
+        between a running csound instrument and python. Buses are useful
+        for contiguous streams; when using buses to communicate discrete
+        events with python an opcode like trighold might be necessary.
+        In general for discrete events it might be better to use other
+        communication means, like OSC, which provide buffering.
 
         Args:
             bus: the bus number, as returned by assignBus
@@ -3604,56 +3685,127 @@ class Engine:
 
             :meth:`~Engine.assignBus`
             :meth:`~Engine.writeBus`
+
+        Example
+        ~~~~~~~
+
+        >>> e = Engine()
+        >>> e.compile(r'''
+        ... instr 100
+        ...   irmsbus = p4
+        ...   asig inch 1
+        ...   krms = rms:k(asig)
+        ...   busout irmsbus, krms
+        ... endin
+        ... ''')
+        >>> rmsbus = e.assignBus(kind='control')
+        >>> event = e.sched(100, 0, args=[rmsbus])
+        >>> while True:
+        ...     rmsvalue = e.readBus(rmsbus)
+        ...     print(f"Rms value: {rmsvalue}")
+        ...     time.sleep(0.1)
         """
         if not self.hasBusSupport():
             raise RuntimeError("This engine does not have bus support")
-        busidx = self._busIndex(bus)
+
+        # The int conversion makes it possible to pass a Bus object created
+        # via Session.assignBus, see busproxy.Bus.__int__
+        busidx = self._getBusIndex(int(bus), blocking=True)
         if busidx < 0:
             return default
         return self._kbusTable[busidx]
 
-    def _busIndex(self, bus:int, create=False) -> int:
+    def _getBusIndex(self, bus: int, blocking=True, whendone: Callable = None) -> int | None:
         """
-        Find the bus index corresponding to `bus` token. This is only needed for
-        the case where a bus is written/read from python
+        Find the bus index corresponding to `bus` token.
+
+        Args:
+            bus: the bus token, as returned by assignBus
+            blocking: if True, block execution until csound has responded. Returns
+                the bus index
+            whendone: a callable of the form (busindex) -> None, will be called with
+                the bus index corresponding to the bus token. Passing a callback
+                will make this method async
+
+        Returns:
+            if blocking, will return the bus index as int. Otherwise, returns None
         """
+        assert isinstance(bus, int)
+        kind = self._busTokenToKind.get(bus)
+        if not kind:
+            raise ValueError(f"Bus not found, token: {bus}")
+
+        if kind != 'control':
+            raise ValueError("Only control buses are supported here")
+
+        bus = int(bus)
         index = self._busIndexes.get(bus)
         if index is not None:
+            if whendone:
+                whendone(index)
             return index
+
+        if whendone:
+            blocking = False
+
         synctoken = self._getSyncToken()
-        pargs = [self.builtinInstrs['busindex'], 0, 0, synctoken, bus, int(create)]
-        out = self._eventWait(synctoken, pargs)
-        index = int(out)
-        self._busIndexes[bus] = index
-        return index
+        ikind = BUSKIND_CONTROL   # control bus
+        #          1                                2  3  4          5    6      7  8           8
+        pfields = [self._builtinInstrs['busassign'], 0, 0, synctoken, bus, ikind, 0, 0]
+        if blocking:
+            out = self._eventWait(synctoken, pfields)
+            index = int(out)
+            self._busIndexes[bus] = index
+            return index
+        else:
+            def callback(busnum, bustoken=bus, self=self, callback=whendone):
+                busnum = int(busnum)
+                self._busIndexes[bustoken] = busnum
+                if callback:
+                    callback(busnum)
+
+            self._eventWithCallback(token=synctoken, pargs=pfields, callback=callback)
+            return None
 
     def releaseBus(self, bus: int) -> None:
         """
         Release a persistent bus
-
-        The bus must have been created in python with the *persistent* flag
 
         .. seealso:: :meth:`~Engine.assignBus`
         """
         # bus is the bustoken
         if not self.hasBusSupport():
             raise RuntimeError("This Engine was created without bus support")
-        pargs = [self.builtinInstrs['busrelease'], 0, 0, bus]
+
+        self._busIndexes.pop(bus, None)
+        pargs = [self._builtinInstrs['busrelease'], 0, 0, int(bus)]
         self._perfThread.scoreEvent(0, "i", pargs)
 
-    def assignBus(self, kind='audio', persist=False) -> int:
+    def _dumpbus(self, bus: int):
+        pargs = [self._builtinInstrs['busdump'], 0, 0, int(bus)]
+        self._perfThread.scoreEvent(0, "i", pargs)
+
+    def assignBus(self, kind='', value: float = None, persist=False
+                  ) -> int:
         """
         Assign one audio/control bus, returns the bus number.
 
         Audio buses are always mono.
 
         Args:
-            kind: the kind of bus, "audio" or "control"
-            persist: if True the bus created is keps alive until the user
-                calls :meth:`~Engine.releaseBus`
+            kind: the kind of bus, "audio" or "control". If left unset and value
+                is not given it defaults to an audio bus. Otherwise, if value
+                is given a control bus is created. Explicitely asking for an
+                audio bus and setting an initial value will raise an expection
+            value: for control buses it is possible to set an initial value for
+                the bus. If a value is given the bus is created as a control
+                bus. For audio buses this should be left as None
+            persist: if True the bus created is kept alive until the user
+                calls :meth:`~Engine.releaseBus`. Otherwise, the bus is
+                garanteed
 
         Returns:
-            the bus id, can be passed to any instrument expecting a bus
+            the bus token, can be passed to any instrument expecting a bus
             to be used with the built-in opcodes :ref:`busin`, :ref:`busout`, etc.
 
         A bus created here can be used together with the built-in opcodes :ref:`busout`,
@@ -3739,28 +3891,30 @@ class Engine:
         """
         if not self.hasBusSupport():
             raise RuntimeError("This Engine was created without bus support")
+
+        if kind:
+            if value is not None and kind == 'audio':
+                raise ValueError(f"You asked to assign an audio bus but gave an initial "
+                                 f"value ({value})")
+        else:
+            kind = 'audio' if value is None else 'control'
+
         bustoken = int(self._busTokenCountPtr[0])
-        ikind = 0 if kind == 'audio' else 1
         assert isinstance(bustoken, int)
-        self._busTokenCountPtr[0] = bustoken+1
+        assert kind == 'audio' or kind == 'control'
+        self._busTokenToKind[bustoken] = kind
+        ikind = BUSKIND_AUDIO if kind == 'audio' else BUSKIND_CONTROL
+        ivalue = value if value is not None else 0.
 
-        # before returning the bustoken we schedule a query
-        # so that we can return immediately but update the actual
-        # bus index assigned by csound for any future query
+        self._busTokenCountPtr[0] = bustoken + 1
 
-        synctoken = self._getSyncToken()
-        # Assigns a bus to the given token
-        pfields = [self.builtinInstrs['busindex'], 0, 0, synctoken, bustoken, ikind]
-
-        def callback(synctoken, bustoken=bustoken, self=self):
-            self._busIndexes[bustoken] = int(self._responsesTable[int(synctoken)])
-
-        self._eventWithCallback(synctoken, pfields, callback)
-
-        if persist:
-            pfields = [self.builtinInstrs['busaddref'], 0, 0, bustoken, ikind]
-            self._perfThread.scoreEvent(0, "i", pfields)
-
+        # We call busassign to assign a new bus. We are not interested, at this point,
+        # to get the actual bus index for the given token. Getting the actual index
+        # is only relevant if we want to read/write to it.
+        synctoken = 0
+        #          1                                2  3  4          5         6      7             8
+        pfields = [self._builtinInstrs['busassign'], 0, 0, synctoken, bustoken, ikind, int(persist), ivalue]
+        self._perfThread.scoreEvent(0, "i", pfields)
         return bustoken
 
     def hasBusSupport(self) -> bool:

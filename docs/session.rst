@@ -23,6 +23,16 @@ SessionEvent Class
     :members:
     :autosummary:
 
+
+-------------------------
+
+Bus
+---
+
+.. autoclass:: csoundengine.busproxy.Bus
+    :members:
+    :autosummary:
+
 -------------------------
 
 See Also

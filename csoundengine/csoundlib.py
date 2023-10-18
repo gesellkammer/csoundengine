@@ -1882,8 +1882,9 @@ class Csd:
         If ``s`` has already been passed, the same index is returned
         """
         if s in self._str2index:
-            if index != self._str2index[s]:
-                raise KeyError(f"String '{s}' already set with different index")
+            if index is not None and index != self._str2index[s]:
+                raise KeyError(f"String '{s}' already set with different index "
+                               f"(old: {self._str2index[s]}, new: {index})")
             return self._str2index[s]
 
         if index is None:
@@ -3068,7 +3069,8 @@ class ParsedInstrBody:
         """
         Dict mapping pfield name to default value
 
-        If a pfield has no explicit name assigned, p## is used
+        If a pfield has no explicit name assigned, p## is used. If it has no explicit
+        value, 0. is used
 
         Example
         ~~~~~~~
@@ -3087,8 +3089,12 @@ class ParsedInstrBody:
         if not self.pfieldNameToIndex:
             return _EMPTYDICT
 
-        return {(self.pfieldIndexToName.get(idx) or f"p{idx}"): value
+        out1 = {(self.pfieldIndexToName.get(idx) or f"p{idx}"): value
                 for idx, value in self.pfieldIndexToValue.items()}
+        out2 = {name: self.pfieldIndexToValue.get(idx, 0.)
+                for idx, name in self.pfieldIndexToName.items()}
+        out1.update(out2)
+        return out1
 
 
 def lastAssignmentToVariable(varname: str, lines: list[str]) -> int | None:
@@ -3304,6 +3310,8 @@ def instrParseBody(body: str) -> ParsedInstrBody:
     for pidx in range(1, 4):
         pfieldIndexToValue.pop(pidx, None)
         pfieldIndexToName.pop(pidx, None)
+
+    bodyLines = [line for line in bodyLines if line.strip()]
 
     return ParsedInstrBody(pfieldIndexToValue=pfieldIndexToValue,
                            pfieldIndexToName=pfieldIndexToName,

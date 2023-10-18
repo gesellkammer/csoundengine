@@ -216,6 +216,7 @@ class Instr:
         'pfieldIndexToValue',
         'originalBody',
         'includes',
+        'parsedCode',
         '_controlsDefaultValues',
         '_controlsNameToIndex',
         '_preschedCallback',
@@ -289,6 +290,8 @@ class Instr:
 
             pargsNameToIndex = {pname: idx for idx, pname in pargsIndexToName.items()}
             controls = _EMPTYDICT
+
+        self.parsedCode = parsedInstr
 
         self.controls: dict[str, float] = controls
         "Named controls, mapping name to default value."

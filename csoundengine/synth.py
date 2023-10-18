@@ -23,7 +23,7 @@ __all__ = (
     'SynthGroup'
 )
 
-#
+
 _EMPTYSET = set()
 
 
@@ -303,6 +303,9 @@ class Synth(AbstrSynth):
         """
         return self.instr.dynamicParamNames(includeRealNames=True)
 
+    def paramValue(self, param: str, default=None) -> float | None:
+        raise NotImplementedError
+
     def _pfieldNames(self) -> set[str]:
         return self.instr.pfieldNames()
 
@@ -478,12 +481,12 @@ class Synth(AbstrSynth):
                          f"mset param '{param}'")
             return 0.
 
-        return self.session.automateDynamicParam(synth=self,
-                                                 param=param,
-                                                 pairs=pairs,
-                                                 mode=mode,
-                                                 overtake=overtake,
-                                                 delay=delay)
+        return self.session.automateSynthParam(synth=self,
+                                               param=param,
+                                               pairs=pairs,
+                                               mode=mode,
+                                               overtake=overtake,
+                                               delay=delay)
 
     def automate(self,
                  param: str,
@@ -576,13 +579,12 @@ def _synthsCreateHtmlTable(synths: list[Synth]) -> str:
     for row, synth in zip(rows, synths):
         row.append(f'{synth.p1} <b>{_synthStatusIcon[synth.playStatus()]}</b>')
         row.append("%.3f" % (synth.start - now))
-        row.append("%.3f"%synth.dur)
-    if synth0._table is not None:
-        keys = list(synth0._table.mapping.keys())
-        colnames.extend(synth0._table.mapping.keys())
+        row.append("%.3f" % synth.dur)
+    if keys := synth0._controlNames():
+        colnames.extend(keys)
         for row, synth in zip(rows, synths):
             if synth.playStatus() != 'stopped':
-                values = synth._table.array[:len(keys)]
+                values = [synth.paramValue(param) for param in keys]
                 for value in values:
                     row.append(f'<code>{value}</code>')
             else:
@@ -776,7 +778,7 @@ class SynthGroup(AbstrSynth):
         return eventids
 
     def _htmlTable(self) -> str:
-        subgroups = iterlib.classify(self.synths, lambda synth: synth.getInstr.name)
+        subgroups = iterlib.classify(self.synths, lambda synth: synth.instr.name)
         lines = []
         instrcol = jupytertools.defaultPalette["name.color"]
         for instrname, synths in subgroups.items():
@@ -841,11 +843,14 @@ class SynthGroup(AbstrSynth):
                            f"Possible parameters: {self.dynamicParams()}")
             
     def _setp(self, param: str, value: float, delay=0.) -> None:
-        allparams = self.dynamicParams()
-        if param not in allparams:
-            raise KeyError(f"Parameter {param} unknown. Possible parameters: {allparams}")
+        count = 0
         for synth in self.synths:
-            synth._setp(param=param, value=value, delay=delay)
+            if param in synth.instr.pfieldNames():
+                synth._setp(param=param, value=value, delay=delay)
+                count += 1
+        if count == 0:
+            raise KeyError(f"Parameter {param} unknown. "
+                           f"Possible parameters: {self.dynamicParams()}")
 
     def _controlNames(self) -> set[str]:
         """

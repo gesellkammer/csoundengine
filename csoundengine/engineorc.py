@@ -4,6 +4,9 @@ from functools import cache
 from typing import Any
 import re
 
+
+
+
 # In all templates we make the difference between substitutions which
 # are constant (with the form ${subst} and substitutions which respond
 # to the configuration of a specific engine / offline renderer ({subst})
@@ -479,11 +482,16 @@ chnset 1, "_soundfontPresetCount"
 
 _busOrc = r'''
 
+gi__numControlBuses = ${numControlBuses}
+gi__numAudioBuses = ${numAudioBuses}
+
 #define _BUSUNSET #${BUSUNSET}#
+#define _BUSKIND_AUDIO   #0#
+#define _BUSKIND_CONTROL #1#
 
 ; The actual buses
-ga__buses[]   init ${numAudioBuses}
-gi__bustable ftgen 0, 0, ${numControlBuses}, -2, 0
+ga__buses[] init gi__numAudioBuses
+gi__bustable ftgen 0, 0, gi__numControlBuses, -2, 0
 
 ; This table keeps track of the number of references a bus has
 gi__busrefs ftgen 0, 0, ${numAudioBuses}, -2, 0
@@ -494,7 +502,11 @@ gi__buspool pool_gen ${numAudioBuses}
 gi__buspoolk pool_gen ${numControlBuses} 
 
 ; A dict mapping bustoken to bus number, used for both audio and scalar buses
-gi__bustoken2num dict_new "int:float"
+gi__bustoken2num  dict_new "int:float"
+
+; A dict mapping bustoken to bus kind (0=control, 1=audio). NB: tokens are unique,
+; independently of the kind. No two buses of any kind should share a token
+gi__bustoken2kind dict_new "int:float"
 
 chn_k "_busTokenCount", 3
 
@@ -504,12 +516,13 @@ opcode _busnew, i, ii
         itoken chnget "_busTokenCount"
         chnset itoken+1, "_busTokenCount"
     endif
-    ipool = ikind == 0 ? gi__buspool : gi__buspoolk
+    ipool = ikind == $$_BUSKIND_AUDIO ? gi__buspool : gi__buspoolk
     ibus pool_pop ipool, -1
     if ibus == -1 then
-        initerror "busassign failed, out of buses"
-    endif    
+        initerror "_busnew failed, out of buses"
+    endif
     dict_set gi__bustoken2num, itoken, ibus
+    dict_set gi__bustoken2kind, itoken, ikind
     xout ibus
 endop
 
@@ -519,28 +532,44 @@ opcode _bususe, i, ii
     if ibus < 0 then
         ; initerror sprintf("Bus not found (token %d)\n", itoken)
         ibus _busnew itoken, ikind
-        prints "Bus not found (token %d). Assigned bus %d\n", itoken, ibus
+        prints "Bus not found (token %d, kind=%d). Assigned bus %d\n", itoken, ikind, ibus
+    else
+        ikind2 dict_get gi__bustoken2kind, itoken, -1
+        if ikind != ikind2 then
+            initerror sprintf("Bus kind mismatch, asked for %d but the bus seems to be of kind %d", ikind, ikind2)
+        endif
     endif
-    itab = ikind == 0 ? gi__busrefs : gi__busrefsk
-    irefs tab_i ibus, itab
-    tabw_i irefs+1, ibus, itab
-    atstop ${busrelease}, 0, 0, itoken, ikind
+    
+    if ikind == $$_BUSKIND_CONTROL && ibus >= gi__numControlBuses then
+        initerror sprintf("Invalid control bus (%d) for token %d", ibus, itoken)
+    elseif ikind == $$_BUSKIND_AUDIO && ibus >= gi__numAudioBuses then
+        initerror sprintf("Invalid audio bus (%d) for token %d", ibus, itoken)
+    endif
+    
+    itab = ikind == $$_BUSKIND_AUDIO ? gi__busrefs : gi__busrefsk
+    tabw_i tab_i(ibus, itab) + 1, ibus, itab
+    atstop ${busrelease}, 0, 0, itoken
     xout ibus
 endop
 
 opcode _busaddref, 0, ii
     ibus, ikind xin
-    itab = ikind == 0 ? gi__busrefs : gi__busrefsk
+    itab = ikind == $$_BUSKIND_AUDIO ? gi__busrefs : gi__busrefsk
     irefs tab_i ibus, itab
     tabw_i irefs+1, ibus, itab
 endop
 
 opcode _busget, i, ii
     ; like _bususe but does not add a reference, only gets the bus index
-    itoken, ikind xin
+    itoken, ikind  xin
     ibus dict_get gi__bustoken2num, itoken, -1
-    if ibus == -1 then
+    if ibus < 0 then
         initerror sprintf("Bus not found (token: %d)", itoken)
+    endif
+    if ikind == $$_BUSKIND_CONTROL && ibus >= gi__numControlBuses then
+        initerror sprintf("Invalid control bus (%d) for token %d", ibus, itoken)
+    elseif ikind == $$_BUSKIND_AUDIO && ibus >= gi__numAudioBuses then
+        initerror sprintf("Invalid audio bus (%d) for token %d", ibus, itoken)
     endif
     xout ibus
 endop
@@ -558,7 +587,7 @@ opcode busassign, i, So
     
     */
     Skind, ipersist xin
-    ikind = strcmp(Skind, "a") == 0 ? 0 : 1  ; 0=audio, 1=k
+    ikind = strcmp(Skind, "a") == 0 ? $$_BUSKIND_AUDIO : $$_BUSKIND_CONTROL
     ; generate a new token
     itoken chnget "_busTokenCount"
     chnset itoken+1, "_busTokenCount"
@@ -568,24 +597,24 @@ opcode busassign, i, So
     
     ; use the bus during the lifetime of this event, add an extra reference
     ; if asked to persist the bus
-    itab = ikind == 0 ? gi__busrefs : gi__busrefsk
+    itab = ikind == $$_BUSKIND_AUDIO ? gi__busrefs : gi__busrefsk
     irefs tab_i ibus, itab
     irefs += ipersist == 0 ? 1 : 2
     tabw_i irefs, ibus, itab
-    atstop ${busrelease}, 0, 0, itoken, ikind
+    atstop ${busrelease}, 0, 0, itoken
     xout itoken
 endop
 
 opcode busin, a, i
     itoken xin
-    ibus = _bususe(itoken, 0)
+    ibus = _bususe(itoken, $$_BUSKIND_AUDIO)
     aout = ga__buses[ibus]
     xout aout
 endop
 
 opcode busin, k, io
     itoken, idefault xin
-    ibus = _bususe(itoken, 1)
+    ibus = _bususe(itoken, $$_BUSKIND_CONTROL)
     ival tab_i ibus, gi__bustable
     if ival == $$_BUSUNSET then
         tabw_i idefault, ibus, gi__bustable
@@ -596,27 +625,51 @@ endop
 
 opcode busout, 0, ii
     itoken, isig xin
-    ibus = _busget(itoken, 1)
+    ibus = _busget(itoken, $$_BUSKIND_CONTROL)
     tabw_i isig, ibus, gi__bustable
 endop
 
 opcode busout, 0, ik
     itoken, ksig xin
-    ibus = _bususe(itoken, 1)
+    ibus = _bususe(itoken, $$_BUSKIND_CONTROL)
     tabw ksig, ibus, gi__bustable
 endop
 
 opcode busout, 0, ia
     itoken, asig xin
-    ibus = _bususe(itoken, 0)
+    ibus = _bususe(itoken, $$_BUSKIND_AUDIO)
     ga__buses[ibus] = asig
 endop
 
 opcode busmix, 0, ia
     itoken, asig xin
-    ibus = _bususe(itoken, 0)
+    ibus = _bususe(itoken, $$_BUSKIND_AUDIO)
     ga__buses[ibus] = ga__buses[ibus] + asig
 endop
+
+instr ${automateBusViaPargs}
+    itoken        = p4
+    iinterpmethod = p5
+    iovertake     = p6
+    ilenpairs     = p7
+    
+    ipairs[] passign 8, 8+ilenpairs
+    iXs[] slicearray ipairs, 0, ilenpairs-1, 2
+    iYs[] slicearray ipairs, 1, ilenpairs-1, 2
+    Sinterpmethod = strget(iinterpmethod)
+    
+    ibus = _busget(itoken, $$_BUSKIND_CONTROL)
+    
+    if iovertake == 1 || qnan:i(iYs[0]) == 1 then
+        iYs[0] = tab_i(ibus, gi__bustable)
+    endif
+    
+    kt timeinsts
+    kidx bisect kt, iXs
+    ky interp1d kidx, iYs, Sinterpmethod
+    
+    tabw ky, ibus, gi__bustable  
+endin
 
 instr ${busaddref}
     itoken = p4
@@ -625,63 +678,107 @@ instr ${busaddref}
     _busaddref(ibus, ikind)
 endin
 
-instr ${busrelease}  ; release audio bus
+instr ${busdump}
     itoken = p4
-    ikind = p5
-    ibus dict_get gi__bustoken2num, itoken, -99999999
-    if ibus == -99999999 then
+    ibus dict_get gi__bustoken2num, itoken, -1
+    if ibus < 0 then
         initerror sprintf("itoken %d has no bus assigned to it", itoken)
     endif
+    ikind dict_get gi__bustoken2kind, itoken
+    irefstable = ikind == $$_BUSKIND_AUDIO ? gi__busrefs : gi__busrefsk
+    irefs tab_i ibus, irefstable
+    if ikind == $$_BUSKIND_CONTROL then
+        ivalue = tab_i(ibus, gi__bustable) 
+        prints "Bus token=%d, bus=%d, kind=k, value=%f, refs=%d\n", itoken, ibus, ivalue, irefs
+    else
+        prints "Bus token=%d, bus=%d, kind=a, refs=%d\n", itoken, ibus, irefs
+    endif
+endin
     
-    ; ikind == 0: audio, 1: scalar
-    if ikind == 0 then
+instr ${busrelease}  ; release audio bus
+    itoken = p4
+    ikind dict_get gi__bustoken2kind, itoken, -1
+    ibus dict_get gi__bustoken2num, itoken, -1
+    if ibus < 0 then
+        initerror sprintf("itoken %d has no bus assigned to it", itoken)
+        goto __exit    
+    endif
+    
+    if ikind < 0 then
+        initerror sprintf("Invalid kind for bus token %d", itoken)
+        goto __exit
+    endif
+    
+    if ikind == $$_BUSKIND_AUDIO then  
+        ; ------ audio bus ------
         irefs tab_i ibus, gi__busrefs
         if irefs <= 1 then
             if pool_isfull:i(gi__buspool) == 1 then
-                initerror "Bus pool is full!"
+                initerror "Audio bus pool is full!"
+                goto __exit
             endif
             pool_push gi__buspool, ibus
             dict_del gi__bustoken2num, itoken
+            dict_del gi__bustoken2kind, itoken
             tabw_i 0, ibus, gi__busrefs
         else   
             tabw_i irefs-1, ibus, gi__busrefs
         endif
-    else
+    else                 
+        ; ------ control bus ------ 
         irefs tab_i ibus, gi__busrefsk
         if irefs <= 1 then
             if pool_isfull:i(gi__buspoolk) == 1 then
-                initerror "Bus pool is full!"
+                initerror "Control bus pool is full!"
+                goto __exit
             endif
             pool_push gi__buspoolk, ibus
             dict_del gi__bustoken2num, itoken
+            dict_del gi__bustoken2kind, itoken
             tabw_i 0, ibus, gi__busrefsk
             tabw_i $$_BUSUNSET, ibus, gi__bustable
         else   
             tabw_i irefs-1, ibus, gi__busrefsk
         endif
     endif
+__exit:
 endin
 
-instr ${busindex}
+instr ${busassign}
     ; query the index of a bus / create a bus if not assigned
     ; args: 
-    ;  isynctoken: the synctoken
+    ;  isynctoken: the synctoken to return the bus index. if 0, no
+    ;    callback is scheduled
     ;  ibustoken: the bus token
     ;  iassign: if 1, assign a bus if no bus is found for this bustoken
     ;  ikind: 0: audio bus, 1: scalar bus
     isynctoken = p4
-    ibustoken = p5
-    ikind = p6
-    iaddref = p7
+    ibustoken  = p5
+    ikind      = p6
+    iaddref    = p7
+    ivalue     = p8
     ibus dict_get gi__bustoken2num, ibustoken, -1
+    
     if ibus == -1 then
         ibus = _busnew(ibustoken, ikind)
+    else
+        goto __exit
     endif
+    
+    if ikind == $$_BUSKIND_CONTROL then
+        ; a new control bus, set default value
+        tabw_i ivalue, ibus, gi__bustable
+    endif
+    
     if iaddref == 1 then
         _busaddref(ibus, ikind)
     endif
-    tabw_i ibus, isynctoken, gi__responses
-    outvalue "__sync__", isynctoken
+    
+__exit:
+    if isynctoken > 0 then
+        tabw_i ibus, isynctoken, gi__responses
+        outvalue "__sync__", isynctoken
+    endif
 endin
 
 instr ${busoutk}
@@ -720,8 +817,15 @@ CONSTS = {
     'sessionInstrsStart': 500,
     'numReservedTables': 2000,
     'maxNumInstrs': 10000,
-    'BUSUNSET': -999999999
+    'BUSUNSET': -999999999,
+
 }
+
+
+UNSET_VALUE = float("-inf")
+BUSKIND_AUDIO = 0
+BUSKIND_CONTROL = 1
+
 
 _tableNames = ['responses', 'subgains', 'tokenToInstrnum']
 

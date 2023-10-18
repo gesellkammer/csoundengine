@@ -174,7 +174,7 @@ def instrResolveArgs(instr: Instr,
                      p4: int,
                      pargs: list[float] | dict[str | int, float] | None = None,
                      pkws: dict[str, float] | None = None,
-                     ) -> list[float]:
+                     ) -> list[float | str]:
     """
     Resolves pargs, returns pargs starting from p4
 
@@ -187,7 +187,7 @@ def instrResolveArgs(instr: Instr,
     Returns:
         pargs passed to csound, **starting with p4**
     """
-    allargs: list[float] = [float(p4)]
+    allargs: list[float | str] = [float(p4)]
     if not pargs and not instr.pfieldIndexToValue and not pkws:
         return allargs
     if isinstance(pargs, list):
@@ -199,6 +199,7 @@ def instrResolveArgs(instr: Instr,
             else:
                 pargs = pkws
         allargs.extend(instr.pfieldsTranslate(kws=pargs))
+    allargs = [arg if isinstance(arg, str) else float(arg) for arg in allargs]
     return allargs
 
 
@@ -445,26 +446,65 @@ def cropPairs(pairs: list[float], t0: float, t1: float) -> list[float]:
     return out
 
 
-def splitPairs(pairs: Sequence[float], num: int) -> list[Sequence[float]]:
+def _rewindGroup(pairs: Sequence[float], inplace=False) -> Sequence[float]:
+    delay = pairs[0]
+    if inplace and isinstance(pairs, list):
+        for i in range(len(pairs) // 2):
+            pairs[i*2] -= delay
+        return pairs
+    else:
+        out = [val if i % 2 == 1 else val - delay
+               for i, val in enumerate(pairs)]
+        return out
+
+
+def splitAutomation(flatpairs: Sequence[float], maxpairs: int
+                    ) -> list[tuple[float, Sequence[float]]]:
+    """
+    Split an automation line into chunks
+
+    Args:
+        flatpairs: the automation data as a flat list of the form t0, val0, t1, val1, ...
+        maxpairs: the max number of pairs per chunk
+
+    Returns:
+        a list of tuples (relativedelay, group), where relativedelay is the delay of
+        the group from the start of the automation, and group is the automation data
+        of this group. Each group starts with t0=0
+    """
+    groups = splitPairs(flatpairs=flatpairs, maxpairs=maxpairs)
+    out = []
+    for group in groups:
+        groupdelay = group[0]
+        group = _rewindGroup(group, inplace=True)
+        assert isinstance(group, list)
+        assert len(group) <= maxpairs*2, f"group size: {len(group)} = {group}"
+        out.append((groupdelay, group))
+    return out
+
+
+def splitPairs(flatpairs: Sequence[float], maxpairs: int) -> list[Sequence[float]]:
     """
     Split automation pairs
 
     Args:
-        pairs: automation data of the form time0, value0, time1, value1, ...
-        num: max. number of pairs
+        flatpairs: automation data of the form time0, value0, time1, value1, ...
+        maxpairs: max. number of pairs per group. The length of a group would
+            be the number of pairs * 2
 
     Returns:
         list of pair lists
     """
-    l = len(pairs)
+    chunksize = maxpairs * 2
+    lendata = len(flatpairs)
     groups = []
     start = 0
-    while start < l - 1:
-        end = min(start + num*2, l)
-        group = pairs[start:end]
+    while start < lendata - 1:
+        end = min(start + chunksize, lendata)
+        group = flatpairs[start:end]
         groups.append(group)
         start = end
-    assert sum(len(group) for group in groups) == len(pairs)
+    assert sum(len(group) for group in groups) == len(flatpairs)
     return groups
 
 
@@ -491,9 +531,14 @@ def soundfileHtml(sndfile: str,
     of the cell to force the html representation
 
     Args:
+        sndfile: the path to the soundfile
         withHeader: include a header line with repr text ('Sample(...)')
         withAudiotag: include html for audio playback.
         audiotagMaxDuration: max duration
+        audiotagWidth: the width of the audio tag, as a css width value
+        audiotagMaxWidth: the max width, as a css width value
+        embedThreshold: the max duration of a sound file to be embedded. Longer files
+            are saved to disk and loaded
 
     Returns:
         the HTML repr as str
@@ -515,7 +560,7 @@ def soundfileHtml(sndfile: str,
     else:
         profile = 'low'
     plotting.plotSamples(samples, samplerate=info.samplerate, profile=profile, saveas=pngfile)
-    img = emlib.img.htmlImgBase64(pngfile)   # , maxwidth='800px')
+    img = emlib.img.htmlImgBase64(pngfile)
     if info.duration > 60:
         durstr = emlib.misc.sec2str(info.duration)
     else:
@@ -529,7 +574,7 @@ def soundfileHtml(sndfile: str,
     s += img
     if withAudiotag and info.duration/60 < audiotagMaxDuration:
         maxwidth = audiotagMaxWidth
-        # embed short audiofiles, the longer ones are written to disk and read
+        # embed short audio files, the longer ones are written to disk and read
         # from there
         if info.duration < embedThreshold:
             audioobj = IPython.display.Audio(samples.T, rate=info.samplerate)
@@ -562,70 +607,24 @@ safeColors = {
 }
 
 
-def updatePfieldsCode(body: str,
-                      idxToName: dict[int, str],
-                      placeDocstringOnTop=True
-                      ) -> str:
-    """
-    Generate pfield code
-
-    Args:
-        body: the body of the instrument
-        idxToName: a dict mapping pfield index to its name (as in iname = p5)
-        placeDocstringOnTop: if True, place the docstring on top, then the generated
-            pfield code and the rest of the code last
-
-    Returns:
-        the resulting csound code
-
-    Example
-    ~~~~~~~
-
-    Given a mapping ``{5: 'ifreq', 6: 'kamp'}`` and a body:
-
-    .. code::
-
-        ; Docstring
-        ; Args:
-        ;   ifreq: the frequency
-        ;   kamp: the ampltidue
-        asig oscili ifreq, kamp
-        outch 1, asig
-
-    Generates the following code (with ``placeDocstringOnTop=True``)
-
-    .. code::
-
-        ; Docstring
-        ; Args:
-        ;   ifreq: the frequency
-        ;   kamp: the ampltidue
-        ifreq = p5
-        kamp = p6
-        asig oscili ifreq, kamp
-        outch 1, asig
+def isiterable(obj) -> bool:
+    return hasattr(obj, '__iter__')
 
 
-    """
-    if not idxToName:
-        return body
-
-    parsedCode = csoundlib.instrParseBody(body)
-    newPfieldCode = _pfieldsGenerateCode(idxToName)
-    if not placeDocstringOnTop:
-        parts = [newPfieldCode, " ", parsedCode.body]
-    else:
-        bodylines = parsedCode.body.splitlines()
-        docstringLocation = csoundlib.locateDocstring(bodylines)
-        if docstringLocation is None:
-            parts = [newPfieldCode, " "]
-            parts.extend(bodylines)
-        else:
-            start, end = docstringLocation
-            lines = bodylines
-            docstring = '\n'.join(lines[start:end])
-            rest = '\n'.join(lines[end:])
-            parts = [docstring, newPfieldCode, " ", rest]
-    out = textlib.joinPreservingIndentation(parts)
-    out = textwrap.dedent(out)
+def interleave(a: Sequence, b: Sequence) -> list:
+    out = []
+    for pair in zip(a, b):
+        out.extend(pair)
     return out
+
+
+def flattenAutomationData(pairs: Sequence[float] | tuple[Sequence[float], Sequence[float]]
+                          ) -> Sequence[float]:
+    if isinstance(pairs[0], (int, float)):
+        return pairs
+    elif isiterable(pairs[0]) and len(pairs) == 2:
+        return interleave(*pairs)
+    else:
+        raise TypeError(f"Expected a flat list of floats or a tuple of two lists of "
+                        f"floats, got {pairs}")
+

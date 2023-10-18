@@ -134,7 +134,7 @@ and dynamic args) as an inline declaration:
 
     s = Engine().session()
     s.defInstr('sine', r'''
-        |kamp=0.1, kfreq=1000|
+        |iamp=0.1, kfreq=1000|
         a0 = oscili:a(kamp, kfreq)
         outch 1, a0
     ''')
@@ -147,7 +147,7 @@ and dynamic controls for k-time arguments.
     iamp = p5
     i__tabnum__ chnget ".dynargsTabnum"
     kfreq tab i__slicestart__ + 0, i__tabnum__
-    a0 = oscili:a(kamp, kfreq)
+    a0 = oscili:a(iamp, kfreq)
     outch 1, a0
 
 
@@ -188,11 +188,12 @@ import emlib.textlib as _textlib
 import bpf4
 
 from .abstractrenderer import AbstractRenderer
+from .sessionevent import SessionEvent
 from .errors import CsoundError
 from .engine import Engine, getEngine
 from . import engineorc
 from .instr import Instr
-from .synth import Synth
+from .synth import Synth, SynthGroup
 from .tableproxy import TableProxy
 from .config import config, logger
 from . import internalTools as _tools
@@ -202,8 +203,9 @@ from . import jupytertools
 from . import instrtools
 from . import csoundlib
 from .offline import Renderer
+from . import busproxy
 
-from typing import Callable, Union, Optional
+from typing import Callable, Sequence
 
 
 __all__ = [
@@ -236,37 +238,6 @@ class _ReifiedInstr:
         assert isinstance(self.instrnum, int)
 
 
-@dataclass
-class SessionEvent:
-    """
-    A class to store a Session event to be scheduled
-
-    """
-    instrname: str
-    """The name of the instrument"""
-
-    delay: float = 0
-    """The time offset to start the event"""
-
-    dur: float = -1
-    """The duration of the event"""
-
-    priority: int = 1
-    "The events priority (>1)"
-
-    args: list[float] | dict[str, float] | None = None
-    "Numbered pfields or a dict of pfield the form `{name: value}`"
-
-    whenfinished: Callable = None
-    "A callback to be fired when this event is finished"
-
-    relative: bool = True
-    "Is the delay expressed in relative time?"
-
-    kws: dict[str, float] | None = None
-    "Keywords passed to the instrument"
-
-
 class Session(AbstractRenderer):
     """
     A Session is associated (exclusively) to a running
@@ -284,18 +255,22 @@ class Session(AbstractRenderer):
 
     Args:
         engine: the parent Engine
-        priorities: the max. number of priorities. If not given the default is
+        priorities: the max. number of priorities. This sets the max. depth within
+            a chain of instruments (the max. number of instruments which, for example,
+            share a bus or a global channel to pass audio/data from one event to
+            the next in evaluation order). If not given the default is
             set via ``config['session_priorities']``
-        dynamicArgsPerInstr: max. number of dynamic args per instr (the default
+        dynamicArgsPerInstr: max. number of dynamic arguments per instr (the default
             is set via ``config['max_dynamic_args_per_instr']``
         dynamicArgsSlots: total number of slots allocated for dynamic controls.
             The default is determined via ``config['dynamic_args_num_slots']``.
-            This effectively sets the max number of events which can access
-            dynamic controls simultaneously.
+            This effectively sets the maximum number of events which can access
+            dynamic controls simultaneously. The size of the global control table
+            will be ``dynamicArgsSlots * dynamicArgsPerInstr``
 
 
     Example
-    ~~~~~~~
+    -------
 
     In order to add an instrument to a :class:`~csoundengine.session.Session`,
     an :class:`~csoundengine.instr.Instr` is created and registered with the Session.
@@ -314,8 +289,10 @@ class Session(AbstractRenderer):
         synth.stop()
 
 
-    An :class:`~csoundengine.instr.Instr` can define default values for any of its
-    p-fields:
+    An :class:`~csoundengine.instr.Instr` can define default values for any of
+    parameters. By default, any dynamic argument (any argument starting with 'k')
+    will be implemented as a dynamic control and not as a pfield. On the contrary,
+    any init-time argument will be implemented as a pfield.
 
     .. code::
 
@@ -340,6 +317,20 @@ class Session(AbstractRenderer):
         ''').register(s)
         synth = s.sched('sine', kfreq=440)
         synth.stop()
+
+    To force usage of pfields for dynamic args you need to use manual declaration:
+
+    .. code::
+
+        s.defInstr('sine', r'''
+        ;                     p5   p6
+        pset p1, p2, p3, 0,   0.1, 1000
+        kamp = p5
+        kfreq = p6
+        outch 1, oscili:a(kamp, kfreq)
+        ''')
+        synth = s.sched('sine', kfreq=440)
+
 
     """
     def __new__(cls,
@@ -411,12 +402,13 @@ class Session(AbstractRenderer):
         self._bucketSizes = bucketSizes
         """Size of each bucket, by bucket index"""
 
-        self._bucketIndices = bucketIndices   # The start index of each bucket
+        self._bucketIndices = bucketIndices
+        """The start index of each bucket"""
 
         self._buckets: list[dict[str, int]] = [{} for _ in range(self.numPriorities)]
 
-        # A dict of the form: {instrname: {priority: reifiedInstr }}
         self._reifiedInstrDefs: dict[str, dict[int, _ReifiedInstr]] = {}
+        "A dict of the form {instrname: {priority: reifiedInstr }}"
 
         self._synths: dict[float, Synth] = {}
         self._whenfinished: dict[float, Callable] = {}
@@ -424,7 +416,7 @@ class Session(AbstractRenderer):
         self._tabnumToTabproxy: dict[int, TableProxy] = {}
         self._pathToTabproxy: dict[str, TableProxy] = {}
         self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
-        self._schedCallback: Union[Callable, None] = None
+        self._schedCallback: Callable | None = None
         self._rendering = False
 
         self.inbox = _queue.Queue()
@@ -479,13 +471,13 @@ class Session(AbstractRenderer):
     def hasBusSupport(self) -> bool:
         return self.engine.hasBusSupport()
 
-    def automateDynamicParam(self,
-                             synth: Synth,
-                             param: str,
-                             pairs: list[float],
-                             mode="linear",
-                             overtake=False,
-                             delay=0.) -> float:
+    def automateSynthParam(self,
+                           synth: Synth,
+                           param: str,
+                           pairs: list[float],
+                           mode="linear",
+                           overtake=False,
+                           delay=0.) -> float:
         """
         Automate a dynamic parameter of a synth
 
@@ -619,7 +611,7 @@ class Session(AbstractRenderer):
             logger.debug(f"Making table with init values: {values} ({overrides})")
             return self.engine.makeTable(data=values, block=wait)
 
-    def setSchedCallback(self, callback: Callable) -> Optional[Callable]:
+    def setSchedCallback(self, callback: Callable) -> Callable | None:
         """
         Set the schedule callback
 
@@ -922,42 +914,55 @@ class Session(AbstractRenderer):
         rinstr, needssync = self.prepareSched(instrname, priority)
         return rinstr.instrnum
 
-    def assignBus(self, kind='audio', persist=False) -> int:
+    def assignBus(self, kind='', value: float = None
+                  ) -> busproxy.Bus:
         """
         Creates a bus in the engine
 
-        This is just a wrapper around Engine.assignBus(). See :meth:`Engine.assignBus` for
-        more information
+        This is a wrapper around
+        :meth:`Engine.assignBus() <csoundengine.engine.Engine.assignBus>`. Instead of returning
+        a raw bus token it returns a :class:`~csoundengine.busproxy.Bus`, which can be used
+        to write, read or automate a bus. To pass the bus to an instrument expecting
+        a bus, use its :attr:`~csoundengine.busproxy.Bus.token` attribute.
 
-        A bus is reference counted and is kept alive as long as there are instruments using
+        A raw bus is reference counted and is kept alive as long as there are instruments using
         it via any of the builtin bus opcdodes: :ref:`busin<busin>`, :ref:`busout<busout>`,
-        :ref:`busmix<busmix>`
+        :ref:`busmix<busmix>`. A :class:`~csoundengine.busproxy.Bus` hold itself
+        a reference to the bus which means that the csound bus will be kept alive as long
+        as python holds a reference to the Bus object.
 
         For more information on the bus-opcodes, see :ref:`Bus Opcodes<busopcodes>`
 
         Args:
-            kind: "audio" or "control"
-            persist: if True the bus created is kept alive until the user
-                calls :meth:`~Engine.releaseBus` or until the end of the Session
+            kind: the kind of bus, "audio" or "control". If left unset and value
+                is not given it defaults to an audio bus. Otherwise, if value
+                is given a control bus is created. Explicitely asking for an
+                audio bus and setting an initial value will raise an expection
+            value: for control buses it is possible to set an initial value for
+                the bus. If a value is given the bus is created as a control
+                bus. For audio buses this should be left as None
 
         Returns:
-            the bus id, can be passed to any instrument expecting a bus
-            to be used with the built-in opcodes "busin", "busout", etc.
+            a Bus, representing the bus created. The returned object can be
+            used to modify/read/automate the bus
+
+        .. seealso:: :meth:`csoundengine.engine.Engine.assignBus`, :class:`csoundengine.busproxy.Bus`
 
 
         Example
-        =======
+        ~~~~~~~
 
         .. code-block:: python
 
             from csoundengine import *
 
-            e = Engine()
-            s = e.session()
+            s = Engine().session()
 
             s.defInstr('sender', r'''
             ibus = p5
-            asig vco2 0.1, 1000
+            ifreqbus = p6
+            kfreq = busin:k(ifreqbus)
+            asig vco2 0.1, kfreq
             busout(ibus, asig)
             ''')
 
@@ -969,13 +974,55 @@ class Session(AbstractRenderer):
             outch 1, asig
             ''')
 
-            bus = s.assignBus()
+            bus = s.assignBus('audio')
+            freqbus = s.assignBus(value=880)
 
-            chain = [s.sched('sender', ibus=bus),
-                     s.sched('receiver', ibus=bus, kgain=0.5)]
+            # The receiver needs to have a higher priority in order to
+            # receive the audio of the sender
+            chain = [s.sched('sender', ibus=bus.token, ifreqbus=freqbus.token),
+                     s.sched('receiver', priority=2, ibus=bus.token, kgain=0.5)]
+
+            # Make a glissando
+            freqbus.automate((0, 880, 5, 440))
 
         """
-        return self.engine.assignBus(kind=kind, persist=persist)
+        if kind:
+            if value is not None and kind == 'audio':
+                raise ValueError(f"An audio bus cannot have a scalar value")
+        else:
+            kind = 'audio' if value is None else 'control'
+        bustoken = self.engine.assignBus(kind=kind, value=value, persist=True)
+        return busproxy.Bus(token=bustoken, kind=kind, renderer=self, bound=True)
+
+    def _writeBus(self, bus: busproxy.Bus, value: float, delay=0.) -> None:
+        self.engine.writeBus(bus=bus.token, value=value, delay=delay)
+
+    def _releaseBus(self, bus: busproxy.Bus) -> None:
+        self.engine.releaseBus(bus.token)
+
+    def _automateBus(self, bus: busproxy.Bus, pairs: Sequence[float],
+                     mode='linear', delay=0., overtake=False) -> None:
+        self.engine.automateBus(bus=bus.token, pairs=pairs, mode=mode,
+                                delay=delay, overtake=overtake)
+
+    def schedEvents(self, events: Sequence[SessionEvent]) -> SynthGroup:
+        """
+        Schedule multiple SessionEvents
+
+        Args:
+            events: the events to schedule
+
+        Returns:
+            a SynthGroup with the synths corresponding to the given events
+        """
+        for event in events:
+            self.prepareSched(instr=event.instrname,
+                              priority=event.priority,
+                              block=False)
+        self.engine.sync()
+        with self.engine.lockedClock():
+            synths = [self.schedEvent(event) for event in events]
+        return SynthGroup(synths)
 
     def schedEvent(self, event: SessionEvent) -> Synth:
         """
@@ -988,6 +1035,23 @@ class Session(AbstractRenderer):
 
         Returns:
             the generated Synth
+
+        Example
+        ~~~~~~~
+
+        >>> from csoundengine import *
+        >>> s = Engine().session()
+        >>> s.defInstr('simplesine', r'''
+        ... |ifreq=440, iamp=0.1, iattack=0.2|
+        ... asig vco2 0.1, ifreq
+        ... asig *= linsegr:a(0, iattack, 1, 0.1, 0)
+        ... outch 1, asig
+        ... ''')
+        >>> event = SessionEvent('simplesine', args=dict(ifreq=1000, iamp=0.2, iattack=0.2))
+        >>> synth = s.schedEvent(event)
+        ...
+        >>> synth.stop()
+
         """
         kws = event.kws or {}
         return self.sched(instrname=event.instrname,
@@ -1008,7 +1072,7 @@ class Session(AbstractRenderer):
                   starttime=0.,
                   endtime=0.,
                   openWhenDone=False,
-                  redirect=False) -> Renderer:
+                  redirect=True) -> Renderer:
         """
         A context-manager for offline rendering
 
@@ -1017,6 +1081,25 @@ class Session(AbstractRenderer):
         context manager has the same interface as a :class:`Session` and can
         be used as a drop-in replacement. Any instrument or resource declared
         within this Session is available for offline rendering.
+
+        Args:
+            outfile: the soundfile to generate after exiting the context
+            sr: the samplerate. If not given, the samplerate of the session will be used
+            nchnls: the number of channels. If not given, the number of channels of the
+                session will be used
+            ksmps: samples per cycle to use for rendering
+            encoding: the sample encoding of the rendered file, given as
+                'pcmXX' or 'floatXX', where XX represent the bit-depth
+                ('pcm16', 'float32', etc.). If no encoding is given a suitable default
+                for the sample format is chosen
+            starttime: start rendering at the given time. Any event ending previous to
+                this time will not be rendered and any event between starttime and
+                endtime will be cropped
+            endtime: stop rendering at the given time. This will either extend or crop
+                the rendering.
+            openWhenDone: open the file in the default application after rendering.
+            redirect: if True, within the context any call to .sched will be
+                redirected to the offline Renderer
 
         Returns:
             a :class:`csoundengine.offline.Renderer`
@@ -1049,7 +1132,7 @@ class Session(AbstractRenderer):
         self._rendering = True
 
         if redirect:
-            self._schedCallback = renderer.sched
+            self._schedCallback = renderer.schedEvent
 
         def _exit(r: Renderer, _outfile=outfile, _schedCallback=schedCallback):
             r.render(outfile=_outfile, endtime=endtime, encoding=encoding,
@@ -1108,12 +1191,12 @@ class Session(AbstractRenderer):
         parts.append(body)
         if not self._notificationUseOsc:
             # Use outvalue for deallocation
-            deallocInstr = self.engine.builtinInstrs['notifyDealloc']
+            deallocInstr = self.engine._builtinInstrs['notifyDealloc']
             parts.append(f'atstop {deallocInstr}, 0.01, 0, p1')
         else:
             # Use osc
             assert self._notificationOscPort > 0
-            deallocInstr = self.engine.builtinInstrs['notifyDeallocOsc']
+            deallocInstr = self.engine._builtinInstrs['notifyDeallocOsc']
             parts.append(f'atstop {deallocInstr}, 0.01, 0, p1, {self._notificationOscPort}')
 
         if instr.controls:
@@ -1181,15 +1264,16 @@ class Session(AbstractRenderer):
         :meth:`~csoundengine.synth.Synth.stop`
         """
         if self._schedCallback:
-            return self._schedCallback(instrname=instrname,
-                                       delay=delay,
-                                       dur=dur,
-                                       priority=priority,
-                                       args=args,
-                                       whenfinished=whenfinished,
-                                       relative=relative,
-                                       **pkws)
-            
+            event = SessionEvent(instrname=instrname,
+                                 delay=delay,
+                                 dur=dur,
+                                 priority=priority,
+                                 args=args,
+                                 whenfinished=whenfinished,
+                                 relative=relative,
+                                 kws=pkws)
+            return self._schedCallback(event)
+
         assert isinstance(priority, int) and 1 <= priority <= 10
         if relative:
             t0 = self.engine.elapsedTime()
@@ -1792,3 +1876,12 @@ def _namedControlsGenerateCode(controls: dict) -> str:
     lines.append("    ; --- end generated code\n")
     out = _textlib.stripLines(_textlib.joinPreservingIndentation(lines))
     return out
+
+
+class FutureSynth(Synth):
+    def __init__(self, event: SessionEvent, session: Session):
+        self.event = event
+        self.session = session
+
+    def set(self, param='', value: float = 0., delay=0., **kws) -> None:
+        pass

@@ -10,16 +10,20 @@ ScoreEvent
 
    .. autosummary::
 
+      ~ScoreEvent.args
+      ~ScoreEvent.controlsSlot
       ~ScoreEvent.instrname
-      ~ScoreEvent.paramTable
+      ~ScoreEvent.p1
       ~ScoreEvent.priority
       ~ScoreEvent.renderer
       ~ScoreEvent.uniqueId
 
    .. rubric:: Attributes Documentation
 
+   .. autoattribute:: args
+   .. autoattribute:: controlsSlot
    .. autoattribute:: instrname
-   .. autoattribute:: paramTable
+   .. autoattribute:: p1
    .. autoattribute:: priority
    .. autoattribute:: renderer
    .. autoattribute:: uniqueId

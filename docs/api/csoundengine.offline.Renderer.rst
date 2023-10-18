@@ -21,15 +21,21 @@ Renderer
       ~Renderer.getInstr
       ~Renderer.hasBusSupport
       ~Renderer.includeFile
+      ~Renderer.initChannel
+      ~Renderer.instrGenerateBody
       ~Renderer.isInstrDefined
+      ~Renderer.lastRender
       ~Renderer.makeTable
       ~Renderer.playSample
       ~Renderer.readSoundfile
       ~Renderer.registerInstr
       ~Renderer.registeredInstrs
       ~Renderer.render
+      ~Renderer.renderDuration
+      ~Renderer.renderMode
       ~Renderer.sched
       ~Renderer.scoreTimeRange
+      ~Renderer.setChannel
       ~Renderer.setCsoundOptions
       ~Renderer.setEndMarker
       ~Renderer.setp
@@ -50,15 +56,21 @@ Renderer
    .. automethod:: getInstr
    .. automethod:: hasBusSupport
    .. automethod:: includeFile
+   .. automethod:: initChannel
+   .. automethod:: instrGenerateBody
    .. automethod:: isInstrDefined
+   .. automethod:: lastRender
    .. automethod:: makeTable
    .. automethod:: playSample
    .. automethod:: readSoundfile
    .. automethod:: registerInstr
    .. automethod:: registeredInstrs
    .. automethod:: render
+   .. automethod:: renderDuration
+   .. automethod:: renderMode
    .. automethod:: sched
    .. automethod:: scoreTimeRange
+   .. automethod:: setChannel
    .. automethod:: setCsoundOptions
    .. automethod:: setEndMarker
    .. automethod:: setp

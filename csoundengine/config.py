@@ -97,6 +97,8 @@ _('A4', 442,
   doc="Frequency for A4")
 _('check_pargs', False,
   doc='Check number of pargs passed to instr')
+_('max_pfields', 1900,
+  doc='The size limit for pfields in an event')
 _('offline_score_table_size_limit', 1900,
   doc='size limit when writing tables as f score statements via gen2. If a table '
       'is bigger than this size, it is saved as a datafile as gen23 or wav')

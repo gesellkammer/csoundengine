@@ -51,15 +51,19 @@ from .errors import RenderError
 from .config import config, logger
 from .instr import Instr
 from .baseevent import BaseEvent
+from .sessionevent import SessionEvent
 from .abstractrenderer import AbstractRenderer
 from . import csoundlib
 from . import internalTools
-from . import engineorc
 from . import sessioninstrs
 from . import state as _state
 from . import offlineorc
 from . import tableproxy
 from . import instrtools
+from . import busproxy
+from . import engineorc
+from .engineorc import BUSKIND_CONTROL, BUSKIND_AUDIO
+
 
 import emlib.misc
 import emlib.filetools
@@ -259,7 +263,6 @@ class EventGroup(BaseEvent):
     These events can be controlled together, similar
     to a SynthGroup
     """
-
 
     def __init__(self, events: list[ScoreEvent]):
         if not events:
@@ -464,7 +467,7 @@ class Renderer(AbstractRenderer):
         self._postUserInstrs = self._bucketIndices[-1] + self._bucketSizes[-1]
         """Start of 'post' instruments (instruments at the end of the processing chain)"""
 
-        self._busTokenCount = 0
+        self._busTokenCount = 1
         self._endMarker = 0.
         self._exitCallbacks: set[Callable] = set()
         self._stringRegistry: dict[str, int] = {}
@@ -788,6 +791,14 @@ class Renderer(AbstractRenderer):
         self._instanceCounters[instrnum] = count
         return p1
 
+    def schedEvent(self, event: SessionEvent):
+        return self.sched(instrname=event.instrname,
+                          delay=event.delay,
+                          dur=event.dur,
+                          priority=event.priority,
+                          args=event.args,
+                          **event.kws)
+
     def sched(self,
               instrname: str,
               delay=0.,
@@ -833,6 +844,7 @@ class Renderer(AbstractRenderer):
             >>> renderer.render('out.wav')
 
         """
+
         instr = self.getInstr(instrname)
         if instr is None:
             raise KeyError(f"Instrument '{instrname}' is not defined. Known instruments: "
@@ -916,7 +928,7 @@ class Renderer(AbstractRenderer):
         """
         return (self._numAudioBuses > 0 or self._numControlBuses > 0)
 
-    def assignBus(self, kind='audio', persist=False) -> int:
+    def assignBus(self, kind='', value=None, persist=False) -> busproxy.Bus:
         """
         Assign a bus number
 
@@ -925,13 +937,53 @@ class Renderer(AbstractRenderer):
 
         TODO
         """
-        if kind != 'audio':
-            raise ValueError("offline rendering has no control bus support yet...")
-
         assert self.hasBusSupport()
+
+        if kind:
+            if value is not None and kind == 'audio':
+                raise ValueError(f"An audio bus cannot have a scalar value")
+        else:
+            kind = 'audio' if value is None else 'control'
+
         token = self._busTokenCount
         self._busTokenCount += 1
-        return token
+        ikind = BUSKIND_AUDIO if kind == 'audio' else BUSKIND_CONTROL
+        ivalue = float(value) if value is not None else 0.
+        args = [0, token, ikind, int(persist), ivalue]
+        self.csd.addEvent(self._builtinInstrs['busassign'], 0, 0, args=args)
+        return busproxy.Bus(token=token, kind=kind, renderer=self, bound=False)
+
+    def _writeBus(self, bus: busproxy.Bus, value: float, delay=0.) -> None:
+        if bus.kind != 'control':
+            raise ValueError("This operation is only valid for control buses")
+        self.csd.addEvent(self._builtinInstrs['busoutk'], start=delay, dur=0,
+                          args=[bus.token, value])
+
+    def _automateBus(self, bus: busproxy.Bus, pairs: Sequence[float],
+                     mode='linear', delay=0., overtake=False):
+        maxDataSize = config['max_pfields'] - 10
+        if len(pairs) <= maxDataSize:
+            args = [int(bus), self.strSet(mode), int(overtake), len(pairs), *pairs]
+            self.csd.addEvent(self._builtinInstrs['automateBusViaPargs'],
+                              start=delay,
+                              dur=pairs[-2] + self.ksmps/self.sr,
+                              args=args)
+        else:
+            for groupdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize//2):
+                self._automateBus(bus=bus, pairs=subgroup, delay=groupdelay+delay,
+                                  mode=mode, overtake=overtake)
+
+    def _readBus(self, bus: busproxy.Bus) -> float | None:
+        "Reading from a bus is not supported in offline mode"
+        return None
+
+    def _releaseBus(self, bus: busproxy.Bus) -> None:
+        """
+        The python counterpart of a bus does not need to be released in offline mode
+
+        The csound bus itself will release itself
+        """
+        return None
 
     def _generateEventId(self) -> int:
         out = self._idCounter
@@ -1027,6 +1079,8 @@ class Renderer(AbstractRenderer):
         Args:
             outfile: the output file to render to. The extension will determine
                 the format (wav, flac, etc). None will render to a temp wav file.
+            sr: the sample rate used for recording, overrides the samplerate of
+                the renderer
             encoding: the sample encoding of the rendered file, given as
                 'pcmXX' or 'floatXX', where XX represent the bit-depth
                 ('pcm16', 'float32', etc). If no encoding is given a suitable default for
@@ -1346,7 +1400,7 @@ class Renderer(AbstractRenderer):
                    loop=False,
                    pan=-1,
                    skip=0.,
-                   fade: float | tuple[float, float] = 0.,
+                   fade: float | tuple[float, float] = None,
                    crossfade=0.02,
                    **kws
                    ) -> ScoreEvent:
@@ -1390,7 +1444,8 @@ class Renderer(AbstractRenderer):
             tabproxy = self.readSoundfile(path=source, start=delay, skiptime=skip)
             tabnum = tabproxy.tabnum
             if dur == 0:
-                dur = sndfileio.sndinfo(source).duration/speed
+                dur = tabproxy.duration() / speed
+
         else:
             tabnum = source
             if dur == 0:
@@ -1403,9 +1458,11 @@ class Renderer(AbstractRenderer):
             fadein = fadeout = fade
         elif isinstance(fade, tuple):
             fadein, fadeout = fade
+        elif fade is None:
+            fadein = fadeout = config['sample_fade_time']
         else:
-            raise TypeError(f"fade should be a fade time or a tuple (fadein, fadeout), "
-                            f"got {fade}")
+            raise TypeError(f"fade should be None to use default, or a time or a tuple "
+                            f"(fadein, fadeout), got {fade}")
 
         args = dict(isndtab=tabnum, istart=skip,
                     ifadein=fadein, ifadeout=fadeout,
@@ -1491,20 +1548,24 @@ class Renderer(AbstractRenderer):
                         delay: float = None,
                         overtake=False
                         ) -> None:
-        assert len(pairs) < 1900
-        instr = event.instr
-        pfieldindex = instr.pfieldIndex(param)
-        dur = pairs[-2]-pairs[0]
-        epsilon = self.csd.ksmps / self.csd.sr * 3
-        start = max(0., delay-epsilon)
-        if event.dur > 0:
-            # we clip the duration of the automation to the lifetime of the automated event
-            end = min(event.start+event.dur, start+dur+epsilon)
-            dur = end-start
-        imode = self.strSet(mode)
-        # ip1:4, ipindex:5, imode:6, iovertake:7, ilenpairs:8
-        args = [event.p1, pfieldindex, imode, int(overtake), len(pairs), *pairs]
-        self.csd.addEvent('_automatePargViaPargs', start=delay, dur=dur, args=args)
+        maxDataSize = config['max_pfields'] - 10
+        if len(pairs) <= maxDataSize:
+            instr = event.instr
+            pfieldindex = instr.pfieldIndex(param)
+            dur = pairs[-2]-pairs[0]
+            epsilon = self.csd.ksmps / self.csd.sr * 3
+            start = max(0., delay-epsilon)
+            if event.dur > 0:
+                # we clip the duration of the automation to the lifetime of the automated event
+                end = min(event.start+event.dur, start+dur+epsilon)
+                dur = end-start
+            # ip1:4, ipindex:5, imode:6, iovertake:7, ilenpairs:8
+            args = [event.p1, pfieldindex, self.strSet(mode), int(overtake), len(pairs), *pairs]
+            self.csd.addEvent('_automatePargViaPargs', start=delay, dur=dur, args=args)
+        else:
+            for subdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize//2):
+                self._automatePfield(event=event, param=param, pairs=subgroup,
+                                     mode=mode, delay=delay+subdelay, overtake=overtake)
 
     def _automateTable(self,
                        event: ScoreEvent,
@@ -1517,20 +1578,26 @@ class Renderer(AbstractRenderer):
         """
         Automate a named control of an event
         """
-        assert len(pairs) < 1900 and len(pairs) % 2 == 0
-        instr = event.instr
-        paramindex = instr.controlIndex(param)
-        dur = pairs[-2] - pairs[0]
-        epsilon = self.csd.ksmps / self.csd.sr * 3
-        start = max(0., delay - epsilon)
-        if event.dur > 0:
-            # we clip the duration of the automation to the lifetime of the event
-            end = min(event.start + event.dur, start + dur + epsilon)
-            dur = end - start
-        imode = self.strSet(mode)
-        # itoken = p4, iparamindex = p5, imode = p6, iovertake = p7, ilenpairs = p8
-        args = [event.controlsSlot, paramindex, imode, int(overtake), len(pairs), *pairs]
-        self.csd.addEvent('_automateControlViaPargs', start=delay, dur=dur, args=args)
+        maxDataSize = config['max_pfields'] - 10
+        assert len(pairs) % 2 == 0
+        if len(pairs) <= maxDataSize:
+            instr = event.instr
+            paramindex = instr.controlIndex(param)
+            dur = pairs[-2] - pairs[0]
+            epsilon = self.csd.ksmps / self.csd.sr * 3
+            start = max(0., delay - epsilon)
+            if event.dur > 0:
+                # we clip the duration of the automation to the lifetime of the event
+                end = min(event.start + event.dur, start + dur + epsilon)
+                dur = end - start
+            imode = self.strSet(mode)
+            # itoken = p4, iparamindex = p5, imode = p6, iovertake = p7, ilenpairs = p8
+            args = [event.controlsSlot, paramindex, imode, int(overtake), len(pairs), *pairs]
+            self.csd.addEvent('_automateControlViaPargs', start=delay, dur=dur, args=args)
+        else:
+            for subdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize//2):
+                self._automateTable(event=event, param=param, pairs=subgroup,
+                                    mode=mode, delay=delay+subdelay, overtake=overtake)
 
     def __enter__(self):
         if not self._exitCallbacks:
