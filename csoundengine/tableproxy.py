@@ -23,12 +23,13 @@ class TableProxy:
     .. warning::
 
         A TableProxy is **never** created by the user directly. It is returned
-        by certain operations within a :class:`~csoundengine.session.Session`,
-        like :meth:`~csoundengine.session.Session.readSoundfile` or
+        by certain operations within a :class:`~csoundengine.session.Session` or
+        a :class:`~csoundengine.offline.Renderer`, like
+        :meth:`~csoundengine.session.Session.readSoundfile` or
         :meth:`~csoundengine.session.Session.makeTable`
 
     Example
-    =======
+    ~~~~~~~
 
     .. code::
 

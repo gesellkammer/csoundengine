@@ -923,7 +923,7 @@ class Session(AbstractRenderer):
         rinstr, needssync = self.prepareSched(instrname, priority)
         return rinstr.instrnum
 
-    def assignBus(self, kind='', value: float = None
+    def assignBus(self, kind='', value: float = None, persist=False
                   ) -> busproxy.Bus:
         """
         Creates a bus in the engine
@@ -934,11 +934,12 @@ class Session(AbstractRenderer):
         to write, read or automate a bus. To pass the bus to an instrument expecting
         a bus, use its :attr:`~csoundengine.busproxy.Bus.token` attribute.
 
-        A raw bus is reference counted and is kept alive as long as there are instruments using
-        it via any of the builtin bus opcdodes: :ref:`busin<busin>`, :ref:`busout<busout>`,
-        :ref:`busmix<busmix>`. A :class:`~csoundengine.busproxy.Bus` hold itself
-        a reference to the bus which means that the csound bus will be kept alive as long
-        as python holds a reference to the Bus object.
+        Within csound a bus is reference counted and is kept alive as long as there are
+        events using it via any of the builtin bus opcdodes: :ref:`busin<busin>`,
+        :ref:`busout<busout>`, :ref:`busmix<busmix>`. A :class:`~csoundengine.busproxy.Bus`
+        can hold itself a reference to the bus if called with ``persist=True``, which means
+        that the csound bus will be kept alive as long as python holds a reference to the
+        Bus object.
 
         For more information on the bus-opcodes, see :ref:`Bus Opcodes<busopcodes>`
 
@@ -950,6 +951,8 @@ class Session(AbstractRenderer):
             value: for control buses it is possible to set an initial value for
                 the bus. If a value is given the bus is created as a control
                 bus. For audio buses this should be left as None
+            persist: if True, the bus is valid until manually released or until
+                the returned Bus object is freed.
 
         Returns:
             a Bus, representing the bus created. The returned object can be
@@ -1000,8 +1003,8 @@ class Session(AbstractRenderer):
                 raise ValueError(f"An audio bus cannot have a scalar value")
         else:
             kind = 'audio' if value is None else 'control'
-        bustoken = self.engine.assignBus(kind=kind, value=value, persist=True)
-        return busproxy.Bus(token=bustoken, kind=kind, renderer=self, bound=True)
+        bustoken = self.engine.assignBus(kind=kind, value=value, persist=persist)
+        return busproxy.Bus(token=bustoken, kind=kind, renderer=self, bound=persist)
 
     def _writeBus(self, bus: busproxy.Bus, value: float, delay=0.) -> None:
         self.engine.writeBus(bus=bus.token, value=value, delay=delay)
@@ -1435,7 +1438,7 @@ class Session(AbstractRenderer):
         """
         Unschedule all playing synths created from given instr
         """
-        synths = self.findSynthsByName(instrname)
+        synths = self.findSynthsByInstrument(instrname)
         for synth in synths:
             self.unsched(synth.p1)
 
@@ -1456,7 +1459,7 @@ class Session(AbstractRenderer):
             self.engine.unschedAll()
             self._synths.clear()
 
-    def findSynthsByName(self, instrname: str) -> list[Synth]:
+    def findSynthsByInstrument(self, instrname: str) -> list[Synth]:
         """
         Return a list of active Synths created from the given instr
         """
@@ -1465,14 +1468,6 @@ class Session(AbstractRenderer):
             if synth.instr.name == instrname:
                 out.append(synth)
         return out
-
-    def restart(self) -> None:
-        """
-        Restart the associated engine
-        """
-        self.engine.restart()
-        for i, initcode in enumerate(self._initCodes):
-            self.engine.compile(initcode)
 
     def readSoundfile(self, path="?", chan=0, free=False, force=False, skiptime=0.
                       ) -> TableProxy:
@@ -1542,7 +1537,6 @@ class Session(AbstractRenderer):
                   sr: int = 0,
                   freeself=False,
                   unique=True,
-                  _instrnum: float = -1,
                   ) -> TableProxy:
         """
         Create a table with given data or an empty table of the given size
@@ -1559,10 +1553,6 @@ class Session(AbstractRenderer):
             freeself (bool): if True, the underlying csound table will be freed
                 whenever the returned TableProxy ceases to exist.
             unique: if False, do not create a table if there is a table with the same data
-            _instrnum (float): private, used internally for argument tables to
-                keep record of the instrument instance a given table is assigned
-                to
-
 
         Returns:
             a TableProxy object
@@ -1590,8 +1580,7 @@ class Session(AbstractRenderer):
             else:
                 datahash = None
             numframes = len(data)
-            tabnum = self.engine.makeTable(data=data, tabnum=tabnum,
-                                           _instrnum=_instrnum, block=block,
+            tabnum = self.engine.makeTable(data=data, tabnum=tabnum, block=block,
                                            callback=callback, sr=sr)
             tabproxy = TableProxy(tabnum=tabnum, sr=sr, nchnls=nchnls, numframes=numframes,
                                   engine=self.engine, freeself=freeself)

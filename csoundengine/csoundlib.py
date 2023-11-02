@@ -2820,6 +2820,9 @@ def _getNchnlsPortaudio(indevice='', outdevice=''
 
 
 def dumpAudioInfo(backend=''):
+    """
+    Dump information about audio backends and audio devices for the selected backend
+    """
     if not backend:
         dumpAudioBackends()
         print()
@@ -2832,12 +2835,6 @@ def dumpAudioDevices(backend=''):
 
     If backend is not given, the default backend (of all available backends
     for the current platform) is chosen
-
-    id: str
-    name: str
-    kind: str
-    index: int = -1
-    numchannels: int | None = 0
     """
 
     backendDef = getAudioBackend(backend)
@@ -2872,7 +2869,7 @@ def instrNames(instrdef: str) -> list[int | str]:
         this is not a valid instr definition
 
     Example
-    =======
+    ~~~~~~~
 
         >>> instr = r'''
         ... instr 10, foo

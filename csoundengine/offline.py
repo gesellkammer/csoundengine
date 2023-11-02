@@ -9,6 +9,8 @@ Example
 .. code-block:: python
 
     from csoundengine import *
+    from pitchtools import *
+
     renderer = Renderer(sr=44100, nchnls=2)
 
     renderer.defInstr('saw', r'''
@@ -16,19 +18,15 @@ Example
       outch 1, oscili:a(0.1, mtof:k(kfreq))
     ''')
 
-    score = [('saw', 0,   2, 60),
-             ('saw', 1.5, 4, 67),
-             ('saw', 1.5, 4, 67.1)]
-
-    events = [renderer.sched(ev[0], delay=ev[1], dur=ev[2], args=ev[3:])
-              for ev in score]
+    events = [
+        renderer.sched('saw', 0, 2, kmidi=ntom('C4')),
+        renderer.sched('saw', 1.5, 4, kmidi=ntom('4G')),
+        renderer.sched('saw', 1.5, 4, kmidi=ntom('4G+10'))
+    ]
 
     # offline events can be modified just like real-time events
-    events[0].automate('kmidi', (0, 60, 2, 59))
+    events[0].automate('kmidi', (0, 0, 2, ntom('B3')), overtake=True)
 
-    # When rendering offline, an event needs to set the time offset
-    # of the set operation. This is a difference from a Synth, in which
-    # the delay value is optional.
     events[1].set(delay=3, kmidi=67.2)
     events[2].set(kmidi=80, delay=4)
     renderer.render("out.wav")
@@ -58,11 +56,11 @@ from . import internalTools
 from . import sessioninstrs
 from . import state as _state
 from . import offlineorc
-from . import tableproxy
 from . import instrtools
 from . import busproxy
 from . import engineorc
 from .engineorc import BUSKIND_CONTROL, BUSKIND_AUDIO
+from .tableproxy import TableProxy
 
 
 import emlib.misc
@@ -353,7 +351,11 @@ class EventGroup(BaseEvent):
 @dataclass
 class RenderJob:
     """
-    A render job
+    Represent an offline render process
+
+    A RenderJob is generated each time :meth:`Renderer.render` is called.
+    Each new process is appended to :attr:`Renderer.renderedJobs`. The
+    last render job can be accesses via :meth:`Renderer.lastRenderJob`
     """
     outfile: str
     """The soundfile rendered / being rendererd"""
@@ -513,6 +515,7 @@ class Renderer(AbstractRenderer):
         self._numAudioBuses = numAudioBuses
         self._numControlBuses = 10000
         self._ndarrayHashToTabnum: dict[str, int] = {}
+
         self._channelRegistry: dict[str, ChannelDef] = {}
         """Dict mapping channel name to tuple (valuetype, channeltype)
         valuetype is one of 'k', 'S'; channeltype is 'r', 'w', 'rw', """
@@ -542,7 +545,7 @@ class Renderer(AbstractRenderer):
         self._stringRegistry: dict[str, int] = {}
         self._includes: set[str] = set()
         self._builtinInstrs: dict[str, int] = {}
-        self._soundfileRegistry: dict[str, tableproxy.TableProxy] = {}
+        self._soundfileRegistry: dict[str, TableProxy] = {}
 
         prelude = offlineorc.prelude(controlNumSlots=self._dynargsNumSlices,
                                      controlArgsPerInstr=self._dynargsSliceSize)
@@ -559,11 +562,10 @@ class Renderer(AbstractRenderer):
             self._builtinInstrs.update(instrIndex)
             self.csd.addGlobalCode(busorc)
 
-        for instrname in ['.playSample']:
-            instr = sessioninstrs.builtinInstrIndex[instrname]
+        for instr in sessioninstrs.builtinInstrs:
             self.registerInstr(instr)
 
-        self._dynargsTabnum = self.makeTable(size=self.controlArgsPerInstr * self._dynargsNumSlices)
+        self._dynargsTabnum = self.makeTable(size=self.controlArgsPerInstr * self._dynargsNumSlices).tabnum
         self.setChannel('.dynargsTabnum', self._dynargsTabnum)
 
         if self.hasBusSupport():
@@ -929,7 +931,6 @@ class Renderer(AbstractRenderer):
                            f"{self._instrdefs.keys()}")
 
         pfields5, dynargs = instr.parseSchedArgs(args=args, kws=kwargs)
-        # args = internalTools.resolveInstrArgs(instr=instr, p4=dynargsToken, pkws=pkws)
         event = self.makeEvent(start=float(delay), dur=float(dur), pfields5=pfields5,
                                instr=instr, priority=priority)
         self.csd.addEvent(event.p1, start=event.start, dur=event.dur, args=event.args)
@@ -951,6 +952,9 @@ class Renderer(AbstractRenderer):
                   ) -> SchedEvent:
         """
         Create a SchedEvent for this Renderer
+
+        This method does not schedule the event, it only creates it. It must
+        be scheduled via :meth:`Renderer.schedEvent`
 
         Args:
             start: the start time
@@ -1014,12 +1018,48 @@ class Renderer(AbstractRenderer):
 
     def assignBus(self, kind='', value=None, persist=False) -> busproxy.Bus:
         """
-        Assign a bus number
+        Assign a bus
+
+        Args:
+            kind: the bus kind, one of 'audio' or 'control'. The value, if given,
+                will determine the kind if `kind` is left unset
+            value: an initial value for the bus, only valid for control buses
+            persist: if True, the bus exists until it is manually released.
+                Otherwise the bus exists as long as it is unused and remains
+                alive as long as there are instruments using it
 
         Example
         ~~~~~~~
 
-        TODO
+        .. code-block:: python
+
+            from csoundengine import *
+            r = Renderer()
+
+            r.defInstr('sender', r'''
+              ibus = p5
+              ifreqbus = p6
+              kfreq = busin:k(ifreqbus)
+              asig vco2 0.1, kfreq
+              busout(ibus, asig)
+            ''')
+
+            r.defInstr('receiver', r'''
+              ibus  = p5
+              kgain = p6
+              asig = busin:a(ibus)
+              asig *= a(kgain)
+              outch 1, asig
+            ''')
+
+            bus = r.assignBus('audio')
+            freqbus = s.assignBus(value=880)
+            chain = [r.sched('sender', ibus=bus.token, ifreqbus=freqbus.token),
+                     r.sched('receiver', priority=2, ibus=bus.token, kgain=0.5)]
+
+            # Make a glissando
+            freqbus.automate((0, 880, 5, 440))
+
         """
         assert self.hasBusSupport()
 
@@ -1076,7 +1116,9 @@ class Renderer(AbstractRenderer):
 
     def setCsoundOptions(self, *options: str) -> None:
         """
-        Set any command line options
+        Set any command line options to use by all render operations
+
+        Options can also be set while calling :meth:`Renderer.render`
 
         Args:
             *options (str): any option will be passed directly to csound when rendering
@@ -1096,10 +1138,12 @@ class Renderer(AbstractRenderer):
 
     def renderDuration(self) -> float:
         """
-        Returns the actual duration of the rendered score
+        Returns the actual duration of the rendered score, considering an end marker
 
         Returns:
             the duration of the render, in seconds
+
+        .. seealso:: :meth:`Renderer.setEndMarker`
         """
         _, end = self.scoreTimeRange()
         if self._endMarker:
@@ -1131,11 +1175,16 @@ class Renderer(AbstractRenderer):
         """
         Set the end marker for the score
 
-        The end marker will extend the rendering time if it is placed after the
-        end of the last event. It will also crop any *infinite* event. It does not
+        The end marker will **extend the rendering time** if it is placed **after** the
+        end of the last event; it will also **crop** any *infinite* event. It does not
         have any effect if there are events with determinate duration ending after
-        it. In this case the end time of the render will be the end of the latest
-        event.
+        it. In this case **the end time of the render will be the end of the latest
+        event**.
+
+        .. note::
+
+            To render only part of a score use the `starttime` and / or `endtime`
+            parameters when calling :meth:`Renderer.render`
         """
         self._endMarker = time
         self.csd.setEndMarker(time)
@@ -1151,7 +1200,8 @@ class Renderer(AbstractRenderer):
                compressionBitrate: int = None,
                sr: int = None,
                tail=0.,
-               numthreads=0
+               numthreads=0,
+               csoundoptions: list[str] = None
                ) -> RenderJob:
         """
         Render to a soundfile
@@ -1185,6 +1235,8 @@ class Renderer(AbstractRenderer):
                 the render to finish.
             numthreads: number of threads to use for rendering. If not given, the
                 value in ``config['rec_numthreads']`` is used
+            csoundoptions: a list of options specific to this render job. Options
+                given to the Renderer itself will be included in all render jobs
 
         Returns:
             a tuple (path of the rendered file, subprocess.Popen object). The Popen object
@@ -1226,6 +1278,9 @@ class Renderer(AbstractRenderer):
 
         if numthreads > 1:
             csd.numthreads = numthreads
+
+        if csoundoptions:
+            csd.addOptions(*csoundoptions)
 
         if scoreend < renderend:
             csd.setEndMarker(renderend)
@@ -1281,6 +1336,15 @@ class Renderer(AbstractRenderer):
             lastjob.openOutfile(app=app)
 
     def lastRenderJob(self) -> RenderJob | None:
+        """
+        Returns the last RenderJob spawned by :meth:`Renderer.render`
+
+        Returns:
+            the last :class:`RenderJob` or None if no rendering has been
+            performed yet
+
+        .. seealso:: :meth:`Renderer.render`
+        """
         return self.renderedJobs[-1] if self.renderedJobs else None
 
     def lastRenderedSoundfile(self) -> str | None:
@@ -1422,8 +1486,9 @@ class Renderer(AbstractRenderer):
                   size: int = 0,
                   tabnum: int = 0,
                   sr: int = 0,
-                  delay: float = 0.
-                  ) -> int:
+                  delay: float = 0.,
+                  unique=True
+                  ) -> TableProxy:
         """
         Create a table with given data or an empty table of the given size
 
@@ -1433,20 +1498,23 @@ class Renderer(AbstractRenderer):
             tabnum: 0 to self assign a table number
             sr: the samplerate of the data, if applicable.
             delay: when to create this table
+            unique: if True, create a table even if a table exists with the
+                same data.
 
         Returns:
-            the table number
+            a TableProxy
         """
         if data is not None:
             arrayhash = internalTools.ndarrayhash(data)
-            if tabnum := self._ndarrayHashToTabnum.get(arrayhash, 0):
+            if not unique and (tabnum := self._ndarrayHashToTabnum.get(arrayhash, 0)):
                 return tabnum
             tabnum = self.csd.addTableFromData(data=data, tabnum=tabnum, start=delay, sr=sr)
             self._ndarrayHashToTabnum[arrayhash] = tabnum
-            return tabnum
+            return TableProxy(tabnum=tabnum, numframes=len(data), sr=sr)
         else:
             assert size > 0
-            return self.csd.addEmptyTable(size=size, sr=sr, tabnum=tabnum)
+            tabnum = self.csd.addEmptyTable(size=size, sr=sr, tabnum=tabnum)
+            return TableProxy(tabnum=tabnum, numframes=size, sr=sr)
 
     def readSoundfile(self,
                       path='?',
@@ -1454,7 +1522,7 @@ class Renderer(AbstractRenderer):
                       skiptime: float = 0.,
                       start: float = 0.,
                       force=False
-                      ) -> tableproxy.TableProxy:
+                      ) -> TableProxy:
         """
         Add code to this offline renderer to load a soundfile
 
@@ -1484,14 +1552,14 @@ class Renderer(AbstractRenderer):
                                      skiptime=skiptime,
                                      chan=chan)
         info = sndfileio.sndinfo(path)
-        tabproxy = tableproxy.TableProxy(tabnum=tabnum, engine=None, numframes=info.nframes,
+        tabproxy = TableProxy(tabnum=tabnum, engine=None, numframes=info.nframes,
                                          sr=info.samplerate, nchnls=info.channels, path=path,
                                          skiptime=skiptime)
         self._soundfileRegistry[path] = tabproxy
         return tabproxy
 
     def playSample(self,
-                   source: int | str | tuple[np.ndarray, int],
+                   source: int | str | TableProxy | tuple[np.ndarray, int],
                    delay=0.,
                    dur=0,
                    chan=1,
@@ -1512,8 +1580,9 @@ class Renderer(AbstractRenderer):
         :meth:`~Renderer.readSoundFile` or any other GEN1 ftgen)
 
         Args:
-            source: the table number to play, the path of a soundfile or a
-                tuple (numpy array, sr). Use '?' to select a file using a GUI dialog
+            source: the table number to play, a :class:`~csoundengine.TableProxy`,
+                the path of a soundfile or a tuple (numpy array, sr).
+                Use '?' to select a file using a GUI dialog
             delay: when to start playback
             chan: the channel to output to. If the sample is stereo/multichannel, this indicates
                 the first of a set of consecutive channels to output to.
@@ -1539,17 +1608,20 @@ class Renderer(AbstractRenderer):
             tabnum = self.makeTable(data=source[0], sr=sr)
             if dur == 0:
                 dur = (len(data)/sr) / speed
-
+        elif isinstance(source, TableProxy):
+            tabnum = source.tabnum
         elif isinstance(source, str):
             tabproxy = self.readSoundfile(path=source, start=delay, skiptime=skip)
             tabnum = tabproxy.tabnum
             if dur == 0:
                 dur = tabproxy.duration() / speed
-
-        else:
+        elif isinstance(source, int):
             tabnum = source
             if dur == 0:
                 dur = -1
+        else:
+            raise TypeError(f"Not a valid source: {source}, expected a TableProxy, "
+                            f"path, table number or sample data as (samples, sr: int)")
         assert tabnum > 0
         if not loop:
             crossfade = -1
@@ -1717,6 +1789,135 @@ class Renderer(AbstractRenderer):
         else:
             info = f'sr={_(self.sr)}'
             return f'<strong>Renderer</strong>({info})'
+
+    def playPartials(self,
+                     source: int | str | TableProxy | np.ndarray,
+                     delay=0.,
+                     dur=-1,
+                     speed=1.,
+                     freqscale=1.,
+                     gain=1.,
+                     bwscale=1.,
+                     loop=False,
+                     chan=1,
+                     start=0.,
+                     stop=0.,
+                     minfreq=0,
+                     maxfreq=0,
+                     maxpolyphony=50,
+                     gaussian=False,
+                     interpfreq=True,
+                     interposcil=True,
+                     position=0.
+                     ) -> SchedEvent:
+        """
+        Play a packed spectrum
+
+        A packed spectrum is a 2D numpy array representing a fixed set of
+        oscillators. After partial tracking analysis, all partials are arranged
+        into such a matrix where each row represents the state of all oscillators
+        over time.
+
+        The **loristrck** packge is needed for both partial-tracking analysis and
+        packing. It can be installed via ``pip install loristrck`` (see
+        https://github.com/gesellkammer/loristrck). This is an optional dependency
+
+
+        Args:
+            source: a table number, tableproxy, path to a .mtx or .sdif file, or
+                a numpy array containing the partials data
+            delay: when to start the playback
+            dur: duration of the synth (-1 will play indefinitely if looping or until
+                the end of the last partial or the end of the selection
+            speed: speed of playback (does not affect pitch)
+            loop: if True, loop the selection or the entire spectrum
+            chan: channel to send the output to
+            start: start of the time selection
+            stop: stop of the time selection (0 to play until the end)
+            minfreq: lowest frequency to play
+            maxfreq: highest frequency to play
+            gaussian: if True, use gaussian noise for residual resynthesis
+            interpfreq: if True, interpolate frequency between cycles
+            interposcil: if True, use linear interpolation for the oscillators
+            maxpolyphony: if a sdif is passed, compress the partials to max. this
+                number of simultaneous oscillators
+            position: pan position
+            freqscale: frequency scaling factor
+            gain: playback gain
+            bwscale: bandwidth scaling factor
+
+        Returns:
+            the playing Synth
+
+        Example
+        ~~~~~~~
+
+            >>> import loristrck as lt
+            >>> import csoundengine as ce
+            >>> samples, sr = lt.util.sndread("/path/to/soundfile")
+            >>> partials = lt.analyze(samples, sr, resolution=50)
+            >>> lt.util.partials_save_matrix(partials, outfile='packed.mtx')
+            >>> session = ce.Engine().session()
+            >>> session.playPartials(source='packed.mtx', speed=0.5)
+
+        """
+        iskip, inumrows, inumcols = -1, 0, 0
+
+        if isinstance(source, int):
+            tabnum = source
+        elif isinstance(source, TableProxy):
+            tabnum = source.tabnum
+        elif isinstance(source, str):
+            # a .mtx file
+            ext = os.path.splitext(source)[1]
+            if ext == '.mtx':
+                table = self.readSoundfile(source)
+                tabnum = table.tabnum
+            elif ext == '.sdif':
+                try:
+                    import loristrck as lt
+                    partials, labels = lt.read_sdif(source)
+                    tracks, matrix = lt.util.partials_save_matrix(partials=partials, maxtracks=maxpolyphony)
+                    tabnum = self.makeTable(matrix)
+                except ImportError:
+                    raise ImportError("loristrck is needed in order to play a .sdif file"
+                                      ". Install it via `pip install loristrck`")
+            else:
+                raise ValueError(f"Expected a .mtx file or .sdif file, got {source}")
+
+        elif isinstance(source, np.ndarray):
+            assert len(source.shape) == 2
+            array = source.flatten()
+            table = self.makeTable(array, unique=False)
+            tabnum = table.tabnum
+            iskip = 0
+            inumrows, inumcols = source.shape
+
+        else:
+            raise TypeError(f"Expected int, TableProxy or str, got {source}")
+
+        flags = 1 * int(gaussian) + 2 * int(interposcil) + 4 * int(interpfreq)
+        return self.sched('.playPartials',
+                          delay=delay,
+                          dur=dur,
+                          args=dict(ifn=tabnum,
+                                    iskip=iskip,
+                                    inumrows=inumrows,
+                                    inumcols=inumcols,
+                                    kspeed=speed,
+                                    kloop=int(loop),
+                                    kminfreq=minfreq,
+                                    kmaxfreq=maxfreq,
+                                    ichan=chan,
+                                    istart=start,
+                                    istop=stop,
+                                    kfreqscale=freqscale,
+                                    iflags=flags,
+                                    iposition=position,
+                                    kbwscale=bwscale,
+                                    kgain=gain))
+
+# ------------------ end Renderer ---------------------
 
 
 def cropScore(events: list[SchedEvent], start=0., end=0.) -> list[SchedEvent]:
