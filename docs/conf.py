@@ -74,7 +74,7 @@ set_type_checking_flag = False
 # numpydoc_show_class_members = False
 
 
-autodoc_mock_imports = ["ctcsound7", "ctcsound"]
+autodoc_mock_imports = ["ctcsound7", "ctcsound", "xxhash"]
 
 # Napoleon settings
 napoleon_google_docstring = True
