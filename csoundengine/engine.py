@@ -326,7 +326,7 @@ class Engine:
                  backend: str = 'default',
                  outdev: str | None = None,
                  indev: str | None = None,
-                 a4: int | None = None,
+                 a4: int = 0,
                  nchnls: int | None = None,
                  nchnls_i: int | None = None,
                  realtime=False,
@@ -343,7 +343,8 @@ class Engine:
                  midibackend: str = 'default',
                  midiin: str | None = None,
                  autosync=False,
-                 latency: float | None = None):
+                 latency: float | None = None,
+                 numthreads: int = 0):
         if not name:
             name = _generateUniqueEngineName()
         elif name in Engine.activeEngines:
@@ -465,6 +466,8 @@ class Engine:
                              f"have a fixed sr. Using sr={sr}")
 
         if a4 is None: a4 = cfg['A4']
+        if numthreads == 0:
+            numthreads = config['numthreads']
         if ksmps is None: ksmps = cfg['ksmps']
         if nchnls_i is None:
             nchnls_i = cfg['nchnls_i']
@@ -567,6 +570,9 @@ class Engine:
         self.started = False
         """Has this engine already started?"""
 
+        self.numthreads = numthreads
+        """Number of threads to use in performance (corresponds to csound -j N)"""
+
         self._builtinInstrs: dict[str, int] = {}
         """Dict of built-in instrs, mapping instr name to number"""
 
@@ -666,6 +672,9 @@ class Engine:
 
         self._reservedInstrnums: set[int] = set()
         self._reservedInstrnumRanges: list[tuple[str, int, int]] = [('builtinorc', CONSTS['reservedInstrsStart'], CONSTS['userInstrsStart']-1)]
+
+        self._compileViaPerfthread = False
+
         self.start()
 
     def reservedInstrRanges(self) -> list[tuple[str, int, int]]:
@@ -824,6 +833,9 @@ class Engine:
                    f"-o{self.outdev}", f"-i{self.indev}",
                    f"-b{buffersize}", f"-B{optB}",
                    ]
+
+        if self.numthreads > 1:
+            options.append(f'-j {self.numthreads}')
 
         if self.midiin is not None:
             if self.midiBackend:
@@ -995,7 +1007,7 @@ class Engine:
             return
         if valptr is not None:
             val = _ctypes.cast(valptr, _MYFLTPTR).contents.value
-            logger.debug(f"Outvalue triggered for channel '{channelName}', calling func {func} with val {val}")
+            # logger.debug(f"Outvalue triggered for channel '{channelName}', calling func {func} with val {val}")
             func(channelName, val)
         else:
             logger.warning(f"outvalueCallback: {channelName=} called with null pointer, skipping")
@@ -1068,16 +1080,17 @@ class Engine:
         """
         return self.ksmps/self.sr * 2
 
-    def sync(self, timeout: float = None, threshold=2., force=False) -> None:
+    def sync(self, timeout: float = None, force=False) -> bool:
         """
         Block until csound has processed its immediate events
 
         Args:
             timeout: a timeout in seconds; None = use default timeout as defined
                 in the configuration (TODO: add link to configuration docs)
-            threshold: if this time has elapsed from last modification assume
-                that sync is not needed
             force: if True, sync even if not needed
+
+        Returns:
+            True if it synced, False if no sync was performed
 
         Raises TimeoutError if the sync operation takes too long
 
@@ -1090,21 +1103,15 @@ class Engine:
             >>> e.sync()
             >>> # do something with the tables
         """
-        if self._lastModification == 0 and not force:
-            return
-
-        t = time.time()
-        if not force and threshold and t - self._lastModification > threshold:
-            self._lastModification = 0
-            return
+        if not force and self._lastModification == 0:
+            return False
 
         assert self._perfThread
-        # self._perfThread.flushMessageQueue()
         token = self._getSyncToken()
         pargs = [self._builtinInstrs['pingback'], 0, 0, token]
         self._eventWait(token, pargs, timeout=timeout)
         self._lastModification = 0
-        logger.debug(f"Synched at {t}")
+        return True
 
     def _compileCode(self, code: str, block=False) -> None:
         if self.udpPort and config['prefer_udp']:
@@ -1124,11 +1131,14 @@ class Engine:
             else:
                 logger.debug("Compiling csound code (async):")
                 logger.debug(code)
-                err = self.csound.compileOrcAsync(code)
-                if err:
-                    logger.error("compileOrcAsync error: ")
-                    logger.error(internalTools.addLineNumbers(code))
-                    raise CsoundError("Could not compile async")
+                if self._compileViaPerfthread:
+                    self._perfThread.compile(code)
+                else:
+                    err = self.csound.compileOrcAsync(code)
+                    if err:
+                        logger.error("compileOrcAsync error: ")
+                        logger.error(internalTools.addLineNumbers(code))
+                        raise CsoundError("Could not compile async")
         self._needsSync()
 
     def _needsSync(self, status=True) -> None:
@@ -1605,10 +1615,7 @@ class Engine:
         else:
             raise TypeError(f"Expected a float, an int or a str as instr, "
                             f"got {instr} (type {type(instr)})")
-        if not args:
-            pargs = [instrfrac, delay, dur]
-            self._perfThread.scoreEvent(1, "i", pargs)
-        elif isinstance(args, np.ndarray):
+        if isinstance(args, np.ndarray):
             pargsnp = np.empty((len(args)+3,), dtype=float)
             pargsnp[0] = instrfrac
             pargsnp[1] = delay
@@ -1616,6 +1623,9 @@ class Engine:
             pargsnp[3:] = args
             # 1: we use always absolute time
             self._perfThread.scoreEvent(1, "i", pargsnp)
+        elif not args:
+            pargs = [instrfrac, delay, dur]
+            self._perfThread.scoreEvent(1, "i", pargs)
         else:
             needsSync = any(isinstance(a, str) and a not in self._strToIndex for a in args)
             pargs = [instrfrac, delay, dur]
@@ -1878,10 +1888,10 @@ class Engine:
                 logger.info(f"Asking to create a session with dynamicArgsPerInstr={dynamicArgsPerInstr}, "
                             f"which differs from the value of the current session "
                             f"({self._session.dynamicArgsPerInstr}). The old value will be kept")
-            if dynamicArgsSlots is not None and dynamicArgsSlots != self._session._dynargsNumSlices:
+            if dynamicArgsSlots is not None and dynamicArgsSlots != self._session._dynargsNumSlots:
                 logger.info(f"Asking to create a session with dynamicArgsSlices={dynamicArgsSlots}, "
                             f"which differs from the value of the current session "
-                            f"({self._session._dynargsNumSlices}). The old value will be kept")
+                            f"({self._session._dynargsNumSlots}). The old value will be kept")
             if priorities is not None and priorities != self._session.numPriorities:
                 logger.info(f"Asking to create a session with priorites={priorities}, "
                             f"which differs from the value of the current session "
@@ -2075,6 +2085,16 @@ class Engine:
         self._needsSync()
 
     def _registerSync(self, token: int) -> _queue.Queue:
+        """
+        Register a token for a __sync__ callback
+
+        Args:
+            token: an int token, as returned via _getSyncToken
+
+        Returns:
+            a Queue. It can be used to wait on, the value obtained
+            will be the returned value
+        """
         q = _queue.Queue()
         self._responseCallbacks[token] = lambda token, q=q, table=self._responsesTable: q.put(table[token])
         return q
@@ -3425,7 +3445,7 @@ class Engine:
         pargs = [self._builtinInstrs['freetable'], delay, 0., tableindex]
         self._perfThread.scoreEvent(0, "i", pargs)
 
-    def testAudio(self, dur=4., delay=0.5, period=1, mode='pink',
+    def testAudio(self, dur=4., delay=0., period=1, mode='pink',
                   gaindb=-6) -> float:
         """
         Test this engine's output
@@ -3598,7 +3618,6 @@ class Engine:
         if delay == 0:
             busindex = self._busIndexes.get(bus)
             if busindex is not None:
-                print("--- direct access", bus, busindex)
                 self._kbusTable[busindex] = value
             else:
                 self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=0, args=(int(bus), value))

@@ -118,8 +118,8 @@ from .offline import Renderer
 from .synth import SynthGroup
 from . import csoundlib
 from . import tools
-from .csoundlib import (dumpAudioDevices, dumpAudioBackends,
-                        getAudioBackend, audioBackends)
+from . import busproxy
+from .csoundlib import (dumpAudioInfo, audioBackends)
 
 import emlib.envir
 if emlib.envir.inside_ipython():

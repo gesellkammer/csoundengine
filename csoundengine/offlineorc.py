@@ -119,6 +119,7 @@ endin
 
 instr _initDynamicControls
     ; to be called with dur 0
+    pset 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     itoken = p4
     inumitems = p5
     islot = _assignControlSlot(itoken)

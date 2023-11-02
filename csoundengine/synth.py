@@ -1,13 +1,15 @@
 from __future__ import annotations
 import time
-import numpy as np
+from abc import abstractmethod
 from functools import cache
+import numpy as np
+
+import emlib.iterlib as _iterlib
+import emlib.misc as _misc
+
 from .config import logger, config
 from . import internalTools
 from . import baseevent
-from . import sessionevent
-from emlib import iterlib
-import emlib.misc
 from . import jupytertools
 
 from typing import TYPE_CHECKING, Sequence
@@ -26,11 +28,12 @@ __all__ = (
 
 
 _EMPTYSET = set()
+_EMPTYDICT = {}
 
 
 class AbstrSynth(baseevent.BaseEvent):
     """
-    A base class for Synth and SynthGroup
+    A base class for online events: Synth and SynthGroup
 
     Args:
         start: the start time relative to the start of the engine
@@ -55,6 +58,7 @@ class AbstrSynth(baseevent.BaseEvent):
         self.autostop: bool = autostop
         "If True, stop the underlying csound synth when this object is deleted"
 
+    @abstractmethod
     def stop(self, delay=0.) -> None:
         raise NotImplementedError
 
@@ -62,10 +66,12 @@ class AbstrSynth(baseevent.BaseEvent):
         if self.autostop:
             self.stop()
 
+    @abstractmethod
     def playing(self) -> bool:
         """ Is this synth playing? """
         raise NotImplementedError
 
+    @abstractmethod
     def finished(self) -> bool:
         """ Has this synth ceased to play? """
         raise NotImplementedError
@@ -89,6 +95,56 @@ class AbstrSynth(baseevent.BaseEvent):
         Returns the Session which scheduled self
         """
         return self.engine.session()
+
+    def ui(self, **specs: tuple[float, float]) -> None:
+        """
+        Modify dynamic (named) arguments through an interactive user-interface
+
+        If run inside a jupyter notebook, this method will create embedded widgets
+        to control the values of the dynamic pfields of an event. Dynamic pfields
+        are those assigned to a k-variable or declared as ``|karg|`` (see below)
+
+        Args:
+            specs: map named arg to a tuple (minvalue, maxvalue), the keyword
+                is the name of the parameter, the value is a tuple with the
+                range
+
+        Example
+        ~~~~~~~
+
+        .. code::
+
+            # Inside jupyter
+            from csoundengine import *
+            s = Engine().session()
+            s.defInstr('vco', r'''
+              |kmidinote, kampdb=-12, kcutoff=3000, kres=0.9|
+              kfreq = mtof:k(kmidinote)
+              asig = vco2:a(ampdb(kampdb), kfreq)
+              asig = moogladder2(asig, kcutoff, kres)
+              asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
+              outs asig, asig
+            ''')
+            synth = s.sched('vco', kmidinote=67)
+            # Specify the ranges for some sliders. All named parameters
+            # are assigned a widget
+            synth.ui(kampdb=(-48, 0), kres=(0, 1))
+
+        .. figure:: assets/synthui.png
+
+        .. seealso::
+
+            - :meth:`Engine.eventui`
+
+        """
+        from . import interact
+        dynparams = self.dynamicParams(aliases=True, aliased=False)
+        if not dynparams:
+            logger.error(f"No named parameters for {self}")
+            return
+        params = {param: self.paramValue(param) for param in sorted(dynparams)}
+        paramspecs = interact.guessParamSpecs(params, ranges=specs)
+        return interact.interactSynth(self, specs=paramspecs)
 
 
 _synthStatusIcon = {
@@ -135,7 +191,8 @@ class Synth(AbstrSynth):
         synths[1].automate('ktransp', [0, 0, 10, -1])
 
     """
-    __slots__ = ('instr', 'session', 'group', '_playing', 'priority', 'p1', 'args', 'controlsSlot')
+    __slots__ = ('instr', 'session', 'group', '_playing', 'priority', 'p1', 'args',
+                 'controlsSlot', 'controls')
 
     def __init__(self,
                  session: Session,
@@ -146,6 +203,7 @@ class Synth(AbstrSynth):
                  args: list[float] | None = None,
                  autostop=False,
                  priority: int = 1,
+                 controls: dict[str, float] | None = None,
                  controlsSlot: int = -1,
                  ) -> None:
 
@@ -174,14 +232,21 @@ class Synth(AbstrSynth):
         self.controlsSlot: int = controlsSlot
         """Holds the slot for dynamic controls, 0 if this synth has no assigned slot"""
 
+        self.controls = controls if controls is not None else _EMPTYDICT
+        """The dynamic controls used to schedule this synth"""
+
         self._playing: bool = True
+
+    def aliases(self) -> dict[str, str]:
+        """The parameter aliases of this synth, or an empty dict if no aliases defined"""
+        return self.instr.aliases
 
     @property
     def body(self) -> str:
         return self.session.generateInstrBody(self.instr)
 
-    def _controlNames(self) -> frozenset[str] | None:
-        return self.instr.controlNames()
+    def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
+        return self.instr.controlNames(aliases=aliases, aliased=aliased)
 
     def getInstr(self) -> Instr:
         """
@@ -202,8 +267,6 @@ class Synth(AbstrSynth):
         if self.args and len(self.args) > 1:
             i2n = self.instr.pfieldIndexToName
             argsstrs = []
-            # exclude p4
-            firstpargs = 5
             pargs = self.args[1:]
             if any(arg.startswith('k') for arg in self.instr.pfieldNameToIndex):
                 maxi = max(i+4 for i, n in i2n.items()
@@ -241,9 +304,17 @@ class Synth(AbstrSynth):
 
     def __repr__(self):
         playstr = _synthStatusIcon[self.playStatus()]
-        parts = [f'{playstr} {self.instr.name}:{self.p1} start:{self.start:.3f} dur:{self.dur:.3f}']
+        parts = [f'{playstr} {self.instr.name}={self.p1} start={self.start:.3f} dur={self.dur:.3f}']
 
+        if self.instr.hasControls():
+            ctrlparts = []
+            for k, v in self.instr.controls.items():
+                if k in self.controls:
+                    v = self.controls[k]
+                ctrlparts.append(f'{k}={v}')
+            parts.append(f"|{' '.join(ctrlparts)}|")
         if self.args:
+            showpidx = config['synth_repr_show_pfield_index']
             maxi = config['synth_repr_max_args']
             i2n = self.instr.pfieldIndexToName
             maxi = max((i for i, name in i2n.items() if name.startswith("k")),
@@ -252,13 +323,16 @@ class Synth(AbstrSynth):
             pargs = self.args[0:]
             for i, parg in enumerate(pargs, start=0):
                 if i > maxi:
-                    argsstrs.append("...")
+                    argsstrs.append("…")
                     break
                 name = i2n.get(i+4)
                 if not isinstance(parg, str):
                     parg = f'{parg:.6g}'
                 if name:
-                    s = f"{name}:{i+4}={parg}"
+                    if showpidx:
+                        s = f"{name}:{i+4}={parg}"
+                    else:
+                        s = f"{name}={parg}"
                 else:
                     s = f"p{i+4}={parg}"
                 argsstrs.append(s)
@@ -292,23 +366,24 @@ class Synth(AbstrSynth):
     def finished(self) -> bool:
         return self.playStatus() == 'stopped'
 
-    def dynamicParams(self) -> set[str]:
+    def dynamicParams(self, aliases=True, aliased=False) -> frozenset[str]:
         """
         The set of all dynamic parameters accepted by this Synth
 
         If the instrument used in this synth uses aliases, these are
         also included
 
+        Args:
+            aliases: if True, include aliases
+            aliased: include the original names of parameters which have an alias
+
         Returns:
             a set of the dynamic (modifiable) parameters accepted by this synth
         """
-        return self.instr.dynamicParamNames(includeRealNames=True)
+        return self.instr.dynamicParamNames(aliases=aliases, aliased=aliased)
 
-    def paramValue(self, param: str, default=None) -> float | None:
-        raise NotImplementedError
-
-    def _pfieldNames(self) -> set[str]:
-        return self.instr.pfieldNames()
+    def pfieldNames(self, aliases=True, aliased=False) -> set[str]:
+        return self.instr.pfieldNames(aliases=aliases, aliased=aliased)
 
     def _sliceStart(self) -> int:
         return self.controlsSlot * self.session.dynamicArgsPerInstr
@@ -360,74 +435,6 @@ class Synth(AbstrSynth):
                            f"Possible parameters: {self.dynamicParams()}")
         self.engine.setp(self.p1, idx, value, delay=delay)
 
-    def ui(self, **specs: dict[str, tuple[float, float]]) -> None:
-        """
-        Modify dynamic (named) arguments through an interactive user-interface
-
-        If run inside a jupyter notebook, this method will create embedded widgets
-        to control the values of the dynamic pfields of an event. Dynamic pfields
-        are those assigned to a k-variable or declared as ``|karg|`` (see below)
-
-        Args:
-            specs: a dict mapping named arg to a tuple (minvalue, maxvalue)
-
-        Example
-        ~~~~~~~
-
-        .. code::
-
-            # Inside jupyter
-            from csoundengine import *
-            s = Engine().session()
-            s.defInstr('vco', r'''
-              |kmidinote, kampdb=-12, kcutoff=3000, kres=0.9|
-              kfreq = mtof:k(kmidinote)
-              asig = vco2:a(ampdb(kampdb), kfreq)
-              asig = moogladder2(asig, kcutoff, kres)
-              asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
-              outs asig, asig
-            ''')
-            synth = s.sched('vco', kmidinote=67)
-            # Specify the ranges for some sliders. All named parameters
-            # are assigned a widget
-            synth.ui(kampdb=(-48, 0), kres=(0, 1))
-
-        .. figure:: assets/synthui.png
-
-        .. seealso::
-
-            - :meth:`Engine.eventui`
-
-        """
-        from . import interact
-        if not self.instr.pfieldIndexToName:
-            logger.info(f"This synth has no named arguments (getInstr='{self.instr.name}')")
-            return
-        pairs = list((idx, name) for idx, name in self.instr.pfieldIndexToName.items()
-                     if name.startswith('k'))
-        if not pairs:
-            logger.error("The instrument has no dynamic (k) arguments")
-            return
-
-        pairs.sort()
-        pargindexes, pargnames = zip(*pairs)
-
-        if self.playStatus() == 'future':
-            pvalues = [self.instr.pfieldIndexToValue[idx]
-                       for idx in pargindexes]
-        else:
-            pvalues = [self.engine.getp(self.p1, idx) for idx in pargindexes]
-        paramspecs = {}
-        for idx, pargname, value in zip(pargindexes, pargnames, pvalues):
-            if pargname in specs:
-                minval, maxval = specs[pargname]
-            else:
-                minval, maxval = interact._guessRange(value, pargname)
-            paramspecs[idx] = interact.ParamSpec(pargname,
-                                                 minvalue=minval,
-                                                 maxvalue=maxval,
-                                                 startvalue=value)
-        return interact.interactPargs(self.engine, self.p1, specs=paramspecs)
 
     def _setTable(self, param: str, value: float, delay=0.) -> None:
         if self.playStatus() == 'stopped':
@@ -447,6 +454,35 @@ class Synth(AbstrSynth):
                                       delay=delay)
         else:
             self.session._setNamedControl(slicenum=self.controlsSlot, slot=slot, value=value)
+
+    def paramValue(self, param: str | int, default=None) -> float | str | None:
+        """
+        Get the value of a parameter
+
+        Args:
+            param: the parameter name or a pfield index
+            default: the default value if the parameter has no defined value
+
+        Returns:
+            the value, or default if the parameter has no value
+        """
+        if isinstance(param, int):
+            paramidx = param - 4
+            return self.args[paramidx] if 0 <= paramidx < len(self.args) else default
+        elif isinstance(param, str):
+            param = self.unaliasParam(param, param)
+            if (paramidx := self.instr.pfieldIndex(param, -1)) >= 0:
+                paramidx0 = paramidx - 4
+                return self.args[paramidx0]
+            elif param in self.instr.controls:
+                if self.playing():
+                    return self.session._getNamedControl(slicenum=self.controlsSlot,
+                                                         paramslot=self.instr.controlIndex(param))
+                else:
+                    value = self.controls.get(param)
+                    return value if value is not None else self.instr.controls.get(param, default)
+        else:
+            raise TypeError(f"Expected an integer index or a parameter name, got {param}")
 
     def _automateTable(self,
                        param: str,
@@ -511,9 +547,6 @@ class Synth(AbstrSynth):
         Returns:
             the eventid of the automation event.
         """
-        params = self.dynamicParams()
-        if param not in params:
-            raise KeyError(f"Unknown parameter {param} for {self}. Possible parameters: {params}")
         now = self.engine.elapsedTime()
         automStart = now + delay + pairs[0]
         automEnd = now + delay + pairs[-2]
@@ -525,17 +558,26 @@ class Synth(AbstrSynth):
             return 0
 
         if automStart > self.start or automEnd < self.end:
-            pairs, delay = internalTools.cropDelayedPairs(pairs=pairs, delay=delay+now, start=automStart, end=automEnd)
+            pairs, delay = internalTools.cropDelayedPairs(pairs=pairs, delay=delay + now, start=automStart, end=automEnd)
             if not pairs:
                 return 0
-            delay = delay - now
-
+            delay -= now
+        
         if pairs[0] > 0:
             pairs, delay = internalTools.consolidateDelay(pairs, delay)
 
-        if (controlnames := self._controlNames()) and param in controlnames:
+        if internalTools.isPfield(param):
+            return self._automatePfield(param=param, pairs=pairs, mode=mode, delay=delay, 
+                                        overtake=overtake)
+        
+        param = self.unaliasParam(param, param)
+        params = self.dynamicParams(aliases=False)
+        if param not in params:
+            raise KeyError(f"Unknown parameter '{param}' for {self}. Possible parameters: {params}")
+        
+        if (controlnames := self.controlNames(aliases=False)) and param in controlnames:
             return self._automateTable(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
-        elif param.startswith('p') or ((pargs := self._pfieldNames()) and param in pargs):
+        elif (pargs := self.pfieldNames(aliases=False)) and param in pargs:
             return self._automatePfield(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
         else:
             raise KeyError(f"Unknown parameter '{param}', supported parameters: {self.dynamicParams()}")
@@ -548,12 +590,10 @@ class Synth(AbstrSynth):
         if isinstance(param, str):
             pidx = self.instr.pfieldIndex(param)
             if not pidx:
-                raise KeyError(f"pfield '{param}' not known. "
-                               f"Known pfields: {self.instr.pfieldIndexToName}")
+                raise KeyError(f"pfield '{param}' not known. Known pfields: {self.instr.pfieldIndexToName}")
         else:
             pidx = param
-        synthid = self.engine.automatep(self.p1, pidx=pidx, pairs=pairs,
-                                        mode=mode, delay=delay, overtake=overtake)
+        synthid = self.engine.automatep(self.p1, pidx=pidx, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
         return synthid
 
     def stop(self, delay=0.) -> None:
@@ -562,26 +602,30 @@ class Synth(AbstrSynth):
         self.session.unsched(self.p1, delay=delay)
 
 
-def _synthsCreateHtmlTable(synths: list[Synth]) -> str:
+def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int = None) -> str:
     synth0 = synths[0]
     instr0 = synth0.instr
-    if any(synth.instr != instr0 for synth in synths):
+    if any(synth.instr.name != instr0.name for synth in synths):
         # multiple instrs per group, not allowed here
-        raise ValueError("Only synths of the same getInstr allowed here")
+        raise ValueError("Only synths of the same instr allowed here")
+
     colnames = ["p1", "start", "dur"]
-    maxrows = config['synthgroup_repr_max_rows']
+    if maxrows is None:
+        maxrows = config['synthgroup_repr_max_rows']
     if maxrows and len(synths) > maxrows:
         limitSynths = True
         synths = synths[:maxrows]
     else:
         limitSynths = False
+
     rows: list[list[str]] = [[] for _ in synths]
     now = synth0.engine.elapsedTime()
     for row, synth in zip(rows, synths):
         row.append(f'{synth.p1} <b>{_synthStatusIcon[synth.playStatus()]}</b>')
         row.append("%.3f" % (synth.start - now))
         row.append("%.3f" % synth.dur)
-    if keys := synth0._controlNames():
+
+    if keys := synth0.controlNames():
         colnames.extend(keys)
         for row, synth in zip(rows, synths):
             if synth.playStatus() != 'stopped':
@@ -606,14 +650,15 @@ def _synthsCreateHtmlTable(synths: list[Synth]) -> str:
             else:
                 colnames.append(str(i+4))
         for row, synth in zip(rows, synths):
-            row.extend("%.5g"%parg if not isinstance(parg, str) else parg
+            row.extend(f"{parg:.5g}" if not isinstance(parg, str) else parg
                        for parg in synth.args[:maxi])
             if len(synth.args) > maxi:
                 row.append("...")
 
     if limitSynths:
         rows.append(["..."])
-    return emlib.misc.html_table(rows, headers=colnames)
+
+    return _misc.html_table(rows, headers=colnames)
 
 
 class SynthGroup(AbstrSynth):
@@ -680,28 +725,45 @@ class SynthGroup(AbstrSynth):
 
     def _automateTable(self, param: str, pairs, mode="linear", delay=0.,
                        overtake=False) -> None:
+        count = 0
         for synth in self.synths:
             if isinstance(synth, Synth):
-                if synth._table and param in synth._controlNames():
+                controls = synth.dynamicParams()
+                if controls and param in controls:
                     synth._automateTable(param, pairs, mode=mode, delay=delay,
                                          overtake=overtake)
+                    count += 1
             elif isinstance(synth, SynthGroup):
-                synth._automateTable(param=param, pairs=pairs, mode=mode, delay=delay,
-                                     overtake=overtake)
+                controls = synth.dynamicParams()
+                if controls and param in controls:
+                    synth._automateTable(param=param, pairs=pairs, mode=mode, delay=delay,
+                                         overtake=overtake)
+                    count += 1
+        if count == 0:
+            raise KeyError(f"Parameter '{param}' not known. "
+                           f"Possible parameters: {self.dynamicParams()}")
 
     @cache
-    def dynamicParams(self) -> set[str]:
+    def dynamicParams(self, aliases=True, aliased=False) -> set[str]:
         out: set[str] = set()
         for synth in self.synths:
-            dynamicParams = synth.dynamicParams()
+            dynamicParams = synth.dynamicParams(aliases=aliases, aliased=aliased)
             out.update(dynamicParams)
         return out
 
     @cache
-    def _pfieldNames(self) -> set[str]:
+    def aliases(self) -> dict[str, str]:
+        out = {}
+        for synth in self.synths:
+            if synth.instr.aliases:
+                out.update(synth.instr.aliases)
+        return out
+
+    @cache
+    def pfieldNames(self, aliases=True, aliased=False) -> set[str]:
         out: set[str] = set()
         for synth in self.synths:
-            namedPargs = synth._pfieldNames()
+            namedPargs = synth.pfieldNames(aliases=aliases, aliased=aliased)
             if namedPargs:
                 out.update(namedPargs)
         return out
@@ -779,37 +841,44 @@ class SynthGroup(AbstrSynth):
         return eventids
 
     def _htmlTable(self) -> str:
-        subgroups = iterlib.classify(self.synths, lambda synth: synth.instr.name)
+        subgroups = _iterlib.classify(self.synths, lambda synth: synth.instr.name)
         lines = []
         instrcol = jupytertools.defaultPalette["name.color"]
         for instrname, synths in subgroups.items():
-            lines.append(f'<p>getInstr: <strong style="color:{instrcol}">'
+            lines.append(f'<p><small>Instr: <strong style="color:{instrcol}">'
                          f'{instrname}'
-                         f'</strong> - <b>{len(synths)}</b> synths</p>')
+                         f'</strong> - <b>{len(synths)}</b> synths</small></p>')
             htmltable = _synthsCreateHtmlTable(synths)
             lines.append(htmltable)
-        return '\n'.join(lines)
+        out = '\n'.join(lines)
+        return out
 
     def _repr_html_(self) -> str:
-        if config['jupyter_synth_repr_stopbutton'] and jupytertools.inside_jupyter():
+        assert jupytertools.inside_jupyter()
+        if config['jupyter_synth_repr_stopbutton']:
             jupytertools.displayButton("Stop", self.stop)
+        span = jupytertools.htmlSpan
+        bold = lambda txt: span(txt, bold=True)
         now = self.synths[0].engine.elapsedTime()
         start = min(max(0., s.start - now) for s in self.synths)
         end = max(s.dur + s.start - now for s in self.synths)
         if any(s.dur < 0 for s in self.synths):
             end = float('inf')
         dur = end - start
-        lines = [f'<small>SynthGroup - start: {start:.3f}, dur: {dur:.3f}, synths: {len(self.synths)}</small>']
+        header = f'{bold("SynthGroup")}(synths={span(len(self.synths), tag="code")})'
+        lines = [f'<small>{header}</small>']
+        # lines = [f'{bold("SynthGroup")}(synths={span(len(self.synths), tag="code")}']
+        # lines = [f'SynthGroup - start: {start:.3f}, dur: {dur:.3f}, synths: {len(self.synths)}']
         numrows = config['synthgroup_repr_max_rows']
-        if numrows > 0:
+        if numrows == 0 or len(self.synths) <= numrows:
             lines.append(self._htmlTable())
         else:
-            subgroups = iterlib.classify(self.synths, lambda synth: synth.getInstr.name)
+            subgroups = _iterlib.classify(self.synths, lambda synth: synth.getInstr.name)
             instrline = []
             instrcol = jupytertools.defaultPalette["name.color"]
             for instrname, synths in subgroups.items():
                 s = f'<strong style="color:{instrcol}">{instrname}</strong> - {len(synths)} synths'
-                namedparams = synths[0]._pfieldNames()
+                namedparams = synths[0].pfieldNames()
                 kparams = [p for p in namedparams if p[0] == 'k']
                 if kparams:
                     s += ' (' + ', '.join(kparams) + ')'
@@ -836,12 +905,31 @@ class SynthGroup(AbstrSynth):
     def _setTable(self, param: str, value: float, delay=0) -> None:
         count = 0
         for synth in self.synths:
-            if param in synth.dynamicParams():
+            if param in synth.dynamicParams(aliases=True, aliased=True):
                 synth._setTable(param=param, value=value, delay=delay)
                 count += 1
         if count == 0:
+            params = list(self.dynamicParams(aliases=False))
+            if aliases := self.aliases():
+                params.extend(f'{alias}>{orig}' for alias, orig in aliases.items())
             raise KeyError(f"Parameter '{param}' unknown. "
-                           f"Possible parameters: {self.dynamicParams()}")
+                           f"Possible parameters: {params}")
+
+    def paramValue(self, param: str, default=None) -> float | None:
+        """
+        Returns the parameter value for the given parameter
+
+        Within a group the first synth which has the given parameter
+        will be used to determine the parameter value
+        """
+        if param not in self.paramNames():
+            raise KeyError(f"Parameter '{param}' not known. Possible parameters: "
+                           f"{self.paramNames()}")
+        for synth in self.synths:
+            value = synth.paramValue(param)
+            if value is not None:
+                return value
+        return default
             
     def _setp(self, param: str, value: float, delay=0.) -> None:
         count = 0
@@ -853,13 +941,13 @@ class SynthGroup(AbstrSynth):
             raise KeyError(f"Parameter {param} unknown. "
                            f"Possible parameters: {self.dynamicParams()}")
 
-    def _controlNames(self) -> set[str]:
+    def controlNames(self, aliases=True, aliased=False) -> set[str]:
         """
         Returns a set of available table named parameters for this group
         """
         allparams = set()
         for synth in self.synths:
-            params = synth._controlNames()
+            params = synth.controlNames(aliases=aliases, aliased=aliased)
             if params:
                 allparams.update(params)
         return allparams

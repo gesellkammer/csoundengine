@@ -74,7 +74,7 @@ safeColors = {
 }
 
 
-def htmlSpan(text: str, color='', fontsize='', italic=False, bold=False) -> str:
+def htmlSpan(text, color='', fontsize='', italic=False, bold=False, tag='span') -> str:
     """
     Create a html span with the given attributes
 
@@ -86,11 +86,13 @@ def htmlSpan(text: str, color='', fontsize='', italic=False, bold=False) -> str:
         fontsize: a valid size, such as '12px'.
         italic: if True, use italic text
         bold: if True, use bold text
+        tag: the tag to use (span by default, can be code, for example)
 
     Returns:
         the resulting html
 
     """
+    text = str(text)
     if color.startswith(':'):
         color = safeColors[color[1:]]
     styleitems = {}
@@ -106,4 +108,4 @@ def htmlSpan(text: str, color='', fontsize='', italic=False, bold=False) -> str:
         text = f'<i>{text}</i>'
     elif bold:
         text = f'<b>{text}</b>'
-    return f'<span style="{stylestr}">{text}</span>'
+    return f'<{tag} style="{stylestr}">{text}</{tag}>'

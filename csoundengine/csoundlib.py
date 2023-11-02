@@ -24,7 +24,8 @@ import io as _io
 from pathlib import Path as _Path
 import tempfile as _tempfile
 import cachetools as _cachetools
-from dataclasses import dataclass as _dataclass
+import dataclasses
+from ._common import *
 from . import jacktools
 from . import linuxaudio
 from . import state as _state
@@ -55,8 +56,6 @@ except Exception as e:
         raise e
 
 logger = _logging.getLogger("csoundengine")
-_EMPTYDICT = {}
-_EMPTYLIST = []
 
 
 @_cachetools.cached(cache=_cachetools.TTLCache(1, 10))
@@ -161,7 +160,7 @@ def compressionQualityToBitrate(quality: float, format='ogg') -> int:
         raise ValueError(f"Format {format} not supported")
 
 
-@_dataclass(unsafe_hash=True)
+@dataclasses.dataclass(unsafe_hash=True)
 class AudioBackend:
     """
     Holds information about a csound audio backend
@@ -250,7 +249,6 @@ class AudioBackend:
         """
         return (self.defaultBufferSize, self.defaultNumBuffers)
 
-
     def audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
         """
         Query csound for audio devices for this backend
@@ -272,11 +270,11 @@ class AudioBackend:
                                numchannels=d['max_nchnls'])
                    for i, d in enumerate(csoutdevs)]
         indevs = [AudioDevice(id=d['device_id'],
-                               name=d['device_name'],
-                               kind='input',
-                               index=i,
-                               numchannels=d['max_nchnls'])
-                   for i, d in enumerate(csindevs)]
+                              name=d['device_name'],
+                              kind='input',
+                              index=i,
+                              numchannels=d['max_nchnls'])
+                  for i, d in enumerate(csindevs)]
         cs.stop()
         return indevs, outdevs
 
@@ -828,7 +826,7 @@ def joinCsd(orc: str, sco="", options: list[str] | None = None) -> str:
     return csd
 
 
-@_dataclass
+@dataclasses.dataclass
 class CsoundProc:
     """
     A CsoundProc wraps a running csound subprocess
@@ -884,7 +882,7 @@ endin
                       nchnls=nchnls, csdstr=csd)
 
 
-@_dataclass
+@dataclasses.dataclass
 class ScoreLine:
     """
     An event line in the score (an instrument, a table declaration, etc.)
@@ -903,7 +901,7 @@ class ScoreLine:
     args: list[float | str]
 
 
-@_dataclass
+@dataclasses.dataclass
 class TableDataFile:
     """
     A table holding either the data or a file to the data
@@ -1274,7 +1272,8 @@ def saveMatrixAsGen23(outfile: str,
             f.write(rowstr)
             f.write("\n")
 
-@_dataclass
+
+@dataclasses.dataclass
 class MidiDevice:
     """
     A MidiDevice holds information about a midi device for a given backend
@@ -1289,7 +1288,7 @@ class MidiDevice:
     kind: str = 'input'
 
 
-@_dataclass
+@dataclasses.dataclass
 class AudioDevice:
     """
     An AudioDevice holds information about a an audio device for a given backend
@@ -1682,7 +1681,7 @@ _builtinInstrs = {
 }
 
 
-@_dataclass
+@dataclasses.dataclass
 class _InstrDef:
     p1: int | str
     body: str
@@ -1733,6 +1732,7 @@ class Csd:
                  nodisplay=False,
                  carry=False,
                  nchnls_i: int | None = None,
+                 numthreads=0,
                  reservedTables=0):
         self.score: list[Sequence[int | float | str]] = []
         """The score, a list of events of the form (p1, p2, p3, ...)"""
@@ -1767,6 +1767,9 @@ class Csd:
         self.enableCarry = carry
         """Enable carry in the score"""
 
+        self.numthreads = numthreads
+        """Number of threads used for rendering"""
+
         self.datafiles: dict[int, TableDataFile] = {}
         """Maps assigned table numbers to their metadata"""
 
@@ -1777,7 +1780,7 @@ class Csd:
         self._str2index: dict[str, int] = {}
 
         if options:
-            self.setOptions(*options)
+            self.addOptions(*options)
 
         self._outfileFormat = ''
         self._outfileEncoding = ''
@@ -1811,7 +1814,8 @@ class Csd:
                   options=self.options.copy(),
                   nodisplay=self.nodisplay,
                   carry=self.enableCarry,
-                  nchnls_i=self.nchnls_i)
+                  nchnls_i=self.nchnls_i,
+                  numthreads=self.numthreads)
 
         out.instrs = self.instrs.copy()
         out.score = self.score.copy()
@@ -2102,7 +2106,7 @@ class Csd:
 
     def setComment(self, comment: str) -> None:
         """ Add a comment to the renderer output soundfile"""
-        self.setOptions(f'-+id_comment="{comment}"')
+        self.addOptions(f'-+id_comment="{comment}"')
 
     def setOutfileFormat(self, fmt: str) -> None:
         """
@@ -2213,7 +2217,7 @@ class Csd:
             return
         self.globalcodes.append(code)
 
-    def setOptions(self, *options: str) -> None:
+    def addOptions(self, *options: str) -> None:
         """
         Adds options to this csd
 
@@ -2228,7 +2232,7 @@ class Csd:
         self._writeCsd(stream)
         return stream.getvalue()
 
-    def playTable(self, tabnum:int, start:float, dur:float=-1,
+    def playTable(self, tabnum: int, start: float, dur: float = -1,
                   gain=1., speed=1., chan=1, fade=0.05,
                   skip=0.) -> None:
         """
@@ -2304,6 +2308,9 @@ class Csd:
         options = self.options.copy()
         if self.nodisplay:
             options.append("-m0")
+
+        if self.numthreads > 1:
+            options.append(f"-j {self.numthreads}")
 
         if self._outfileFormat:
             options.extend(csoundOptionsForOutputFormat(self._outfileFormat, self._outfileEncoding))
@@ -2639,7 +2646,7 @@ def recInstr(body:str, events:list, init="", outfile:str=None,
     fmtoption = {16: '', 24: '-3', 32: '-f', 'float': '-f'}.get(samplefmt)
     if fmtoption is None:
         raise ValueError("samplefmt should be one of 16, 24, 32, or 'float'")
-    csd.setOptions(fmtoption)
+    csd.addOptions(fmtoption)
 
     proc = csd.run(output=outfile)
     return outfile, proc
@@ -2812,21 +2819,42 @@ def _getNchnlsPortaudio(indevice='', outdevice=''
     return max_input_channels, max_output_channels
 
 
+def dumpAudioInfo(backend=''):
+    if not backend:
+        dumpAudioBackends()
+        print()
+    dumpAudioDevices(backend=backend)
+
+
 def dumpAudioDevices(backend=''):
     """
     Print a list of audio devices for the given backend.
 
     If backend is not given, the default backend (of all available backends
     for the current platform) is chosen
-    """
-    indevs, outdevs = getAudioDevices(backend=backend)
-    print("Input Devices:")
-    for dev in indevs:
-        print("  ", dev)
-    print("Output Devices:")
 
-    for dev in outdevs:
-        print("  ", dev)
+    id: str
+    name: str
+    kind: str
+    index: int = -1
+    numchannels: int | None = 0
+    """
+
+    backendDef = getAudioBackend(backend)
+    if backendDef is None:
+        raise ValueError(f"Backend '{backend}' not supported")
+
+    from emlib.misc import print_table
+
+    print(f"Backend: {backendDef.name}")
+    indevs, outdevs = getAudioDevices(backend=backend)
+    fields = [field.name for field in dataclasses.fields(AudioDevice)]
+    inputrows = [dataclasses.astuple(dev) for dev in indevs]
+    outputrows = [dataclasses.astuple(dev) for dev in outdevs]
+    print("\nInput Devices:")
+    print_table(inputrows, headers=fields, showindex=False)
+    print("\nOutput Devices:")
+    print_table(outputrows, headers=fields, showindex=False)
 
 
 def instrNames(instrdef: str) -> list[int | str]:
@@ -2867,7 +2895,7 @@ def instrNames(instrdef: str) -> list[int | str]:
             for name in names]
 
 
-@_dataclass
+@dataclasses.dataclass
 class ParsedBlock:
     """
     A ParsedBlock represents a block (an instr, an opcode, etc) in an orchestra
@@ -2897,7 +2925,7 @@ class ParsedBlock:
             self.endLine = self.startLine
 
 
-@_dataclass
+@dataclasses.dataclass
 class _OrcBlock:
     name: str
     startLine: int
@@ -3044,7 +3072,7 @@ def _hashdict(d: dict) -> int:
     return hash((frozenset(d.keys()), frozenset(d.values())))
 
 
-@_dataclass
+@dataclasses.dataclass
 class ParsedInstrBody:
     """
     The result of parsing the body of an instrument
@@ -3055,13 +3083,13 @@ class ParsedInstrBody:
     pfieldIndexToName: dict[int, str]
     """Maps pfield index to assigned name"""
 
-    pfieldLines: list[str]
+    pfieldLines: Sequence[str]
     """List of lines where pfields are defined"""
 
     body: str
     """The body parsed"""
 
-    lines: list[str]
+    lines: Sequence[str]
     """The body, split into lines"""
 
     pfieldIndexToValue: dict[int, float] | None = None
@@ -3110,7 +3138,7 @@ class ParsedInstrBody:
 
         """
         if not self.pfieldNameToIndex:
-            return _EMPTYDICT
+            return EMPTYDICT
 
         out1 = {(self.pfieldIndexToName.get(idx) or f"p{idx}"): value
                 for idx, value in self.pfieldIndexToValue.items()}
@@ -3264,11 +3292,11 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                         pfieldsNameToIndex={'ibus': 4, 'kfreq': 5})
     """
     if not body.strip():
-        return ParsedInstrBody(pfieldIndexToValue=_EMPTYDICT,
-                               pfieldLines=_EMPTYLIST,
+        return ParsedInstrBody(pfieldIndexToValue=EMPTYDICT,
+                               pfieldLines=(),
                                body='',
-                               lines=_EMPTYLIST,
-                               pfieldIndexToName=_EMPTYDICT)
+                               lines=(),
+                               pfieldIndexToName=EMPTYDICT)
 
     pfieldLines = []
     bodyLines = []
@@ -3279,59 +3307,64 @@ def instrParseBody(body: str) -> ParsedInstrBody:
     outchannels: set[int] = set()
     lines = body.splitlines()
     for i, line in enumerate(lines):
-        pfieldsInLine = _re.findall(r"\bp\d+", line)
-        if pfieldsInLine:
-            for p in pfieldsInLine:
-                pfieldsUsed.add(int(p[1:]))
-        if _re.match(r"^\s*(;|\/\/)", line):
-            # A comment
+        if insideComment:
             bodyLines.append(line)
-        elif _re.match(r"^\s*\/\*", line):
-            insideComment = True
+            if _re.match(r"\*\/", line):
+                insideComment = False
+            continue
+        elif _re.match(r"^\s*(;|\/\/)", line):
+            # A line comment
             bodyLines.append(line)
-        elif _re.match(r"\*\/", line) and insideComment:
-            insideComment = False
-            bodyLines.append(line)
-        elif insideComment:
-            bodyLines.append(line)
-        elif m := _re.search(r"\bpassign\s+(\d+)", line):
-            if "[" in line:
-                # array form, iarr[] passign 4, 6
-                bodyLines.append(line)
-            else:
-                pfieldLines.append(line)
-                pstart = int(m.group(1))
-                argsstr, rest = line.split("passign")
-                args = argsstr.split(",")
-                for j, name in enumerate(args, start=pstart):
-                    pfieldsUsed.add(j)
-                    pfieldIndexToName[j] = name.strip()
-        elif _re.search(r"^\s*\bpset\b", line):
-            s = line.strip()[4:]
-            psetValues = {j: float(v) for j, v in enumerate(s.split(","), start=1)
-                          if v.strip()[0].isnumeric()}
-            pfieldIndexToValue.update(psetValues)
-        elif m := _re.search(r"^\s*\b(\w+)\s*(=|init\s)\s*p(\d+)", line):
-            # 'ival = p4' / kval = p4 or 'ival init p4'
-            pname = m.group(1)
-            pfieldIndex = int(m.group(3))
-            pfieldLines.append(line)
-            pfieldIndexToName[pfieldIndex] = pname.strip()
-            pfieldsUsed.add(pfieldIndex)
+            continue
         else:
-            if _re.search(r"\bouts\s+", line):
-                outchannels.update((1, 2))
-            elif _re.search(r"\bout\b", line):
-                outchannels.add(1)
-            elif _re.search(r"\boutch\b", line):
-                args = line.strip()[5:].split(",")
-                channels = args[::2]
-                for chans in channels:
-                    chan = emlib.misc.asnumber(chans)
-                    if chan is not None and int(chan) == chan:
-                        outchannels.add(chan)
+            # Not inside comment
+            if pfieldsInLine := _re.findall(r"\bp\d+", line):
+                for p in pfieldsInLine:
+                    pfieldsUsed.add(int(p[1:]))
 
-            bodyLines.append(line)
+            if _re.match(r"^\s*\/\*", line):
+                insideComment = True
+                bodyLines.append(line)
+            elif _re.match(r"\*\/", line) and insideComment:
+                insideComment = False
+                bodyLines.append(line)
+            elif m := _re.search(r"\bpassign\s+(\d+)", line):
+                if "[" in line:
+                    # array form, iarr[] passign 4, 6
+                    bodyLines.append(line)
+                else:
+                    pfieldLines.append(line)
+                    pstart = int(m.group(1))
+                    argsstr, rest = line.split("passign")
+                    args = argsstr.split(",")
+                    for j, name in enumerate(args, start=pstart):
+                        pfieldsUsed.add(j)
+                        pfieldIndexToName[j] = name.strip()
+            elif _re.search(r"^\s*\bpset\b", line):
+                s = line.strip()[4:]
+                psetValues = {j: float(v) for j, v in enumerate(s.split(","), start=1)
+                              if v.strip()[0].isnumeric()}
+                pfieldIndexToValue.update(psetValues)
+            elif m := _re.search(r"^\s*\b(\w+)\s*(=|init\s)\s*p(\d+)", line):
+                # 'ival = p4' / kval = p4 or 'ival init p4'
+                pname = m.group(1)
+                pfieldIndex = int(m.group(3))
+                pfieldLines.append(line)
+                pfieldIndexToName[pfieldIndex] = pname.strip()
+                pfieldsUsed.add(pfieldIndex)
+            else:
+                if _re.search(r"\bouts\s+", line):
+                    outchannels.update((1, 2))
+                elif _re.search(r"\bout\b", line):
+                    outchannels.add(1)
+                elif _re.search(r"\boutch\b", line):
+                    args = line.strip()[5:].split(",")
+                    channels = args[::2]
+                    for chans in channels:
+                        chan = emlib.misc.asnumber(chans)
+                        if chan is not None and int(chan) == chan:
+                            outchannels.add(chan)
+                bodyLines.append(line)
 
     for pidx in range(1, 4):
         pfieldIndexToValue.pop(pidx, None)

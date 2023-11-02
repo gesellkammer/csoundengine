@@ -17,9 +17,9 @@ class Bus:
         :meth:`~csoundengine.session.Session.assignBus`.
 
     Args:
-        engine: the engine where this bus was created
         kind: the bus kind, one of 'audio', 'control'
         token: the token as returned via :meth:`csoundengine.engine.Engine.assignBus`
+        renderer: the renderer to which this Bus belongs
         bound: if True, the Bus object uses itself a reference. This means that the
             bus will stay alive at least as long as this object is kept alive. The
             bus might still survive the object if it is still being used by any
@@ -32,6 +32,7 @@ class Bus:
                  renderer: AbstractRenderer,
                  bound=True):
         self.renderer = renderer
+        """The parent renderer"""
 
         self.token = token
         """Token as returned via :meth:`csoundengine.engine.Engine.assignBus`"""

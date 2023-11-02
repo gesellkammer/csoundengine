@@ -4,9 +4,7 @@ from abc import abstractmethod
 import numpy as np
 from typing import Sequence
 from . import jupytertools
-
-
-_EMPTYSET = frozenset()
+from ._common import EMPTYSET, EMPTYDICT
 
 
 class BaseEvent:
@@ -14,10 +12,8 @@ class BaseEvent:
     Base class for all scheduled events (both offline and realtime) / groups
 
     Args:
-        p1: the event id
         start: the start time relative to the start of the engine
         dur: the duration of the synth
-        args: the pfields of this event, beginning with p4
     """
 
     __slots__ = ('start', 'dur')
@@ -30,6 +26,10 @@ class BaseEvent:
         """Duration of the event (p3). Can be negative to indicate an endless/tied event"""
 
     def _repr_html_(self) -> str:
+        raise NotImplementedError
+
+    @abstractmethod
+    def paramValue(self, param: str, default=None) -> float | None:
         raise NotImplementedError
 
     @abstractmethod
@@ -96,14 +96,15 @@ class BaseEvent:
                 self.set(param=k, value=v, delay=delay)
 
         if param:
-            tabkeys = self._controlNames()
+            param = self.unaliasParam(param, param)
+            tabkeys = self.controlNames(aliases=False)
             if param in tabkeys:
                 self._setTable(param=param, value=value, delay=delay)
-            elif param.startswith('p') or param in self._pfieldNames():
+            elif param.startswith('p') or param in self.pfieldNames(aliases=False):
                 self._setp(param=param, value=value, delay=delay)
             else:
                 raise KeyError(f"Unknown parameter: '{param}'. "
-                               f"Possible parameters for this event: {self.dynamicParams()}")
+                               f"Possible parameters for this event: {self.dynamicParams(aliased=True)}")
 
     def _automatePfield(self,
                         param: int | str,
@@ -189,18 +190,16 @@ class BaseEvent:
         Returns:
             the eventid of the automation event
         """
-        params = self.dynamicParams()
-        if param not in params:
-            raise KeyError(f"Parameter {param} not known. Dynamic parameters: {params}")
+        param = self.unaliasParam(param, param)
 
-        if (tabargs := self._controlNames()) and param in tabargs:
+        if (tabargs := self.controlNames(aliases=False)) and param in tabargs:
             return self._automateTable(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
-        elif param.startswith('p') or ((pargs := self._pfieldNames()) and param in pargs):
+        elif param.startswith('p') or ((pargs := self.pfieldNames(aliases=False)) and param in pargs):
             return self._automatePfield(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
         else:
             raise KeyError(f"Unknown parameter '{param}', supported parameters: {self.dynamicParams()}")
 
-    def dynamicParams(self) -> set[str]:
+    def dynamicParams(self, aliases=True, aliased=False) -> set[str]:
         """
         The set of all dynamic parameters accepted by this event
 
@@ -208,19 +207,57 @@ class BaseEvent:
             a set of the dynamic (modifiable) parameters accepted by this event
         """
         params = self.paramNames()
-        return set(p for p in params if p.startswith('k'))
+        dynparams = set(p for p in params if p.startswith('k'))
+        if aliases and (_aliases := self.aliases()):
+            dynparams |= _aliases.keys()
+            if not aliased:
+                dynparams.difference_update(_aliases.values())
+        return dynparams
 
-    def _pfieldNames(self) -> frozenset[str]:
+    def aliases(self) -> dict[str, str]:
+        return EMPTYDICT
+
+    def unaliasParam(self, param: str, default: str = None) -> str:
+        """
+        Returns the alias of param or default if no alias was found
+
+        Args:
+            param: the parameter to unalias
+            default: the value to return if `param` has no alias
+
+        Returns:
+            the original name or `default` if no alias was found
+        """
+        orig = self.aliases().get(param)
+        return orig if orig is not None else default
+
+    def pfieldNames(self, aliases=True, aliased=True) -> frozenset[str]:
         """
         Returns a set of all named pfields
+
+        Args:
+            aliases: if True, included aliases for pfields (if applicable)
+            aliased: if True, include the aliased names. Otherwise if aliases
+                are defined and included (aliases=True), the original names
+                will be excluded
+
+        Returns:
+            a set with the all pfield names.
+
         """
         raise NotImplementedError
 
-    def _controlNames(self) -> frozenset[str]:
+    def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
         """
-        The names of all controls for this event
+        The names of all controls
 
-        Returns an empty set if this event does not have controls
+        Args:
+            aliases: if True, included control names aliases (if applicable)
+            aliased: if True, include the aliased names
+
+        Returns:
+            the names of all controls. Returns an empty set if this event
+            does not have any controls
         """
         raise NotImplementedError
 
@@ -233,15 +270,15 @@ class BaseEvent:
             :meth:`~BaseEvent.dynamicParams`, :meth:`~BaseEvent.set`,
             :meth:`~BaseEvent.automate`
         """
-        pargs = self._pfieldNames()
-        tableargs = self._controlNames()
-        if not pargs and not tableargs:
-            return _EMPTYSET
+        pargs = self.pfieldNames()
+        tableargs = self.controlNames()
+        if pargs and tableargs:
+            return pargs | tableargs
         elif pargs:
             return pargs
         elif tableargs:
             return tableargs
-        return pargs | tableargs
+        return EMPTYSET
 
     def show(self) -> None:
         """

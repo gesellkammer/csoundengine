@@ -95,6 +95,12 @@ _('windows_backend', 'pa_cb',
 _('A4', 442,
   range=(410, 460),
   doc="Frequency for A4")
+_('numthreads', 1,
+  doc='Number of threads to use for realtime performance. This is an experimental feature '
+      'if csound and might not necessarily result in better performance')
+_('rec_numthreads', 0,
+  doc='Number of threads to use when rendering online. If not given, the value set '
+      'in `numthreads` is used')
 _('check_pargs', False,
   doc='Check number of pargs passed to instr')
 _('max_pfields', 1900,
@@ -102,6 +108,8 @@ _('max_pfields', 1900,
 _('offline_score_table_size_limit', 1900,
   doc='size limit when writing tables as f score statements via gen2. If a table '
       'is bigger than this size, it is saved as a datafile as gen23 or wav')
+_('dynamic_pfields', True,
+  doc='If True, use pfields for dynamic parameters (named args starting with k)')
 _('fail_if_unmatched_pargs', False,
   doc='Fail if the # of passed pargs doesnt match the # of pargs'),
 _('set_sigint_handler', True,
@@ -134,6 +142,8 @@ _('html_args_fontsize', '12px',
   doc="Font size used for args when outputing html (in jupyter)")
 _('synth_repr_max_args', 12,
   doc="Max. number of pfields shown when in a synth's repr")
+_('synth_repr_show_pfield_index', False,
+  doc='Show the pfield index for named pfields in a Synths repr')
 _('synthgroup_repr_max_rows', 4,
   doc='Max. number of rows for a SynthGroup repr. Use 0 to disable')
 _('jupyter_synth_repr_stopbutton', True,
@@ -168,13 +178,14 @@ _('session_priorities', 10,
   range=(1, 99),
   doc='Number of priorities within a session')
 
-_('dynamic_args_num_slots', 1000,
+_('dynamic_args_num_slots', 10000,
   range=(10, 9999999),
   doc='Number of slots for dynamic parameters. args slices. Dynamic args are implemented as a big '
       'array divided in slices. This parameter sets the max. number of '
       'such slices, and thus the max number of simultaneous events with named '
       'args which can coexist. The size of the allocated table will be '
-      'size = num_dynamic_args_slices * max_instr_dynamic_args.')
+      'size = num_dynamic_args_slices * max_instr_dynamic_args. For 10000 slots, the'
+      'amount of memory is ~0.8Mb')
 
 # Plotting
 _('spectrogram_colormap', 'inferno', choices={'viridis', 'plasma', 'inferno', 'magma', 'cividis'})

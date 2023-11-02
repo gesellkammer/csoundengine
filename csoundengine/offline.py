@@ -79,7 +79,7 @@ if TYPE_CHECKING or "sphinx" in sys.modules:
 
 __all__ = (
     "Renderer",
-    "ScoreEvent",
+    "SchedEvent",
     "EventGroup",
     "RenderJob"
 )
@@ -90,26 +90,40 @@ _EMPTYDICT =  {}
 
 @dataclass
 class ChannelDef:
+    """
+    A csound channel definition
+    """
     name: str
     "The name of the channel"
 
     kind: str
-    "The type, one of k or S"
+    "The type, one of k, S or a"
 
     mode: str
     "The mode, one of r, w, rw"
 
+    def __post_init__(self):
+        assert self.kind in ('k', 'S', 'a')
+        assert self.mode in ('r', 'w', 'rw', 'wr')
 
-class ScoreEvent(BaseEvent):
+
+class SchedEvent(BaseEvent):
     """
-    A ScoreEvent represent a csound event.
+    Represents a scheduled event.
 
-    It is used by the offline renderer to keep track of scheduled events
+    It is used to keep track of scheduled event. Instances of this class are
+    **NOT** created by the user directly, they are generated when scheduling events
 
-    .. note::
-        instances of this class are **NOT** created by the user directly, they
-        are generated when scheduling events
-
+    Args:
+        p1: the p1 of the scheduled event
+        start: start time
+        dur: duration
+        args: pfields starting with p4
+        uniqueId: an integer unique to this event
+        renderer: the renderer which scheduled this event
+        instrname: the instr name of this event (if applies)
+        priority: the priority at which this event was scheduled (if applies)
+        controlsSlot: the slot/token assigned for dynamic controls
     """
 
     __slots__ = ('uniqueId', 'renderer', 'instrname', 'priority',
@@ -133,22 +147,24 @@ class ScoreEvent(BaseEvent):
         self.args = args
         """Args used for this event (p4, p5, ...)"""
 
-        self.uniqueId = uniqueId
+        self.uniqueId: int = uniqueId
         """A unique id of this event, as integer"""
 
         self.renderer: Renderer = renderer
         """The Renderer to which this event belongs (can be None)"""
 
-        self.instrname = instrname
+        self.instrname: str = instrname
         """The instrument template this ScoreEvent was created from, if applicable"""
 
-        self.priority = priority
+        self.priority: int = priority
         """The priority of this ScoreEvent, if applicable"""
 
-        self.controlsSlot = controlsSlot
+        self.controlsSlot: int = controlsSlot
+        """The slot/token assigned for dynamic controls"""
 
     def __hash__(self) -> int:
-        return hash((self.p1, self.uniqueId, self.instrname, self.priority, hash(tuple(self.args))))
+        return hash(('SchedEvent', self.uniqueId))
+        # return hash((self.p1, self.uniqueId, self.instrname, self.priority, hash(tuple(self.args))))
 
     def __repr__(self):
         parts = [f"p1={self.p1}, start={self.start}, dur={self.dur}, uniqueId={self.uniqueId}"]
@@ -161,12 +177,11 @@ class ScoreEvent(BaseEvent):
         partsstr = ', '.join(parts)
         return f"ScoreEvent({partsstr})"
 
-    def clone(self, **kws) -> ScoreEvent:
-        """Clone this event"""
-        out = copy.copy(self)
-        for kw, value in kws.items():
-            setattr(out, kw, value)
-        return out
+    def clone(self, **kws) -> SchedEvent:
+        event = copy.copy(self)
+        for k, v in kws.items():
+            setattr(event, k, v)
+        return event
 
     def _setTable(self, param: str, value: float, delay=0.) -> None:
         if not self.start <= delay <= self.end:
@@ -226,12 +241,12 @@ class ScoreEvent(BaseEvent):
         except ValueError:
             return None
 
-    def paramNames(self) -> frozenset[str]:
-        return self.instr.paramNames()
+    def paramNames(self, aliases=True, aliased=False) -> frozenset[str]:
+        return self.instr.paramNames(aliases=aliases, aliased=aliased)
 
-    def dynamicParams(self) -> frozenset[str]:
+    def dynamicParams(self, aliases=True, aliased=False) -> frozenset[str]:
         instr = self.instr
-        return instr.dynamicParamNames() if instr else set()
+        return instr.dynamicParamNames(aliases=aliases, ) if instr else set()
 
     def automate(self,
                  param: str,
@@ -250,22 +265,21 @@ class ScoreEvent(BaseEvent):
             raise RuntimeError("This ScoreEvent is not assigned to a Renderer")
         self.renderer.unsched(self, delay=delay)
 
-    def _controlNames(self) -> frozenset[str]:
-        return self.instr.controlNames()
+    def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
+        return self.instr.controlNames(aliases=aliases, aliased=aliased)
 
-    def _pfieldNames(self) -> frozenset[str]:
-        return self.instr.pfieldNames(includeRealNames=True)
+    def pfieldNames(self, aliases=True, aliased=False) -> frozenset[str]:
+        return self.instr.pfieldNames(aliases=aliases, aliased=aliased)
 
 
 class EventGroup(BaseEvent):
     """
-    An EventGroup represents a group of offline events
+    An EventGroup represents a group of events
 
-    These events can be controlled together, similar
-    to a SynthGroup
+    These events can be controlled together, similar to a SynthGroup
     """
 
-    def __init__(self, events: list[ScoreEvent]):
+    def __init__(self, events: list[SchedEvent]):
         if not events:
             raise ValueError("No events given")
 
@@ -285,34 +299,34 @@ class EventGroup(BaseEvent):
     def _setp(self, param: str, value: float, delay=0.) -> None:
         count = 0
         for ev in self.events:
-            if param in ev._pfieldNames():
+            if param in ev.pfieldNames(aliased=True):
                 ev._setp(delay=delay, param=param, value=value)
                 count += 1
         if count == 0:
-            raise KeyError(f"Parameter '{param}' unknown. Possible paramters: {self.dynamicParams()}")
+            raise KeyError(f"Parameter '{param}' unknown. Possible paramters: {self.dynamicParams(aliased=True)}")
 
     def _setTable(self, param: str, value: float, delay=0.) -> None:
         count = 0
         for ev in self.events:
-            if param in ev._controlNames():
+            if param in ev.controlNames(aliases=True, aliased=True):
                 ev._setTable(param=param, value=value, delay=delay)
                 count += 1
         if count == 0:
             raise KeyError(f"Parameter '{param}' unknown. "
-                           f"Possible parameters: {self.dynamicParams()}")
+                           f"Possible parameters: {self.dynamicParams(aliased=True)}")
 
     @cache
-    def paramNames(self) -> frozenset[str]:
+    def paramNames(self, aliases=True, aliased=False) -> frozenset[str]:
         allparams = set()
         for ev in self.events:
-            allparams.update(ev.paramNames())
+            allparams.update(ev.paramNames(aliases=aliases, aliased=aliased))
         return frozenset(allparams)
 
     @cache
-    def dynamicParams(self) -> frozenset[str]:
+    def dynamicParams(self, aliases=True, aliased=False) -> frozenset[str]:
         params = set()
         for ev in self.events:
-            params.update(ev.dynamicParams())
+            params.update(ev.dynamicParams(aliases=aliases, aliased=aliased))
         return frozenset(params)
 
     def __hash__(self):
@@ -327,31 +341,57 @@ class EventGroup(BaseEvent):
                  ) -> None:
         count = 0
         for ev in self.events:
-            if param in ev.dynamicParams():
+            if param in ev.dynamicParams(aliases=True, aliased=True):
                 count += 1
                 ev.automate(param=param, pairs=pairs, mode=mode,
                             delay=delay, overtake=overtake)
         if count == 0:
             raise KeyError(f"Param '{param}' not known by any events in this group. "
-                           f"Possible parameters: {self.dynamicParams()}")
+                           f"Possible parameters: {self.dynamicParams(aliased=True)}")
 
 
 @dataclass
 class RenderJob:
+    """
+    A render job
+    """
     outfile: str
+    """The soundfile rendered / being rendererd"""
+
     samplerate: int
+    """Samplerate of the rendered soundfile"""
+
     encoding: str = ''
+    """Encoding of the rendered soundfile"""
+
     starttime: float = 0.
+    """Start time of the rendered timeline"""
+
     endtime: float = 0.
+    """Endtime of the rendered timeline"""
+
     process: subprocess.Popen | None = None
+    """The csound subprocess used to render the soundfile"""
 
-    def openOutfile(self, wait=True):
-        self.wait()
-        emlib.misc.open_with_app(self.outfile, wait=wait)
+    def openOutfile(self, timeout=None, appwait=True, app=''):
+        """
+        Open outfile in external app
 
-    def wait(self):
+        Args:
+            timeout: if still rendering, timeout after this number of seconds. None
+                means to wait until rendering is finished
+            app: if given, use the given application. Otherwise the default
+                application
+            appwait: if True, wait until the external app exits before returning
+                from this method
+        """
+        self.wait(timeout=timeout)
+        emlib.misc.open_with_app(self.outfile, wait=appwait, app=app)
+
+    def wait(self, timeout: float | None = None):
+        """Wait for the render process to finish"""
         if self.process is not None:
-            self.process.wait()
+            self.process.wait(timeout=timeout)
 
     def _repr_html_(self):
         self.wait()
@@ -449,7 +489,7 @@ class Renderer(AbstractRenderer):
         """Reference frequency"""
 
         # maps eventid -> ScoreEvent.
-        self.scheduledEvents: dict[int, ScoreEvent] = {}
+        self.scheduledEvents: dict[int, SchedEvent] = {}
         """All events scheduled in this Renderer, mapps token to event"""
 
         self.renderedJobs: list[RenderJob] = []
@@ -613,7 +653,6 @@ class Renderer(AbstractRenderer):
 
         """
         assert 1 <= priority <= self._numbuckets
-
         instrnum = self._nameAndPriorityToInstrnum.get((instrname, priority))
         if instrnum is not None:
             return instrnum
@@ -635,8 +674,9 @@ class Renderer(AbstractRenderer):
         self.csd.addInstr(instr=instrnum, body=body, instrComment=instrname)
         return instrnum
 
+    @staticmethod
     @cache
-    def generateInstrBody(self, instr: Instr) -> str:
+    def defaultInstrBody(instr: Instr) -> str:
         body = instr._preprocessedBody
         parts = []
         docstring, body = csoundlib.splitDocstring(body)
@@ -654,6 +694,9 @@ class Renderer(AbstractRenderer):
         parts.append(body)
         out = emlib.textlib.joinPreservingIndentation(parts)
         return textwrap.dedent(out)
+
+    def generateInstrBody(self, instr: Instr) -> str:
+        return Renderer.defaultInstrBody(instr)
 
     def _registerExitCallback(self, callback) -> None:
         """
@@ -713,6 +756,7 @@ class Renderer(AbstractRenderer):
                  doc: str = '',
                  includes: list[str] | None = None,
                  aliases: dict[str, str] = None,
+                 useDynamicPfields: bool = None,
                  **kws) -> Instr:
         """
         Create an :class:`~csoundengine.instr.Instr` and register it with this renderer
@@ -730,6 +774,9 @@ class Renderer(AbstractRenderer):
             doc: documentation describing what this instr does
             includes: list of files to be included in order for this instr to work
             aliases: a dict mapping arg names to real argument names.
+            useDynamicPfields: if True, use pfields to implement dynamic arguments (arguments
+                given as k-variables). Otherwise dynamic args are implemented as named controls,
+                using a big global table
             kws: any keywords are passed on to the Instr constructor.
                 See the documentation of Instr for more information.
 
@@ -769,7 +816,9 @@ class Renderer(AbstractRenderer):
             >>> filt.automate('kcutoff', [3, 1000, 6, 200, 10, 4000])
         """
         instr = Instr(name=name, body=body, args=args, init=init,
-                      includes=includes, aliases=aliases, **kws)
+                      includes=includes, aliases=aliases,
+                      useDynamicPfields=useDynamicPfields,
+                      **kws)
         self.registerInstr(instr)
         return instr
 
@@ -834,9 +883,9 @@ class Renderer(AbstractRenderer):
               delay=0.,
               dur=-1.,
               priority=1,
-              args: list[float] | dict[str, float] = None,
-              **kws
-              ) -> ScoreEvent:
+              args: Sequence[float] | dict[str, float] = None,
+              **kwargs
+              ) -> SchedEvent:
         """
         Schedule an event
 
@@ -847,7 +896,7 @@ class Renderer(AbstractRenderer):
             dur: duration of this event. -1: endless
             args: pfields **beginning with p5**
                 (p1: instrnum, p2: delay, p3: duration, p4: reserved)
-            kws: any named argument passed to the instr
+            kwargs: any named argument passed to the instr
 
         Returns:
             a ScoreEvent, holding the csound event (p1, start, dur, args)
@@ -874,46 +923,51 @@ class Renderer(AbstractRenderer):
             >>> renderer.render('out.wav')
 
         """
-
         instr = self.getInstr(instrname)
         if instr is None:
             raise KeyError(f"Instrument '{instrname}' is not defined. Known instruments: "
                            f"{self._instrdefs.keys()}")
 
-        instrnum = self.commitInstrument(instrname, priority)
-
-        if args and isinstance(args, list):
-            args = {5 + i: arg for i, arg in enumerate(args)}
-
-        args = kws if not args else args | kws
-
-        if args:
-            pkws, controlkws = instr.distributeArgs(args)
-        else:
-            pkws, controlkws = _EMPTYDICT, _EMPTYDICT
+        pfields5, dynargs = instr.parseSchedArgs(args=args, kws=kwargs)
+        # args = internalTools.resolveInstrArgs(instr=instr, p4=dynargsToken, pkws=pkws)
+        event = self.makeEvent(start=float(delay), dur=float(dur), pfields5=pfields5,
+                               instr=instr, priority=priority)
+        self.csd.addEvent(event.p1, start=event.start, dur=event.dur, args=event.args)
+        self.scheduledEvents[event.uniqueId] = event
 
         if instr.hasControls():
-            # itoken = p4, inumitems = p5
-            itoken = self._dynargsAssignToken()
-            controlvalues = instr.overrideControls(d=controlkws)
+            controlvalues = instr.overrideControls(d=dynargs)
             self.csd.addEvent(instr='_initDynamicControls',
-                              start=max(delay - self.ksmps/self.sr, 0.),
-                              dur=0,
-                              args=[itoken, len(controlvalues), *controlvalues])
-        else:
-            itoken = 0
-
-        args = internalTools.instrResolveArgs(instr=instr, p4=itoken, pkws=pkws)
-        p1 = self._getUniqueP1(instrnum)
-        start = float(delay)
-        dur = float(dur)
-        self.csd.addEvent(p1, start=start, dur=dur, args=args)
-        eventid = self._generateEventId()
-        event = ScoreEvent(p1, start=start, dur=dur, args=args, uniqueId=eventid,
-                           renderer=self, priority=priority, instrname=instrname,
-                           controlsSlot=itoken)
-        self.scheduledEvents[eventid] = event
+                              start=max(delay - self.ksmps / self.sr, 0.), dur=0,
+                              args=[event.controlsSlot, len(controlvalues), *controlvalues])
         return event
+
+    def makeEvent(self,
+                  start: float,
+                  dur: float,
+                  pfields5: list[float],
+                  instr: str | Instr,
+                  priority: int = 1,
+                  ) -> SchedEvent:
+        """
+        Create a SchedEvent for this Renderer
+
+        Args:
+            start: the start time
+            dur: the duration
+            pfields5: pfields, starting at p5
+            instr: the name of the instr or the actual Instr instance
+            priority: the priority
+        """
+        if isinstance(instr, str):
+            instr = self.getInstr(instr)
+        controlsSlot = self._dynargsAssignToken() if instr.hasControls() else -1
+        instrnum = self.commitInstrument(instr.name, priority)
+        p1 = self._getUniqueP1(instrnum)
+        pfields4 = [controlsSlot, *pfields5]
+        return SchedEvent(p1=p1, uniqueId=self._generateEventId(), start=start,
+                          dur=dur, args=pfields4, instrname=instr.name,
+                          renderer=self, priority=priority, controlsSlot=controlsSlot)
 
     def _dynargsAssignToken(self) -> int:
         self._dynargsTokenCounter = (self._dynargsTokenCounter + 1) % 2**32
@@ -927,16 +981,16 @@ class Renderer(AbstractRenderer):
                         instrname: str = '',
                         priority=0,
                         controlsSlot=0
-                        ) -> ScoreEvent:
+                        ) -> SchedEvent:
         self.csd.addEvent(p1, start=start, dur=dur, args=args)
         eventid = self._generateEventId()
-        event = ScoreEvent(p1, start=start, dur=dur, args=args, uniqueId=eventid, renderer=self,
+        event = SchedEvent(p1, start=start, dur=dur, args=args, uniqueId=eventid, renderer=self,
                            priority=priority, instrname=instrname,
                            controlsSlot=controlsSlot)
         self.scheduledEvents[eventid] = event
         return event
 
-    def unsched(self, event: int|float|ScoreEvent, delay: float) -> None:
+    def unsched(self, event: int | float | SchedEvent, delay: float) -> None:
         """
         Stop a scheduled event
 
@@ -948,7 +1002,7 @@ class Renderer(AbstractRenderer):
             event: the event to stop
             delay: when to stop the given event
         """
-        p1 = event.p1 if isinstance(event, ScoreEvent) else event
+        p1 = event.p1 if isinstance(event, SchedEvent) else event
         self.csd.addEvent("_stop", start=delay, dur=0, args=[p1])
 
     def hasBusSupport(self):
@@ -1038,7 +1092,7 @@ class Renderer(AbstractRenderer):
             >>> renderer.setCsoundOptions("--omacro:MYMACRO=foo")
             >>> renderer.render("outfile.wav")
         """
-        self.csd.setOptions(*options)
+        self.csd.addOptions(*options)
 
     def renderDuration(self) -> float:
         """
@@ -1095,7 +1149,9 @@ class Renderer(AbstractRenderer):
                openWhenDone=False,
                starttime=0.,
                compressionBitrate: int = None,
-               sr: int = None
+               sr: int = None,
+               tail=0.,
+               numthreads=0
                ) -> RenderJob:
         """
         Render to a soundfile
@@ -1119,6 +1175,7 @@ class Renderer(AbstractRenderer):
             verbose: if True, all output from the csound subprocess is logged
             endtime: stop rendering at the given time. This will either extend or crop
                 the rendering.
+            tail: extra time at the end, usefull when rendering long reverbs
             starttime: start rendering at the given time. Any event ending previous to
                 this time will not be rendered and any event between starttime and
                 endtime will be cropped
@@ -1126,6 +1183,8 @@ class Renderer(AbstractRenderer):
             openWhenDone: open the file in the default application after rendering. At
                 the moment this will force the operation to be blocking, waiting for
                 the render to finish.
+            numthreads: number of threads to use for rendering. If not given, the
+                value in ``config['rec_numthreads']`` is used
 
         Returns:
             a tuple (path of the rendered file, subprocess.Popen object). The Popen object
@@ -1152,7 +1211,7 @@ class Renderer(AbstractRenderer):
         if endtime == 0:
             endtime = scoreend
         endmarker = self._endMarker or endtime
-        renderend = min(endtime, scoreend, endmarker)
+        renderend = min(endtime, scoreend, endmarker) + tail
 
         if renderend == float('inf'):
             raise RenderError("Cannot render an infinite score. Set an endtime when calling "
@@ -1160,14 +1219,16 @@ class Renderer(AbstractRenderer):
         if renderend <= scorestart:
             raise RenderError(f"No score to render (start: {scorestart}, end: {renderend})")
 
-        if sr or encoding or compressionBitrate or scoreend > renderend:
-            csd = self.csd.copy()
-        else:
-            csd = self.csd
+        if numthreads == 0:
+            numthreads = config['rec_numthreads'] or config['numthreads']
 
-        previousEndMarker = self._endMarker
+        csd = self.csd.copy()
+
+        if numthreads > 1:
+            csd.numthreads = numthreads
+
         if scoreend < renderend:
-            self.setEndMarker(renderend)
+            csd.setEndMarker(renderend)
         elif scoreend > renderend:
             csd.cropScore(end=renderend)
 
@@ -1208,20 +1269,27 @@ class Renderer(AbstractRenderer):
         elif wait:
             proc.wait()
 
-        if previousEndMarker is not None:
-            self.setEndMarker(previousEndMarker)
-
         renderjob = RenderJob(outfile=outfile, encoding=encoding, samplerate=self.sr,
                               endtime=endtime, starttime=starttime, process=proc)
 
         self.renderedJobs.append(renderjob)
         return renderjob
 
-    def lastRender(self) -> str | None:
+    def openLastSoundfile(self, app='') -> None:
+        lastjob = self.lastRenderJob()
+        if lastjob:
+            lastjob.openOutfile(app=app)
+
+    def lastRenderJob(self) -> RenderJob | None:
+        return self.renderedJobs[-1] if self.renderedJobs else None
+
+    def lastRenderedSoundfile(self) -> str | None:
         """
         Returns the last rendered soundfile, or None if no jobs were rendered
         """
-        return self.renderedJobs[-1].outfile if self.renderedJobs else None
+        job = self.lastRenderJob()
+        if job:
+            return job.outfile
 
     def writeCsd(self, outfile: str) -> None:
         """
@@ -1252,7 +1320,7 @@ class Renderer(AbstractRenderer):
         """
         return self.csd.dump()
 
-    def getEventById(self, eventid: int) -> ScoreEvent | None:
+    def getEventById(self, eventid: int) -> SchedEvent | None:
         """
         Retrieve a scheduled event by its eventid
 
@@ -1264,7 +1332,7 @@ class Renderer(AbstractRenderer):
         """
         return self.scheduledEvents.get(eventid)
 
-    def getEventsByP1(self, p1: float) -> list[ScoreEvent]:
+    def getEventsByP1(self, p1: float) -> list[SchedEvent]:
         """
         Retrieve all scheduled events which have the given p1
 
@@ -1296,7 +1364,7 @@ class Renderer(AbstractRenderer):
         """
         return self.csd.strset(s, index=index)
 
-    def _instrFromEvent(self, event: ScoreEvent) -> Instr:
+    def _instrFromEvent(self, event: SchedEvent) -> Instr:
         instrNameAndPriority = self._instrnumToNameAndPriority.get(int(event.p1))
         if not instrNameAndPriority:
             raise ValueError(f"Unknown instrument for instance {event.p1}")
@@ -1307,7 +1375,7 @@ class Renderer(AbstractRenderer):
                          ) -> None:
         self.csd.addEvent("_setControl", start=delay, dur=0., args=[token, slot, value])
 
-    def setp(self, event: ScoreEvent, delay: float, param: str, value: float
+    def setp(self, event: SchedEvent, delay: float, param: str, value: float
              ) -> None:
         """
         Modify a pfield of a scheduled event at the given time
@@ -1435,7 +1503,7 @@ class Renderer(AbstractRenderer):
                    fade: float | tuple[float, float] = None,
                    crossfade=0.02,
                    **kws
-                   ) -> ScoreEvent:
+                   ) -> SchedEvent:
         """
         Play a table or a soundfile
 
@@ -1503,7 +1571,7 @@ class Renderer(AbstractRenderer):
         return self.sched('.playSample', delay=delay, dur=dur, args=args)
 
     def automate(self,
-                 event: ScoreEvent,
+                 event: SchedEvent,
                  param: str,
                  pairs: Sequence[float] | np.ndarray,
                  mode="linear",
@@ -1573,7 +1641,7 @@ class Renderer(AbstractRenderer):
                                  overtake=overtake)
 
     def _automatePfield(self,
-                        event: ScoreEvent,
+                        event: SchedEvent,
                         param: str,
                         pairs: Sequence[float] | np.ndarray,
                         mode="linear",
@@ -1593,7 +1661,7 @@ class Renderer(AbstractRenderer):
         self.csd.addEvent('_automatePargViaPargs', start=delay, dur=dur, args=args)
 
     def _automateTable(self,
-                       event: ScoreEvent,
+                       event: SchedEvent,
                        param: str,
                        pairs: list[float]|np.ndarray,
                        mode="linear",
@@ -1651,7 +1719,7 @@ class Renderer(AbstractRenderer):
             return f'<strong>Renderer</strong>({info})'
 
 
-def cropScore(events: list[ScoreEvent], start=0., end=0.) -> list[ScoreEvent]:
+def cropScore(events: list[SchedEvent], start=0., end=0.) -> list[SchedEvent]:
     """
     Crop the score so that no event exceeds the given limits
 

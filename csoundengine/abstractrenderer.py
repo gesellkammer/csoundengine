@@ -25,7 +25,7 @@ class AbstractRenderer:
               dur=-1.,
               priority=1,
               args: list[float] | dict[str, float] = None,
-              **kws) -> BaseEvent:
+              **kwargs) -> BaseEvent:
         raise NotImplementedError
 
     @abstractmethod

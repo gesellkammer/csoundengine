@@ -172,7 +172,11 @@ def splitDict(d: dict[str, float],
     return out1, out2
 
 
-def instrResolveArgs(instr: Instr,
+def isPfield(name: str) -> bool:
+    return re.match(r'\bp[1-9][0-9]*\b', name) is not None
+
+
+def resolveInstrArgs(instr: Instr,
                      p4: int,
                      pargs: list[float] | dict[str | int, float] | None = None,
                      pkws: dict[str, float] | None = None,
@@ -319,7 +323,6 @@ def selectMidiDevice(devices: list[MidiDevice], title='Select MIDI device'
     else:
         name, devid = selected[:-1].split("[")
         return next(d for d in devices if d.deviceid == devid)
-
 
 
 def selectItem(items: list[str], title="Select") -> Optional[str]:
@@ -660,3 +663,6 @@ def assignInstrNumbers(orc: str, startInstr: int, postInstrNum: int) -> dict[str
 def _extractInstrNames(s: str) -> list[str]:
     return [match.group(1) for line in s.splitlines()
             if (match := re.search(r"\binstr\s+\$\{(\w+)\}", line))]
+
+
+

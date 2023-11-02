@@ -22,7 +22,7 @@ class SessionEvent:
     "The events priority (>1)"
 
     args: list[float] | dict[str, float] | None = None
-    "Numbered pfields or a dict of pfield the form `{name: value}`"
+    "Numbered pfields or a dict of parameters `{name: value}`"
 
     whenfinished: Callable = None
     "A callback to be fired when this event is finished"

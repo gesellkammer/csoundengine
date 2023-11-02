@@ -30,7 +30,7 @@ builtinInstrs = [
         endif
     '''),
     Instr('.playSample', body=r"""
-        |isndtab=0, istart=0, ifadein=0, ifadeout=0, igaingroup=0, kchan=1, kspeed=1, kgain=1, kpan=-1, ixfade=-1|
+        |isndtab=0, istart=0, ifadein=0, ifadeout=0, igaingroup=0, kchan=1, kspeed=1, kgain=1, kpan=0.5, ixfade=-1|
         ; Play a sample loaded via GEN01
         ; Args:
         ;   istart: the start time within the sample
@@ -72,7 +72,6 @@ builtinInstrs = [
             ; a1 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart
             a1 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart
             a1 *= aenv
-            kpan = kpan == -1 ? 0 : kpan
             aL, aR pan2 a1, kpan
             outch kchan, aL, kchan+1, aR
         elseif inumouts == 2 then
@@ -80,7 +79,6 @@ builtinInstrs = [
             ; a1, a2 loscil3 1, ispeed*kspeed, isndtab, 1, iloop
             a1 *= aenv
             a2 *= aenv
-            kpan = kpan < 0 ? 0.5 : kpan
             kL, kR _panweights kpan
             if kL != 1 then
                 a1 *= kL
@@ -105,7 +103,7 @@ builtinInstrs = [
         if iloop == 0 && know >= imaxtime then
             turnoff
         endif   
-        """),
+    """, aliases={'speed': 'kspeed', 'gain': 'kgain', 'pan': 'kpan'}),
     Instr('.playbuf', body="""
         |itabnum=0, ioutchan=1, igain=1, iloop=0|
         inumsamps ftlen itabnum

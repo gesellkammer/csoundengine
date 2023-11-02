@@ -1,6 +1,7 @@
 from __future__ import annotations
 import dataclasses
 from emlib.envir import inside_jupyter
+from . import synth as _synth
 
 from typing import TYPE_CHECKING, Callable, Optional
 if TYPE_CHECKING:
@@ -32,12 +33,15 @@ def _guessRange(value: float, namehint: str = '') -> tuple[float, float]:
             return (0, 12000)
         if ("midi" in namehint or "pitch" in namehint) and 0 <= value <= 127:
             return (0, 127)
+        if namehint == 'pan' or namehint == 'kpan' and 0 <= value <= 1:
+            return (0., 1.)
+
     if -90 < value < 0:
         return (-100, 0)
     if value < 0:
         val0, val1 = _guessRange(-value)
         return -val1, -val0
-    if value < 1:
+    if value <= 1:
         return (0, 2)
     elif value < 5:
         return (0, 10)
@@ -51,14 +55,20 @@ def _guessRange(value: float, namehint: str = '') -> tuple[float, float]:
 
 @dataclasses.dataclass
 class ParamSpec:
-    descr: str
-    minvalue: float
-    maxvalue: float
+    name: str
+    """The parameter name"""
+
+    minvalue: float = 0.
+    maxvalue: float = 1.
     step: float = -1
-    startvalue: Optional[float] = None
+    startvalue: float = 0.
     widgetHint: str = 'slider'
 
-    def __post_init__(self):
+    description: str = ''
+    """A optional description"""
+
+
+def __post_init__(self):
         if self.step == -1:
             self.step = _guessStep(self.minvalue, self.maxvalue)
 
@@ -75,9 +85,9 @@ def _stepToFormat(step: float) -> str:
     return fmt
 
 
-def _jupySlider(name:str, startvalue: float, minvalue: float, maxvalue: float,
-                callback: Callable, step: float | None = None, width='80%',
-                log=False):
+def _jupyterSlider(name: str, startvalue: float, minvalue: float, maxvalue: float,
+                   callback: Callable, step: float | None = None, width='80%',
+                   log=False):
     import ipywidgets as ipy
     if step is None:
         step = _guessStep(minvalue, maxvalue)
@@ -96,8 +106,8 @@ def _jupySlider(name:str, startvalue: float, minvalue: float, maxvalue: float,
     return s
 
 
-def _jupyEntry(name: str, startvalue: float, minvalue:float, maxvalue: float,
-               callback: Callable):
+def _jupyterEntry(name: str, startvalue: float, minvalue:float, maxvalue: float,
+                  callback: Callable):
     import ipywidgets as ipy
     step = 0.001
     w = ipy.BoundedFloatText(value=startvalue, min=minvalue, max=maxvalue,
@@ -117,7 +127,7 @@ def interact(**sliders: dict[str, tuple[float, float, float, Callable]]):
             with the current value of the widget
 
     Example
-    =======
+    ~~~~~~~
 
         from csoundengine import *
         from csoundengine.interact import *
@@ -133,17 +143,86 @@ def interact(**sliders: dict[str, tuple[float, float, float, Callable]]):
         endin
         ''')
         p1 = e.sched("foo", [0.1, 67])
-        sliders = makeSliders(kamp=(e.getp(p1, 4, 0, 1, lambda x:e.setp(p1, 4, x),
-                              kmidi=(e.getp(p1, 5, 0, 127, lambda x:e.setp(p1, 5, x))
-        display(*sliders)
+        interact(kamp=(0.1, 0., 1., lambda x:e.setp(p1, 4, x),
+                 kmidi=(67, 0, 127, lambda x:e.setp(p1, 5, x))
     """
     from IPython.display import display
     widgets = []
     for key, value in sliders.items():
         curvalue, minvalue, maxvalue, func = value
-        s = _jupySlider(name=key, startvalue=curvalue, minvalue=minvalue,
-                        maxvalue=maxvalue, callback=func)
+        s = _jupyterSlider(name=key, startvalue=curvalue, minvalue=minvalue,
+                           maxvalue=maxvalue, callback=func)
         widgets.append(s)
+    display(*widgets)
+
+
+def guessParamSpecs(params: dict[str, float],
+                    ranges: dict[str, tuple[float, float]] = None
+                    ) -> list[ParamSpec]:
+    paramspecs: list[ParamSpec] = []
+    for paramname, value in params.items():
+        if paramname in ranges:
+            minval, maxval = ranges[paramname]
+        else:
+            minval, maxval = _guessRange(value, paramname)
+        paramspecs.append(ParamSpec(name=paramname,
+                                    minvalue=minval,
+                                    maxvalue=maxval,
+                                    startvalue=value))
+    return paramspecs
+
+
+def interactSynth(synth: _synth.AbstrSynth,
+                  specs: list[ParamSpec] = None) -> None:
+    """
+    Interact with a Synth
+
+    Args:
+        synth: the synth for which to generate a UI
+        specs: a list of ParamSpec
+    """
+    if not specs:
+        dynparams = synth.dynamicParams(aliases=False)
+        params = {param: synth.paramValue(param) for param in sorted(dynparams)}
+        specs = guessParamSpecs(params=params)
+
+    if inside_jupyter():
+        return _interactSynthJupyter(synth=synth, specs=specs)
+    else:
+        raise RuntimeError("interact is only supported inside a jupyter session at the"
+                           " moment.")
+
+
+def _interactSynthJupyter(synth: _synth.AbstrSynth,
+                          specs: list[ParamSpec],
+                          stopbutton=True,
+                          width='80%'
+                          ) -> None:
+    from IPython.display import display
+    import ipywidgets as ipy
+    widgets = []
+    if stopbutton:
+        button = ipy.Button(description="Stop")
+        button.on_click(lambda *args, s=synth: s.stop())
+        widgets.append(button)
+
+    for spec in specs:
+        if spec.widgetHint == 'slider':
+            w = _jupyterSlider(name=spec.name,
+                               startvalue=spec.startvalue,
+                               minvalue=spec.minvalue,
+                               maxvalue=spec.maxvalue,
+                               width=width,
+                               callback=lambda val, s=synth, p=spec.name: s.set(p, value=val))
+        elif spec.widgetHint == 'entry':
+            w = _jupyterEntry(name=spec.name,
+                              startvalue=spec.startvalue,
+                              minvalue=spec.minvalue,
+                              maxvalue=spec.maxvalue,
+                              callback=lambda val, s=synth, p=spec.name: s.set(p, value=val))
+        else:
+            raise ValueError(f"Widget hint not understood: {spec.widgetHint}")
+        widgets.append(w)
     display(*widgets)
 
 
@@ -236,14 +315,14 @@ def _jupyInteractPargs(engine: engine.Engine,
         idx = key if isinstance(key, int) else int(key[1:])
         value0 = engine.getp(p1, idx) if spec.startvalue is None else spec.startvalue
         if spec.widgetHint == 'slider':
-            w = _jupySlider(spec.descr, startvalue=value0,
-                            minvalue=spec.minvalue, maxvalue=spec.maxvalue,
-                            width=width,
-                            callback=lambda val, p1=p1, idx=idx: engine.setp(p1, idx, val))
+            w = _jupyterSlider(spec.descr, startvalue=value0,
+                               minvalue=spec.minvalue, maxvalue=spec.maxvalue,
+                               width=width,
+                               callback=lambda val, p1=p1, idx=idx: engine.setp(p1, idx, val))
         elif spec.widgetHint == 'entry':
-            w = _jupyEntry(spec.descr, startvalue=value0,
-                           minvalue=spec.minvalue, maxvalue=spec.maxvalue,
-                           callback=lambda val, p1=p1, idx=idx: engine.setp(p1, idx, val))
+            w = _jupyterEntry(spec.descr, startvalue=value0,
+                              minvalue=spec.minvalue, maxvalue=spec.maxvalue,
+                              callback=lambda val, p1=p1, idx=idx: engine.setp(p1, idx, val))
         else:
             raise ValueError(f"Widget hint not understood: {spec.widgetHint}")
         widgets.append(w)

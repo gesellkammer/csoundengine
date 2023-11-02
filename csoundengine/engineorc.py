@@ -24,10 +24,9 @@ gi__responses       ftgen  ${responses}, 0, ${numtokens}, -2, 0
 gi__tokenToInstrnum ftgen ${tokenToInstrnum}, 0, ${maxNumInstrs}, -2, 0
 gi__soundfontIndexes dict_new "str:float"
 gi__soundfontIndexCounter init 1000
+gi__builtinInstrs dict_new "str:float", "notifyDealloc", ${notifyDealloc}
 
 chn_k "_soundfontPresetCount", 3
-
-${globalcode}
 
 ; ---------------------------------
 ;          builtin-instruments
@@ -67,15 +66,15 @@ opcode sfPresetIndex, i, Sii
     xout iidx
 endop
 
+instr ${notifyDealloc}
+    ip1 init p4
+    outvalue "__dealloc__", ip1
+endin
+
 instr ${notifyDeallocOsc}
     ip1 = p4
     iport = p5
     OSCsend 0, "127.0.0.1", iport, "/dealloc", "d", ip1
-endin
-
-instr ${notifyDealloc}
-    ip1 init p4
-    outvalue "__dealloc__", ip1
 endin
 
 instr ${pingback}
@@ -129,6 +128,16 @@ instr ${chnset}
     Schn = p4
     ival = p5
     chnset ival, Schn
+endin
+
+instr ${initDynamicControls}
+    pset 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    iindex = p4
+    inumitems = p5
+    itabnum chnget ".dynargsTabnum"
+    ivalues[] passign 6, 6+inumitems
+    copya2ftab ivalues, itabnum, iindex
+    turnoff
 endin
 
 ; can make a table with data or just empty of a given size
@@ -467,7 +476,6 @@ instr ${soundfontPlay}
 endin
 
 
-
 instr ${dummy_post}
     ; this instrument is only here to prevent a crash
     ; when named instruments and numbered instruments
@@ -477,6 +485,10 @@ endin
 
 ftset gi__subgains, 1
 chnset 1, "_soundfontPresetCount"   
+
+; ----------------------
+
+${globalcode}
 
 '''
 
