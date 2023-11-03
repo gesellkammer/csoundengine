@@ -512,7 +512,7 @@ class Instr:
         return frozenset(dynparams.keys())
 
     @cache
-    def dynamicPfields(self, aliases=True, aliased=True) -> dict[str, float]:
+    def dynamicPfields(self, aliases=True, aliased=False) -> dict[str, float]:
         """
         The dynamic pfields in this instr
 
@@ -526,11 +526,10 @@ class Instr:
         Returns:
             a dict mapping pfield name to default value.
         """
-        if not self.pfieldNameToIndex:
+        if not self.pfields:
             return EMPTYDICT
 
-        pfields = {name: self.pfieldIndexToValue.get(idx, 0.)
-                   for name, idx in self.pfieldNameToIndex.items()
+        pfields = {name: value for name, value in self.pfields.items()
                    if name.startswith('k')}
 
         if aliases and self.aliases:
@@ -538,7 +537,7 @@ class Instr:
                 if realname in pfields:
                     pfields[alias] = pfields[realname]
                     if not aliased:
-                        del pfields[realname]
+                        pfields.pop(realname, None)
 
         return pfields
 
@@ -592,11 +591,12 @@ class Instr:
         if not self.pfields and not self.controls:
             return EMPTYDICT
 
-        params = self.dynamicPfields()
+        params = self.dynamicPfields(aliases=False)
         if self.controls:
             params = params | self.controls
 
         if aliases and self.aliases:
+            params = params.copy()
             for alias, realname in self.aliases.items():
                 params[alias] = params[realname]
                 if not aliased:
@@ -611,7 +611,7 @@ class Instr:
         pfields = self.pfieldNames(aliases=aliases, aliased=aliased)
         return frozenset(pfields | self.controlNames()) if self.controls else pfields
 
-    @cache
+    # @cache
     def pfieldNames(self, aliases=True, aliased=False
                     ) -> frozenset[str]:
         """
@@ -629,7 +629,7 @@ class Instr:
         pfields = set(self.pfieldNameToIndex.keys())
         if aliases and self.aliases:
             for alias, realname in self.aliases.items():
-                if alias in pfields:
+                if realname in pfields:
                     pfields.add(alias)
                     if not aliased:
                         pfields.remove(realname)

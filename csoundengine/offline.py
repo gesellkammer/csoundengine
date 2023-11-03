@@ -242,7 +242,7 @@ class SchedEvent(BaseEvent):
     def paramNames(self, aliases=True, aliased=False) -> frozenset[str]:
         return self.instr.paramNames(aliases=aliases, aliased=aliased)
 
-    def dynamicParams(self, aliases=True, aliased=False) -> frozenset[str]:
+    def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
         instr = self.instr
         return instr.dynamicParamNames(aliases=aliases, ) if instr else set()
 
@@ -301,7 +301,7 @@ class EventGroup(BaseEvent):
                 ev._setp(delay=delay, param=param, value=value)
                 count += 1
         if count == 0:
-            raise KeyError(f"Parameter '{param}' unknown. Possible paramters: {self.dynamicParams(aliased=True)}")
+            raise KeyError(f"Parameter '{param}' unknown. Possible paramters: {self.dynamicParamNames(aliased=True)}")
 
     def _setTable(self, param: str, value: float, delay=0.) -> None:
         count = 0
@@ -311,7 +311,7 @@ class EventGroup(BaseEvent):
                 count += 1
         if count == 0:
             raise KeyError(f"Parameter '{param}' unknown. "
-                           f"Possible parameters: {self.dynamicParams(aliased=True)}")
+                           f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
 
     @cache
     def paramNames(self, aliases=True, aliased=False) -> frozenset[str]:
@@ -321,10 +321,10 @@ class EventGroup(BaseEvent):
         return frozenset(allparams)
 
     @cache
-    def dynamicParams(self, aliases=True, aliased=False) -> frozenset[str]:
+    def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
         params = set()
         for ev in self.events:
-            params.update(ev.dynamicParams(aliases=aliases, aliased=aliased))
+            params.update(ev.dynamicParamNames(aliases=aliases, aliased=aliased))
         return frozenset(params)
 
     def __hash__(self):
@@ -339,13 +339,13 @@ class EventGroup(BaseEvent):
                  ) -> None:
         count = 0
         for ev in self.events:
-            if param in ev.dynamicParams(aliases=True, aliased=True):
+            if param in ev.dynamicParamNames(aliases=True, aliased=True):
                 count += 1
                 ev.automate(param=param, pairs=pairs, mode=mode,
                             delay=delay, overtake=overtake)
         if count == 0:
             raise KeyError(f"Param '{param}' not known by any events in this group. "
-                           f"Possible parameters: {self.dynamicParams(aliased=True)}")
+                           f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
 
 
 @dataclass

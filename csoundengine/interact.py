@@ -182,7 +182,7 @@ def interactSynth(synth: _synth.AbstrSynth,
         specs: a list of ParamSpec
     """
     if not specs:
-        dynparams = synth.dynamicParams(aliases=False)
+        dynparams = synth.dynamicParamNames(aliases=False)
         params = {param: synth.paramValue(param) for param in sorted(dynparams)}
         specs = guessParamSpecs(params=params)
 

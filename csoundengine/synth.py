@@ -138,7 +138,7 @@ class AbstrSynth(baseevent.BaseEvent):
 
         """
         from . import interact
-        dynparams = self.dynamicParams(aliases=True, aliased=False)
+        dynparams = self.dynamicParamNames(aliases=True, aliased=False)
         if not dynparams:
             logger.error(f"No named parameters for {self}")
             return
@@ -366,7 +366,7 @@ class Synth(AbstrSynth):
     def finished(self) -> bool:
         return self.playStatus() == 'stopped'
 
-    def dynamicParams(self, aliases=True, aliased=False) -> frozenset[str]:
+    def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
         """
         The set of all dynamic parameters accepted by this Synth
 
@@ -382,7 +382,7 @@ class Synth(AbstrSynth):
         """
         return self.instr.dynamicParamNames(aliases=aliases, aliased=aliased)
 
-    def pfieldNames(self, aliases=True, aliased=False) -> set[str]:
+    def pfieldNames(self, aliases=True, aliased=False) -> frozenset[str]:
         return self.instr.pfieldNames(aliases=aliases, aliased=aliased)
 
     def _sliceStart(self) -> int:
@@ -432,7 +432,7 @@ class Synth(AbstrSynth):
         idx = self.instr.pfieldIndex(param, default=0)
         if idx == 0:
             raise KeyError(f"Unknown parameter {param} for synth {self}. "
-                           f"Possible parameters: {self.dynamicParams()}")
+                           f"Possible parameters: {self.dynamicParamNames()}")
         self.engine.setp(self.p1, idx, value, delay=delay)
 
 
@@ -571,7 +571,7 @@ class Synth(AbstrSynth):
                                         overtake=overtake)
         
         param = self.unaliasParam(param, param)
-        params = self.dynamicParams(aliases=False)
+        params = self.instr.dynamicParams(aliases=False)
         if param not in params:
             raise KeyError(f"Unknown parameter '{param}' for {self}. Possible parameters: {params}")
         
@@ -580,7 +580,7 @@ class Synth(AbstrSynth):
         elif (pargs := self.pfieldNames(aliases=False)) and param in pargs:
             return self._automatePfield(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
         else:
-            raise KeyError(f"Unknown parameter '{param}', supported parameters: {self.dynamicParams()}")
+            raise KeyError(f"Unknown parameter '{param}', supported parameters: {self.dynamicParamNames()}")
 
     def _automatePfield(self, param: int | str, pairs: list[float] | np.ndarray,
                         mode="linear", delay=0., overtake=False) -> float:
@@ -728,26 +728,26 @@ class SynthGroup(AbstrSynth):
         count = 0
         for synth in self.synths:
             if isinstance(synth, Synth):
-                controls = synth.dynamicParams()
+                controls = synth.dynamicParamNames()
                 if controls and param in controls:
                     synth._automateTable(param, pairs, mode=mode, delay=delay,
                                          overtake=overtake)
                     count += 1
             elif isinstance(synth, SynthGroup):
-                controls = synth.dynamicParams()
+                controls = synth.dynamicParamNames()
                 if controls and param in controls:
                     synth._automateTable(param=param, pairs=pairs, mode=mode, delay=delay,
                                          overtake=overtake)
                     count += 1
         if count == 0:
             raise KeyError(f"Parameter '{param}' not known. "
-                           f"Possible parameters: {self.dynamicParams()}")
+                           f"Possible parameters: {self.dynamicParamNames()}")
 
     @cache
-    def dynamicParams(self, aliases=True, aliased=False) -> set[str]:
+    def dynamicParamNames(self, aliases=True, aliased=False) -> set[str]:
         out: set[str] = set()
         for synth in self.synths:
-            dynamicParams = synth.dynamicParams(aliases=aliases, aliased=aliased)
+            dynamicParams = synth.dynamicParamNames(aliases=aliases, aliased=aliased)
             out.update(dynamicParams)
         return out
 
@@ -797,8 +797,6 @@ class SynthGroup(AbstrSynth):
                 value of the given parameter is used. The same effect is achieved
                 if the first value is given as 'nan', in this case also the current
                 value of the synth is overtaken.
-            strict: if True, raise an Exception if the parameter does not match any
-                synth in this group
 
         Returns:
             a list of synthids. There will be one synthid per synth in this group.
@@ -808,22 +806,15 @@ class SynthGroup(AbstrSynth):
             synth
         """
         synthids = []
-        if strict:
-            allparams = self.dynamicParams()
-            if param not in allparams:
-                lines = [f"Parameter '{param}' unknown. Known parameters: {allparams}",
-                         f"Synths in this group:"]
-                for synth in self.synths:
-                    lines.append("    " + repr(synth))
-                logger.error("\n".join(lines))
-                raise KeyError(f"Parameter {param} not supported by any synth in this group. "
-                               f"Possible parameters: {allparams}")
         for synth in self.synths:
             if param in synth.instr.dynamicParams():
                 synthid = synth.automate(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
             else:
                 synthid = 0
             synthids.append(synthid)
+        if all(synthid == 0 for synthid in synthids):
+            raise KeyError(f"Parameter '{param}' not known. Possible parameters: "
+                           f"{self.dynamicParamNames(aliases=True, aliased=True)}")
         return synthids
 
     def _automatePfield(self,
@@ -837,7 +828,7 @@ class SynthGroup(AbstrSynth):
                     if param in synth.instr.dynamicPfieldNames()]
         if not eventids:
             raise ValueError(f"Parameter '{param}' unknown for group, possible "
-                             f"parameters: {self.dynamicParams()}")
+                             f"parameters: {self.dynamicParamNames()}")
         return eventids
 
     def _htmlTable(self) -> str:
@@ -905,11 +896,11 @@ class SynthGroup(AbstrSynth):
     def _setTable(self, param: str, value: float, delay=0) -> None:
         count = 0
         for synth in self.synths:
-            if param in synth.dynamicParams(aliases=True, aliased=True):
+            if param in synth.dynamicParamNames(aliases=True, aliased=True):
                 synth._setTable(param=param, value=value, delay=delay)
                 count += 1
         if count == 0:
-            params = list(self.dynamicParams(aliases=False))
+            params = list(self.dynamicParamNames(aliases=False))
             if aliases := self.aliases():
                 params.extend(f'{alias}>{orig}' for alias, orig in aliases.items())
             raise KeyError(f"Parameter '{param}' unknown. "
@@ -939,7 +930,7 @@ class SynthGroup(AbstrSynth):
                 count += 1
         if count == 0:
             raise KeyError(f"Parameter {param} unknown. "
-                           f"Possible parameters: {self.dynamicParams()}")
+                           f"Possible parameters: {self.dynamicParamNames()}")
 
     def controlNames(self, aliases=True, aliased=False) -> set[str]:
         """

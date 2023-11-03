@@ -104,7 +104,7 @@ class BaseEvent:
                 self._setp(param=param, value=value, delay=delay)
             else:
                 raise KeyError(f"Unknown parameter: '{param}'. "
-                               f"Possible parameters for this event: {self.dynamicParams(aliased=True)}")
+                               f"Possible parameters for this event: {self.dynamicParamNames(aliased=True)}")
 
     def _automatePfield(self,
                         param: int | str,
@@ -197,9 +197,9 @@ class BaseEvent:
         elif param.startswith('p') or ((pargs := self.pfieldNames(aliases=False)) and param in pargs):
             return self._automatePfield(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
         else:
-            raise KeyError(f"Unknown parameter '{param}', supported parameters: {self.dynamicParams()}")
+            raise KeyError(f"Unknown parameter '{param}', supported parameters: {self.dynamicParamNames()}")
 
-    def dynamicParams(self, aliases=True, aliased=False) -> set[str]:
+    def dynamicParamNames(self, aliases=True, aliased=False) -> set[str]:
         """
         The set of all dynamic parameters accepted by this event
 

@@ -3936,6 +3936,26 @@ class Engine:
         self._perfThread.scoreEvent(0, "i", pfields)
         return bustoken
 
+    def busSystemStatus(self) -> dict:
+        """
+        Get debugging nformation about the status of the bus system
+
+        This is only provided for debugging
+
+        Returns:
+            a dict containing information about the status of the bus system
+            (used buses, free buses, etc)
+        """
+        if not self.hasBusSupport():
+            raise RuntimeError("This Engine has no bus support")
+
+        audioBusesFree = self.evalCode('pool_size(gi__buspool)')
+        controlBusesFree = self.evalCode('pool_size(gi__buspoolk)')
+        return {'audioBusesFree': audioBusesFree,
+                'controlBusesFree': controlBusesFree,
+                'numAudioBuses': self.numAudioBuses,
+                'numControlBuses': self.numControlBuses}
+
     def hasBusSupport(self) -> bool:
         """
         Returns True if this Engine was started with bus support
