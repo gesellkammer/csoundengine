@@ -287,16 +287,22 @@ class EventGroup(BaseEvent):
         super().__init__(start=start, dur=dur)
         self.events = events
 
+    def __iter__(self):
+        return iter(self.events)
+
+    def __getitem__(self, item):
+        return self.events.__getitem__(item)
+
     def __len__(self):
         return len(self.events)
 
     def stop(self, delay=0.) -> None:
-        for ev in self.events:
+        for ev in self:
             ev.stop(delay=delay)
 
     def _setp(self, param: str, value: float, delay=0.) -> None:
         count = 0
-        for ev in self.events:
+        for ev in self:
             if param in ev.pfieldNames(aliased=True):
                 ev._setp(delay=delay, param=param, value=value)
                 count += 1
@@ -305,7 +311,7 @@ class EventGroup(BaseEvent):
 
     def _setTable(self, param: str, value: float, delay=0.) -> None:
         count = 0
-        for ev in self.events:
+        for ev in self:
             if param in ev.controlNames(aliases=True, aliased=True):
                 ev._setTable(param=param, value=value, delay=delay)
                 count += 1
@@ -316,19 +322,46 @@ class EventGroup(BaseEvent):
     @cache
     def paramNames(self, aliases=True, aliased=False) -> frozenset[str]:
         allparams = set()
-        for ev in self.events:
+        for ev in self:
             allparams.update(ev.paramNames(aliases=aliases, aliased=aliased))
         return frozenset(allparams)
 
     @cache
     def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
         params = set()
-        for ev in self.events:
+        for ev in self:
             params.update(ev.dynamicParamNames(aliases=aliases, aliased=aliased))
         return frozenset(params)
 
     def __hash__(self):
-        return hash(tuple(hash(ev) for ev in self.events))
+        return hash(tuple(hash(ev) for ev in self))
+
+    @cache
+    def controlNames(self, aliases=True, aliased=False) -> set[str]:
+        """
+        Returns a set of available table named parameters for this group
+        """
+        allparams = set()
+        for event in self:
+            params = event.controlNames(aliases=aliases, aliased=aliased)
+            if params:
+                allparams.update(params)
+        return allparams
+
+    def set(self, param='', value: float = 0., delay=0., **kws) -> None:
+        if kws:
+            for k, v in kws.items():
+                self.set(param=k, value=v, delay=delay)
+
+        if param:
+            count = 0
+            for ev in self:
+                if param in ev.dynamicParamNames(aliases=True, aliased=True):
+                    count += 1
+                    ev.set(param=param, value=value, delay=delay)
+            if count == 0:
+                raise KeyError(f"Param '{param}' not known by any events in this group. "
+                               f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
 
     def automate(self,
                  param: str,
@@ -338,7 +371,7 @@ class EventGroup(BaseEvent):
                  overtake=False,
                  ) -> None:
         count = 0
-        for ev in self.events:
+        for ev in self:
             if param in ev.dynamicParamNames(aliases=True, aliased=True):
                 count += 1
                 ev.automate(param=param, pairs=pairs, mode=mode,
@@ -1282,10 +1315,12 @@ class Renderer(AbstractRenderer):
         if csoundoptions:
             csd.addOptions(*csoundoptions)
 
-        if scoreend < renderend:
-            csd.setEndMarker(renderend)
-        elif scoreend > renderend:
+        # if scoreend < renderend:
+        #    csd.setEndMarker(renderend)
+        if scoreend > renderend:
             csd.cropScore(end=renderend)
+
+        csd.setEndMarker(renderend)
 
         verbose = verbose if verbose is not None else not config['rec_suppress_output']
         if verbose:
@@ -1357,7 +1392,7 @@ class Renderer(AbstractRenderer):
 
     def writeCsd(self, outfile: str) -> None:
         """
-        Generate the csd for this renderer, write it to `outfile`
+        Generate the csd project for this renderer, write it to `outfile`
 
         Args:
             outfile: the path of the generated csd

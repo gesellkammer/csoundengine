@@ -1,7 +1,6 @@
 from __future__ import annotations
-import textwrap
 from dataclasses import dataclass
-from emlib import textlib
+from . import internalTools
 from . import csoundlib
 
 
@@ -183,7 +182,7 @@ def pfieldsMergeDeclaration(args: dict[str, float],
 
 
 def assignPfields(namedargs: list[str], exclude: tuple[int, ...], minpfield=4, maxpfield=1900
-                  ) -> dict[str, int]:
+                  ) -> list[int]:
     """
     Assign pfield indexes to named pfields
 
@@ -209,6 +208,7 @@ def assignPfields(namedargs: list[str], exclude: tuple[int, ...], minpfield=4, m
         else:
             raise ValueError("Not enough indexes to assign")
     assert len(indexes) == len(namedargs)
+    assert all(idx >= 4 for idx in indexes)
     return indexes
 
 
@@ -330,17 +330,17 @@ def distributeParams(params: dict[str, float],
         pfields = {}
         controls = {}
         for name, value in params.items():
-            if isinstance(name, int) or name.startswith('p') or name in pfieldNames:
+            if isinstance(name, int) or internalTools.isPfield(name) or name in pfieldNames:
                 pfields[name] = value
             else:
                 if name not in controlNames:
                     raise KeyError(f"Parameter '{name}' not known. Possible "
                                    f"dynamic arguments: {controlNames}")
                 controls[name] = value
-        if pfields:
-            assert all(pfield in pfieldNames for pfield in pfields)
-        if controls:
-            assert all(control in controlNames for control in controls)
+        # if pfields:
+        #     assert all(pfield in pfieldNames for pfield in pfields)
+        # if controls:
+        #     assert all(control in controlNames for control in controls)
         return pfields, controls
 
 
@@ -373,7 +373,7 @@ def parseSchedArgs(args: list[float|str] | dict[str, float|str],
         pfieldnames = set(name if name else idx
                           for idx, (name, value) in pfieldsDef.items())
         namedpfields, dynargs = distributeParams(args, pfieldNames=pfieldnames, controlNames=set(dynamicParams.keys()))
-
+        return namedpfields, dynargs
     else:
         raise TypeError(f"Expected a list or a dict, got {args}")
 

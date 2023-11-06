@@ -273,7 +273,7 @@ class Instr:
                 controls = {k: v for k, v in args.items() if k.startswith('k')}
 
             if parsedInstr.pfieldsUsed:
-                minpfield = max(parsedInstr.pfieldsUsed)
+                minpfield = max(5, max(parsedInstr.pfieldsUsed))
             else:
                 minpfield = 5
 

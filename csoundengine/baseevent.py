@@ -4,6 +4,7 @@ from abc import abstractmethod
 import numpy as np
 from typing import Sequence
 from . import jupytertools
+from . import internalTools
 from ._common import EMPTYSET, EMPTYDICT
 
 
@@ -97,11 +98,10 @@ class BaseEvent:
 
         if param:
             param = self.unaliasParam(param, param)
-            tabkeys = self.controlNames(aliases=False)
-            if param in tabkeys:
-                self._setTable(param=param, value=value, delay=delay)
-            elif param.startswith('p') or param in self.pfieldNames(aliases=False):
+            if internalTools.isPfield(param) or param in self.pfieldNames(aliases=False):
                 self._setp(param=param, value=value, delay=delay)
+            elif param in self.controlNames(aliases=False):
+                self._setTable(param=param, value=value, delay=delay)
             else:
                 raise KeyError(f"Unknown parameter: '{param}'. "
                                f"Possible parameters for this event: {self.dynamicParamNames(aliased=True)}")
@@ -190,6 +190,15 @@ class BaseEvent:
         Returns:
             the eventid of the automation event
         """
+        lenpairs = len(pairs)
+        assert lenpairs % 2 == 0 and lenpairs >= 2
+
+        if lenpairs == 2:
+            # A single value, set it
+            delay, value = self.pairs
+            self.set(param=param, value=value, delay=delay)
+            return 0
+
         param = self.unaliasParam(param, param)
 
         if (tabargs := self.controlNames(aliases=False)) and param in tabargs:

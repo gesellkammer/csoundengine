@@ -1697,7 +1697,7 @@ class Engine:
         else:
             raise TimeoutError(f"operation timed out ater {timeout} secs")
 
-    def _queryNamedInstrAsync(self, name:str, delay=0., callback=None) -> None:
+    def _queryNamedInstrAsync(self, name: str, delay=0., callback=None) -> None:
         """
         Query the assigned instr number async
 
@@ -1705,7 +1705,7 @@ class Engine:
         as `callback(name:str, instrnum:int)`
         """
         synctoken = self._getSyncToken()
-        msg = f'i {self._builtinInstrs["nstrnumsync"]} {delay} 0 {synctoken} "{name}"'
+        msg = f'i {self._builtinInstrs["nstrnum"]} {delay} 0 {synctoken} "{name}"'
 
         def _callback(synctoken, instrname=name, func=callback):
             instrnum = int(self._responsesTable[synctoken])
@@ -1725,8 +1725,10 @@ class Engine:
             instrname: the name of the instrument
             cached: if True, results are cached
             callback: if given, the operation is async and the callback will
-                be called when the result is available. Callback must a of
-                the form ``func(instrname:str, instrnum:int) -> None``
+                be called when the result is available. Callback is of
+                the form ``func(instrname: str, instrnum: int) -> None``. If no
+                callback is given this method blocks until the instrument number
+                is returned
 
         Returns:
             the instr number if called without callback, 0 otherwise. If the instrument was
@@ -1741,13 +1743,10 @@ class Engine:
             self._queryNamedInstrAsync(instrname, delay=0, callback=callback)
             return 0
         token = self._getSyncToken()
-        msg = f'i {self._builtinInstrs["nstrnumsync"]} 0 0 {token} "{instrname}"'
-        out = self._inputMessageWait(token, msg)
-        assert out is not None
-        out = int(out)
+        msg = f'i {self._builtinInstrs["nstrnum"]} 0 0 {token} "{instrname}"'
+        out = int(self._inputMessageWait(token, msg))
         if out > 0:
             self._instrNumCache[instrname] = out
-        self._needsSync(False)
         return out
 
     def print(self, msg: str, delay=0.) -> None:
@@ -2135,6 +2134,7 @@ class Engine:
         self._perfThread.scoreEvent(0, "i", pargs)
         try:
             outvalue = q.get(block=True, timeout=timeout)
+            self._needsSync(False)
             return outvalue if outvalue != _UNSET else None
         except _queue.Empty:
             raise TimeoutError(f"{token=}, {pargs=}")
@@ -2396,6 +2396,7 @@ class Engine:
         self._perfThread.inputMessage(inputMessage)
         try:
             value = q.get(block=True, timeout=timeout)
+            self._needsSync(False)
             return value if value != _UNSET else None
         except _queue.Empty:
             raise TimeoutError(f"{token=}, {inputMessage=}")

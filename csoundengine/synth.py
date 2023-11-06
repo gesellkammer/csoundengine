@@ -557,9 +557,16 @@ class Synth(AbstrSynth):
                          f"synth: {self}")
             return 0
 
-        if automStart > self.start or automEnd < self.end:
+        if len(pairs) == 2:
+            t0 = pairs[0]
+            self.set(param=param, delay=delay+t0, value=pairs[1])
+            return 0
+
+        if automStart < self.start or automEnd > self.end:
+            print(f"Cropping pairs, {pairs=}, {automStart=}, {automEnd=}, {self.start=}, {self.end=}, delay={delay+now}")
             pairs, delay = internalTools.cropDelayedPairs(pairs=pairs, delay=delay + now, start=automStart, end=automEnd)
             if not pairs:
+                print("No pairs!!")
                 return 0
             delay -= now
         
@@ -602,7 +609,8 @@ class Synth(AbstrSynth):
         self.session.unsched(self.p1, delay=delay)
 
 
-def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int = None) -> str:
+def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int = None, tablestyle=''
+                           ) -> str:
     synth0 = synths[0]
     instr0 = synth0.instr
     if any(synth.instr.name != instr0.name for synth in synths):
@@ -658,7 +666,7 @@ def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int = None) -> str:
     if limitSynths:
         rows.append(["..."])
 
-    return _misc.html_table(rows, headers=colnames)
+    return _misc.html_table(rows, headers=colnames, tablestyle=tablestyle)
 
 
 class SynthGroup(AbstrSynth):
@@ -714,19 +722,19 @@ class SynthGroup(AbstrSynth):
         self.synths.extend(synths)
 
     def stop(self, delay=0.) -> None:
-        for s in self.synths:
+        for s in self:
             s.stop(delay=delay)
 
     def playing(self) -> bool:
-        return any(s.playing() for s in self.synths)
+        return any(s.playing() for s in self)
 
     def finished(self) -> bool:
-        return all(s.finished() for s in self.synths)
+        return all(s.finished() for s in self)
 
     def _automateTable(self, param: str, pairs, mode="linear", delay=0.,
                        overtake=False) -> None:
         count = 0
-        for synth in self.synths:
+        for synth in self:
             if isinstance(synth, Synth):
                 controls = synth.dynamicParamNames()
                 if controls and param in controls:
@@ -746,7 +754,7 @@ class SynthGroup(AbstrSynth):
     @cache
     def dynamicParamNames(self, aliases=True, aliased=False) -> set[str]:
         out: set[str] = set()
-        for synth in self.synths:
+        for synth in self:
             dynamicParams = synth.dynamicParamNames(aliases=aliases, aliased=aliased)
             out.update(dynamicParams)
         return out
@@ -754,7 +762,7 @@ class SynthGroup(AbstrSynth):
     @cache
     def aliases(self) -> dict[str, str]:
         out = {}
-        for synth in self.synths:
+        for synth in self:
             if synth.instr.aliases:
                 out.update(synth.instr.aliases)
         return out
@@ -762,7 +770,7 @@ class SynthGroup(AbstrSynth):
     @cache
     def pfieldNames(self, aliases=True, aliased=False) -> set[str]:
         out: set[str] = set()
-        for synth in self.synths:
+        for synth in self:
             namedPargs = synth.pfieldNames(aliases=aliases, aliased=aliased)
             if namedPargs:
                 out.update(namedPargs)
@@ -774,7 +782,6 @@ class SynthGroup(AbstrSynth):
                  mode="linear",
                  delay=0.,
                  overtake=False,
-                 strict=True
                  ) -> list[float]:
         """
         Automate the given parameter for all the synths in this group
@@ -806,7 +813,7 @@ class SynthGroup(AbstrSynth):
             synth
         """
         synthids = []
-        for synth in self.synths:
+        for synth in self:
             if param in synth.instr.dynamicParams():
                 synthid = synth.automate(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
             else:
@@ -824,22 +831,22 @@ class SynthGroup(AbstrSynth):
                         delay=0.,
                         overtake=False) -> list[float]:
         eventids = [synth._automatePfield(param, pairs, mode=mode, delay=delay, overtake=overtake)
-                    for synth in self.synths
+                    for synth in self
                     if param in synth.instr.dynamicPfieldNames()]
         if not eventids:
             raise ValueError(f"Parameter '{param}' unknown for group, possible "
                              f"parameters: {self.dynamicParamNames()}")
         return eventids
 
-    def _htmlTable(self) -> str:
-        subgroups = _iterlib.classify(self.synths, lambda synth: synth.instr.name)
+    def _htmlTable(self, style='') -> str:
+        subgroups = _iterlib.classify(self, lambda synth: synth.instr.name)
         lines = []
         instrcol = jupytertools.defaultPalette["name.color"]
         for instrname, synths in subgroups.items():
             lines.append(f'<p><small>Instr: <strong style="color:{instrcol}">'
                          f'{instrname}'
                          f'</strong> - <b>{len(synths)}</b> synths</small></p>')
-            htmltable = _synthsCreateHtmlTable(synths)
+            htmltable = _synthsCreateHtmlTable(synths, tablestyle=style)
             lines.append(htmltable)
         out = '\n'.join(lines)
         return out
@@ -850,21 +857,20 @@ class SynthGroup(AbstrSynth):
             jupytertools.displayButton("Stop", self.stop)
         span = jupytertools.htmlSpan
         bold = lambda txt: span(txt, bold=True)
-        now = self.synths[0].engine.elapsedTime()
-        start = min(max(0., s.start - now) for s in self.synths)
-        end = max(s.dur + s.start - now for s in self.synths)
-        if any(s.dur < 0 for s in self.synths):
+        now = self[0].engine.elapsedTime()
+        start = min(max(0., s.start - now) for s in self)
+        end = max(s.dur + s.start - now for s in self)
+        if any(s.dur < 0 for s in self):
             end = float('inf')
         dur = end - start
-        header = f'{bold("SynthGroup")}(synths={span(len(self.synths), tag="code")})'
+        header = f'{bold("SynthGroup")}(synths={span(len(self), tag="code")})'
         lines = [f'<small>{header}</small>']
-        # lines = [f'{bold("SynthGroup")}(synths={span(len(self.synths), tag="code")}']
-        # lines = [f'SynthGroup - start: {start:.3f}, dur: {dur:.3f}, synths: {len(self.synths)}']
         numrows = config['synthgroup_repr_max_rows']
-        if numrows == 0 or len(self.synths) <= numrows:
-            lines.append(self._htmlTable())
+        style = config['synthgroup_html_table_style']
+        if numrows == 0 or len(self) <= numrows:
+            lines.append(self._htmlTable(style=style))
         else:
-            subgroups = _iterlib.classify(self.synths, lambda synth: synth.getInstr.name)
+            subgroups = _iterlib.classify(self, lambda synth: synth.getInstr.name)
             instrline = []
             instrcol = jupytertools.defaultPalette["name.color"]
             for instrname, synths in subgroups.items():
@@ -880,7 +886,7 @@ class SynthGroup(AbstrSynth):
 
     def __repr__(self) -> str:
         lines = [f"SynthGroup(n={len(self.synths)})"]
-        for synth in self.synths:
+        for synth in self:
             lines.append("    "+repr(synth))
         return "\n".join(lines)
 
@@ -888,14 +894,14 @@ class SynthGroup(AbstrSynth):
         return len(self.synths)
 
     def __getitem__(self, idx) -> Synth:
-        return self.synths[idx]
+        return self.synths.__getitem__(idx)
 
     def __iter__(self):
         return iter(self.synths)
 
     def _setTable(self, param: str, value: float, delay=0) -> None:
         count = 0
-        for synth in self.synths:
+        for synth in self:
             if param in synth.dynamicParamNames(aliases=True, aliased=True):
                 synth._setTable(param=param, value=value, delay=delay)
                 count += 1
@@ -916,7 +922,7 @@ class SynthGroup(AbstrSynth):
         if param not in self.paramNames():
             raise KeyError(f"Parameter '{param}' not known. Possible parameters: "
                            f"{self.paramNames()}")
-        for synth in self.synths:
+        for synth in self:
             value = synth.paramValue(param)
             if value is not None:
                 return value
@@ -924,20 +930,20 @@ class SynthGroup(AbstrSynth):
             
     def _setp(self, param: str, value: float, delay=0.) -> None:
         count = 0
-        for synth in self.synths:
-            if param in synth.instr.pfieldNames():
+        for synth in self:
+            if param in synth.instr.pfieldNames(aliases=False):
                 synth._setp(param=param, value=value, delay=delay)
                 count += 1
         if count == 0:
             raise KeyError(f"Parameter {param} unknown. "
-                           f"Possible parameters: {self.dynamicParamNames()}")
+                           f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
 
     def controlNames(self, aliases=True, aliased=False) -> set[str]:
         """
         Returns a set of available table named parameters for this group
         """
         allparams = set()
-        for synth in self.synths:
+        for synth in self:
             params = synth.controlNames(aliases=aliases, aliased=aliased)
             if params:
                 allparams.update(params)

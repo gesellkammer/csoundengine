@@ -74,7 +74,8 @@ endin
 instr ${notifyDeallocOsc}
     ip1 = p4
     iport = p5
-    OSCsend 0, "127.0.0.1", iport, "/dealloc", "d", ip1
+    OSCsend 1, "127.0.0.1", iport, "/dealloc", "d", ip1
+    turnoff
 endin
 
 instr ${pingback}
@@ -98,23 +99,13 @@ instr ${print}
     prints "csoundengine: '%s'\n", Smsg
 endin
 
-instr ${nstrnumsync}
-    itoken = p4
-    Sname = p5
-    ; inum nstrnum Sname
-    inum nametoinstrnum Sname
-    if itoken > 0 then
-        tabw_i inum, itoken, gi__responses
-        outvalue "__sync__", itoken
-    endif
-endin
-
 instr ${nstrnum}
     itoken = p4
     Sname = p5
     ; inum nstrnum Sname
     inum nametoinstrnum Sname
     tabw_i inum, itoken, gi__responses
+    outvalue "__sync__", itoken
 endin
 
 instr ${tabwrite}

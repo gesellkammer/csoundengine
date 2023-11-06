@@ -146,6 +146,8 @@ _('synth_repr_show_pfield_index', False,
   doc='Show the pfield index for named pfields in a Synths repr')
 _('synthgroup_repr_max_rows', 4,
   doc='Max. number of rows for a SynthGroup repr. Use 0 to disable')
+_('synthgroup_html_table_style', 'font-size: smaller',
+  doc='Inline css style applied to the table displayed as html for synthgroups')
 _('jupyter_synth_repr_stopbutton', True,
   doc='When running inside a jupyter notebook, display a stop button'
       'for Synths and SynthGroups')
