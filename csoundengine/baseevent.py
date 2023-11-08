@@ -195,7 +195,7 @@ class BaseEvent:
 
         if lenpairs == 2:
             # A single value, set it
-            delay, value = self.pairs
+            delay, value = pairs
             self.set(param=param, value=value, delay=delay)
             return 0
 

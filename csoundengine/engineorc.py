@@ -92,6 +92,7 @@ endin
 instr ${turnoff_future}
     iwhich = p4
     turnoff3 iwhich
+    turnoff
 endin
 
 instr ${print}

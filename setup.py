@@ -51,7 +51,7 @@ setup(
 
         "ctcsound7>=0.4.5",
         "sndfileio>=1.9.0",
-        "emlib>=1.13.0",
+        "emlib>=1.13.1",
         "configdict>=2.6.0",
         "bpf4>=1.8.4",
         "numpyx>=1.3.1",

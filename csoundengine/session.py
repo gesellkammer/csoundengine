@@ -575,7 +575,7 @@ class Session(AbstractRenderer):
         synth = self._synths.pop(synthid, None)
         if synth is None:
             return
-        synth._playing = False
+        synth._scheduled = False
         if synth.controlsSlot:
             assert synth.controlsSlot * self.dynamicArgsPerInstr == synth.args[0]
             self._dynargsReleaseSlot(int(synth.controlsSlot))

@@ -16,6 +16,7 @@ from typing import Sequence, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from . import session as _session
+    from .abstractrenderer import AbstractRenderer
 
 __all__ = (
     'Instr',
@@ -395,6 +396,20 @@ class Instr:
             parts.append(f"tabargs={self.controls}")
 
         return f"Instr({', '.join(parts)})"
+
+    def generateBody(self, renderer: AbstractRenderer) -> str:
+        """
+        Generate the actual body of this instrument
+
+        An Instr can generate different csound code depending on the renderer.
+
+        Args:
+            renderer: the renderer for which to generate the body.
+
+        Returns:
+            the actual csound code to be used as the body of this instrument
+        """
+        return renderer.generateInstrBody(self)
 
     def _pfieldsRepr(self) -> str:
         pargs = self.pfieldIndexToName

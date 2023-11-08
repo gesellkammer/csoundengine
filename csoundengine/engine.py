@@ -1812,7 +1812,7 @@ class Engine:
         if isinstance(p1, str):
             p1 = self.queryNamedInstr(p1)
         dur = self.ksmps/self.sr * 2
-        pfields = [self._builtinInstrs['turnoff_future'], 0, dur, p1]
+        pfields = [self._builtinInstrs['turnoff_future'], 0.01, dur, p1]
         self._perfThread.scoreEvent(0, "i", pfields)
 
     def unschedAll(self) -> None:

@@ -191,7 +191,7 @@ class Synth(AbstrSynth):
         synths[1].automate('ktransp', [0, 0, 10, -1])
 
     """
-    __slots__ = ('instr', 'session', 'group', '_playing', 'priority', 'p1', 'args',
+    __slots__ = ('instr', 'session', 'group', '_scheduled', 'priority', 'p1', 'args',
                  'controlsSlot', 'controls')
 
     def __init__(self,
@@ -235,7 +235,7 @@ class Synth(AbstrSynth):
         self.controls = controls if controls is not None else _EMPTYDICT
         """The dynamic controls used to schedule this synth"""
 
-        self._playing: bool = True
+        self._scheduled: bool = True
 
     def aliases(self) -> dict[str, str]:
         """The parameter aliases of this synth, or an empty dict if no aliases defined"""
@@ -247,12 +247,6 @@ class Synth(AbstrSynth):
 
     def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
         return self.instr.controlNames(aliases=aliases, aliased=aliased)
-
-    def getInstr(self) -> Instr:
-        """
-        The Instr used to generate this synth
-        """
-        return self.instr
 
     def _html(self) -> str:
         argsfontsize = config['html_args_fontsize']
@@ -351,13 +345,15 @@ class Synth(AbstrSynth):
             or 'future' if it has not started
 
         """
-        if self._playing:
+        if not self._scheduled:
+            return "stopped"
+        now = self.engine.elapsedTime()
+        if self.start <= now < self.end:
             return "playing"
+        elif self.start > now:
+            return "future"
         else:
-            if self.start > self.engine.elapsedTime():
-                return "future"
-            else:
-                return "stopped"
+            return "stopped"
 
     def playing(self) -> bool:
         """ Is this Synth playing """
@@ -563,10 +559,8 @@ class Synth(AbstrSynth):
             return 0
 
         if automStart < self.start or automEnd > self.end:
-            print(f"Cropping pairs, {pairs=}, {automStart=}, {automEnd=}, {self.start=}, {self.end=}, delay={delay+now}")
             pairs, delay = internalTools.cropDelayedPairs(pairs=pairs, delay=delay + now, start=automStart, end=automEnd)
             if not pairs:
-                print("No pairs!!")
                 return 0
             delay -= now
         
@@ -722,7 +716,7 @@ class SynthGroup(AbstrSynth):
         self.synths.extend(synths)
 
     def stop(self, delay=0.) -> None:
-        for s in self:
+        for s in self.synths:
             s.stop(delay=delay)
 
     def playing(self) -> bool:
@@ -870,7 +864,7 @@ class SynthGroup(AbstrSynth):
         if numrows == 0 or len(self) <= numrows:
             lines.append(self._htmlTable(style=style))
         else:
-            subgroups = _iterlib.classify(self, lambda synth: synth.getInstr.name)
+            subgroups = _iterlib.classify(self.synths, lambda synth: synth.instr.name)
             instrline = []
             instrcol = jupytertools.defaultPalette["name.color"]
             for instrname, synths in subgroups.items():
