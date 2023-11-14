@@ -177,6 +177,7 @@ class EngineMagics(Magics):
                 self.currentEngine = _engine.getEngine(list(engines)[-1])
         else:
             raise SyntaxError("Syntax: %%definstr [engine] instrname")
+        assert self.currentEngine is not None
         session = self.currentEngine.session()
         instr = session.defInstr(name=instrname, body=cell)
         display(HTML(instr._repr_html_()))

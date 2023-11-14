@@ -192,12 +192,12 @@ class TableInfo:
     """
     Information about a csound table
     """
-    sr: float
+    sr: int
     size: int
     numChannels: int = 1
     numFrames: int = -1
     path: str = ''
-    hasGuard: bool = None
+    hasGuard: bool | None = None
 
     def __post_init__(self):
         if self.hasGuard is None:
@@ -321,7 +321,7 @@ class Engine:
 
     def __init__(self,
                  name: str = '',
-                 sr: int | None = None,
+                 sr=0,
                  ksmps: int | None = None,
                  backend: str = 'default',
                  outdev: str | None = None,
@@ -358,6 +358,8 @@ class Engine:
             backend = cfg[f'{internalTools.platform}_backend']
         elif backend == '?':
             backend = internalTools.selectItem(availableBackends, title="Select Backend")
+            if backend is None:
+                raise ValueError("No backend selected")
         elif backend not in availableBackends:
             knownBackends = csoundlib.getAudioBackendNames(available=False)
             if backend not in knownBackends:
@@ -371,7 +373,8 @@ class Engine:
         resolvedBackend = internalTools.resolveOption(cascadingBackends,
                                                       availableBackends)
         backendDef = csoundlib.getAudioBackend(resolvedBackend)
-        if not resolvedBackend:
+
+        if not backendDef:
             logger.error(f'Could not find any available backends for {backend}')
             logger.error(f'    Available backends: {", ".join(availableBackends)}')
             logger.error('To configure the default backends, do:\n'
@@ -393,15 +396,15 @@ class Engine:
             if len(outdevs) == 0:
                 raise RuntimeError("No output audio devices")
             selected = internalTools.selectAudioDevice(outdevs, title="Select output device")
-            if not selected:
-                RuntimeError("No output audio device selected")
+            if selected is None:
+                raise RuntimeError("No output audio device selected")
             outdev, outdevName = selected.id, selected.name
             if not nchnls:
                 nchnls = selected.numchannels
         elif isinstance(outdev, int) or _re.search(r"\bdac[0-9]+\b", outdev):
             # dac1, dac8
             if resolvedBackend == 'jack':
-                logger.waning(
+                logger.warning(
                     "This way of setting the audio device is discouraged with jack"
                     ". Use a regex to select a specific client or None to connect"
                     "to the default client")
@@ -418,6 +421,8 @@ class Engine:
                 outdev, outdevName = selected.id, selected.name
 
         if indev is None:
+            if defaultin is None:
+                raise RuntimeError(f"No default device for backend {backend}")
             indev, indevName = defaultin.id, defaultin.name
             if not nchnls_i:
                 nchnls_i = defaultin.numchannels
@@ -425,12 +430,12 @@ class Engine:
             if len(indevs) == 0:
                 raise RuntimeError("No input audio devices")
             selected = internalTools.selectAudioDevice(indevs, title="Select input device")
-            if not selected:
-                RuntimeError("No output audio device selected")
+            if selected is None:
+                raise RuntimeError("No output audio device selected")
             indev, indevName = selected.id, selected.name
         elif isinstance(indev, int) or _re.search(r"\badc[0-9]+\b", indev):
             if resolvedBackend == 'jack':
-                logger.waning(
+                logger.warning(
                         "This way of setting the audio device is discouraged with jack"
                         ". Use a regex to select a specific client or None to connect"
                         "to the default client")
@@ -450,19 +455,20 @@ class Engine:
             midibackend = 'portmidi'
 
         commandlineOptions = commandlineOptions if commandlineOptions is not None else []
-        sr = sr if sr is not None else cfg['sr']
+        sr = sr if sr else cfg['sr']
         backendsr = csoundlib.getSamplerateForBackend(resolvedBackend)
         backendDef = csoundlib.getAudioBackend(resolvedBackend)
-        if sr != 0 and backendDef.hasSystemSr and sr != backendsr:
+        assert backendDef is not None
+        if sr and backendDef.hasSystemSr and sr != backendsr:
             logger.warning(f"sr requested: {sr}, but backend has a fixed sr ({backendsr})"
                            f". Using backend's sr")
             sr = backendsr
-        elif sr == 0:
+        elif not sr:
             if backendDef.hasSystemSr:
                 sr = backendsr
             else:
                 sr = 44100
-                logger.error(f"Asked for backend sr, but backend {resolvedBackend}, does not"
+                logger.error(f"Asked for system sr, but backend '{resolvedBackend}', does not"
                              f"have a fixed sr. Using sr={sr}")
 
         if a4 is None: a4 = cfg['A4']
@@ -488,6 +494,7 @@ class Engine:
         self.name = name
         "Name of this Engine"
 
+        assert sr > 0
         self.sr = sr
         "Sample rate"
 
@@ -499,6 +506,9 @@ class Engine:
 
         self.ksmps = ksmps
         "Number of samples per cycle"
+
+        self.onecycle = ksmps / sr
+        "Duration of one performance cycle (ksmps/sr)"
 
         self.outdev = outdev
         "Output device used"
@@ -581,7 +591,11 @@ class Engine:
         elif midiin == '?':
             midiindevs, midioutdevs = csoundlib.midiDevices(self.midiBackend)
             midiindevs.append(csoundlib.MidiDevice('all', 'all'))
-            midiindev = internalTools.selectMidiDevice(midiindevs)
+            selecteddev = internalTools.selectMidiDevice(midiindevs)
+            if selecteddev is not None:
+                midiindev = selecteddev
+            else:
+                raise RuntimeError("No MIDI device selected")
         elif midiin:
             midiindev = csoundlib.MidiDevice(deviceid=midiin, name='')
         else:
@@ -631,10 +645,6 @@ class Engine:
         # ready
         self._responsesTable: np.ndarray
 
-        # a table with sub-mix gains which can be used to group
-        # synths, samples, etc.
-        self._subgainsTable: None | np.ndarray = None
-
         # tokens start at 1, leave token 0 to signal that no sync is needed
         # tokens are used as indices to _responsesTable, which is an alias of
         # gi__responses
@@ -656,8 +666,8 @@ class Engine:
         self._instrNumCache: dict[str, int] = {}
 
         self._session: None | _session.Session = None
-        self._busTokenCountPtr: np.ndarray | None = None
-        self._soundfontPresetCountPtr: np.ndarray | None = None
+        self._busTokenCountPtr: np.ndarray = np.empty((1,), dtype=float)
+        self._soundfontPresetCountPtr: np.ndarray = np.empty((1,), dtype=float)
         self._kbusTable: np.ndarray | None = None
         self._busIndexes: dict[int, int] = {}
         self._busTokenToKind: dict[int, str] = {}
@@ -674,6 +684,7 @@ class Engine:
         self._reservedInstrnumRanges: list[tuple[str, int, int]] = [('builtinorc', CONSTS['reservedInstrsStart'], CONSTS['userInstrsStart']-1)]
 
         self._compileViaPerfthread = False
+        self._minCyclesForAbsoluteMode = 4
 
         self.start()
 
@@ -816,10 +827,10 @@ class Engine:
         buffersize = self.bufferSize
         optB = buffersize * self.numBuffers
         if self.backend == 'jack':
-            if not jacktools.isJackRunning():
+            jackinfo = jacktools.getInfo()
+            if jackinfo is None:
                 logger.error("Asked to use jack as backend, but jack is not running")
                 raise RuntimeError("jack is not running")
-            jackinfo = jacktools.getInfo()
             self.sr = jackinfo.samplerate
             minB = jackinfo.blocksize if jackinfo.onPipewire else jackinfo.blocksize*2
             if optB < minB:
@@ -873,6 +884,7 @@ class Engine:
         else:
             includestr = ""
 
+        assert self.sr > 0
         orc, instrmap = engineorc.makeOrc(sr=self.sr,
                                           ksmps=self.ksmps,
                                           nchnls=self.nchnls,
@@ -910,7 +922,6 @@ class Engine:
         if config['set_sigint_handler']:
             internalTools.setSigintHandler()
 
-        self._subgainsTable = self.csound.table(self._builtinTables['subgains'])
         self._responsesTable = self.csound.table(self._builtinTables['responses'])
 
         chanptr, err = self.csound.channelPtr("_soundfontPresetCount",
@@ -938,7 +949,7 @@ class Engine:
     def _setupGlobalInstrs(self):
         if self.hasBusSupport():
             self._perfThread.scoreEvent(0, "i", [self._builtinInstrs['clearbuses_post'], 0, -1])
-        self._needsSync()
+        self._modified()
 
     def stop(self):
         """
@@ -990,7 +1001,7 @@ class Engine:
         strsets = ["cos", "linear", "smooth", "smoother"]
         for s in strsets:
             self.strSet(s)
-        self._needsSync()
+        self._modified()
         self.sync()
 
     def restart(self, wait=1) -> None:
@@ -1024,9 +1035,10 @@ class Engine:
             token = int(token)
             callback = self._responseCallbacks.get(token)
             if callback:
-                del self._responseCallbacks[token]
                 callback(token)
                 self._releaseToken(token)
+                del self._responseCallbacks[token]
+
             else:
                 logger.error(f"Unknown sync token: {token}")
 
@@ -1080,7 +1092,7 @@ class Engine:
         """
         return self.ksmps/self.sr * 2
 
-    def sync(self, timeout: float = None, force=False) -> bool:
+    def sync(self, timeout: float = None, force=False, threshold=2.) -> bool:
         """
         Block until csound has processed its immediate events
 
@@ -1088,6 +1100,8 @@ class Engine:
             timeout: a timeout in seconds; None = use default timeout as defined
                 in the configuration (TODO: add link to configuration docs)
             force: if True, sync even if not needed
+            threshold: if time since last modification is longuer than this
+                threshold assume that sync is not needed
 
         Returns:
             True if it synced, False if no sync was performed
@@ -1103,9 +1117,12 @@ class Engine:
             >>> e.sync()
             >>> # do something with the tables
         """
-        if not force and self._lastModification == 0:
-            return False
-
+        if not force:
+            if self._lastModification == 0:
+                return False
+            if time.time() - self._lastModification > threshold:
+                self._lastModification = 0
+                return False
         assert self._perfThread
         token = self._getSyncToken()
         pargs = [self._builtinInstrs['pingback'], 0, 0, token]
@@ -1139,10 +1156,18 @@ class Engine:
                         logger.error("compileOrcAsync error: ")
                         logger.error(internalTools.addLineNumbers(code))
                         raise CsoundError("Could not compile async")
-        self._needsSync()
+        self._modified()
 
-    def _needsSync(self, status=True) -> None:
+    def _modified(self, status=True) -> None:
         self._lastModification = time.time() if status else 0
+
+    def needsSync(self) -> bool:
+        """
+        True if ths engine has been modified
+
+        Actions that modify an engine: code compilation, table allocation, ...
+        """
+        return self._lastModification > 0
 
     def _compileInstr(self, instrname: str|int, code: str, block=False) -> None:
         self._instrRegistry[instrname] = code
@@ -1262,12 +1287,13 @@ class Engine:
             >>> e.evalCode('getinstrnum("myinstr")')
 
         """
-        assert self.started
+        assert self.started and self.csound is not None
         words = code.split()
         if words[0] != "return":
             code = "return " + code
+
         out = self.csound.evalCode(code)
-        self._needsSync(False)
+        self._modified(False)
         return out
 
     def tableWrite(self, tabnum: int, idx: int, value: float, delay=0.) -> None:
@@ -1297,7 +1323,7 @@ class Engine:
             assert self._perfThread is not None
             self._perfThread.scoreEvent(0, "i", pargs)
 
-    def getTableData(self, idx: int, flat=False) -> None | np.ndarray:
+    def getTableData(self, idx: int, flat=False) -> np.ndarray:
         """
         Returns a numpy array pointing to the data of the table.
 
@@ -1314,7 +1340,7 @@ class Engine:
                 even if the table holds a multi-channel sample.
 
         Returns:
-            a numpy array pointing to the data array of the table, or None
+            a numpy array pointing to the data array of the table. Raises IndexError
             if the table was not found
 
         """
@@ -1323,7 +1349,7 @@ class Engine:
         if arr is None:
             arr = self.csound.table(idx)
             if arr is None:
-                return None
+                raise IndexError(f"Table {idx} was not found")
             if not flat:
                 tabinfo = self.tableInfo(idx)
                 if tabinfo.numChannels > 1:
@@ -1347,6 +1373,7 @@ class Engine:
 
         .. seealso:: :meth:`Engine.elapsedTime`
         """
+        assert self.csound is not None
         reportedTime, lastTime = self._realElapsedTime
         now = time.time()
         if now - lastTime > threshold:
@@ -1392,7 +1419,6 @@ class Engine:
         """
         # _lockedELapsedTime will be a value if this engine is locked, or None otherwise
         return self._lockedElapsedTime or self.realElapsedTime()
-        # return self._lockedElapsedTime or self.csound.currentTimeSamples() / self.sr
 
     def lockClock(self, lock=True):
         """
@@ -1514,11 +1540,22 @@ class Engine:
         """
         return self
 
+    def _presched(self, delay: float, relative: bool) -> tuple[float, float]:
+        if relative:
+            if (delay > self.onecycle * self._minCyclesForAbsoluteMode) or self._lockedElapsedTime:
+                t0 = self.elapsedTime()
+                delay = t0 + delay + self.extraLatency
+                relative = False
+
+        # 1 if absolute, 0 if relative
+        absp2mode = 1 - int(relative)
+        return absp2mode, delay
+
     def sched(self,
               instr: int | float | str,
               delay=0.,
               dur=-1.,
-              args: np.ndarray | Sequence[float | str] = None,
+              args: np.ndarray | Sequence[float | str] | None = None,
               relative=True
               ) -> float:
         """
@@ -1586,10 +1623,8 @@ class Engine:
         :meth:`~csoundengine.engine.Engine.unschedAll`
         """
         assert self.started
-        if relative:
-            t0 = self.elapsedTime()
-            delay = t0 + delay + self.extraLatency
-            relative = False
+
+        absp2mode, delay = self._presched(delay=delay, relative=relative)
 
         if self.autosync:
             self.sync()
@@ -1622,17 +1657,19 @@ class Engine:
             pargsnp[2] = dur
             pargsnp[3:] = args
             # 1: we use always absolute time
-            self._perfThread.scoreEvent(1, "i", pargsnp)
+            self._perfThread.scoreEvent(absp2mode, "i", pargsnp)
         elif not args:
             pargs = [instrfrac, delay, dur]
-            self._perfThread.scoreEvent(1, "i", pargs)
-        else:
+            self._perfThread.scoreEvent(absp2mode, "i", pargs)
+        elif isinstance(args, (list, tuple)):
             needsSync = any(isinstance(a, str) and a not in self._strToIndex for a in args)
             pargs = [instrfrac, delay, dur]
             pargs.extend(float(a) if not isinstance(a, str) else self.strSet(a) for a in args)
             if needsSync:
                 self.sync()
-            self._perfThread.scoreEvent(1, "i", pargs)
+            self._perfThread.scoreEvent(absp2mode, "i", pargs)
+        else:
+            raise TypeError(f"Expected a sequence or array, got {args}")
         return instrfrac
 
     def _queryNamedInstrs(self, names: list[str], timeout=0.1, callback=None, delay=0.
@@ -1659,7 +1696,7 @@ class Engine:
                 for name in names:
                     self._queryNamedInstrAsync(name, delay=delay)
             else:
-                results = {}
+                results: dict[str, int] = {}
 
                 def mycallback(name, instrnum, n=len(names), results=results, callback=callback):
                     results[name] = instrnum
@@ -1735,7 +1772,7 @@ class Engine:
             not found (either because it was never compiled or the compilation is not ready yet)
             -1 will be returned
         """
-        if cached and (instrnum := self._instrNumCache.get(instrname)) > 0:
+        if cached and (instrnum := self._instrNumCache.get(instrname, 0)) > 0:
             if callback:
                 callback(instrname, instrnum)
             return instrnum
@@ -1744,9 +1781,11 @@ class Engine:
             return 0
         token = self._getSyncToken()
         msg = f'i {self._builtinInstrs["nstrnum"]} 0 0 {token} "{instrname}"'
-        out = int(self._inputMessageWait(token, msg))
-        if out > 0:
-            self._instrNumCache[instrname] = out
+        out = self._inputMessageWait(token, msg)
+        if out is None or out <= 0:
+            raise RuntimeError(f"Could not query the instrument number for '{instrname}'")
+        out = int(out)
+        self._instrNumCache[instrname] = out
         return out
 
     def print(self, msg: str, delay=0.) -> None:
@@ -1831,8 +1870,8 @@ class Engine:
 
     def session(self,
                 priorities: int = None,
-                dynamicArgsPerInstr: int = None,
-                dynamicArgsSlots: int = None
+                maxControlsPerInstr: int = None,
+                numControlSlots: int = None
                 ) -> _session.Session:
         """
         Return the Session corresponding to this Engine
@@ -1845,10 +1884,10 @@ class Engine:
 
         Args:
             priorities: the max. number of priorities for scheduled instrs
-            dynamicArgsSlots: the total number of slots allocated for
+            numControlSlots: the total number of slots allocated for
                 dynamic args. The default is determined by the config
                 'dynamic_args_num_slots'
-            dynamicArgsPerInstr: the max. number of dynamic args per instr
+            maxControlsPerInstr: the max. number of dynamic args per instr
                 (the default is set in the config 'max_dynamic_args_per_instr')
 
         Returns:
@@ -1880,15 +1919,15 @@ class Engine:
             from .session import Session
             self._session = Session(engine=self,
                                     priorities=priorities,
-                                    dynamicArgsSlots=dynamicArgsSlots,
-                                    dynamicArgsPerInstr=dynamicArgsPerInstr)
+                                    numControlSlots=numControlSlots,
+                                    maxControlsPerInstr=maxControlsPerInstr)
         else:
-            if dynamicArgsPerInstr is not None and dynamicArgsPerInstr != self._session.dynamicArgsPerInstr:
-                logger.info(f"Asking to create a session with dynamicArgsPerInstr={dynamicArgsPerInstr}, "
+            if maxControlsPerInstr is not None and maxControlsPerInstr != self._session.maxDynamicArgs:
+                logger.info(f"Asking to create a session with dynamicArgsPerInstr={maxControlsPerInstr}, "
                             f"which differs from the value of the current session "
-                            f"({self._session.dynamicArgsPerInstr}). The old value will be kept")
-            if dynamicArgsSlots is not None and dynamicArgsSlots != self._session._dynargsNumSlots:
-                logger.info(f"Asking to create a session with dynamicArgsSlices={dynamicArgsSlots}, "
+                            f"({self._session.maxDynamicArgs}). The old value will be kept")
+            if numControlSlots is not None and numControlSlots != self._session._dynargsNumSlots:
+                logger.info(f"Asking to create a session with dynamicArgsSlices={numControlSlots}, "
                             f"which differs from the value of the current session "
                             f"({self._session._dynargsNumSlots}). The old value will be kept")
             if priorities is not None and priorities != self._session.numPriorities:
@@ -1912,7 +1951,7 @@ class Engine:
         """
         self._reservedInstrnumRanges.append((name, mininstrnum, maxinstrnum))
 
-    def makeEmptyTable(self, size, numchannels=1, sr=0
+    def makeEmptyTable(self, size, numchannels=1, sr=0, delay=0.
                        ) -> int:
         """
         Create an empty table, returns the index of the created table
@@ -1922,6 +1961,7 @@ class Engine:
             numchannels: if the table will be used to hold audio, the
                 number of channels of the audio
             sr: the samplerate of the audio, if the table is used to hold audio
+            delay: when to create the table
 
 
         Example
@@ -1954,11 +1994,16 @@ class Engine:
 
         """
         tabnum = self._assignTableNumber()
-        self._perfThread.scoreEvent(0, "f", [tabnum, 0, -size, -2, 0])
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
-        if sr != 0:
-            self.setTableMetadata(tabnum, sr=sr, numchannels=numchannels)
-        self._needsSync()
+        if sr == 0:
+            self._perfThread.scoreEvent(0, "f", [tabnum, delay, -size, -2, 0])
+        else:
+            itoken = 0  # we don't need a notification
+            iempty = 1
+            self._perfThread.scoreEvent(0, "i", [self._builtinInstrs['maketable'], delay,
+                                                 0, itoken, tabnum, size, iempty, sr, numchannels])
+            # self.setTableMetadata(tabnum, sr=sr, numchannels=numchannels, delay=delay)
+        self._modified()
         return tabnum
 
     def makeTable(self,
@@ -2030,13 +2075,16 @@ class Engine:
 
         # data can be passed as p-args directly (non-blocking)
         size = len(data)
-        numchannels = 1 if len(data.shape) == 1 else data.shape[1]
+        if isinstance(data, np.ndarray):
+            numchannels = 1 if len(data.shape) == 1 else data.shape[1]
+        else:
+            numchannels = 1
         arr = np.zeros((len(data)+4,), dtype=float)
         arr[0:4] = [tabnum, 0, size, -2]
         arr[4:] = data
         self._perfThread.scoreEvent(0, "f", arr)
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
-        self._needsSync()
+        self._modified()
         return int(tabnum)
 
     def tableExists(self, tabnum: int) -> bool:
@@ -2050,7 +2098,7 @@ class Engine:
             return False
         return True
 
-    def setTableMetadata(self, tabnum: int, sr: int, numchannels: int = 1,
+    def setTableMetadata(self, tabnum: int, sr: int, numchannels: int = 1, delay=0.,
                          check=True) -> None:
         """
         Set metadata for a table holding sound samples.
@@ -2068,9 +2116,10 @@ class Engine:
             numchannels: number of channels of data
             check: if True, it will check if the table exists in the case where
                 the table wass not created via the engine
+            delay: when to perform the operation.
         """
         logger.info(f"Setting table metadata. {tabnum=}, {sr=}, {numchannels=}")
-        pargs = [self._builtinInstrs['ftsetparams'], 0, 0., tabnum, sr, numchannels]
+        pargs = [self._builtinInstrs['ftsetparams'], delay, 0., tabnum, sr, numchannels]
         tabinfo = self._tableInfo.get(tabnum)
         if tabinfo:
             tabinfo.sr = sr
@@ -2081,7 +2130,7 @@ class Engine:
             else:
                 logger.debug(f"setTableMetadata: table {tabnum} was not created by this Engine")
         self._perfThread.scoreEvent(0, "i", pargs)
-        self._needsSync()
+        self._modified()
 
     def _registerSync(self, token: int) -> _queue.Queue:
         """
@@ -2094,7 +2143,7 @@ class Engine:
             a Queue. It can be used to wait on, the value obtained
             will be the returned value
         """
-        q = _queue.Queue()
+        q: _queue.Queue[float] = _queue.Queue()
         self._responseCallbacks[token] = lambda token, q=q, table=self._responsesTable: q.put(table[token])
         return q
 
@@ -2134,7 +2183,7 @@ class Engine:
         self._perfThread.scoreEvent(0, "i", pargs)
         try:
             outvalue = q.get(block=True, timeout=timeout)
-            self._needsSync(False)
+            self._modified(False)
             return outvalue if outvalue != _UNSET else None
         except _queue.Empty:
             raise TimeoutError(f"{token=}, {pargs=}")
@@ -2396,7 +2445,7 @@ class Engine:
         self._perfThread.inputMessage(inputMessage)
         try:
             value = q.get(block=True, timeout=timeout)
-            self._needsSync(False)
+            self._modified(False)
             return value if value != _UNSET else None
         except _queue.Empty:
             raise TimeoutError(f"{token=}, {inputMessage=}")
@@ -2483,7 +2532,10 @@ class Engine:
                          sr, numchannels]
                 if not callback:
                     # the next line blocks until the table is created
-                    tabnum = int(self._eventWait(token, pargs))
+                    response = self._eventWait(token, pargs)
+                    if response is None:
+                        raise RuntimeError(f"Failed to make table with args: {pargs}")
+                    tabnum = int(response)
                     self.fillTable(tabnum, data=data, method='pointer', block=False)
                     self._tableInfo[tabnum] = TableInfo(sr=sr, size=numitems,
                                                         numChannels=numchannels)
@@ -2496,8 +2548,11 @@ class Engine:
         if callback:
             self._eventWithCallback(token, pargs, callback)
         else:
-            tabnum = int(self._eventWait(token, pargs))
-            assert tabnum is not None and tabnum > 0
+            response = self._eventWait(token, pargs)
+            if response is None:
+                raise RuntimeError(f"Failed to create table with args {pargs}")
+            tabnum = int(response)
+            assert tabnum > 0
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         return tabnum
 
@@ -2522,6 +2577,7 @@ class Engine:
         """
         if kind != 'control' and kind != 'audio':
             raise NotImplementedError("Only kind 'control' and 'audio' are implemented at the moment")
+        assert self.csound is not None
         ptr = self._channelPointers.get(channel)
         if ptr is None:
             kindint = ctcsound.CSOUND_CONTROL_CHANNEL if kind == 'control' else ctcsound.CSOUND_AUDIO_CHANNEL
@@ -2591,7 +2647,7 @@ class Engine:
                 instrnum = self._builtinInstrs['chnsets']
                 s = f'i {instrnum} {delay} 0 "{channel}" "{value}"'
                 self._perfThread.inputMessage(s)
-            self._needsSync()
+            self._modified()
         elif method == 'udp':
             assert isinstance(value, (float, str))
             self.udpSetChannel(channel, value)
@@ -2760,10 +2816,10 @@ class Engine:
         elif method == 'api':
             if block:
                 self.csound.tableCopyIn(tabnum, data)
-                self._needsSync(False)
+                self._modified(False)
             else:
                 self.csound.tableCopyInAsync(tabnum, data)
-                self._needsSync()
+                self._modified()
         else:
             raise KeyError("Method not supported. Must be pointer or score")
 
@@ -2810,7 +2866,7 @@ class Engine:
         toks = [self._getSyncToken() for _ in range(4)]
         pargs = [self._builtinInstrs['tableInfo'], 0, 0., tabnum]
         pargs.extend(toks)
-        q = _queue.Queue()
+        q: _queue.Queue[list[float]] = _queue.Queue()
 
         # noinspection PyDefaultArgument
         def callback(tok0, _q=q, t=self._responsesTable, _toks=toks):
@@ -2825,7 +2881,7 @@ class Engine:
         sr = vals[0]
         if sr <= 0:
             raise TableNotFoundError(f"Table {tabnum} does not exist!")
-        return TableInfo(sr=vals[0], numChannels=int(vals[1]),
+        return TableInfo(sr=int(vals[0]), numChannels=int(vals[1]),
                          numFrames=int(vals[2]), size=int(vals[3]))
 
     def includeFile(self, include: str) -> None:
@@ -3008,7 +3064,9 @@ class Engine:
             sf2path = _state.openSoundfont(ensureSelection=True)
         if preset is None:
             item = csoundlib.soundfontSelectPreset(sf2path)
-            bank, presetnum, _ = item
+            if item is None:
+                return 0
+            presetname, bank, presetnum = item
         else:
             bank, presetnum = preset
         tup = (sf2path, bank, presetnum)
@@ -3055,7 +3113,7 @@ class Engine:
             raise NotImplementedError("str instrs not implemented yet")
 
     def playSample(self, tabnum: int, delay=0., chan=1, speed=1., gain=1., fade=0.,
-                   starttime=0., gaingroup=0, lagtime=0.01, dur=-1.
+                   starttime=0., lagtime=0.01, dur=-1.
                    ) -> float:
         """
         Play a sample already loaded into a table.
@@ -3070,7 +3128,6 @@ class Engine:
             gain: a gain applied to this sample
             fade: fadein/fadeout time in seconds
             starttime: playback can be started from anywhere within the table
-            gaingroup: multiple instances can be gain-moulated via gaingroups
             lagtime: a lag value for dynamic pfields (see below)
             dur: the duration of playback. Use -1 to play until the end
 
@@ -3107,7 +3164,7 @@ class Engine:
         * :meth:`~Engine.soundfontPlay`
 
         """
-        args = [gain, speed, tabnum, chan, fade, starttime, gaingroup, lagtime]
+        args = [gain, speed, tabnum, chan, fade, starttime, lagtime]
         return self.sched(self._builtinInstrs['playgen1'], delay=delay, dur=dur,
                           args=args)
 
@@ -3180,7 +3237,7 @@ class Engine:
         args.extend(pairs)
         self.sched(self._builtinInstrs['pwrite'], delay=delay, dur=0, args=args)
 
-    def getp(self, eventid: float, idx: int) -> float:
+    def getp(self, eventid: float, idx: int) -> float | None:
         """
         Get the current pfield value of an active note.
 
@@ -3216,7 +3273,7 @@ class Engine:
     def automateTable(self,
                       tabnum: int,
                       idx: int,
-                      pairs: Sequence[float],
+                      pairs: Sequence[float] | np.ndarray,
                       mode='linear',
                       delay=0.,
                       overtake=False) -> float:
@@ -3268,11 +3325,14 @@ class Engine:
         maxDataSize = config['max_pfields'] - 10
         if len(pairs) <= maxDataSize:
             # iargtab = p4, iargidx = p5, imode = p6, iovertake = p7, ilenpairs = p8
-            args = [tabnum, idx, self.strSet(mode), int(overtake), len(pairs)]
-            args.extend(pairs)
+            args: list[float|int] = [tabnum, idx, self.strSet(mode), int(overtake), len(pairs)]
+            if isinstance(pairs, np.ndarray):
+                args.extend(pairs.tolist())
+            else:
+                args.extend(pairs)
             return self.sched(self._builtinInstrs['automateTableViaPargs'],
                               delay=delay,
-                              dur=pairs[-2] + self.ksmps / self.sr,
+                              dur=args[-2] + self.ksmps / self.sr,
                               args=args)
         else:
             events = [self.automateTable(tabnum=tabnum, idx=idx, pairs=subgroup,
@@ -3284,7 +3344,7 @@ class Engine:
     def automatep(self,
                   p1: float,
                   pidx: int,
-                  pairs: Sequence[float],
+                  pairs: Sequence[float] | np.ndarray,
                   mode='linear',
                   delay=0.,
                   overtake=False
@@ -3329,6 +3389,8 @@ class Engine:
         """
         maxDataSize = config['max_pfields'] - 10
         if len(pairs) <= maxDataSize:
+            if isinstance(pairs, np.ndarray):
+                pairs = pairs.tolist()
             args = [p1, pidx, self.strSet(mode), int(overtake), len(pairs), *pairs]
             return self.sched(self._builtinInstrs['automatePargViaPargs'],
                               delay=delay,
@@ -3372,7 +3434,7 @@ class Engine:
         if sync:
             self.sync()
         else:
-            self._needsSync()
+            self._modified()
         return stringIndex
 
     def definedStrings(self) -> dict[str, int]:
@@ -3506,7 +3568,7 @@ class Engine:
         for msg in msgs[1:-1]:
             self._udpSocket.sendto(msg, self._sendAddr)
         self._udpSocket.sendto(msgs[-1] + b" }}", self._sendAddr)
-        self._needsSync()
+        self._modified()
 
     def udpSendScoreline(self, scoreline:str) -> None:
         """
@@ -3549,26 +3611,6 @@ class Engine:
             self._udpSend(f"@{channel} {value}")
         else:
             self._udpSend(f"%{channel} {value}")
-
-    def setSubGain(self, idx: int, gain: float) -> None:
-        """
-        Sets one of the subgains to the given value
-
-        Each engine has a set of subgains which can be used by instruments
-        to set the gain as a group.
-
-        Args:
-            idx: the subgain to set
-            gain: the value of the subgain
-
-        Example
-        ~~~~~~~
-
-        >>> # TODO
-        """
-        assert self.started
-        assert self._subgainsTable is not None
-        self._subgainsTable[idx] = gain
 
     def writeBus(self, bus: int, value: float, delay=0.) -> None:
         """
@@ -3616,15 +3658,16 @@ class Engine:
         elif kind != 'control':
             raise ValueError(f"Only control buses can be written to, got {kind}")
 
-        if delay == 0:
+        if delay <= self.onecycle:
             busindex = self._busIndexes.get(bus)
             if busindex is not None:
+                assert self._kbusTable is not None
                 self._kbusTable[busindex] = value
             else:
-                self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=0, args=(int(bus), value))
+                self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.onecycle*8, args=(int(bus), value))
                 self._getBusIndex(bus, blocking=False)
         else:
-            self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=0, args=(int(bus), value))
+            self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.onecycle*8, args=(int(bus), value))
 
     def automateBus(self,
                     bus: int,
@@ -3689,8 +3732,8 @@ class Engine:
 
         Buses can be used to allow communication between instruments, or
         between a running csound instrument and python. Buses are useful
-        for contiguous streams; when using buses to communicate discrete
-        events with python an opcode like trighold might be necessary.
+        for continuous streams; when using buses to communicate discrete
+        values with python an opcode like trighold might be necessary.
         In general for discrete events it might be better to use other
         communication means, like OSC, which provide buffering.
 
@@ -3731,8 +3774,11 @@ class Engine:
         # The int conversion makes it possible to pass a Bus object created
         # via Session.assignBus, see busproxy.Bus.__int__
         busidx = self._getBusIndex(int(bus), blocking=True)
+        if busidx is None:
+            raise RuntimeError(f"Could not get the actual csound bus for token {bus}")
         if busidx < 0:
             return default
+        assert self._kbusTable is not None
         return self._kbusTable[busidx]
 
     def _getBusIndex(self, bus: int, blocking=True, whendone: Callable = None) -> int | None:
@@ -3770,10 +3816,12 @@ class Engine:
 
         synctoken = self._getSyncToken()
         ikind = BUSKIND_CONTROL   # control bus
-        #          1                                2  3  4          5    6      7  8           8
-        pfields = [self._builtinInstrs['busassign'], 0, 0, synctoken, bus, ikind, 0, 0]
+        #          1                                 2  3              4          5    6      7  8           8
+        pfields = [self._builtinInstrs['busassign'], 0, self.onecycle, synctoken, bus, ikind, 0, 0]
         if blocking:
             out = self._eventWait(synctoken, pfields)
+            if out is None:
+                raise RuntimeError(f"Could not fetch the bus index for token {bus}")
             index = int(out)
             self._busIndexes[bus] = index
             return index
@@ -3932,7 +3980,7 @@ class Engine:
         # to get the actual bus index for the given token. Getting the actual index
         # is only relevant if we want to read/write to it.
         synctoken = 0
-        #          1                                2  3  4          5         6      7             8
+        #          1                                 2  3  4          5         6      7             8
         pfields = [self._builtinInstrs['busassign'], 0, 0, synctoken, bustoken, ikind, int(persist), ivalue]
         self._perfThread.scoreEvent(0, "i", pfields)
         return bustoken
@@ -3969,7 +4017,7 @@ class Engine:
         """
         return (self.numAudioBuses > 0 or self.numControlBuses > 0)
 
-    def eventUI(self, eventid: float, **pargs: dict[str, tuple[float, float]]) -> None:
+    def eventUI(self, eventid: float, **pargs: tuple[float, float]) -> None:
         """
         Modify pfields through an interactive user-interface
 
@@ -4006,7 +4054,7 @@ class Engine:
         .. figure:: assets/eventui.png
         """
         from . import interact
-        specs = {}
+        specs: dict[int|str, interact.ParamSpec] = {}
         instr = internalTools.instrNameFromP1(eventid)
         body = self._instrRegistry.get(instr)
         pfieldsNameToIndex = csoundlib.instrParseBody(body).pfieldNameToIndex if body else None
@@ -4016,8 +4064,10 @@ class Engine:
             if not idx:
                 raise KeyError(f"pfield {pfield} not understood")
             value = self.getp(eventid, idx)
-            specs[idx] = interact.ParamSpec(pfield, minvalue=minval, maxvalue=maxval,
-                                            startvalue=value, widgetHint='slider')
+            specs[idx] = interact.ParamSpec(pfield,
+                                            minvalue=minval, maxvalue=maxval,
+                                            startvalue=value if value is not None else 0.,
+                                            widgetHint='slider')
         return interact.interactPargs(self, eventid, specs=specs)
 
 

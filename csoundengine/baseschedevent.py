@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 import numpy as np
-from typing import Sequence
 from . import jupytertools
-from . import internalTools
+from . import csoundlib
 from ._common import EMPTYSET, EMPTYDICT
 
+from typing import Sequence
 
-class BaseEvent:
+
+class BaseSchedEvent(ABC):
     """
-    Base class for all scheduled events (both offline and realtime) / groups
+    Interface for all scheduled events / groups
 
     Args:
         start: the start time relative to the start of the engine
@@ -30,7 +31,21 @@ class BaseEvent:
         raise NotImplementedError
 
     @abstractmethod
-    def paramValue(self, param: str, default=None) -> float | None:
+    def paramValue(self, param: str) -> float | str | None:
+        """
+        Query the value of a parameter, if possible
+
+        If the event is live the actual value is queried; otherwise,
+        the value used at event initialization
+
+        Args:
+            the parameter to query
+
+        Returns:
+            the value of the parameter.
+
+        TODO: check if it actual returns None and why
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -44,7 +59,7 @@ class BaseEvent:
         return float('inf') if self.dur < 0 else self.start + self.dur
 
     @abstractmethod
-    def _setp(self, param: str, value: float, delay=0.) -> None:
+    def _setPfield(self, param: str, value: float, delay=0.) -> None:
         """
         Set the value of a k-rate pfield for this event
         """
@@ -98,8 +113,8 @@ class BaseEvent:
 
         if param:
             param = self.unaliasParam(param, param)
-            if internalTools.isPfield(param) or param in self.pfieldNames(aliases=False):
-                self._setp(param=param, value=value, delay=delay)
+            if csoundlib.isPfield(param) or param in self.pfieldNames(aliases=False):
+                self._setPfield(param=param, value=value, delay=delay)
             elif param in self.controlNames(aliases=False):
                 self._setTable(param=param, value=value, delay=delay)
             else:
@@ -108,7 +123,7 @@ class BaseEvent:
 
     def _automatePfield(self,
                         param: int | str,
-                        pairs: list[float] | np.ndarray,
+                        pairs: Sequence[float] | np.ndarray,
                         mode="linear",
                         delay=0.,
                         overtake=False) -> float:
@@ -199,16 +214,18 @@ class BaseEvent:
             self.set(param=param, value=value, delay=delay)
             return 0
 
-        param = self.unaliasParam(param, param)
+        if isinstance(param, str):
+            param = self.unaliasParam(param, param)
 
-        if (tabargs := self.controlNames(aliases=False)) and param in tabargs:
-            return self._automateTable(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
-        elif param.startswith('p') or ((pargs := self.pfieldNames(aliases=False)) and param in pargs):
+        if isinstance(param, int) or csoundlib.isPfield(param) or (
+                (pargs := self.pfieldNames(aliases=False)) and param in pargs):
             return self._automatePfield(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
+        elif (tabargs := self.controlNames(aliases=False)) and param in tabargs:
+            return self._automateTable(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
         else:
             raise KeyError(f"Unknown parameter '{param}', supported parameters: {self.dynamicParamNames()}")
 
-    def dynamicParamNames(self, aliases=True, aliased=False) -> set[str]:
+    def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
         """
         The set of all dynamic parameters accepted by this event
 
@@ -221,12 +238,12 @@ class BaseEvent:
             dynparams |= _aliases.keys()
             if not aliased:
                 dynparams.difference_update(_aliases.values())
-        return dynparams
+        return frozenset(dynparams)
 
     def aliases(self) -> dict[str, str]:
         return EMPTYDICT
 
-    def unaliasParam(self, param: str, default: str = None) -> str:
+    def unaliasParam(self, param: str, default='') -> str:
         """
         Returns the alias of param or default if no alias was found
 
@@ -240,7 +257,7 @@ class BaseEvent:
         orig = self.aliases().get(param)
         return orig if orig is not None else default
 
-    def pfieldNames(self, aliases=True, aliased=True) -> frozenset[str]:
+    def pfieldNames(self, aliases=True, aliased=False) -> frozenset[str]:
         """
         Returns a set of all named pfields
 
@@ -296,3 +313,4 @@ class BaseEvent:
         if jupytertools.inside_jupyter():
             from IPython.display import display
             display(self)
+

@@ -1,10 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from . import internalTools
 from . import csoundlib
-
-
-_EMPTYDICT = {}
+from ._common import EMPTYDICT
 
 
 @dataclass
@@ -256,6 +253,7 @@ def parseInlineArgs(body: str | list[str],
         a0 oscili kamp, kfreq
         outch 1, a0
     """
+
     if not body:
         return None
 
@@ -282,7 +280,7 @@ def parseInlineArgs(body: str | list[str],
 
 def parseDocstring(text: str | list[str]) -> Docstring | None:
     lines = text if isinstance(text, list) else text.splitlines()
-    doclines = []
+    doclines: list[str] = []
     for line in lines:
         line = line.strip()
         if not line:
@@ -309,9 +307,9 @@ def parseDocstring(text: str | list[str]) -> Docstring | None:
 
 
 def distributeParams(params: dict[str, float],
-                     pfieldNames: set[str],
-                     controlNames: set[str]
-                     ) -> tuple[dict[str | int, float], dict[str, float]]:
+                     pfieldNames: set[str] | frozenset[str],
+                     controlNames: set[str] | frozenset[str]
+                     ) -> tuple[dict[str | int, float | str], dict[str, float]]:
     """
     Sorts params into pfields and dynamic parameters
 
@@ -330,7 +328,7 @@ def distributeParams(params: dict[str, float],
         pfields = {}
         controls = {}
         for name, value in params.items():
-            if isinstance(name, int) or internalTools.isPfield(name) or name in pfieldNames:
+            if isinstance(name, int) or csoundlib.isPfield(name) or name in pfieldNames:
                 pfields[name] = value
             else:
                 if name not in controlNames:
@@ -342,38 +340,3 @@ def distributeParams(params: dict[str, float],
         # if controls:
         #     assert all(control in controlNames for control in controls)
         return pfields, controls
-
-
-def parseSchedArgs(args: list[float|str] | dict[str, float|str],
-                   kws: dict[str, float|str],
-                   pfieldsDef: dict[int, tuple[str, float|str]],
-                   dynamicParams: dict[str, float]
-                   ) -> tuple[list[float|str], dict[str, float|str]]:
-    """
-    Parse the args passed to a .sched call within a Session/Renderer
-
-    Args:
-        args: the args passed to .sched
-        kws: the kws passsed to .sched
-        pfieldsDef: a dict of pfields definition, mapping pfield index to (name, defaultval), where name
-            can be an empty string if no name is known and defaultval is the default value of the
-            pfield
-        dynamicParams: a dict mapping param name to default value for dynamic parameters
-
-    Returns:
-        the resolved pfields (starting with p5) as a list, a dict of dynamic params
-    """
-    if isinstance(args, list):
-        # All pfields, starting with p5
-        if kws:
-            assert all(key in dynamicParams for key in kws)
-        return args, kws
-
-    elif isinstance(args, dict):
-        pfieldnames = set(name if name else idx
-                          for idx, (name, value) in pfieldsDef.items())
-        namedpfields, dynargs = distributeParams(args, pfieldNames=pfieldnames, controlNames=set(dynamicParams.keys()))
-        return namedpfields, dynargs
-    else:
-        raise TypeError(f"Expected a list or a dict, got {args}")
-

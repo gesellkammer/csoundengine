@@ -1,9 +1,9 @@
 # depends on JACK-client: https://pypi.python.org/pypi/JACK-Client
 from __future__ import annotations
-import cachetools
 import dataclasses
-from typing import List, Tuple, Set, Dict, Optional
 from . import linuxaudio
+import time
+from typing import Any
 
 try:
     import jack
@@ -11,6 +11,10 @@ try:
 except OSError:
     # the jack library was not found so no jack support here
     JACK_INSTALLED = False
+
+
+_cache: dict[str, tuple[Any, float]] = {
+}
 
 
 def isJackRunning() -> bool:
@@ -36,8 +40,7 @@ class JackInfo:
     onPipewire: bool = False
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 20))
-def getInfo() -> Optional[JackInfo]:
+def getInfo() -> JackInfo | None:
     """
     Get info about a running jack server
 
@@ -47,6 +50,10 @@ def getInfo() -> Optional[JackInfo]:
     # assumes that jack is running
     if not JACK_INSTALLED:
         return None
+    cachedinfo, lasttime = _cache.get('getInfo', (None, 0.))
+    if lasttime > 0 and time.time() - lasttime < 20:
+        return cachedinfo
+
     try:
         c = jack.Client("jacktools-getinfo", no_start_server=True)
     except jack.JackOpenError:
@@ -64,15 +71,18 @@ def getInfo() -> Optional[JackInfo]:
                    numOutChannelsPhysical=len(inports),
                    numInChannelsPhysical=len(outports),
                    systemInput=systemOutput.name,
-                   systemOutput=systemInput.name,
+                   systemOutput=systemInput.name if systemInput else '',
                    onPipewire=onPipewire)
     c.close()
+    _cache['getInfo'] = (out, time.time())
     return out
 
 
-def bufferSizeAndNum() -> Tuple[int, int]:
+def bufferSizeAndNum() -> tuple[int, int]:
     # assumes that jack is running
     info = getInfo()
+    if info is None:
+        raise RuntimeError("Cannot get buffer size, failed to get info about jack")
     return info.blocksize, 2
 
 
@@ -82,10 +92,10 @@ class JackClient:
     kind: str
     regex: str
     isPhysical: bool = False
-    ports: List[jack.Port] = dataclasses.field(default_factory=list)
+    ports: list[jack.Port] = dataclasses.field(default_factory=list)
 
 
-def _splitlast(s:str, sep:str) -> Tuple[str, str]:
+def _splitlast(s:str, sep:str) -> tuple[str, str]:
     if sep not in s:
         return (s, '')
     s2 = s[::-1]
@@ -93,7 +103,7 @@ def _splitlast(s:str, sep:str) -> Tuple[str, str]:
     return first[::-1], last[::-1]
 
 
-def _buildClients(ports: List[jack.Port]) -> List[JackClient]:
+def _buildClients(ports: list[jack.Port]) -> list[JackClient]:
     assert all(p.is_output for p in ports) or all(p.is_input for p in ports)
     d = {}
     regexes = {}
@@ -119,21 +129,25 @@ def _buildClients(ports: List[jack.Port]) -> List[JackClient]:
             for name, ports in d.items()]
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 20))
-def getClients() -> List[JackClient]:
+def getClients() -> list[JackClient]:
     """
     Get a list of running clients
 
     A client of kind "output" has only output ports, which means it can be
     an input to another client
     """
+    cachedclients, lasttime = _cache.get('getClients', ([], 0.))
+    if lasttime > 0 and time.time() - lasttime < 20:
+        return cachedclients
     client = jack.Client("jacktools", no_start_server=True)
     inclients = _buildClients(client.get_ports(is_audio=True, is_input=True))
     outclients = _buildClients(client.get_ports(is_audio=True, is_output=True))
-    return inclients + outclients
+    allclients = inclients + outclients
+    _cache['getClients'] = (allclients, time.time())
+    return allclients
 
 
-def getSystemClients() -> Tuple[Optional[JackClient], Optional[JackClient]]:
+def getSystemClients() -> tuple[JackClient | None, JackClient | None]:
     """
     Returns the hardware (physical) clients (input, output)
 

@@ -116,7 +116,7 @@ def _jupyterEntry(name: str, startvalue: float, minvalue:float, maxvalue: float,
     return w
 
 
-def interact(**sliders: dict[str, tuple[float, float, float, Callable]]):
+def interact(**sliders: tuple[float, float, float, Callable]):
     """
     Creates a set of interactive widgets
 
@@ -156,11 +156,15 @@ def interact(**sliders: dict[str, tuple[float, float, float, Callable]]):
     display(*widgets)
 
 
-def guessParamSpecs(params: dict[str, float],
+def guessParamSpecs(params: dict[str, float | int | str | None],
                     ranges: dict[str, tuple[float, float]] = None
                     ) -> list[ParamSpec]:
     paramspecs: list[ParamSpec] = []
     for paramname, value in params.items():
+        if isinstance(value, str):
+            continue
+        elif value is None:
+            value = 0.
         if paramname in ranges:
             minval, maxval = ranges[paramname]
         else:
@@ -172,7 +176,7 @@ def guessParamSpecs(params: dict[str, float],
     return paramspecs
 
 
-def interactSynth(synth: _synth.AbstrSynth,
+def interactSynth(synth: _synth.Synth | _synth.SynthGroup,
                   specs: list[ParamSpec] = None) -> None:
     """
     Interact with a Synth
@@ -193,7 +197,7 @@ def interactSynth(synth: _synth.AbstrSynth,
                            " moment.")
 
 
-def _interactSynthJupyter(synth: _synth.AbstrSynth,
+def _interactSynthJupyter(synth: _synth.Synth | _synth.SynthGroup,
                           specs: list[ParamSpec],
                           stopbutton=True,
                           width='80%'
@@ -228,8 +232,8 @@ def _interactSynthJupyter(synth: _synth.AbstrSynth,
 
 def interactPargs(engine: engine.Engine, 
                   p1: float | str,
-                  specs: dict[int|str, ParamSpec] | None = None,
-                  **namedSpecs):
+                  specs: dict[int|str, ParamSpec] = {},
+                  **namedSpecs: ParamSpec):
     """
     Interact with pfields of an event
 
@@ -275,7 +279,7 @@ def interactPargs(engine: engine.Engine,
 
 def _jupyInteractPargs(engine: engine.Engine,
                        p1: float|str,
-                       specs: dict[int|str, ParamSpec] | None = None,
+                       specs: dict[int|str, ParamSpec],
                        stopbutton=True,
                        width='80%'):
     """
@@ -315,12 +319,12 @@ def _jupyInteractPargs(engine: engine.Engine,
         idx = key if isinstance(key, int) else int(key[1:])
         value0 = engine.getp(p1, idx) if spec.startvalue is None else spec.startvalue
         if spec.widgetHint == 'slider':
-            w = _jupyterSlider(spec.descr, startvalue=value0,
+            w = _jupyterSlider(spec.description, startvalue=value0,
                                minvalue=spec.minvalue, maxvalue=spec.maxvalue,
                                width=width,
                                callback=lambda val, p1=p1, idx=idx: engine.setp(p1, idx, val))
         elif spec.widgetHint == 'entry':
-            w = _jupyterEntry(spec.descr, startvalue=value0,
+            w = _jupyterEntry(spec.description, startvalue=value0,
                               minvalue=spec.minvalue, maxvalue=spec.maxvalue,
                               callback=lambda val, p1=p1, idx=idx: engine.setp(p1, idx, val))
         else:

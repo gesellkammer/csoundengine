@@ -120,6 +120,7 @@ from . import csoundlib
 from . import tools
 from . import busproxy
 from .csoundlib import (dumpAudioInfo, audioBackends)
+from .event import Event
 
 import emlib.envir
 if emlib.envir.inside_ipython():

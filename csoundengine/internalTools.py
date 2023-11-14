@@ -15,6 +15,7 @@ import emlib.iterlib
 import emlib.misc
 import subprocess
 import bisect
+import time
 import xxhash
 from functools import cache
 
@@ -23,9 +24,19 @@ if TYPE_CHECKING:
     from .instr import Instr
     from typing import *
     from csoundlib import AudioDevice, MidiDevice
+    T = TypeVar('T')
 
 
 _registry: dict[str, Any] = {}
+
+
+def aslist(seq: Sequence[T] | np.ndarray) -> list[T]:
+    if isinstance(seq, list):
+        return seq
+    elif isinstance(seq, np.ndarray):
+        return seq.tolist()
+    else:
+        return list(seq)
 
 
 def ndarrayhash(a: np.ndarray) -> str:
@@ -79,7 +90,7 @@ def unflattenArray(a: np.ndarray, numchannels: int) -> None:
     if numrows != int(numrows):
         raise ValueError("The array does not have an integral number of frames. "
                          f"(length: {len(a)} / {numchannels} = {numrows}")
-    a.shape = (numrows, numchannels)
+    a.shape = (int(numrows), numchannels)
 
 
 def getChannel(samples: np.ndarray, channel: int) -> np.ndarray:
@@ -140,6 +151,8 @@ def determineNumbuffers(backend: str, buffersize: int) -> int:
     """
     if backend == 'jack':
         info = jacktools.getInfo()
+        if info is None:
+            raise RuntimeError("Jack does not seem to be running")
         numbuffers = int(math.ceil(info.blocksize / buffersize))
     else:
         numbuffers = 2
@@ -172,14 +185,10 @@ def splitDict(d: dict[str, float],
     return out1, out2
 
 
-def isPfield(name: str) -> bool:
-    return re.match(r'\bp[1-9][0-9]*\b', name) is not None
-
-
 def resolveInstrArgs(instr: Instr,
                      p4: int,
                      pargs: list[float] | dict[str | int, float] | None = None,
-                     pkws: dict[str, float] | None = None,
+                     pkws: dict[str | int, float] | None = None,
                      ) -> list[float | str]:
     """
     Resolves pargs, returns pargs starting from p4
@@ -268,7 +277,7 @@ def platformAlias(platform: str) -> str:
     return out
 
 
-def normalizePlatform(s:str) -> str:
+def normalizePlatform(s: str) -> str:
     """Return the platform as given by sys.platform
 
     This is the opposite of `platformAlias`
@@ -279,7 +288,7 @@ def normalizePlatform(s:str) -> str:
     return out
 
 
-def resolveOption(prioritizedOptions:list[str], availableOptions:list[str]
+def resolveOption(prioritizedOptions: list[str], availableOptions: list[str]
                   ) -> Optional[str]:
     for opt in prioritizedOptions:
         if opt in availableOptions:
@@ -346,11 +355,11 @@ def resolvePfieldIndex(pfield: Union[int, str],
 
 
 def isAscii(s: str) -> bool:
-    return all(ord(c)<128 for c in s)
+    return all(ord(c) < 128 for c in s)
 
 
-def consolidateDelay(pairs: list[float], delay: float
-                     ) -> tuple[list[float], float]:
+def consolidateDelay(pairs: Sequence[float], delay: float
+                     ) -> tuple[Sequence[float], float]:
     """
     (2, 20, 3, 30, 4, 40), delay=3
 
@@ -367,7 +376,7 @@ def consolidateDelay(pairs: list[float], delay: float
     return out, delay + t0
 
 
-def cropDelayedPairs(pairs: list[float], delay: float, start: float, end: float
+def cropDelayedPairs(pairs: Sequence[float], delay: float, start: float, end: float
                      ) -> tuple[list[float], float]:
     """
     Crop the given pairs between start and end (inclusive)
@@ -408,16 +417,16 @@ def cropDelayedPairs(pairs: list[float], delay: float, start: float, end: float
     return croppedPairs, delay
 
 
-def cropPairs(pairs: list[float], t0: float, t1: float) -> list[float]:
+def cropPairs(pairs: Sequence[float], t0: float, t1: float) -> list[float]:
     pairsStart, pairsEnd = pairs[0], pairs[-2]
 
     if t0 < pairsStart and t1 >= pairsEnd:
-        return pairs
+        return aslist(pairs)
 
     if t0 >= pairsEnd or t1 <= pairsStart:
         return []
 
-    def interpolate(t: float, times: list[float], values: list[float]
+    def interpolate(t: float, times: Sequence[float], values: Sequence[float]
                     ) -> tuple[int, float, float]:
         idx = bisect.bisect(times, t)
         if times[idx - 1] == t:
@@ -426,7 +435,7 @@ def cropPairs(pairs: list[float], t0: float, t1: float) -> list[float]:
             t0, v0 = times[idx-1], values[idx-1]
             t1, v1 = times[idx], values[idx]
             delta = (t - t0) / (t1 - t0)
-            v = v0  + (v1 - v0) * delta
+            v = v0 + (v1 - v0) * delta
             return idx, t, v
 
     times = pairs[::2]
@@ -478,7 +487,7 @@ def splitAutomation(flatpairs: Sequence[float], maxpairs: int
         of this group. Each group starts with t0=0
     """
     groups = splitPairs(flatpairs=flatpairs, maxpairs=maxpairs)
-    out = []
+    out: list[tuple[float, Sequence[float]]] = []
     for group in groups:
         groupdelay = group[0]
         group = _rewindGroup(group, inplace=True)
@@ -511,12 +520,6 @@ def splitPairs(flatpairs: Sequence[float], maxpairs: int) -> list[Sequence[float
         start = end
     assert sum(len(group) for group in groups) == len(flatpairs)
     return groups
-
-
-def aslist(l: Sequence) -> list:
-    if isinstance(l, list):
-        return l
-    return list(l)
 
 
 def soundfileHtml(sndfile: str,
@@ -616,8 +619,8 @@ def isiterable(obj) -> bool:
     return hasattr(obj, '__iter__')
 
 
-def interleave(a: Sequence, b: Sequence) -> list:
-    out = []
+def interleave(a: Sequence[T], b: Sequence[T]) -> list[T]:
+    out: list[T] = []
     for pair in zip(a, b):
         out.extend(pair)
     return out
@@ -625,13 +628,10 @@ def interleave(a: Sequence, b: Sequence) -> list:
 
 def flattenAutomationData(pairs: Sequence[float] | tuple[Sequence[float], Sequence[float]]
                           ) -> Sequence[float]:
-    if isinstance(pairs[0], (int, float)):
-        return pairs
-    elif isiterable(pairs[0]) and len(pairs) == 2:
+    if isinstance(pairs, tuple) and len(pairs) == 2 and isinstance(pairs[0], (list, tuple)):
         return interleave(*pairs)
     else:
-        raise TypeError(f"Expected a flat list of floats or a tuple of two lists of "
-                        f"floats, got {pairs}")
+        return pairs
 
 
 @cache
@@ -665,4 +665,33 @@ def _extractInstrNames(s: str) -> list[str]:
             if (match := re.search(r"\binstr\s+\$\{(\w+)\}", line))]
 
 
+def waitWhileTrue(func: Callable[[], bool],
+                  pollinterval: float = 0.02,
+                  sleepfunc=time.sleep
+                  ) -> None:
+    """
+    Wait until this the function returns False
 
+    Args:
+        func: the function to call. It should return True if we need to keep waiting,
+            False if the waiting is over
+        pollinterval: polling interval in seconds
+        sleepfunc: the function to call when sleeping, defaults to time.sleep
+
+    Example
+    ~~~~~~~
+
+        >>> from csoundengine import *
+        >>> from csoundengine import internalTools
+        >>> session = Session()
+        >>> session.defInstr('test', ...)
+        >>> synth = session.sched('test', ...)
+        >>> internalTools.waitWhileTrue(synth.playing)
+
+
+    .. seealso:: :meth:`csoundengine.synth.Synth.wait`
+    """
+    setSigintHandler()
+    while func():
+        sleepfunc(pollinterval)
+    removeSigintHandler()

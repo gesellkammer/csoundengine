@@ -15,8 +15,8 @@ from ._common import EMPTYDICT, EMPTYSET
 from typing import Sequence, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from . import session as _session
     from .abstractrenderer import AbstractRenderer
+
 
 __all__ = (
     'Instr',
@@ -229,7 +229,7 @@ class Instr:
     def __init__(self,
                  name: str,
                  body: str,
-                 args: dict[str, float] | None = None,
+                 args: dict[str, float | str] | None = None,
                  init: str = '',
                  numchans: int = 1,
                  preschedCallback=None,
@@ -251,12 +251,12 @@ class Instr:
         self.originalBody = body
         "original body of the instr (prior to any code generation)"
 
-        self._controlsDefaultValues: list[float] | None = None
-        self._controlsNameToIndex: dict[str, int] | None = None
+        self._controlsDefaultValues: list[float]
+        self._controlsNameToIndex: dict[str, int]
 
         inlineargs = instrtools.parseInlineArgs(body)
 
-        if inlineargs:
+        if inlineargs is not None:
             body = inlineargs.body
             args = inlineargs.args | args if args else inlineargs.args
 
@@ -272,6 +272,8 @@ class Instr:
             else:
                 pfields = {k: v for k, v in args.items() if k.startswith('i')}
                 controls = {k: v for k, v in args.items() if k.startswith('k')}
+                if any(isinstance(value, str) for value in controls.values()):
+                    raise ValueError(f"Dynamic controls do not accept string values, got {controls}")
 
             if parsedInstr.pfieldsUsed:
                 minpfield = max(5, max(parsedInstr.pfieldsUsed))
@@ -285,6 +287,9 @@ class Instr:
                 if 0 < maxNamedArgs < len(controls):
                     raise ValueError(f"Too many named args, the maximum is {maxNamedArgs}, "
                                      f"got {controls}")
+            else:
+                self._controlsNameToIndex = EMPTYDICT
+                self._controlsDefaultValues = []
 
             pargNames = list(pfields.keys())
             pargIndexes = instrtools.assignPfields(pargNames, exclude=(4,), minpfield=minpfield)
@@ -294,7 +299,7 @@ class Instr:
 
         else:
             pargsIndexToName = parsedInstr.pfieldIndexToName
-            pargsIndexToValue = parsedInstr.pfieldIndexToValue or {}
+            pargsIndexToValue = parsedInstr.pfieldIndexToValue or {}  # type: ignore
             pfields = parsedInstr.pfieldNameToValue
 
             pargsIndexToName.pop(4, None)
@@ -349,17 +354,19 @@ class Instr:
         
         Aliased parameters can be pfields or named controls"""
 
-        self._argToAlias = {name: alias for alias, name in aliases.items()} if aliases else None
+        self._argToAlias = {name: alias for alias, name in aliases.items()} if aliases else EMPTYDICT
         self._preschedCallback = preschedCallback
         self._defaultPfieldValues = list(self.pfields.values())
 
-    def register(self, session: _session.Session) -> None:
+    def register(self, session: AbstractRenderer) -> None:
         """
         Register this Instr at the given session
 
         This is just a shortcut for ``session.register(instr)``
+
         Args:
             session: the session to register this Instr at
+
 
         Example
         ~~~~~~~
@@ -383,7 +390,7 @@ class Instr:
     def __hash__(self) -> int:
         return self.id
 
-    def __eq__(self, other: Instr) -> bool:
+    def __eq__(self, other) -> bool:
         if not isinstance(other, Instr):
             return NotImplemented
         return self.id == other.id
@@ -491,6 +498,24 @@ class Instr:
         sections.append("> body")
         sections.append(self._preprocessedBody)
         return "\n".join(sections)
+
+    def unaliasParam(self, param: str, default='') -> str:
+        """
+        Return the original name for parameter, if exists
+
+        Example
+        ~~~~~~~
+
+            >>> instr = Instr('foo', r'''
+            ... |kfreq=1000|
+            ... ''', aliases={'frequency': 'kfreq'})
+            >>> instr.unaliasParam('frequency')
+            'kfreq'
+        """
+        if not self.aliases:
+            return default
+        orig = self.aliases.get(param)
+        return orig if orig is not None else default
 
     @cache
     def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
@@ -696,8 +721,8 @@ class Instr:
 
         return params
 
-    def distributeNamedParams(self, params: dict[str, float]
-                              ) -> tuple[dict[str | int, float], dict[str, float]]:
+    def distributeNamedParams(self, params: dict[str, float | str]
+                              ) -> tuple[dict[str | int, float | str], dict[str, float]]:
         """
         Sorts params into pfields and dynamic controls
 
@@ -732,13 +757,13 @@ class Instr:
             return name2
         return name
 
-    def pfieldsRegistry(self) -> dict[int, tuple[str|int, float|str]]:
-        """
-        dict mapping pfield index to (pfieldname: str, defaultvalue: float | str)
-        """
-        out = {idx: (self.pfieldName(idx), value) for idx, value in self.pfieldIndexToValue}
-        assert all(idx in out for idx in self.pfieldNameToIndex.values())
-        return out
+    # def pfieldsRegistry(self) -> dict[int, tuple[str|int, float|str]]:
+    #     """
+    #     dict mapping pfield index to (pfieldname: str, defaultvalue: float | str)
+    #     """
+    #     out = {idx: (self.pfieldName(idx), value) for idx, value in self.pfieldIndexToValue.items()}
+    #     assert all(idx in out for idx in self.pfieldNameToIndex.values())
+    #     return out
 
     @cache
     def numPfields(self) -> int:
@@ -784,7 +809,7 @@ class Instr:
     def parseSchedArgs(self,
                        args: list[float | str] | dict[str, float | str],
                        kws: dict[str, float | str],
-                       ) -> tuple[list[float|str], dict[str, float|str]]:
+                       ) -> tuple[list[float|str], dict[str, float]]:
         """
         Parse the arguments passed to sched
 
@@ -809,11 +834,10 @@ class Instr:
                 else:
                     defaultPfields = self.defaultPfieldValues()
                     pfields = args + defaultPfields[len(args):]
-                return pfields, EMPTYDICT
+                dynargs = EMPTYDICT
             else:
                 namedpfields, dynargs = self.distributeNamedParams(kws)
                 pfields = self.pfieldsTranslate(args=args, kws=namedpfields)
-                return pfields, dynargs
 
         elif isinstance(args, dict):
             namedpfields, dynargs = self.distributeNamedParams(args)
@@ -824,6 +848,8 @@ class Instr:
 
         else:
             raise TypeError(f"args should be a list or a dict, got {args}")
+        pfields = [p if isinstance(p, str) else float(p) for p in pfields]
+        return pfields, dynargs
 
     @cache
     def maxPfieldIndex(self) -> int:
@@ -864,9 +890,9 @@ class Instr:
         return self._defaultPfieldValues
 
     def pfieldsTranslate(self,
-                         args: Sequence[float] = (),
+                         args: Sequence[float|str] = (),
                          kws: dict[str | int, float] | None = None
-                         ) -> list[float]:
+                         ) -> list[float|str]:
         """
         Given pfields as values and keyword arguments, generate a list of
         values which can be passed to sched, starting with p5
@@ -889,7 +915,6 @@ class Instr:
 
         numpfields = maxidx + 1
         if not args:
-            pargs = [.0] * numpfields
             defaultvals = self.defaultPfieldValues()
             if len(defaultvals) >= numpfields:
                 pargs = defaultvals.copy()

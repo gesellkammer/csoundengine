@@ -188,7 +188,8 @@ import emlib.textlib as _textlib
 import bpf4
 
 from .abstractrenderer import AbstractRenderer
-from .sessionevent import SessionEvent
+from .event import Event
+from .schedevent import SchedEvent
 from .errors import CsoundError
 from .engine import Engine, getEngine
 from . import engineorc
@@ -210,7 +211,7 @@ from typing import Callable, Sequence
 
 __all__ = [
     'Session',
-    'SessionEvent'
+    'Event'
 ]
 
 
@@ -252,22 +253,6 @@ class Session(AbstractRenderer):
     Once a Session is created for an existing Engine,
     calling :meth:`~csoundengine.engine.Engine.session` again will always return the
     same Session object.
-
-    Args:
-        engine: the parent Engine
-        priorities: the max. number of priorities. This sets the max. depth within
-            a chain of instruments (the max. number of instruments which, for example,
-            share a bus or a global channel to pass audio/data from one event to
-            the next in evaluation order). If not given the default is
-            set via ``config['session_priorities']``
-        dynamicArgsPerInstr: max. number of dynamic arguments per instr (the default
-            is set via ``config['max_dynamic_args_per_instr']``
-        dynamicArgsSlots: total number of slots allocated for dynamic controls.
-            The default is determined via ``config['dynamic_args_num_slots']``.
-            This effectively sets the maximum number of events which can access
-            dynamic controls simultaneously. The size of the global control table
-            will be ``dynamicArgsSlots * dynamicArgsPerInstr``
-
 
     Example
     -------
@@ -334,7 +319,7 @@ class Session(AbstractRenderer):
 
     """
     def __new__(cls,
-                engine: str | Engine = None,
+                engine: str | Engine | None = None,
                 priorities: int = None,
                 dynamicArgsPerInstr: int = None,
                 dynamicArgsSlots: int = None,
@@ -342,18 +327,19 @@ class Session(AbstractRenderer):
 
         if isinstance(engine, str):
             _engine = Engine.activeEngines.get(engine)
-            if not engine:
+            if not _engine:
                 raise KeyError(f"Engine {engine} does not exist!")
-            engine = _engine
-        if engine and engine._session:
-            return engine._session
+        else:
+            _engine = engine if isinstance(engine, Engine) else None
+        if _engine and _engine._session:
+            return _engine._session
         return super().__new__(cls)
 
     def __init__(self,
-                 engine: str | Engine = None,
+                 engine: str | Engine | None = None,
                  priorities: int = None,
-                 dynamicArgsPerInstr: int = None,
-                 dynamicArgsSlots: int = None,
+                 maxControlsPerInstr: int = None,
+                 numControlSlots: int = None,
                  **enginekws
                  ) -> None:
         """
@@ -368,11 +354,11 @@ class Session(AbstractRenderer):
                 the canonical way of creating a session is to use
                 ``session = Engine(...).session()``
             priorities: the max. number of priorities for scheduled instrs
-            dynamicArgsPerInstr: the max. number of dynamic args per instr
-            dynamicArgsSlots: the total number of slots allocated for
-                dynamic parameters. Each synth is assigned a slot, used to
-                hold all its dynamic parameters. This is also the max. number
-                of simultaneous events with named args.
+            maxControlsPerInstr: the max. number of named controls per instr
+            numControlSlots: the total number of slots allocated for
+                dynamic parameters. Each synth which declares named controls is
+                assigned a slot, used to hold all its named controls. This is also
+                the max. number of simultaneous events with named controls.
             enginekws: any keywords are used to create an Engine, if no engine
                 has been provided. See docs for :class:`~csoundengine.engine.Engine`
                 for available keywords.
@@ -388,24 +374,24 @@ class Session(AbstractRenderer):
             >>> engine = Engine(nchnls=4, nchnls_i=2)
             >>> session = Session(engine=engine)
         """
-        if engine is None:
-            engine = Engine(**enginekws)
+        if not engine:
+            _engine = Engine(**enginekws)
             logger.debug(f"Creating an Engine with default arguments: {engine}")
+        elif isinstance(engine, str):
+            _engine = getEngine(engine)
+            if _engine is None:
+                raise ValueError(f"Engine '{engine}' does not exist")
+            if _engine._session is not None:
+                raise ValueError(f"The given engine already has an active session: {_engine._session}")
+        elif isinstance(engine, Engine):
+            _engine = engine
         else:
-            if enginekws:
-                logger.warning(f"Engine keywords ({enginekws}) are only valid if an "
-                               f"engine is created with this session, but an engine "
-                               f"has been passed ({engine})")
-            if isinstance(engine, str):
-                assert engine in Engine.activeEngines, f"Engine {engine} does not exist!"
-                engine = getEngine(engine)
-                if engine._session is self:
-                    return
+            raise TypeError(f"Expected an Engine or an engine name, got {engine}")
 
-        self.engine: Engine = engine
+        self.engine: Engine = _engine
         """The Engine corresponding to this Session"""
 
-        self.name: str = engine.name
+        self.name: str = _engine.name
         """The name of this Session/Engine"""
 
         self.instrs: dict[str, Instr] = {}
@@ -449,33 +435,33 @@ class Session(AbstractRenderer):
         self._schedCallback: Callable | None = None
         self._rendering = False
 
-        self.inbox = _queue.Queue()
+        self._inbox: _queue.Queue[Callable] = _queue.Queue()
         self._acceptingMessages = True
         self._dispatchingThread: threading.Thread | None = None
 
         self._notificationUseOsc = False
         self._notificationOscPort = 0
+        self._includes: set[str] = set()
 
-        self.dynamicArgsPerInstr = dynamicArgsPerInstr or config['max_dynamic_args_per_instr']
+        self.maxDynamicArgs = maxControlsPerInstr or config['max_dynamic_args_per_instr']
         """The max. number of dynamic parameters per instr"""
 
-        self._dynargsNumSlots = dynamicArgsSlots or config['dynamic_args_num_slots']
-        self._dynargsTabnum = engine.makeEmptyTable(size=self.dynamicArgsPerInstr * self._dynargsNumSlots)
-        engine.sync()
-        engine.setChannel(".dynargsTabnum", self._dynargsTabnum)
-        self._dynargsArray = engine.getTableData(self._dynargsTabnum)
-        assert self._dynargsArray is not None
+        self._dynargsNumSlots = numControlSlots or config['dynamic_args_num_slots']
+        self._dynargsTabnum = _engine.makeEmptyTable(size=self.maxDynamicArgs * self._dynargsNumSlots)
+        _engine.sync()
+        _engine.setChannel(".dynargsTabnum", self._dynargsTabnum)
+        self._dynargsArray = _engine.getTableData(self._dynargsTabnum)
 
         # We don't use slice 0. We use a deque as pool instead of a list, this helps
         # debugging
         self._dynargsSlotPool: deque[int] = deque(range(1, self._dynargsNumSlots))
 
-        engine.registerOutvalueCallback("__dealloc__", self._deallocCallback)
+        _engine.registerOutvalueCallback("__dealloc__", self._deallocCallback)
         if config['define_builtin_instrs']:
             self._defBuiltinInstrs()
         mininstr, maxinstr = self._reservedInstrRange()
-        engine.reserveInstrRange('session', mininstr, maxinstr)
-        engine._session = self
+        _engine.reserveInstrRange('session', mininstr, maxinstr)
+        _engine._session = self
 
         # dispatchingThread = threading.Thread(target=self._dispatcher)
         # dispatchingThread.start()
@@ -491,7 +477,7 @@ class Session(AbstractRenderer):
 
     def _dispatcher(self):
         while self._acceptingMessages:
-            task = self.inbox.get()
+            task = self._inbox.get()
             if callable(task):
                 task()
             elif isinstance(task, str):
@@ -502,18 +488,112 @@ class Session(AbstractRenderer):
     def hasBusSupport(self) -> bool:
         return self.engine.hasBusSupport()
 
-    def automateSynthParam(self,
-                           synth: Synth,
-                           param: str,
-                           pairs: list[float],
-                           mode="linear",
-                           overtake=False,
-                           delay=0.) -> float:
+    def automate(self,
+                 event: SchedEvent,
+                 param: str,
+                 pairs: Sequence[float] | np.ndarray,
+                 mode='linear',
+                 delay=0.,
+                 overtake=False,
+                 ) -> float:
+        """
+        Automate any named parameter of this Synth
+
+        Raises KeyError if the parameter is unknown
+
+        Args:
+            event: the event to automate
+            param: the name of the parameter to automate
+            pairs: automation data as a flat array with the form [time0, value0, time1, value1, ...]
+            mode: one of 'linear', 'cos'. Determines the curve between values
+            delay: when to start the automation
+            overtake: if True, do not use the first value in pairs but overtake the current value
+
+        Returns:
+            the eventid of the automation event.
+        """
+        now = self.engine.elapsedTime()
+        if isinstance(pairs, np.ndarray):
+            # TODO: check (in general) if this converting between numpy/list/numpy
+            # can be a bottleneck when automation lines get big
+            pairs = pairs.tolist()
+        assert isinstance(pairs, list)
+        automStart = now + delay + pairs[0]
+        automEnd = now + delay + pairs[-2]
+        if automEnd <= event.start or automStart >= event.end:
+            # automation line ends before the actual event!!
+            logger.debug(f"Automation times outside of this synth: {param=}, "
+                         f"automation start-end: {automStart} - {automEnd}, "
+                         f"synth: {self}")
+            return 0
+
+        if len(pairs) == 2:
+            t0 = pairs[0]
+            event.set(param=param, delay=delay + t0, value=pairs[1])
+            return 0
+
+        if automStart < event.start or automEnd > event.end:
+            pairs, delay = _tools.cropDelayedPairs(pairs=pairs, delay=delay + now, start=automStart,
+                                                   end=automEnd)
+            if not pairs:
+                return 0
+            delay -= now
+
+        if pairs[0] > 0:
+            pairs, delay = _tools.consolidateDelay(pairs, delay)
+
+        if csoundlib.isPfield(param):
+            return self._automatePfield(event=event, param=param, pairs=pairs, mode=mode, delay=delay,
+                                        overtake=overtake)
+
+        param = event.unaliasParam(param, param)
+        instr = event.instr
+        params = instr.dynamicParams(aliases=False)
+        if param not in params:
+            raise KeyError(f"Unknown parameter '{param}' for {self}. Possible parameters: {params}")
+
+        if (controlnames := instr.controlNames(aliases=False)) and param in controlnames:
+            return self._automateTable(event=event, param=param, pairs=pairs, mode=mode,
+                                       delay=delay, overtake=overtake)
+        elif (pargs := instr.pfieldNames(aliases=False)) and param in pargs:
+            return self._automatePfield(event=event, param=param, pairs=pairs, mode=mode,
+                                        delay=delay, overtake=overtake)
+        else:
+            raise KeyError(f"Unknown parameter '{param}', supported parameters: {instr.dynamicParamNames()}")
+
+    def _automatePfield(self,
+                        event: SchedEvent,
+                        param: int | str,
+                        pairs: Sequence[float] | np.ndarray,
+                        mode='linear',
+                        delay=0.,
+                        overtake=False):
+        if event.playStatus() == 'stopped':
+            raise RuntimeError(f"The event {event} has already stopped, cannot automate")
+
+        if isinstance(param, str):
+            assert event.instr is not None
+            pidx = event.instr.pfieldIndex(param)
+            if not pidx:
+                raise KeyError(f"pfield '{param}' not known. Known pfields: {event.instr.pfieldIndexToName}")
+        else:
+            pidx = param
+        assert isinstance(event.p1, float)
+        synthid = self.engine.automatep(event.p1, pidx=pidx, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
+        return synthid
+
+    def _automateTable(self,
+                       event: SchedEvent,
+                       param: str,
+                       pairs: Sequence[float] | np.ndarray,
+                       mode="linear",
+                       overtake=False,
+                       delay=0.) -> float:
         """
         Automate a dynamic parameter of a synth
 
         Args:
-            synth: the synth to automate
+            event: the synth to automate
             param: the parameter name
             pairs: a flat sequence of the form (t0, value0, t1, value1, ...)
                 where times are relative to the start of the automation line.
@@ -526,11 +606,17 @@ class Session(AbstractRenderer):
         Returns:
             the id of the automation event, as float
         """
-        slot = synth.instr.controlIndex(param)
+        assert event.instr is not None
+        slot = event.instr.controlIndex(param)
         if slot is None:
-            raise KeyError(f"Unknown parameter '{param}' for instr {synth.instr.name}. "
-                           f"Possible parameters: {synth.instr.dynamicParamNames()}")
-        idx = synth.controlsSlot * self.dynamicArgsPerInstr + slot
+            raise KeyError(f"Unknown parameter '{param}' for instr {event.instr.name}. "
+                           f"Possible parameters: {event.instr.dynamicParamNames()}")
+        if event.playStatus() == 'stopped':
+            logger.error(f"Synth {self} has already stopped, cannot "
+                         f"mset param '{param}'")
+            return 0.
+
+        idx = event.controlsSlot * self.maxDynamicArgs + slot
         return self.engine.automateTable(tabnum=self._dynargsTabnum,
                                          idx=idx,
                                          pairs=pairs,
@@ -577,10 +663,10 @@ class Session(AbstractRenderer):
             return
         synth._scheduled = False
         if synth.controlsSlot:
-            assert synth.controlsSlot * self.dynamicArgsPerInstr == synth.args[0]
+            assert synth.args and synth.controlsSlot * self.maxDynamicArgs == synth.args[0]
             self._dynargsReleaseSlot(int(synth.controlsSlot))
 
-        if callback := self._whenfinished.pop(synthid, None):
+        if (callback := self._whenfinished.pop(synthid, None)) is not None:
             callback(synthid)
 
     def _deallocCallback(self, _, synthid):
@@ -615,7 +701,8 @@ class Session(AbstractRenderer):
         bucket[instrname] = instrnum
         return instrnum
 
-    def setSchedCallback(self, callback: Callable) -> Callable | None:
+    def setSchedCallback(self, callback: Callable[[Event | SchedEvent], None]
+                         ) -> Callable | None:
         """
         Set the schedule callback
 
@@ -641,8 +728,8 @@ class Session(AbstractRenderer):
     def defInstr(self,
                  name: str,
                  body: str,
-                 args: dict[str, float] = None,
-                 init: str = None,
+                 args: dict[str, float|str] = None,
+                 init: str = '',
                  priority: int = None,
                  doc: str = '',
                  includes: list[str] | None = None,
@@ -725,10 +812,10 @@ class Session(AbstractRenderer):
         oldinstr = self.instrs.get(name)
         instr = Instr(name=name, body=body, args=args, init=init,
                       doc=doc, includes=includes, aliases=aliases,
-                      maxNamedArgs=self.dynamicArgsPerInstr,
+                      maxNamedArgs=self.maxDynamicArgs,
                       useDynamicPfields=useDynamicPfields,
                       **kws)
-        if oldinstr and oldinstr == instr:
+        if oldinstr is not None and oldinstr == instr:
             return oldinstr
         self.registerInstr(instr)
         if priority:
@@ -742,7 +829,14 @@ class Session(AbstractRenderer):
         return self.instrs
 
     def isInstrRegistered(self, instr: Instr) -> bool:
-        """Returns True if *instr* is already registered in this Session"""
+        """
+        Returns True if *instr* is already registered in this Session
+
+        To check that a given instrument name is defined, use
+        ``session.getInstr(instrname) is not None``
+
+        .. seealso:: :meth:`~Session.getInstr`, :meth:`~Session.registerInstr`
+        """
         return instr.id in self._instrIndex
 
     def registerInstr(self, instr: Instr) -> bool:
@@ -822,23 +916,23 @@ class Session(AbstractRenderer):
         self._registerReifiedInstr(name, priority, rinstr)
         return rinstr
 
-    def getInstr(self, name: str) -> Instr | None:
+    def getInstr(self, instrname: str) -> Instr | None:
         """
         Returns the :class:`~csoundengine.instr.Instr` defined under name
 
         Returns None if no Instr is defined with the given name
 
         Args:
-            name: the name of the Instr - **use "?" to select interactively**
+            instrname: the name of the Instr - **use "?" to select interactively**
 
         See Also
         ~~~~~~~~
 
         :meth:`~Session.defInstr`
         """
-        if name == "?":
-            name = _dialogs.selectItem(list(self.instrs.keys()))
-        return self.instrs.get(name)
+        if instrname == "?":
+            instrname = _dialogs.selectItem(list(self.instrs.keys()))
+        return self.instrs.get(instrname)
 
     def _getReifiedInstr(self, name: str, priority: int) -> _ReifiedInstr | None:
         registry = self._reifiedInstrDefs.get(name)
@@ -846,7 +940,7 @@ class Session(AbstractRenderer):
             return None
         return registry.get(priority)
 
-    def isInstrPrepared(self, instrname: str, priority: int = 1) -> bool:
+    def _isInstrPrepared(self, instrname: str, priority: int = 1) -> bool:
         """
         Is an instrument with the given name prepared for the given priorty=
 
@@ -885,6 +979,8 @@ class Session(AbstractRenderer):
         """
         rinstr = self._getReifiedInstr(instr if isinstance(instr, str) else instr.name, priority)
         needssync = False
+        if isinstance(instr, Instr):
+            instr = instr.name
         if rinstr is None:
             rinstr = self._makeReifiedInstr(instr, priority, block=block)
             if block:
@@ -1009,6 +1105,10 @@ class Session(AbstractRenderer):
     def _writeBus(self, bus: busproxy.Bus, value: float, delay=0.) -> None:
         self.engine.writeBus(bus=bus.token, value=value, delay=delay)
 
+    def _readBus(self, bus: busproxy.Bus, default: float | None = None
+                 ) -> float | None:
+        return self.engine.readBus(bus=bus.token, default=default)
+
     def _releaseBus(self, bus: busproxy.Bus) -> None:
         self.engine.releaseBus(bus.token)
 
@@ -1017,7 +1117,7 @@ class Session(AbstractRenderer):
         self.engine.automateBus(bus=bus.token, pairs=pairs, mode=mode,
                                 delay=delay, overtake=overtake)
 
-    def schedEvents(self, events: Sequence[SessionEvent]) -> SynthGroup:
+    def schedEvents(self, events: Sequence[Event]) -> SynthGroup:
         """
         Schedule multiple SessionEvents
 
@@ -1036,7 +1136,7 @@ class Session(AbstractRenderer):
             synths = [self.schedEvent(event) for event in events]
         return SynthGroup(synths)
 
-    def schedEvent(self, event: SessionEvent) -> Synth:
+    def schedEvent(self, event: Event) -> Synth:
         """
         Schedule a SessionEvent
 
@@ -1059,21 +1159,29 @@ class Session(AbstractRenderer):
         ... asig *= linsegr:a(0, iattack, 1, 0.1, 0)
         ... outch 1, asig
         ... ''')
-        >>> event = SessionEvent('simplesine', args=dict(ifreq=1000, iamp=0.2, iattack=0.2))
+        >>> event = Event('simplesine', args=dict(ifreq=1000, iamp=0.2, iattack=0.2))
         >>> synth = s.schedEvent(event)
         ...
         >>> synth.stop()
 
         """
         kws = event.kws or {}
-        return self.sched(instrname=event.instrname,
-                          delay=event.delay,
-                          dur=event.dur,
-                          priority=event.priority,
-                          args=event.args,
-                          whenfinished=event.whenfinished,
-                          relative=event.relative,
-                          **kws)
+        synth = self.sched(instrname=event.instrname,
+                           delay=event.delay,
+                           dur=event.dur,
+                           priority=event.priority,
+                           args=event.args,
+                           whenfinished=event.whenfinished,
+                           relative=event.relative,
+                           **kws)
+        if event.automations:
+            for automation in event.automations:
+                synth.automate(param=automation.param,
+                               pairs=automation.pairs,
+                               delay=automation.delay,
+                               mode=automation.interpolation,
+                               overtake=automation.overtake)
+        return synth
 
     def rendering(self,
                   outfile: str = '',
@@ -1111,9 +1219,12 @@ class Session(AbstractRenderer):
                 endtime will be cropped
             endtime: stop rendering at the given time. This will either extend or crop
                 the rendering.
+            tail: extra render time at the end, to accomodate extended releases
             openWhenDone: open the file in the default application after rendering.
             redirect: if True, within the context any call to .sched will be
                 redirected to the offline Renderer
+            verbose: if True, output rendering information. If None uses the value
+                specified in the config (``config['rec_suppress_output']``)
 
         Returns:
             a :class:`csoundengine.offline.Renderer`
@@ -1249,8 +1360,8 @@ class Session(AbstractRenderer):
               delay=0.,
               dur=-1.,
               priority: int = 1,
-              args: dict[str, float] | list[float] = None,
-              whenfinished=None,
+              args: Sequence[float|str] | dict[str, float] | None = None,
+              whenfinished: Callable | None = None,
               relative=True,
               syncifneeded=True,
               **kwargs
@@ -1271,7 +1382,8 @@ class Session(AbstractRenderer):
                 positional arguments, starting with p5
             whenfinished: a function of the form f(synthid) -> None
                 if given, it will be called when this instance stops
-            relative: if True, delay is relative to the start time of the Engine.
+            relative: if True, delay is relative to the current time. Otherwise delay
+                is interpreted as an absolute time from the start time of the Engine.
             syncifneeded: if True, a .sync call is performed if the instrument needs to
                 be synched in order to ensure that compilation has been performed
             kwargs: keyword arguments are interpreted as named parameters. This is needed when
@@ -1306,14 +1418,14 @@ class Session(AbstractRenderer):
         :meth:`~csoundengine.synth.Synth.stop`
         """
         if self._schedCallback:
-            event = SessionEvent(instrname=instrname,
-                                 delay=delay,
-                                 dur=dur,
-                                 priority=priority,
-                                 args=args,
-                                 whenfinished=whenfinished,
-                                 relative=relative,
-                                 kws=kwargs)
+            event = Event(instrname=instrname,
+                          delay=delay,
+                          dur=dur,
+                          priority=priority,
+                          args=args,
+                          whenfinished=whenfinished,
+                          relative=relative,
+                          kws=kwargs)
             return self._schedCallback(event)
 
         assert isinstance(priority, int) and 1 <= priority <= self.numPriorities
@@ -1335,28 +1447,31 @@ class Session(AbstractRenderer):
         if instr.controls:
             slicenum = self._dynargsAssignSlot()
             values = instr._controlsDefaultValues if not dynargs else instr.overrideControls(dynargs)
-            idx0 = p4 = slicenum * self.dynamicArgsPerInstr
+            assert isinstance(values, list)
+            idx0 = p4 = slicenum * self.maxDynamicArgs
             if delay < 1:
                 self._dynargsArray[idx0:idx0+len(values)] = values
             else:
                 self.engine.sched(self.engine._builtinInstrs['initDynamicControls'],
-                                  delay=abstime-self.engine.ksmps/self.engine.sr, dur=0.01,
+                                  delay=abstime-self.engine.ksmps/self.engine.sr,
+                                  dur=0.01,
                                   args=[p4, len(values), *values],
                                   relative=False)
         else:
             p4 = 0
             slicenum = 0
 
-        p4args = [p4, *pfields5]
+        pfields4 = [p4, *pfields5]
+
         if needssync and syncifneeded:
             self.engine.sync()
-        synthid = self.engine.sched(rinstr.instrnum, delay=abstime, dur=dur, args=p4args, relative=False)
+        synthid = self.engine.sched(rinstr.instrnum, delay=abstime, dur=dur, args=pfields4, relative=False)
         synth = Synth(session=self,
                       p1=synthid,
                       instr=instr,
                       start=abstime,
                       dur=dur,
-                      args=p4args,
+                      args=pfields5,
                       controlsSlot=slicenum,
                       priority=priority,
                       controls=dynargs)
@@ -1367,17 +1482,43 @@ class Session(AbstractRenderer):
         return synth
 
     def _getNamedControl(self, slicenum: int, paramslot: int) -> float | None:
-        idx = slicenum * self.dynamicArgsPerInstr + paramslot
+        idx = slicenum * self.maxDynamicArgs + paramslot
         if 0 <= idx < len(self._dynargsArray):
             return float(self._dynargsArray[idx])
         else:
             raise IndexError(f"Named control index out of range, "
                              f"slicenum: {slicenum}, slot: {paramslot}")
 
-    def _setNamedControl(self, slicenum: int, slot: int, value: float):
-        assert slot < self.dynamicArgsPerInstr
-        idx0 = slicenum * self.dynamicArgsPerInstr
-        self._dynargsArray[idx0 + slot] = value
+    def _setPfield(self, event: SchedEvent, delay: float, param: str, value: float
+                   ) -> None:
+        assert event.instr is not None
+        idx = event.instr.pfieldIndex(param, default=0)
+        if idx == 0:
+            raise KeyError(f"Unknown parameter {param} for {event}. "
+                           f"Possible parameters: {event.dynamicParamNames()}")
+        assert isinstance(event.p1, (int, float))
+        self.engine.setp(event.p1, idx, value, delay=delay)
+
+    def _setNamedControl(self,
+                         event: SchedEvent,
+                         param: str,
+                         value: float,
+                         delay: float = 0.
+                         ) -> None:
+        instr = event.instr
+        assert instr is not None
+        paramindex = instr.controlIndex(param)
+        slot = event.controlsSlot
+        if not slot:
+            raise RuntimeError(f"This synth ({event}) has no associated controls slot")
+        assert paramindex < self.maxDynamicArgs
+        assert slot < self._dynargsNumSlots
+        idx = slot * self.maxDynamicArgs + paramindex
+        if delay > 0:
+            self.engine.tableWrite(tabnum=self._dynargsTabnum,
+                                   idx=idx, value=value, delay=delay)
+        else:
+            self._dynargsArray[idx] = value
 
     def activeSynths(self, sortby="start") -> list[Synth]:
         """
@@ -1400,7 +1541,7 @@ class Session(AbstractRenderer):
         """
         return list(self._synths.values())
 
-    def unsched(self, *synthids: float, delay=0.) -> None:
+    def unsched(self, event: int | float | SchedEvent, delay=0.) -> None:
         """
         Stop a scheduled instance.
 
@@ -1412,35 +1553,27 @@ class Session(AbstractRenderer):
         :meth:`~csoundengine.synth.Synth.stop` is called.
 
         Args:
-            synthids: one or many synthids to stop
+            event: the event to stop, either a Synth or the p1
             delay: how long to wait before stopping them
         """
-        now = self.engine.elapsedTime()
-        for synthid in synthids:
-            synth = self._synths.get(synthid)
 
-            if not synth or synth.finished():
-                continue
-            elif synth.playing():
-                self.engine.unsched(synthid, delay)
-                # Normally the outvalue callback calls the dealloc sequence itself
-                # But it seems that when the event is turned off (via the turnoff
-                # opcode) the outvalue callback is not triggered.
-                # TODO: this needs to be investigated further.
-                # self._deallocSynthResources(synthid, delay)
-            elif synth.start > now:
-                self.engine.unschedFuture(synth.p1)
-                self._deallocSynthResources(synthid, delay)
-            else:
-                self._deallocSynthResources(synthid, delay)
-
-    def unschedByName(self, instrname: str) -> None:
-        """
-        Unschedule all playing synths created from given instr
-        """
-        synths = self.findSynthsByInstrument(instrname)
-        for synth in synths:
-            self.unsched(synth.p1)
+        synthid = event if isinstance(event, (int, float)) else event.p1
+        assert isinstance(synthid, (int, float))
+        synth = self._synths.get(synthid)
+        if not synth or synth.finished():
+            return
+        elif synth.playing():
+            self.engine.unsched(synthid, delay)
+            # Normally the outvalue callback calls the dealloc sequence itself
+            # But it seems that when the event is turned off (via the turnoff
+            # opcode) the outvalue callback is not triggered.
+            # TODO: this needs to be investigated further.
+            # self._deallocSynthResources(synthid, delay)
+        elif synth.start > self.engine.elapsedTime():
+            self.engine.unschedFuture(synth.p1)
+            self._deallocSynthResources(synthid, delay)
+        else:
+            self._deallocSynthResources(synthid, delay)
 
     def unschedAll(self, future=False) -> None:
         """
@@ -1459,28 +1592,32 @@ class Session(AbstractRenderer):
             self.engine.unschedAll()
             self._synths.clear()
 
-    def findSynthsByInstrument(self, instrname: str) -> list[Synth]:
-        """
-        Return a list of active Synths created from the given instr
-        """
-        out = []
-        for synthid, synth in self._synths.items():
-            if synth.instr.name == instrname:
-                out.append(synth)
-        return out
+    def includeFile(self, path: str) -> None:
+        if path in self._includes:
+            return
+        self._includes.add(path)
+        self.engine.includeFile(include=path)
 
-    def readSoundfile(self, path="?", chan=0, free=False, force=False, skiptime=0.
+    def readSoundfile(self,
+                      path="?",
+                      chan=0,
+                      skiptime=0.,
+                      delay=0.,
+                      force=False,
                       ) -> TableProxy:
         """
         Read a soundfile, store its metadata in a :class:`~csoundengine.tableproxy.TableProxy`
 
+        The life-time of the returned TableProxy object is not bound to the csound table.
+        If the user needs to free the table, this needs to be done manually by calling
+        :meth:
         Args:
             path: the path to a soundfile. **"?" to open file via a gui dialog**
             chan: the channel to read, or 0 to read all channels into a
                 (possibly) stereo or multichannel table
-            free: free the table when the returned TableDef is itself deallocated
             force: if True, the soundfile will be read and added to the session even if the
-                same path has already been read before.
+                same path has already been read before.#
+            delay: when to read the soundfile (0=now)
             skiptime: start playback from this time instead of the beginning
 
         Returns:
@@ -1497,7 +1634,7 @@ class Session(AbstractRenderer):
             >>> session = ce.Engine().session()
             >>> table = session.readSoundfile("path/to/soundfile.flac")
             >>> table
-            TableProxy(engine='engine0', source=100, sr=44100, nchnls=2,
+            TableProxy(source=100, sr=44100, nchnls=2,
                        numframes=88200, path='path/to/soundfile.flac',
                        freeself=False)
             >>> table.duration()
@@ -1516,9 +1653,8 @@ class Session(AbstractRenderer):
                            path=path,
                            sr=info.samplerate,
                            nchnls=info.channels,
-                           engine=self.engine,
-                           numframes=info.nframes,
-                           freeself=free)
+                           parent=self,
+                           numframes=info.nframes)
 
         self._registerTable(table)
         return table
@@ -1530,40 +1666,56 @@ class Session(AbstractRenderer):
 
     def makeTable(self,
                   data: np.ndarray | list[float] | None = None,
-                  size: int = 0,
+                  size: int | tuple[int, int] = 0,
                   tabnum: int = 0,
-                  block=True,
-                  callback=None,
                   sr: int = 0,
-                  freeself=False,
+                  delay: float = 0.,
                   unique=True,
+                  freeself=False,
+                  block=False,
+                  callback=None,
                   ) -> TableProxy:
         """
         Create a table with given data or an empty table of the given size
 
         Args:
-            data (np.ndarray | list[float]): the data of the table. Use None
-                if the table should be empty
-            size (int): if not data is given, sets the size of the empty table created
-            tabnum (int): 0 to let csound determine a table number, -1 to self assign
+            data: the data of the table. Use None if the table should be empty
+            size: if not data is given, sets the size of the empty table created. Either
+                a size as int or a tuple (numchannels: int, numframes: int). In the latter
+                case, the actual size of the table is numchannels * numframes.
+            tabnum: 0 to let csound determine a table number, -1 to self assign
                 a value
-            block (bool): if True, wait until the operation has been finished
+            block: if True, wait until the operation has been finished
             callback: function called when the table is fully created
-            sr (int): the samplerate of the data, if applicable.
-            freeself (bool): if True, the underlying csound table will be freed
+            sr: the samplerate of the data, if applicable.
+            freeself: if True, the underlying csound table will be freed
                 whenever the returned TableProxy ceases to exist.
             unique: if False, do not create a table if there is a table with the same data
+            delay: when to allocate the table. This has little use in realtime but is here
+                to comply to the signature.
 
         Returns:
             a TableProxy object
+
         """
+        # TODO: check block / callback for empty table
+        if delay > 0:
+            logger.info(f"Delay parameter ignored ({delay=} when allocating table")
+
         if size:
             assert not data
-            tabnum = self.engine.makeEmptyTable(size=size, numchannels=1, sr=sr)
-            nchnls = 1
-            numframes = size
-            tabproxy = TableProxy(tabnum=tabnum, sr=sr, nchnls=nchnls, numframes=numframes,
-                                  engine=self.engine, freeself=freeself)
+            if isinstance(size, int):
+                tabsize = size
+                numchannels = 1
+            elif isinstance(size, tuple) and len(size) == 2:
+                numchannels, tabsize = size
+            else:
+                raise TypeError(f"Expected a size as int or a tuple (numchannels, size), got {size}")
+            tabnum = self.engine.makeEmptyTable(size=tabsize, numchannels=numchannels, sr=sr)
+            tabproxy = TableProxy(tabnum=tabnum, sr=sr, nchnls=numchannels, numframes=tabsize,
+                                  parent=self, freeself=freeself)
+            if block or callback:
+                logger.info("blocking / callback for this operation is not implemented")
         elif data is None:
             raise ValueError("Either data or a size must be given")
         else:
@@ -1583,12 +1735,30 @@ class Session(AbstractRenderer):
             tabnum = self.engine.makeTable(data=data, tabnum=tabnum, block=block,
                                            callback=callback, sr=sr)
             tabproxy = TableProxy(tabnum=tabnum, sr=sr, nchnls=nchnls, numframes=numframes,
-                                  engine=self.engine, freeself=freeself)
+                                  parent=self, freeself=freeself)
             if datahash is not None:
                 self._ndarrayHashToTabproxy[datahash] = tabproxy
 
         self._registerTable(tabproxy)
         return tabproxy
+
+    def _getTableData(self, table: int | TableProxy) -> np.ndarray | None:
+        tabnum = table if isinstance(table, int) else table.tabnum
+        assert self.engine.csound is not None
+        return self.engine.csound.table(tabnum)
+
+    def freeTable(self,
+                  table: int | TableProxy,
+                  delay: float = 0.) -> None:
+        """
+        Free the given table
+
+        Args:
+            table: the table to free (a table number / a :class:`TableProxy`)
+            delay: when to free it (0=now)
+        """
+        tabnum = table if isinstance(table, int) else table.tabnum
+        self.engine.freeTable(tabnum, delay=delay)
 
     def testAudio(self, dur=20, mode='noise', period=1, gain=0.1):
         """
@@ -1693,14 +1863,14 @@ class Session(AbstractRenderer):
             # a .mtx file
             ext = os.path.splitext(source)[1]
             if ext == '.mtx':
-                table = self.readSoundfile(source, free=False)
+                table = self.readSoundfile(source)
                 tabnum = table.tabnum
             elif ext == '.sdif':
                 try:
                     import loristrck as lt
                     partials, labels = lt.read_sdif(source)
                     tracks, matrix = lt.util.partials_save_matrix(partials=partials, maxtracks=maxpolyphony)
-                    tabnum = self.makeTable(matrix)
+                    tabnum = self.makeTable(matrix).tabnum
                 except ImportError:
                     raise ImportError("loristrck is needed in order to play a .sdif file"
                                       ". Install it via `pip install loristrck`")
@@ -1749,9 +1919,10 @@ class Session(AbstractRenderer):
                    loop=False,
                    pan=0.5,
                    skip=0.,
-                   fade: float | tuple[float, float] = None,
-                   gaingroup=0,
-                   crossfade=0.02) -> Synth:
+                   fade: float | tuple[float, float] | None = None,
+                   crossfade=0.02,
+                   ) -> Synth:
+
         """
         Play a sample.
 
@@ -1769,7 +1940,7 @@ class Session(AbstractRenderer):
             pan: a value between 0-1. -1 means default, which is 0 for mono,
                 0.5 for stereo. For multichannel (3+) samples, panning is not
                 taken into account
-            gain: gain factor. See also: gaingroup
+            gain: gain factor.
             speed: speed of playback
             loop: True/False or -1 to loop as defined in the file itself (not all
                 file formats define loop points)
@@ -1777,9 +1948,6 @@ class Session(AbstractRenderer):
             skip: the starting playback time (0=play from beginning)
             fade: fade in/out in secods. None=default. Either a fade value or a tuple
                 (fadein, fadeout)
-            gaingroup: the idx of a gain group. The gain of all samples routed to the
-                same group are scaled by the same value and can be altered as a group
-                via Engine.setSubGain(idx, gain)
             crossfade: if looping, this indicates the length of the crossfade
 
         Returns:
@@ -1791,7 +1959,7 @@ class Session(AbstractRenderer):
         elif isinstance(source, TableProxy):
             tabnum = source.tabnum
         elif isinstance(source, str):
-            table = self.readSoundfile(source, free=False)
+            table = self.readSoundfile(source)
             tabnum = table.tabnum
         elif isinstance(source, tuple) and isinstance(source[0], np.ndarray):
             table = self.makeTable(source[0], sr=source[1])
@@ -1815,7 +1983,6 @@ class Session(AbstractRenderer):
                                     istart=skip,
                                     ifadein=fadein,
                                     ifadeout=fadeout,
-                                    igaingroup=gaingroup,
                                     kchan=chan,
                                     kspeed=speed,
                                     kpan=pan,
@@ -1859,7 +2026,7 @@ class Session(AbstractRenderer):
                             nchnls=nchnls if nchnls is not None else self.engine.nchnls,
                             ksmps=ksmps or config['rec_ksmps'],
                             a4=self.engine.a4,
-                            dynamicArgsPerInstr=self.dynamicArgsPerInstr,
+                            dynamicArgsPerInstr=self.maxDynamicArgs,
                             dynamicArgsSlots=self._dynargsNumSlots)
         for instrname, instrdef in self.instrs.items():
             renderer.registerInstr(instrdef)

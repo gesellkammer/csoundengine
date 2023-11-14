@@ -35,7 +35,6 @@ Example
 
 from __future__ import annotations
 
-import copy
 import os
 import sys
 import sndfileio
@@ -48,8 +47,8 @@ import textwrap
 from .errors import RenderError
 from .config import config, logger
 from .instr import Instr
-from .baseevent import BaseEvent
-from .sessionevent import SessionEvent
+from .schedevent import SchedEvent, SchedEventGroup
+from .event import Event
 from .abstractrenderer import AbstractRenderer
 from . import csoundlib
 from . import internalTools
@@ -71,19 +70,19 @@ import emlib.textlib
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING or "sphinx" in sys.modules:
-    from typing import Callable, Sequence, Iterator
+    from typing import Callable, Sequence, Iterator, Any
     import subprocess
 
 
 __all__ = (
     "Renderer",
     "SchedEvent",
-    "EventGroup",
+    "SchedEventGroup",
     "RenderJob"
 )
 
 
-_EMPTYDICT =  {}
+_EMPTYDICT: dict[str, Any] = {}
 
 
 @dataclass
@@ -103,282 +102,6 @@ class ChannelDef:
     def __post_init__(self):
         assert self.kind in ('k', 'S', 'a')
         assert self.mode in ('r', 'w', 'rw', 'wr')
-
-
-class SchedEvent(BaseEvent):
-    """
-    Represents a scheduled event.
-
-    It is used to keep track of scheduled event. Instances of this class are
-    **NOT** created by the user directly, they are generated when scheduling events
-
-    Args:
-        p1: the p1 of the scheduled event
-        start: start time
-        dur: duration
-        args: pfields starting with p4
-        uniqueId: an integer unique to this event
-        renderer: the renderer which scheduled this event
-        instrname: the instr name of this event (if applies)
-        priority: the priority at which this event was scheduled (if applies)
-        controlsSlot: the slot/token assigned for dynamic controls
-    """
-
-    __slots__ = ('uniqueId', 'renderer', 'instrname', 'priority',
-                 'args', 'p1', 'controlsSlot')
-
-    def __init__(self,
-                 p1: float | str,
-                 start: float,
-                 dur: float,
-                 args: list[float],
-                 uniqueId: int,
-                 renderer: Renderer = None,
-                 instrname: str = '',
-                 priority: int = 0,
-                 controlsSlot: int = -1):
-        super().__init__(start=start, dur=dur)
-
-        self.p1 = p1
-        """p1 of this event"""
-
-        self.args = args
-        """Args used for this event (p4, p5, ...)"""
-
-        self.uniqueId: int = uniqueId
-        """A unique id of this event, as integer"""
-
-        self.renderer: Renderer = renderer
-        """The Renderer to which this event belongs (can be None)"""
-
-        self.instrname: str = instrname
-        """The instrument template this ScoreEvent was created from, if applicable"""
-
-        self.priority: int = priority
-        """The priority of this ScoreEvent, if applicable"""
-
-        self.controlsSlot: int = controlsSlot
-        """The slot/token assigned for dynamic controls"""
-
-    def __hash__(self) -> int:
-        return hash(('SchedEvent', self.uniqueId))
-        # return hash((self.p1, self.uniqueId, self.instrname, self.priority, hash(tuple(self.args))))
-
-    def __repr__(self):
-        parts = [f"p1={self.p1}, start={self.start}, dur={self.dur}, uniqueId={self.uniqueId}"]
-        if self.args:
-            parts.append(f'args={self.args}')
-        if self.instrname:
-            parts.append(f'instrname={self.instrname}')
-        if self.priority:
-            parts.append(f'priority={self.priority}')
-        partsstr = ', '.join(parts)
-        return f"ScoreEvent({partsstr})"
-
-    def clone(self, **kws) -> SchedEvent:
-        event = copy.copy(self)
-        for k, v in kws.items():
-            setattr(event, k, v)
-        return event
-
-    def _setTable(self, param: str, value: float, delay=0.) -> None:
-        if not self.start <= delay <= self.end:
-            logger.error(f"This operation's time offset ({delay}) is not within "
-                         f"the time range of the event ({self.start}-{self.end}")
-
-        if not self.controlsSlot:
-            raise RuntimeError("This event has no associated controls slot")
-
-        paramindex = self.instr.controlIndex(param)
-        self.renderer._setNamedControl(token=self.controlsSlot,
-                                       slot=paramindex,
-                                       value=value,
-                                       delay=delay)
-
-    def _setp(self, param: str, value: float, delay=0.) -> None:
-        """
-        Modify a parg of this synth (offline).
-
-        Multiple pfields can be modified simultaneously. It only makes sense
-        to modify a parg if a k-rate variable was assigned to this parg
-        (see Renderer.setp for an example). A parg can be referred to via an integer,
-        corresponding to the p index (5 would refer to p5), or to the name
-        of the assigned k-rate variable as a string (for example, if there
-        is a line "kfreq = p6", both 6 and "kfreq" refer to the same parg).
-
-        Example
-        =======
-
-            >>> from csoundengine import *
-            >>> r = Renderer()
-            >>> Instr('sine', r'''
-            ... |kamp=0.1, kfreq=1000|
-            ... outch 1, oscili:ar(kamp, freq)
-            ... ''')
-            >>> event = r.sched('sine', 0, dur=4, args=[0.1, 440])
-            >>> event._setp(2, kfreq=880)
-            >>> event._setp(3, kfreq=660, kamp=0.5)
-
-        .. seealso:: :meth:`ScoreEvent.set`
-
-        """
-        if self.renderer is None:
-            raise RuntimeError("This ScoreEvent is not assigned to a Renderer")
-        self.renderer.setp(self, delay=delay, param=param, value=value)
-
-    @property
-    def instr(self) -> Instr | None:
-        """
-        The Instr corresponding to this Event, if applicable
-        """
-        if self.instrname:
-            return self.renderer.getInstr(self.instrname)
-
-        try:
-            return self.renderer._instrFromEvent(self)
-        except ValueError:
-            return None
-
-    def paramNames(self, aliases=True, aliased=False) -> frozenset[str]:
-        return self.instr.paramNames(aliases=aliases, aliased=aliased)
-
-    def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
-        instr = self.instr
-        return instr.dynamicParamNames(aliases=aliases, ) if instr else set()
-
-    def automate(self,
-                 param: str,
-                 pairs: Sequence[float] | np.ndarray,
-                 mode="linear",
-                 delay: float = None,
-                 overtake=False,
-                 ) -> None:
-        if self.renderer is None:
-            raise RuntimeError("This ScoreEvent is not assigned to a Renderer")
-        self.renderer.automate(self, param=param, pairs=pairs, mode=mode,
-                               delay=delay)
-
-    def stop(self, delay=0.) -> None:
-        if self.renderer is None:
-            raise RuntimeError("This ScoreEvent is not assigned to a Renderer")
-        self.renderer.unsched(self, delay=delay)
-
-    def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
-        return self.instr.controlNames(aliases=aliases, aliased=aliased)
-
-    def pfieldNames(self, aliases=True, aliased=False) -> frozenset[str]:
-        return self.instr.pfieldNames(aliases=aliases, aliased=aliased)
-
-
-class EventGroup(BaseEvent):
-    """
-    An EventGroup represents a group of events
-
-    These events can be controlled together, similar to a SynthGroup
-    """
-
-    def __init__(self, events: list[SchedEvent]):
-        if not events:
-            raise ValueError("No events given")
-
-        start = min(ev.start for ev in events)
-        end = max(ev.end for ev in events)
-        dur = end - start
-        super().__init__(start=start, dur=dur)
-        self.events = events
-
-    def __iter__(self):
-        return iter(self.events)
-
-    def __getitem__(self, item):
-        return self.events.__getitem__(item)
-
-    def __len__(self):
-        return len(self.events)
-
-    def stop(self, delay=0.) -> None:
-        for ev in self:
-            ev.stop(delay=delay)
-
-    def _setp(self, param: str, value: float, delay=0.) -> None:
-        count = 0
-        for ev in self:
-            if param in ev.pfieldNames(aliased=True):
-                ev._setp(delay=delay, param=param, value=value)
-                count += 1
-        if count == 0:
-            raise KeyError(f"Parameter '{param}' unknown. Possible paramters: {self.dynamicParamNames(aliased=True)}")
-
-    def _setTable(self, param: str, value: float, delay=0.) -> None:
-        count = 0
-        for ev in self:
-            if param in ev.controlNames(aliases=True, aliased=True):
-                ev._setTable(param=param, value=value, delay=delay)
-                count += 1
-        if count == 0:
-            raise KeyError(f"Parameter '{param}' unknown. "
-                           f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
-
-    @cache
-    def paramNames(self, aliases=True, aliased=False) -> frozenset[str]:
-        allparams = set()
-        for ev in self:
-            allparams.update(ev.paramNames(aliases=aliases, aliased=aliased))
-        return frozenset(allparams)
-
-    @cache
-    def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
-        params = set()
-        for ev in self:
-            params.update(ev.dynamicParamNames(aliases=aliases, aliased=aliased))
-        return frozenset(params)
-
-    def __hash__(self):
-        return hash(tuple(hash(ev) for ev in self))
-
-    @cache
-    def controlNames(self, aliases=True, aliased=False) -> set[str]:
-        """
-        Returns a set of available table named parameters for this group
-        """
-        allparams = set()
-        for event in self:
-            params = event.controlNames(aliases=aliases, aliased=aliased)
-            if params:
-                allparams.update(params)
-        return allparams
-
-    def set(self, param='', value: float = 0., delay=0., **kws) -> None:
-        if kws:
-            for k, v in kws.items():
-                self.set(param=k, value=v, delay=delay)
-
-        if param:
-            count = 0
-            for ev in self:
-                if param in ev.dynamicParamNames(aliases=True, aliased=True):
-                    count += 1
-                    ev.set(param=param, value=value, delay=delay)
-            if count == 0:
-                raise KeyError(f"Param '{param}' not known by any events in this group. "
-                               f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
-
-    def automate(self,
-                 param: str,
-                 pairs: Sequence[float] | np.ndarray,
-                 mode="linear",
-                 delay: float = None,
-                 overtake=False,
-                 ) -> None:
-        count = 0
-        for ev in self:
-            if param in ev.dynamicParamNames(aliases=True, aliased=True):
-                count += 1
-                ev.automate(param=param, pairs=pairs, mode=mode,
-                            delay=delay, overtake=overtake)
-        if count == 0:
-            raise KeyError(f"Param '{param}' not known by any events in this group. "
-                           f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
 
 
 @dataclass
@@ -464,7 +187,8 @@ class Renderer(AbstractRenderer):
     the order they are defined (first defined is evaluated first)
 
     Args:
-        sr: the sampling rate. If not given, the value in the config is used (see :ref:`config['rec_sr'] <config_rec_sr>`)
+        sr: the sampling rate. If not given, the value in the config is used
+            (see :ref:`config['rec_sr'] <config_rec_sr>`)
         nchnls: number of channels.
         ksmps: csound ksmps. If not given, the value in the config is used (see :ref:`config['ksmps'] <config_ksmps>`)
         a4: reference frequency. (see :ref:`config['A4'] <config_a4>`)
@@ -536,18 +260,23 @@ class Renderer(AbstractRenderer):
         self.controlArgsPerInstr = dynamicArgsPerInstr or config['max_dynamic_args_per_instr']
         """The max. number of dynamic controls per instr"""
 
+        self.instrs: dict[str, Instr] = {}
+        """Maps instr name to Instr instance"""
+
+        self.numPriorities: int = priorities
+        """Number of priorities in this Renderer"""
+
         self._idCounter = 0
         self._nameAndPriorityToInstrnum: dict[tuple[str, int], int] = {}
         self._instrnumToNameAndPriority: dict[int, tuple[str, int]] = {}
         self._numbuckets = priorities
         self._bucketCounters = [0] * priorities
         self._startUserInstrs = 50
-        self._instrdefs: dict[str, Instr] = {}
         self._instanceCounters: dict[int, int] = {}
         self._numInstancesPerInstr = 10000
         self._numAudioBuses = numAudioBuses
         self._numControlBuses = 10000
-        self._ndarrayHashToTabnum: dict[str, int] = {}
+        self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
 
         self._channelRegistry: dict[str, ChannelDef] = {}
         """Dict mapping channel name to tuple (valuetype, channeltype)
@@ -692,7 +421,7 @@ class Renderer(AbstractRenderer):
         if instrnum is not None:
             return instrnum
 
-        instrdef = self._instrdefs.get(instrname)
+        instrdef = self.instrs.get(instrname)
         if not instrdef:
             raise KeyError(f"instrument {instrname} is not defined")
         priority0 = priority - 1
@@ -739,12 +468,6 @@ class Renderer(AbstractRenderer):
         """
         self._exitCallbacks.add(callback)
 
-    def isInstrDefined(self, instrname: str) -> bool:
-        """
-        Returns True if an Instr with the given name has been registered
-        """
-        return instrname in self._instrdefs
-
     def registerInstr(self, instr: Instr) -> bool:
         """
         Register an Instr to be used in this Renderer
@@ -777,16 +500,17 @@ class Renderer(AbstractRenderer):
             >>> renderer.render('out.wav')
 
         """
-        if instr == self._instrdefs.get(instr.name):
+        oldinstr = self.instrs.get(instr.name)
+        if oldinstr is not None and instr == oldinstr:
             return False
-        self._instrdefs[instr.name] = instr
+        self.instrs[instr.name] = instr
         return True
 
     def defInstr(self,
                  name: str,
                  body: str,
                  args: dict[str, float|str] = None,
-                 init: str = None,
+                 init: str = '',
                  priority: int = None,
                  doc: str = '',
                  includes: list[str] | None = None,
@@ -861,7 +585,7 @@ class Renderer(AbstractRenderer):
         """
         Returns a dict (instrname: Instr) with all registered Instrs
         """
-        return self._instrdefs
+        return self.instrs
 
     def getInstr(self, name) -> Instr | None:
         """
@@ -869,7 +593,7 @@ class Renderer(AbstractRenderer):
 
         Returns None if no such Instr was registered
         """
-        return self._instrdefs.get(name)
+        return self.instrs.get(name)
 
     def includeFile(self, path: str) -> None:
         """
@@ -900,25 +624,34 @@ class Renderer(AbstractRenderer):
 
     def _getUniqueP1(self, instrnum: int) -> float:
         count = self._instanceCounters.get(instrnum, 0)
-        count = 1+((count+1)%self._numInstancesPerInstr-1)
+        count = 1 + ((count+1) % self._numInstancesPerInstr - 1)
         p1 = instrnum+count/self._numInstancesPerInstr
         self._instanceCounters[instrnum] = count
         return p1
 
-    def schedEvent(self, event: SessionEvent):
-        return self.sched(instrname=event.instrname,
-                          delay=event.delay,
-                          dur=event.dur,
-                          priority=event.priority,
-                          args=event.args,
-                          **event.kws)
+    def schedEvent(self, event: Event) -> SchedEvent:
+        kws = event.kws or {}
+        schedevent = self.sched(instrname=event.instrname,
+                                delay=event.delay,
+                                dur=event.dur,
+                                priority=event.priority,
+                                args=event.args,
+                                **kws)
+        if event.automations:
+            for autom in event.automations:
+                schedevent.automate(param=autom.param, pairs=autom.pairs,
+                                    delay=autom.delay, mode=autom.interpolation,
+                                    overtake=autom.overtake)
+        return schedevent
 
     def sched(self,
               instrname: str,
               delay=0.,
               dur=-1.,
               priority=1,
-              args: Sequence[float] | dict[str, float] = None,
+              args: Sequence[float | str] | dict[str, float] | None = None,
+              whenfinished: Callable = None,
+              relative=True,
               **kwargs
               ) -> SchedEvent:
         """
@@ -931,6 +664,8 @@ class Renderer(AbstractRenderer):
             dur: duration of this event. -1: endless
             args: pfields **beginning with p5**
                 (p1: instrnum, p2: delay, p3: duration, p4: reserved)
+            whenfinished: not relevant in the context of offline rendering
+            relative: not relevant for offline rendering
             kwargs: any named argument passed to the instr
 
         Returns:
@@ -961,7 +696,7 @@ class Renderer(AbstractRenderer):
         instr = self.getInstr(instrname)
         if instr is None:
             raise KeyError(f"Instrument '{instrname}' is not defined. Known instruments: "
-                           f"{self._instrdefs.keys()}")
+                           f"{self.instrs.keys()}")
 
         pfields5, dynargs = instr.parseSchedArgs(args=args, kws=kwargs)
         event = self.makeEvent(start=float(delay), dur=float(dur), pfields5=pfields5,
@@ -979,7 +714,7 @@ class Renderer(AbstractRenderer):
     def makeEvent(self,
                   start: float,
                   dur: float,
-                  pfields5: list[float],
+                  pfields5: list[float|str],
                   instr: str | Instr,
                   priority: int = 1,
                   ) -> SchedEvent:
@@ -996,15 +731,16 @@ class Renderer(AbstractRenderer):
             instr: the name of the instr or the actual Instr instance
             priority: the priority
         """
-        if isinstance(instr, str):
-            instr = self.getInstr(instr)
-        controlsSlot = self._dynargsAssignToken() if instr.hasControls() else -1
-        instrnum = self.commitInstrument(instr.name, priority)
+        _instr = instr if isinstance(instr, Instr) else self.getInstr(instr)
+        if _instr is None:
+            raise ValueError(f"instrument '{instr}' not known")
+        controlsSlot = self._dynargsAssignToken() if _instr.hasControls() else -1
+        instrnum = self.commitInstrument(_instr.name, priority)
         p1 = self._getUniqueP1(instrnum)
         pfields4 = [controlsSlot, *pfields5]
         return SchedEvent(p1=p1, uniqueId=self._generateEventId(), start=start,
-                          dur=dur, args=pfields4, instrname=instr.name,
-                          renderer=self, priority=priority, controlsSlot=controlsSlot)
+                          dur=dur, args=pfields4, instrname=_instr.name,
+                          parent=self, priority=priority, controlsSlot=controlsSlot)
 
     def _dynargsAssignToken(self) -> int:
         self._dynargsTokenCounter = (self._dynargsTokenCounter + 1) % 2**32
@@ -1021,7 +757,8 @@ class Renderer(AbstractRenderer):
                         ) -> SchedEvent:
         self.csd.addEvent(p1, start=start, dur=dur, args=args)
         eventid = self._generateEventId()
-        event = SchedEvent(p1, start=start, dur=dur, args=args, uniqueId=eventid, renderer=self,
+        event = SchedEvent(p1=p1, start=start, dur=dur, args=args,
+                           uniqueId=eventid, parent=self,
                            priority=priority, instrname=instrname,
                            controlsSlot=controlsSlot)
         self.scheduledEvents[eventid] = event
@@ -1132,6 +869,7 @@ class Renderer(AbstractRenderer):
 
     def _readBus(self, bus: busproxy.Bus) -> float | None:
         "Reading from a bus is not supported in offline mode"
+        logger.error("Reading from a bus is not supported in offline mode")
         return None
 
     def _releaseBus(self, bus: busproxy.Bus) -> None:
@@ -1387,8 +1125,7 @@ class Renderer(AbstractRenderer):
         Returns the last rendered soundfile, or None if no jobs were rendered
         """
         job = self.lastRenderJob()
-        if job:
-            return job.outfile
+        return job.outfile if job else None
 
     def writeCsd(self, outfile: str) -> None:
         """
@@ -1467,15 +1204,20 @@ class Renderer(AbstractRenderer):
         instrNameAndPriority = self._instrnumToNameAndPriority.get(int(event.p1))
         if not instrNameAndPriority:
             raise ValueError(f"Unknown instrument for instance {event.p1}")
-        instr = self._instrdefs[instrNameAndPriority[0]]
+        instr = self.instrs[instrNameAndPriority[0]]
         return instr
 
-    def _setNamedControl(self, token: int, slot: int, value: float, delay: float
-                         ) -> None:
-        self.csd.addEvent("_setControl", start=delay, dur=0., args=[token, slot, value])
+    def _setNamedControl(self,
+                         event: SchedEvent,
+                         param: str,
+                         value: float,
+                         delay: float = 0.):
+        paramindex = event.instr.controlIndex(param)
+        self.csd.addEvent("_setControl", start=delay, dur=0,
+                          args=[event.controlsSlot, paramindex, value])
 
-    def setp(self, event: SchedEvent, delay: float, param: str, value: float
-             ) -> None:
+    def _setPfield(self, event: SchedEvent, delay: float, param: str, value: float
+                   ) -> None:
         """
         Modify a pfield of a scheduled event at the given time
 
@@ -1496,11 +1238,8 @@ class Renderer(AbstractRenderer):
             ... outch 1, oscili:a(0.1, mtof:k(kmidi))
             ... ''')
             >>> event = renderer.sched("sine", args={'kmidi': 62})
-            >>> renderer.setp(event, 10, 'kmidi', 67)
-            # setp can be called directly on the event
-            >>> event._setp(delay=10, kmidi=67)
-            # After scheduling all events/automations:
-            >>> renderer.render("outfile.wav")
+            # .set invokes _setPfield in the renderer
+            >>> event.set(delay=10, kmidi=67)
 
         """
         instr = self._instrFromEvent(event)
@@ -1509,8 +1248,8 @@ class Renderer(AbstractRenderer):
                 raise ValueError(f"'{param}' is not a known pfield. Known pfields for "
                                  f"instr '{instr.name}' are: {instr.pfieldNames()}")
             else:
-                raise logger.error(f"'{param}' is not a dynamic pfield. Modifying its "
-                                   f"value via setp (pwrite) will have no effect")
+                raise ValueError(f"'{param}' is not a dynamic pfield. Modifying its "
+                                 f"value via setp (pwrite) will have no effect")
 
         pfieldIndex = instr.pfieldIndex(param, 0)
         self.csd.addEvent("_pwrite", start=delay, dur=0.,
@@ -1540,22 +1279,31 @@ class Renderer(AbstractRenderer):
             a TableProxy
         """
         if data is not None:
+            if isinstance(data, list):
+                data = np.array(data)
             arrayhash = internalTools.ndarrayhash(data)
-            if not unique and (tabnum := self._ndarrayHashToTabnum.get(arrayhash, 0)):
-                return tabnum
+            if not unique and (tabproxy := self._ndarrayHashToTabproxy.get(arrayhash)) is not None:
+                return tabproxy
             tabnum = self.csd.addTableFromData(data=data, tabnum=tabnum, start=delay, sr=sr)
-            self._ndarrayHashToTabnum[arrayhash] = tabnum
-            return TableProxy(tabnum=tabnum, numframes=len(data), sr=sr)
+            tabproxy = TableProxy(tabnum=tabnum, numframes=len(data), sr=sr)
+            self._ndarrayHashToTabproxy[arrayhash] = tabproxy
+            return tabproxy
         else:
             assert size > 0
             tabnum = self.csd.addEmptyTable(size=size, sr=sr, tabnum=tabnum)
             return TableProxy(tabnum=tabnum, numframes=size, sr=sr)
 
+    def freeTable(self,
+                  table: int | TableProxy,
+                  delay: float = 0.) -> None:
+        tabnum = table if isinstance(table, int) else table.tabnum
+        self.csd.freeTable(tabnum, time=delay)
+
     def readSoundfile(self,
                       path='?',
                       chan: int = 0,
                       skiptime: float = 0.,
-                      start: float = 0.,
+                      delay: float = 0.,
                       force=False
                       ) -> TableProxy:
         """
@@ -1565,7 +1313,7 @@ class Renderer(AbstractRenderer):
             path: the path of the soundfile to load. Use '?' to select a file using a GUI
                 dialog
             chan: the channel to read, or 0 to read all channels
-            start: moment in the score to read this soundfile
+            delay: moment in the score to read this soundfile
             skiptime: skip this time at the beginning of the soundfile
             force: if True, add the soundfile to this renderer even if the same
                 soundfile has already been added
@@ -1583,13 +1331,13 @@ class Renderer(AbstractRenderer):
                 return tabproxy
 
         tabnum = self.csd.addSndfile(sndfile=path,
-                                     start=start,
+                                     start=delay,
                                      skiptime=skiptime,
                                      chan=chan)
         info = sndfileio.sndinfo(path)
-        tabproxy = TableProxy(tabnum=tabnum, engine=None, numframes=info.nframes,
-                                         sr=info.samplerate, nchnls=info.channels, path=path,
-                                         skiptime=skiptime)
+        tabproxy = TableProxy(tabnum=tabnum, parent=self, numframes=info.nframes,
+                              sr=info.samplerate, nchnls=info.channels, path=path,
+                              skiptime=skiptime)
         self._soundfileRegistry[path] = tabproxy
         return tabproxy
 
@@ -1601,11 +1349,10 @@ class Renderer(AbstractRenderer):
                    gain=1.,
                    speed=1.,
                    loop=False,
-                   pan=-1,
+                   pan=0.5,
                    skip=0.,
-                   fade: float | tuple[float, float] = None,
+                   fade: float | tuple[float, float] | None = None,
                    crossfade=0.02,
-                   **kws
                    ) -> SchedEvent:
         """
         Play a table or a soundfile
@@ -1640,13 +1387,14 @@ class Renderer(AbstractRenderer):
         if isinstance(source, tuple):
             assert len(source) == 2 and isinstance(source[0], np.ndarray)
             data, sr = source
-            tabnum = self.makeTable(data=source[0], sr=sr)
+            tabproxy = self.makeTable(data=source[0], sr=sr)
+            tabnum = tabproxy.tabnum
             if dur == 0:
                 dur = (len(data)/sr) / speed
         elif isinstance(source, TableProxy):
             tabnum = source.tabnum
         elif isinstance(source, str):
-            tabproxy = self.readSoundfile(path=source, start=delay, skiptime=skip)
+            tabproxy = self.readSoundfile(path=source, delay=delay, skiptime=skip)
             tabnum = tabproxy.tabnum
             if dur == 0:
                 dur = tabproxy.duration() / speed
@@ -1684,7 +1432,7 @@ class Renderer(AbstractRenderer):
                  mode="linear",
                  delay: float = None,
                  overtake=False
-                 ) -> None:
+                 ) -> float:
         """
         Automate a parameter of a scheduled event
 
@@ -1703,7 +1451,9 @@ class Renderer(AbstractRenderer):
                 for the given parameter is used in its place.
         """
         instr = event.instr
-        params = instr.dynamicParamNames()
+        pairs = internalTools.aslist(pairs)
+        param = instr.unaliasParam(param, param)
+        params = instr.dynamicParamNames(aliases=False)
         if param not in params:
             raise KeyError(f"Unknown parameter '{param}' for {event}. Possible "
                            f"parameters: {params}")
@@ -1718,41 +1468,51 @@ class Renderer(AbstractRenderer):
             logger.debug(f"Automation times outside of this event: {param=}, "
                          f"automation start-end: {automStart} - {automEnd}, "
                          f"event: {event}")
-            return
+            return 0
 
         if automStart > event.start or automEnd < event.end:
-            pairs, delay = internalTools.cropDelayedPairs(pairs=internalTools.aslist(pairs), delay=delay, start=automStart, end=automEnd)
+            pairs, delay = internalTools.cropDelayedPairs(pairs=pairs, delay=delay,
+                                                          start=automStart, end=automEnd)
             if not pairs:
-                return
+                logger.warning("There is no intersection between event and automation data")
+                return 0.
 
         if pairs[0] > 0:
             pairs, delay = internalTools.consolidateDelay(pairs, delay)
 
         instr = event.instr
+        assert instr is not None
         maxDataSize = config['max_pfields'] - 10
         if len(pairs) > maxDataSize:
             for subdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize//2):
                 self.automate(event=event, param=param, pairs=subgroup, mode=mode,
                               delay=delay+subdelay, overtake=overtake)
-            return
+            return 0.
 
         if isinstance(param, int):
             param = f'p{param}'
 
-        if instr.hasControls() and param in instr.controlNames():
+        if instr.hasControls() and param in instr.controlNames(aliases=False):
             self._automateTable(event=event, param=param, pairs=pairs, mode=mode, delay=delay,
                                 overtake=overtake)
-        else:
-            assert param.startswith('p') or param in instr.pfieldNames()
+        elif csoundlib.isPfield(param) or param in instr.pfieldNames(aliases=False):
             self._automatePfield(event=event, param=param, pairs=pairs, mode=mode, delay=delay,
                                  overtake=overtake)
+        else:
+            raise KeyError(f"Parameter '{param}' not known. Controls: {instr.controlNames(aliased=True)}, "
+                           f"pfields: {instr.pfieldNames()}")
+        return 0.
+
+    def _getTableData(self, table: int | TableProxy) -> np.ndarray | None:
+        logger.error("An offline renderer cannot access table data")
+        return None
 
     def _automatePfield(self,
                         event: SchedEvent,
                         param: str,
                         pairs: Sequence[float] | np.ndarray,
+                        delay: float,
                         mode="linear",
-                        delay: float = None,
                         overtake=False
                         ) -> None:
         instr = event.instr
@@ -1770,9 +1530,9 @@ class Renderer(AbstractRenderer):
     def _automateTable(self,
                        event: SchedEvent,
                        param: str,
-                       pairs: list[float]|np.ndarray,
+                       pairs: Sequence[float]|np.ndarray,
+                       delay: float,
                        mode="linear",
-                       delay: float = None,
                        overtake=False
                        ) -> None:
         """
@@ -1784,6 +1544,7 @@ class Renderer(AbstractRenderer):
         paramindex = instr.controlIndex(param)
         dur = pairs[-2] - pairs[0]
         epsilon = self.csd.ksmps / self.csd.sr * 3
+        assert delay is not None
         start = max(0., delay - epsilon)
         if event.dur > 0:
             # we clip the duration of the automation to the lifetime of the event
@@ -1913,10 +1674,11 @@ class Renderer(AbstractRenderer):
                     import loristrck as lt
                     partials, labels = lt.read_sdif(source)
                     tracks, matrix = lt.util.partials_save_matrix(partials=partials, maxtracks=maxpolyphony)
-                    tabnum = self.makeTable(matrix)
+                    tabnum = self.makeTable(matrix).tabnum
                 except ImportError:
-                    raise ImportError("loristrck is needed in order to play a .sdif file"
-                                      ". Install it via `pip install loristrck`")
+                    raise ImportError("loristrck is needed in order to read a .sdif file. "
+                                      "Install it via `pip install loristrck` (see https://loristrck.readthedocs.io "
+                                      "for more information)")
             else:
                 raise ValueError(f"Expected a .mtx file or .sdif file, got {source}")
 

@@ -165,7 +165,7 @@ _('jupyter_slider_width', '80%',
   doc='CSS Width used by an interactive slider in jupyter')
 _('timeout', 2.,
   doc='Timeout for any action waiting a response from csound')
-_('sched_latency', 0.,
+_('sched_latency', 0.05,
   doc='Time delay added to any event scheduled to ensure that simultameous events are'
       'not offset by scheduling overhead')
 _('datafile_format', 'gen23',

@@ -1,10 +1,11 @@
 from __future__ import annotations
 import os
 import numpy as np
+from . import session
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .engine import Engine
+    from .abstractrenderer import AbstractRenderer
 
 
 class TableProxy:
@@ -51,13 +52,13 @@ class TableProxy:
 
     """
 
-    __slots__ = ('tabnum', 'sr', 'nchnls', 'engine', 'numframes', 'path', 'freeself', '_array',
+    __slots__ = ('tabnum', 'sr', 'nchnls', 'parent', 'numframes', 'path', 'freeself', '_array',
                  'skiptime')
 
     def __init__(self,
                  tabnum: int,
                  numframes: int,
-                 engine: Engine | None = None,
+                 parent: AbstractRenderer | None = None,
                  sr: int = 0,
                  nchnls: int = 1,
                  path: str = '',
@@ -75,8 +76,8 @@ class TableProxy:
         self.nchnls = nchnls
         """Number of channels, of applicable"""
 
-        self.engine = engine
-        """The parent engine, if this is a live table (None if rendering offline)"""
+        self.parent = parent
+        """The parent Renderer"""
 
         self.numframes = numframes
         """The number of frames (samples = numframes * nchnls)"""
@@ -94,8 +95,7 @@ class TableProxy:
         """The data, if applicable"""
 
     def __repr__(self):
-        enginename = self.engine.name if self.engine else 'none'
-        return (f"TableProxy(engine={self.engine.name}, source={self.tabnum}, sr={self.sr},"
+        return (f"TableProxy(source={self.tabnum}, sr={self.sr},"
                 f" nchnls={self.nchnls},"
                 f" numframes={self.numframes}, path={self.path},"
                 f" freeself={self.freeself})")
@@ -107,7 +107,7 @@ class TableProxy:
         return float(self.tabnum)
 
     def online(self):
-        return self.engine is None
+        return self.parent.renderMode() == 'online'
 
     def data(self) -> np.ndarray:
         """
@@ -119,16 +119,23 @@ class TableProxy:
         Returns:
             the data as a numpy array
         """
-        if self._array is None:
-            if self.engine is not None:
-                assert self.engine.csound is not None
-                self._array = self.engine.csound.table(self.tabnum)
-            else:
-                import sndfileio
-                samples, sr = sndfileio.sndread(self.path)
-                self._array = samples
+        if self._array is not None:
+            return self._array
 
-        return self._array
+        if self.parent is None:
+            import sndfileio
+            samples, sr = sndfileio.sndread(self.path)
+            out = samples
+        else:
+            out = self.parent._getTableData(self)
+        self._array = out
+        return out
+
+    def free(self, delay=0.):
+        if self.parent is None:
+            raise RuntimeError("Cannot free this table since it is not associated "
+                               "with any online or offline csound process")
+        self.parent.freeTable(table=self.tabnum, delay=delay)
 
     def duration(self) -> float:
         """
@@ -149,9 +156,8 @@ class TableProxy:
     def __del__(self):
         if not self.freeself:
             return
-        engine = self.engine
-        if engine and engine.started:
-            engine.freeTable(self.tabnum)
+        if self.parent:
+            self.parent.freeTable(table=self.tabnum)
 
     def plot(self) -> None:
         """

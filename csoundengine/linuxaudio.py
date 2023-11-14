@@ -142,7 +142,7 @@ def pipewireInfo() -> PipewireInfo | None:
             quantum = int(match.group(1))
     if shutil.which('pactl'):
         pactlinfo = _pactlinfo()
-        isPulseServer = pactlinfo.onPipewire
+        isPulseServer = pactlinfo.onPipewire if pactlinfo is not None else False
     elif internalTools.isrunning('pulseaudio'):
         isPulseServer = False
     else:

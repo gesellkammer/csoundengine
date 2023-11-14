@@ -303,9 +303,9 @@ instr ${readSndfile}
 endin
 
 instr ${playgen1}
-    ;             4     5      6       7     8     9          10        11
-    ;             gain, speed, source, chan, fade, starttime, gaingroup lagtime
-    pset 0, 0, 0, 1,    1,     1,      1,    0.05, 0,         0,        0.01
+    ;             4     5      6       7     8     9          11
+    ;             gain, speed, source, chan, fade, starttime, lagtime
+    pset 0, 0, 0, 1,    1,     1,      1,    0.05, 0,         0.01
     kgain = p4
     kspeed = p5
     itabnum, ichan, ifade, ioffset, igaingroup, ilagtime passign 6
@@ -748,6 +748,14 @@ instr ${busrelease}  ; release audio bus
 __exit:
 endin
 
+instr ${busoutk}
+    itoken = p4
+    ivalue = p5
+    ibus = _busget(itoken, 1)
+    tabw_i ivalue, ibus, gi__bustable
+    turnoff
+endin
+
 instr ${busassign}
     ; query the index of a bus / create a bus if not assigned
     ; args: 
@@ -783,13 +791,7 @@ __exit:
         tabw_i ibus, isynctoken, gi__responses
         outvalue "__sync__", isynctoken
     endif
-endin
-
-instr ${busoutk}
-    itoken = p4
-    ivalue = p5
-    ibus = _busget(itoken, 1)
-    tabw_i ivalue, ibus, gi__bustable
+    turnoff
 endin
 
 instr ${clearbuses_post}
@@ -864,7 +866,7 @@ def makeOrc(sr: int,
     instrs = internalTools.assignInstrNumbers(orcproto,
                                               startInstr=CONSTS['reservedInstrsStart'],
                                               postInstrNum=CONSTS['postProcInstrnum'])
-    subs: dict[str, Any] = {name:f"{num}  /* {name} */"
+    subs: dict[str, Any] = {name: f"{num}  /* {name} */"
                             for name, num in instrs.items()}
     subs.update(BUILTIN_TABLES)
     subs.update(CONSTS)

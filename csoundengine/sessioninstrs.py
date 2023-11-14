@@ -30,7 +30,7 @@ builtinInstrs = [
         endif
     '''),
     Instr('.playSample', body=r"""
-        |isndtab=0, istart=0, ifadein=0, ifadeout=0, igaingroup=0, kchan=1, kspeed=1, kgain=1, kpan=0.5, ixfade=-1|
+        |isndtab=0, istart=0, ifadein=0, ifadeout=0, kchan=1, kspeed=1, kgain=1, kpan=0.5, ixfade=-1|
         ; Play a sample loaded via GEN01
         ; Args:
         ;   istart: the start time within the sample
@@ -44,7 +44,6 @@ builtinInstrs = [
         ionecycle = ksmps/sr
         ifadein = max(ifadein, ionecycle)
         ifadeout = max(ifadeout, ionecycle)
-        igaingroup = limit(igaingroup, 0, 100)
         inumouts = ftchnls(isndtab)
         inumsamples = nsamp(isndtab)
         isr = ftsr(isndtab)
@@ -55,7 +54,6 @@ builtinInstrs = [
         idur = inumsamples / isr
         
         know init istart
-        ksubgain = table:k(igaingroup, gi__subgains)
         if inumouts == 0 then
             ; not a gen1 table, fail
             initerror sprintf("Table %d was not generated via gen1", isndtab)
@@ -63,10 +61,7 @@ builtinInstrs = [
 
         kidx init 0
         aenv = linsegr:a(0, ifadein, 1, ifadeout, 0)
-        kgain2 = kgain*ksubgain
-        if kgain2 != 1 then
-            aenv *= a(ksubgain*kgain)
-        endif
+        aenv *= interp(kgain)
         
         if inumouts == 1 then
             ; a1 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart

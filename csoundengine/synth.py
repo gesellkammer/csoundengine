@@ -1,6 +1,6 @@
 from __future__ import annotations
 import time
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 from functools import cache
 import numpy as np
 
@@ -9,8 +9,10 @@ import emlib.misc as _misc
 
 from .config import logger, config
 from . import internalTools
-from . import baseevent
+from .baseschedevent import BaseSchedEvent
 from . import jupytertools
+from .schedevent import SchedEvent
+from ._common import EMPTYSET, EMPTYDICT
 
 from typing import TYPE_CHECKING, Sequence
 
@@ -21,50 +23,12 @@ if TYPE_CHECKING:
 
 
 __all__ = (
-    'AbstrSynth',
     'Synth',
     'SynthGroup'
 )
 
 
-_EMPTYSET = set()
-_EMPTYDICT = {}
-
-
-class AbstrSynth(baseevent.BaseEvent):
-    """
-    A base class for online events: Synth and SynthGroup
-
-    Args:
-        start: the start time relative to the start of the engine
-        dur: the duration of the synth
-        engine: the parent engine
-        autostop: if True, link the lifetime of the csound synth to the lifetime
-            of this object
-    """
-
-    __slots__ = ('engine', 'autostop')
-
-    def __init__(self,
-                 start: float,
-                 dur: float,
-                 engine: Engine,
-                 autostop: bool = False):
-        super().__init__(start=start, dur=dur)
-
-        self.engine: Engine = engine
-        "The engine used to schedule this synth"
-
-        self.autostop: bool = autostop
-        "If True, stop the underlying csound synth when this object is deleted"
-
-    @abstractmethod
-    def stop(self, delay=0.) -> None:
-        raise NotImplementedError
-
-    def __del__(self):
-        if self.autostop:
-            self.stop()
+class ISynth(ABC):
 
     @abstractmethod
     def playing(self) -> bool:
@@ -89,13 +53,7 @@ class AbstrSynth(baseevent.BaseEvent):
             sleepfunc(pollinterval)
         internalTools.removeSigintHandler()
 
-    @property
-    def session(self) -> Session:
-        """
-        Returns the Session which scheduled self
-        """
-        return self.engine.session()
-
+    @abstractmethod
     def ui(self, **specs: tuple[float, float]) -> None:
         """
         Modify dynamic (named) arguments through an interactive user-interface
@@ -137,14 +95,123 @@ class AbstrSynth(baseevent.BaseEvent):
             - :meth:`Engine.eventui`
 
         """
-        from . import interact
-        dynparams = self.dynamicParamNames(aliases=True, aliased=False)
-        if not dynparams:
-            logger.error(f"No named parameters for {self}")
-            return
-        params = {param: self.paramValue(param) for param in sorted(dynparams)}
-        paramspecs = interact.guessParamSpecs(params, ranges=specs)
-        return interact.interactSynth(self, specs=paramspecs)
+        raise NotImplementedError
+
+
+def _ui(event: Synth | SynthGroup, specs: dict[str, tuple[float, float]]):
+    from . import interact
+    dynparams = event.dynamicParamNames(aliases=True, aliased=False)
+    if not dynparams:
+        logger.error(f"No named parameters for {event}")
+        return
+    params = {param: event.paramValue(param) for param in sorted(dynparams)}
+    paramspecs = interact.guessParamSpecs(params, ranges=specs)
+    return interact.interactSynth(event, specs=paramspecs)
+
+#
+# class AbstrSynth(baseevent.BaseEvent):
+#     """
+#     A base class for online events: Synth and SynthGroup
+#
+#     Args:
+#         start: the start time relative to the start of the engine
+#         dur: the duration of the synth
+#         session: the parent session
+#         autostop: if True, link the lifetime of the csound synth to the lifetime
+#             of this object
+#     """
+#
+#     __slots__ = ('autostop', 'session')
+#
+#     def __init__(self,
+#                  start: float,
+#                  dur: float,
+#                  session: Session,
+#                  autostop: bool = False):
+#         super().__init__(start=start, dur=dur)
+#
+#         self.session = session
+#         """The session of this synth"""
+#
+#         self.autostop: bool = autostop
+#         "If True, stop the underlying csound synth when this object is deleted"
+#
+#     def __del__(self):
+#         if self.autostop:
+#             self.stop()
+#
+#     @abstractmethod
+#     def playing(self) -> bool:
+#         """ Is this synth playing? """
+#         raise NotImplementedError
+#
+#     @abstractmethod
+#     def finished(self) -> bool:
+#         """ Has this synth ceased to play? """
+#         raise NotImplementedError
+#
+#     def wait(self, pollinterval: float = 0.02, sleepfunc=time.sleep) -> None:
+#         """
+#         Wait until this synth has stopped
+#
+#         Args:
+#             pollinterval: polling interval in seconds
+#             sleepfunc: the function to call when sleeping, defaults to time.sleep
+#         """
+#         internalTools.setSigintHandler()
+#         while self.playing():
+#             sleepfunc(pollinterval)
+#         internalTools.removeSigintHandler()
+#
+#     def ui(self, **specs: tuple[float, float]) -> None:
+#         """
+#         Modify dynamic (named) arguments through an interactive user-interface
+#
+#         If run inside a jupyter notebook, this method will create embedded widgets
+#         to control the values of the dynamic pfields of an event. Dynamic pfields
+#         are those assigned to a k-variable or declared as ``|karg|`` (see below)
+#
+#         Args:
+#             specs: map named arg to a tuple (minvalue, maxvalue), the keyword
+#                 is the name of the parameter, the value is a tuple with the
+#                 range
+#
+#         Example
+#         ~~~~~~~
+#
+#         .. code::
+#
+#             # Inside jupyter
+#             from csoundengine import *
+#             s = Engine().session()
+#             s.defInstr('vco', r'''
+#               |kmidinote, kampdb=-12, kcutoff=3000, kres=0.9|
+#               kfreq = mtof:k(kmidinote)
+#               asig = vco2:a(ampdb(kampdb), kfreq)
+#               asig = moogladder2(asig, kcutoff, kres)
+#               asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
+#               outs asig, asig
+#             ''')
+#             synth = s.sched('vco', kmidinote=67)
+#             # Specify the ranges for some sliders. All named parameters
+#             # are assigned a widget
+#             synth.ui(kampdb=(-48, 0), kres=(0, 1))
+#
+#         .. figure:: assets/synthui.png
+#
+#         .. seealso::
+#
+#             - :meth:`Engine.eventui`
+#
+#         """
+#         from . import interact
+#         dynparams = self.dynamicParamNames(aliases=True, aliased=False)
+#         if not dynparams:
+#             logger.error(f"No named parameters for {self}")
+#             return
+#         params = {param: self.paramValue(param) for param in sorted(dynparams)}
+#         paramspecs = interact.guessParamSpecs(params, ranges=specs)
+#         return interact.interactSynth(self, specs=paramspecs)
 
 
 _synthStatusIcon = {
@@ -154,24 +221,30 @@ _synthStatusIcon = {
 }
 
 
-class Synth(AbstrSynth):
+class Synth(SchedEvent, ISynth):
     """
-    A Synth represents one running csound event
+    A Synth represents a live csound event
+
+    A user never creates a Synth directly, it is created by a Session when
+    :meth:`Session.sched <csoundengine.session.Session.sched>` is called
 
     Args:
-        engine: the engine instance where this synth belongs to
-        synthid: the synth id inside csound (p1, a fractional instrument number)
-        getInstr: the Instr which originated this Synth
-        start: start time of the synth, relative to the engine's elapsed time
-        dur: duration of the event (can be -1 for infinite)
-        args: the pfields used to create this synth (starting at p4)
-        autostop: should this synth autostop? If True, the lifetime of the csound note
-            is associated with this Synth object, so if this Synth goes out of
-            scope or is deleted, the underlying note is unscheduled
-        table: an associated Table (if needed)
+        session: the Session this synth belongs to
+        p1: the p1 assigned
+        instr: the Instr of this synth
+        start: start time (absolute)
+        dur: duration of the synth (-1 if no end)
+        args: the pfields used to create the actual event, starting with p4
+        autostop: if True, the underlying csound event is stopped when this object
+            is deallocated
+        priority: the priority at which this event was scheduled
+        controls: the dynamic controls used to schedule this synth
+        controlsSlot: the control slot assigned to this synth, if the instrument
+            defines named controls
+        uniqueId: an integer identifying this synth, if applicable
 
     Example
-    =======
+    ~~~~~~~
 
     .. code::
 
@@ -191,8 +264,7 @@ class Synth(AbstrSynth):
         synths[1].automate('ktransp', [0, 0, 10, -1])
 
     """
-    __slots__ = ('instr', 'session', 'group', '_scheduled', 'priority', 'p1', 'args',
-                 'controlsSlot', 'controls')
+    __slots__ = ('session', 'autostop', '_scheduled')
 
     def __init__(self,
                  session: Session,
@@ -200,42 +272,68 @@ class Synth(AbstrSynth):
                  instr: Instr,
                  start: float,
                  dur: float = -1,
-                 args: list[float] | None = None,
+                 args: list[float|str] | None = None,
                  autostop=False,
                  priority: int = 1,
                  controls: dict[str, float] | None = None,
                  controlsSlot: int = -1,
+                 uniqueId=0
                  ) -> None:
-
-        AbstrSynth.__init__(self, start=start, dur=dur, engine=session.engine, autostop=autostop)
+        SchedEvent.__init__(self, instrname=instr.name, start=start, dur=dur, args=args,
+                            p1=p1, uniqueId=uniqueId, parent=session, priority=priority,
+                            controlsSlot=controlsSlot, controls=controls)
+        # AbstrSynth.__init__(self, start=start, dur=dur, session=session, autostop=autostop)
 
         if controlsSlot < 0 and instr.dynamicParams():
             raise ValueError("Synth has dynamic args but was not assigned a control slot")
         elif controlsSlot >= 1 and not instr.dynamicParams():
             logger.warning("A control slot was assigned but this synth does not have any controls")
 
-        self.session: Session = session
-        """The parent Session of this event"""
-
         self.p1: float = p1
         """Event id for this synth"""
 
-        self.priority: int = priority
-        """Priority of this synth (lower priority is evaluated first)"""
-
-        self.instr: Instr = instr
-        """The Instr used to create this synth"""
-
-        self.args = args
-        """The args used to schedule this synth"""
-
-        self.controlsSlot: int = controlsSlot
-        """Holds the slot for dynamic controls, 0 if this synth has no assigned slot"""
-
-        self.controls = controls if controls is not None else _EMPTYDICT
-        """The dynamic controls used to schedule this synth"""
+        #
+        # self.args = args
+        # """The args used to schedule this synth"""
+        #
+        # self.priority: int = priority
+        # """Priority of this synth (lower priority is evaluated first)"""
+        #
+        # self._instr: Instr = instr
+        # """The Instr used to create this synth"""
+        #
+        # self.instrname: str = instr.name
+        #
+        # self.controlsSlot: int = controlsSlot
+        # """Holds the slot for dynamic controls, 0 if this synth has no assigned slot"""
+        #
+        # self.controls = controls if controls is not None else EMPTYDICT
+        # """The dynamic controls used to schedule this synth"""
+        #
+        # self.uniqueId: int = uniqueId
+        # """If given/applicable (> 0), a unique integer identifying this synth"""
 
         self._scheduled: bool = True
+        self.session = session
+        self.autostop = autostop
+
+    def __del__(self):
+        if self.autostop:
+            self.stop()
+
+    # @property
+    # def instr(self) -> Instr:
+    #     return self._instr
+
+    def wait(self, pollinterval: float = 0.02, sleepfunc=time.sleep) -> None:
+        """
+        Wait until this synth has stopped
+
+        Args:
+            pollinterval: polling interval in seconds
+            sleepfunc: the function to call when sleeping, defaults to time.sleep
+        """
+        internalTools.waitWhileTrue(self.playing, pollinterval=pollinterval, sleepfunc=sleepfunc)
 
     def aliases(self) -> dict[str, str]:
         """The parameter aliases of this synth, or an empty dict if no aliases defined"""
@@ -247,6 +345,48 @@ class Synth(AbstrSynth):
 
     def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
         return self.instr.controlNames(aliases=aliases, aliased=aliased)
+
+    def ui(self, **specs: tuple[float, float]) -> None:
+        """
+        Modify dynamic (named) arguments through an interactive user-interface
+
+        If run inside a jupyter notebook, this method will create embedded widgets
+        to control the values of the dynamic pfields of an event. Dynamic pfields
+        are those assigned to a k-variable or declared as ``|karg|`` (see below)
+
+        Args:
+            specs: map named arg to a tuple (minvalue, maxvalue), the keyword
+                is the name of the parameter, the value is a tuple with the
+                range
+
+        Example
+        ~~~~~~~
+
+        .. code::
+
+            # Inside jupyter
+            from csoundengine import *
+            s = Engine().session()
+            s.defInstr('vco', r'''
+              |kmidinote, kampdb=-12, kcutoff=3000, kres=0.9|
+              kfreq = mtof:k(kmidinote)
+              asig = vco2:a(ampdb(kampdb), kfreq)
+              asig = moogladder2(asig, kcutoff, kres)
+              asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
+              outs asig, asig
+            ''')
+            synth = s.sched('vco', kmidinote=67)
+            # Specify the ranges for some sliders. All named parameters
+            # are assigned a widget
+            synth.ui(kampdb=(-48, 0), kres=(0, 1))
+
+        .. figure:: assets/synthui.png
+
+        .. seealso::
+
+            - :meth:`Engine.eventui`
+        """
+        return _ui(event=self, specs=specs)
 
     def _html(self) -> str:
         argsfontsize = config['html_args_fontsize']
@@ -289,7 +429,7 @@ class Synth(AbstrSynth):
 
     def _repr_html_(self) -> str:
         if jupytertools.inside_jupyter():
-            if self.playing():
+            if self.playStatus() in ('playing', 'future'):
                 if config['jupyter_synth_repr_stopbutton']:
                     jupytertools.displayButton("Stop", self.stop)
                 if config['jupyter_synth_repr_interact'] and self.args:
@@ -347,7 +487,7 @@ class Synth(AbstrSynth):
         """
         if not self._scheduled:
             return "stopped"
-        now = self.engine.elapsedTime()
+        now = self.session.engine.elapsedTime()
         if self.start <= now < self.end:
             return "playing"
         elif self.start > now:
@@ -382,9 +522,9 @@ class Synth(AbstrSynth):
         return self.instr.pfieldNames(aliases=aliases, aliased=aliased)
 
     def _sliceStart(self) -> int:
-        return self.controlsSlot * self.session.dynamicArgsPerInstr
+        return self.controlsSlot * self.session.maxDynamicArgs
 
-    def _setp(self, param: str, value: float, delay=0.) -> None:
+    def _setPfield(self, param: str, value: float, delay=0.) -> None:
         """
         Modify a pfield of this synth.
 
@@ -420,110 +560,56 @@ class Synth(AbstrSynth):
             - :meth:`Synth.automate`
 
         """
-        if self.playStatus() == 'future':
-            # TODO: schedule the set operatior
-            # (Can we just modify the scheduled value?)
-            return
-
-        idx = self.instr.pfieldIndex(param, default=0)
-        if idx == 0:
-            raise KeyError(f"Unknown parameter {param} for synth {self}. "
-                           f"Possible parameters: {self.dynamicParamNames()}")
-        self.engine.setp(self.p1, idx, value, delay=delay)
-
+        if self.playStatus() == 'stopped':
+            logger.error(f"Synth {self} has already stopped, cannot "
+                         f"set param '{param}'")
+        return self.session._setPfield(event=self, delay=delay, param=param, value=value)
 
     def _setTable(self, param: str, value: float, delay=0.) -> None:
         if self.playStatus() == 'stopped':
             logger.error(f"Synth {self} has already stopped, cannot "
                          f"set param '{param}'")
-            return
-
-        if not self.controlsSlot:
-            raise RuntimeError("This synth has no associated controls slot")
-
-        slot = self.instr.controlIndex(param)
-        if delay > 0:
-            session = self.session
-            session.engine.tableWrite(tabnum=session._dynargsTabnum,
-                                      idx=self._sliceStart() + slot,
-                                      value=value,
-                                      delay=delay)
         else:
-            self.session._setNamedControl(slicenum=self.controlsSlot, slot=slot, value=value)
+            self.session._setNamedControl(event=self, param=param, value=value, delay=delay)
 
-    def paramValue(self, param: str | int, default=None) -> float | str | None:
+    def paramValue(self, param: str | int) -> float | str | None:
         """
         Get the value of a parameter
 
         Args:
             param: the parameter name or a pfield index
-            default: the default value if the parameter has no defined value
 
         Returns:
-            the value, or default if the parameter has no value
+            the value, or None if the parameter has no value
         """
         if isinstance(param, int):
             paramidx = param - 4
-            return self.args[paramidx] if 0 <= paramidx < len(self.args) else default
+            return self.args[paramidx] if self.args and 0 <= paramidx < len(self.args) else None
         elif isinstance(param, str):
             param = self.unaliasParam(param, param)
             if (paramidx := self.instr.pfieldIndex(param, -1)) >= 0:
                 paramidx0 = paramidx - 4
-                return self.args[paramidx0]
+                if self.args and paramidx0 < len(self.args):
+                    return self.args[paramidx0]
+                else:
+                    return None
             elif param in self.instr.controls:
                 if self.playing():
                     return self.session._getNamedControl(slicenum=self.controlsSlot,
                                                          paramslot=self.instr.controlIndex(param))
                 else:
+                    assert self.controls is not None
                     value = self.controls.get(param)
-                    return value if value is not None else self.instr.controls.get(param, default)
+                    if value is not None:
+                        return value
+                    return self.instr.controls.get(param)
+            return None
         else:
             raise TypeError(f"Expected an integer index or a parameter name, got {param}")
 
-    def _automateTable(self,
-                       param: str,
-                       pairs: list[float] | np.ndarray,
-                       mode="linear",
-                       delay=0.,
-                       overtake=False) -> float:
-        """
-        Automate a named parameter, time is relative to the automation start
-
-        Args:
-            param: the named parameter as defined in the Instr
-            pairs: a flat list of pairs of the form [time0, val0, time1, val1, ...]
-            mode: one of 'linear', 'cos', 'expon(xx)', 'smooth'. See the csound opcode
-                `interp1d` for more information
-                (https://csound-plugins.github.io/csound-plugins/opcodes/interp1d.html)
-            delay: time offset to start automation
-            overtake: if True, the first value of pairs is replaced with
-                the current value in the running instance
-
-        .. seealso::
-
-            * :meth:`~Synth.set`
-            * :meth:`~Synth.get`
-
-        """
-        if not self.controlsSlot:
-            raise RuntimeError(f"{self.instr.name} (id={self.p1}) was not assigned "
-                               f"a control slice")
-
-        if self.playStatus() == 'stopped':
-            logger.error(f"Synth {self} has already stopped, cannot "
-                         f"mset param '{param}'")
-            return 0.
-
-        return self.session.automateSynthParam(synth=self,
-                                               param=param,
-                                               pairs=pairs,
-                                               mode=mode,
-                                               overtake=overtake,
-                                               delay=delay)
-
     def automate(self,
                  param: str,
-                 pairs: list[float] | np.ndarray,
+                 pairs: Sequence[float] | np.ndarray,
                  mode='linear',
                  delay=0.,
                  overtake=False,
@@ -543,59 +629,8 @@ class Synth(AbstrSynth):
         Returns:
             the eventid of the automation event.
         """
-        now = self.engine.elapsedTime()
-        automStart = now + delay + pairs[0]
-        automEnd = now + delay + pairs[-2]
-        if automEnd <= self.start or automStart >= self.end:
-            # automation line ends before the actual event!!
-            logger.debug(f"Automation times outside of this synth: {param=}, "
-                         f"automation start-end: {automStart} - {automEnd}, "
-                         f"synth: {self}")
-            return 0
-
-        if len(pairs) == 2:
-            t0 = pairs[0]
-            self.set(param=param, delay=delay+t0, value=pairs[1])
-            return 0
-
-        if automStart < self.start or automEnd > self.end:
-            pairs, delay = internalTools.cropDelayedPairs(pairs=pairs, delay=delay + now, start=automStart, end=automEnd)
-            if not pairs:
-                return 0
-            delay -= now
-        
-        if pairs[0] > 0:
-            pairs, delay = internalTools.consolidateDelay(pairs, delay)
-
-        if internalTools.isPfield(param):
-            return self._automatePfield(param=param, pairs=pairs, mode=mode, delay=delay, 
-                                        overtake=overtake)
-        
-        param = self.unaliasParam(param, param)
-        params = self.instr.dynamicParams(aliases=False)
-        if param not in params:
-            raise KeyError(f"Unknown parameter '{param}' for {self}. Possible parameters: {params}")
-        
-        if (controlnames := self.controlNames(aliases=False)) and param in controlnames:
-            return self._automateTable(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
-        elif (pargs := self.pfieldNames(aliases=False)) and param in pargs:
-            return self._automatePfield(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
-        else:
-            raise KeyError(f"Unknown parameter '{param}', supported parameters: {self.dynamicParamNames()}")
-
-    def _automatePfield(self, param: int | str, pairs: list[float] | np.ndarray,
-                        mode="linear", delay=0., overtake=False) -> float:
-        if self.playStatus() == 'stopped':
-            raise RuntimeError("This synth has already stopped, cannot automate")
-
-        if isinstance(param, str):
-            pidx = self.instr.pfieldIndex(param)
-            if not pidx:
-                raise KeyError(f"pfield '{param}' not known. Known pfields: {self.instr.pfieldIndexToName}")
-        else:
-            pidx = param
-        synthid = self.engine.automatep(self.p1, pidx=pidx, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
-        return synthid
+        return self.session.automate(event=self, param=param, pairs=pairs, mode=mode,
+                                     delay=delay, overtake=overtake)
 
     def stop(self, delay=0.) -> None:
         if self.finished():
@@ -621,7 +656,7 @@ def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int = None, tablestyle=
         limitSynths = False
 
     rows: list[list[str]] = [[] for _ in synths]
-    now = synth0.engine.elapsedTime()
+    now = synth0.session.engine.elapsedTime()
     for row, synth in zip(rows, synths):
         row.append(f'{synth.p1} <b>{_synthStatusIcon[synth.playStatus()]}</b>')
         row.append("%.3f" % (synth.start - now))
@@ -663,7 +698,7 @@ def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int = None, tablestyle=
     return _misc.html_table(rows, headers=colnames, tablestyle=tablestyle)
 
 
-class SynthGroup(AbstrSynth):
+class SynthGroup(BaseSchedEvent):
     """
     A SynthGroup is used to control multiple synths
 
@@ -692,15 +727,14 @@ class SynthGroup(AbstrSynth):
         >>> group.stop(delay=11)
 
     """
-    __slots__ = ('synths', '__weakref__')
+    __slots__ = ('synths', 'session' '__weakref__',)
 
     def __init__(self, synths: list[Synth], autostop=False) -> None:
-        # assert isinstance(synths, list) and len(synths) > 0
         start = min(synth.start for synth in synths)
         end = max(synth.end for synth in synths)
         dur = end - start
-        AbstrSynth.__init__(self, start=start, dur=dur,
-                            engine=synths[0].engine, autostop=autostop)
+        BaseSchedEvent.__init__(self, start=start, dur=dur)
+        self.session = synths[0].session
         flatsynths: list[Synth] = []
         for synth in synths:
             if isinstance(synth, SynthGroup):
@@ -708,6 +742,13 @@ class SynthGroup(AbstrSynth):
             else:
                 flatsynths.append(synth)
         self.synths: list[Synth] = flatsynths
+        self.autostop = autostop
+
+    def __del__(self):
+        if self.autostop:
+            for synth in self:
+                if synth.playStatus() != 'stopped':
+                    synth.stop()
 
     def extend(self, synths: list[Synth]) -> None:
         """
@@ -726,24 +767,25 @@ class SynthGroup(AbstrSynth):
         return all(s.finished() for s in self)
 
     def _automateTable(self, param: str, pairs, mode="linear", delay=0.,
-                       overtake=False) -> None:
-        count = 0
-        for synth in self:
+                       overtake=False) -> list[float]:
+        synthids = []
+        for synth in self.synths:
             if isinstance(synth, Synth):
                 controls = synth.dynamicParamNames()
                 if controls and param in controls:
-                    synth._automateTable(param, pairs, mode=mode, delay=delay,
-                                         overtake=overtake)
-                    count += 1
+                    synthid = synth._automateTable(param, pairs, mode=mode, delay=delay,
+                                                   overtake=overtake)
+                    synthids.append(synthid)
             elif isinstance(synth, SynthGroup):
                 controls = synth.dynamicParamNames()
                 if controls and param in controls:
-                    synth._automateTable(param=param, pairs=pairs, mode=mode, delay=delay,
-                                         overtake=overtake)
-                    count += 1
-        if count == 0:
+                    synthid = synth._automateTable(param=param, pairs=pairs, mode=mode, delay=delay,
+                                                   overtake=overtake)
+                    synthids.append(synthid)
+        if not synthids:
             raise KeyError(f"Parameter '{param}' not known. "
                            f"Possible parameters: {self.dynamicParamNames()}")
+        return synthids
 
     @cache
     def dynamicParamNames(self, aliases=True, aliased=False) -> set[str]:
@@ -762,13 +804,13 @@ class SynthGroup(AbstrSynth):
         return out
 
     @cache
-    def pfieldNames(self, aliases=True, aliased=False) -> set[str]:
+    def pfieldNames(self, aliases=True, aliased=False) -> frozenset[str]:
         out: set[str] = set()
         for synth in self:
             namedPargs = synth.pfieldNames(aliases=aliases, aliased=aliased)
             if namedPargs:
                 out.update(namedPargs)
-        return out
+        return frozenset(out)
 
     def automate(self,
                  param: int | str,
@@ -833,7 +875,7 @@ class SynthGroup(AbstrSynth):
         return eventids
 
     def _htmlTable(self, style='') -> str:
-        subgroups = _iterlib.classify(self, lambda synth: synth.instr.name)
+        subgroups = _iterlib.classify(self.synths, lambda synth: synth.instr.name)
         lines = []
         instrcol = jupytertools.defaultPalette["name.color"]
         for instrname, synths in subgroups.items():
@@ -845,13 +887,58 @@ class SynthGroup(AbstrSynth):
         out = '\n'.join(lines)
         return out
 
+    def ui(self, **specs: tuple[float, float]) -> None:
+        """
+        Modify dynamic (named) arguments through an interactive user-interface
+
+        If run inside a jupyter notebook, this method will create embedded widgets
+        to control the values of the dynamic pfields of an event. Dynamic pfields
+        are those assigned to a k-variable or declared as ``|karg|`` (see below)
+
+        Args:
+            specs: map named arg to a tuple (minvalue, maxvalue), the keyword
+                is the name of the parameter, the value is a tuple with the
+                range
+
+        Example
+        ~~~~~~~
+
+        .. code::
+
+            # Inside jupyter
+            from csoundengine import *
+            s = Engine().session()
+            s.defInstr('vco', r'''
+              |kmidinote, kampdb=-12, kcutoff=3000, kres=0.9|
+              kfreq = mtof:k(kmidinote)
+              asig = vco2:a(ampdb(kampdb), kfreq)
+              asig = moogladder2(asig, kcutoff, kres)
+              asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
+              outs asig, asig
+            ''')
+            synths = [
+                s.sched('vco', kmidinote=67)
+                s.sched('vco', kmidinote=69)
+            ]
+            group = SynthGroup(synths)
+
+            # Specify the ranges for some sliders. All named parameters
+            # are assigned a widget
+            group.ui(kampdb=(-48, 0), kres=(0, 1))
+
+        .. seealso::
+
+            - :meth:`Engine.eventui`
+        """
+        _ui(event=self, specs=specs)
+
     def _repr_html_(self) -> str:
         assert jupytertools.inside_jupyter()
         if config['jupyter_synth_repr_stopbutton']:
             jupytertools.displayButton("Stop", self.stop)
         span = jupytertools.htmlSpan
         bold = lambda txt: span(txt, bold=True)
-        now = self[0].engine.elapsedTime()
+        now = self[0].session.engine.elapsedTime()
         start = min(max(0., s.start - now) for s in self)
         end = max(s.dur + s.start - now for s in self)
         if any(s.dur < 0 for s in self):
@@ -906,7 +993,7 @@ class SynthGroup(AbstrSynth):
             raise KeyError(f"Parameter '{param}' unknown. "
                            f"Possible parameters: {params}")
 
-    def paramValue(self, param: str, default=None) -> float | None:
+    def paramValue(self, param: str) -> float | str | None:
         """
         Returns the parameter value for the given parameter
 
@@ -920,13 +1007,13 @@ class SynthGroup(AbstrSynth):
             value = synth.paramValue(param)
             if value is not None:
                 return value
-        return default
+        return None
             
-    def _setp(self, param: str, value: float, delay=0.) -> None:
+    def _setPfield(self, param: str, value: float, delay=0.) -> None:
         count = 0
         for synth in self:
             if param in synth.instr.pfieldNames(aliases=False):
-                synth._setp(param=param, value=value, delay=delay)
+                synth._setPfield(param=param, value=value, delay=delay)
                 count += 1
         if count == 0:
             raise KeyError(f"Parameter {param} unknown. "
@@ -942,6 +1029,17 @@ class SynthGroup(AbstrSynth):
             if params:
                 allparams.update(params)
         return allparams
+
+    def wait(self, pollinterval: float = 0.02, sleepfunc=time.sleep) -> None:
+        """
+        Wait until this synth has stopped
+
+        Args:
+            pollinterval: polling interval in seconds
+            sleepfunc: the function to call when sleeping, defaults to time.sleep
+        """
+        internalTools.waitWhileTrue(self.playing, pollinterval=pollinterval, sleepfunc=sleepfunc)
+
 
 """
 class FutureSynth(AbstrSynth):
