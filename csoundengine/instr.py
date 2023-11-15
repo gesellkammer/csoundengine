@@ -675,6 +675,14 @@ class Instr:
                         pfields.remove(realname)
         return frozenset(pfields)
 
+    def paramValue(self, param: str) -> float | str | None:
+        param2 = self.unaliasParam(param, param)
+        defaults = self.paramDefaultValues(aliased=True)
+        if param2 not in defaults:
+            raise KeyError(f"Unknown parameter '{param}'. "
+                           f"Possible parameters: {default.keys()}")
+        return defaults[param2]
+
     @cache
     def paramDefaultValues(self, aliases=True, aliased=False) -> dict[str, float]:
         """

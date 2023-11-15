@@ -9,6 +9,9 @@ class Event:
     """
     Groups all parameters to schedule an event
 
+    Args:
+        instrname: the name of the instrument
+
     Example
     ~~~~~~~
 
@@ -21,9 +24,7 @@ class Event:
         >>> event = Event(instrname='test', delay=0, dur=2, args=dict(kfreq=800))
         >>> event.automate('kfreq', (0, 800, 2, 400))
         >>> session.schedEvent(event)
-        
-    This is the same as
-    
+        >>> # This is the same as
         >>> synth = session.sched('test', delay=0, dur=2, kfreq=800)
         >>> synth.automate('kfreq', (0, 800, 2, 400))
         
@@ -52,13 +53,14 @@ class Event:
     relative: bool = True
     "Is the delay expressed in relative time?"
 
-    kws: dict[str, float] | None = None
+    kws: dict[str, float | str] | None = None
     "Named parameters passed to the instrument if args is a list of pfields"
 
     uniqueId: int = 0
     """If applicable, a unique id identifying this event. 0 indicates no id"""
 
     automations: list[SchedAutomation] | None = None
+    """Automations attached to this event"""
 
     def automate(self, param: str, pairs: Sequence[float], delay=0.,
                  interpolation='linear', overtake=False) -> None:

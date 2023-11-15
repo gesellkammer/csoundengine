@@ -3508,8 +3508,8 @@ class Engine:
         pargs = [self._builtinInstrs['freetable'], delay, 0., tableindex]
         self._perfThread.scoreEvent(0, "i", pargs)
 
-    def testAudio(self, dur=4., delay=0., period=1, mode='pink',
-                  gaindb=-6) -> float:
+    def testAudio(self, dur=4., delay=0., period=1., mode='pink',
+                  gaindb=-6.) -> float:
         """
         Test this engine's output
 

@@ -119,6 +119,7 @@ from .synth import SynthGroup
 from . import csoundlib
 from . import tools
 from . import busproxy
+from . import schedevent
 from .csoundlib import (dumpAudioInfo, audioBackends)
 from .event import Event
 

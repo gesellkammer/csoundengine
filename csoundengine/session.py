@@ -174,6 +174,7 @@ UI generated when using the terminal:
 """
 
 from __future__ import annotations
+import weakref
 import os
 from dataclasses import dataclass
 from collections import deque
@@ -434,7 +435,6 @@ class Session(AbstractRenderer):
         self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
         self._schedCallback: Callable | None = None
         self._rendering = False
-
         self._inbox: _queue.Queue[Callable] = _queue.Queue()
         self._acceptingMessages = True
         self._dispatchingThread: threading.Thread | None = None
@@ -475,6 +475,11 @@ class Session(AbstractRenderer):
     def __hash__(self):
         return id(self)
 
+    def stop(self) -> None:
+        """Stop this session and the underlying engine"""
+        self.engine.stop()
+        self.engine._session = None
+        
     def _dispatcher(self):
         while self._acceptingMessages:
             task = self._inbox.get()
@@ -487,6 +492,9 @@ class Session(AbstractRenderer):
 
     def hasBusSupport(self) -> bool:
         return self.engine.hasBusSupport()
+
+    def getSynthById(self, token: int) -> Synth | None:
+        return self._synths.get(token)
 
     def automate(self,
                  event: SchedEvent,
@@ -701,7 +709,7 @@ class Session(AbstractRenderer):
         bucket[instrname] = instrnum
         return instrnum
 
-    def setSchedCallback(self, callback: Callable[[Event | SchedEvent], None]
+    def setSchedCallback(self, callback: Callable[[Event], None]
                          ) -> Callable | None:
         """
         Set the schedule callback
