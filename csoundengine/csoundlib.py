@@ -3707,9 +3707,12 @@ def _cropScore(events: list[Sequence], start=0., end=0.) -> list:
             representing the pargs [p1, p2, p3, ...]
         start: the min. start time for any event
         end: the max. end time for any event
+
+    Returns:
+        the score events which are between start and end
     """
     scoreend = max(_ for ev in events
-                   if (_:=_eventEnd(ev)) is not None)
+                   if (_ := _eventEnd(ev)) is not None)
     assert scoreend is not None and scoreend > 0, f"Invalid score duration ({scoreend}): {events}"
     if end == 0:
         end = scoreend
@@ -3733,17 +3736,16 @@ def _cropScore(events: list[Sequence], start=0., end=0.) -> list:
         if start <= evstart and evend <= end:
             cropped.append(ev)
         else:
-            intersection = emlib.mathlib.intersection(start, end, evstart, evend)
-            assert intersection is not None
-            xstart, xend = intersection
-            if xend == float('inf'):
-                dur = -1
-            else:
-                dur = xend - xstart
-            ev = list(ev)
-            ev[2] = xstart
-            ev[3] = dur
-            cropped.append(ev)
+            xstart, xend = emlib.mathlib.intersection(start, end, evstart, evend)
+            if xstart is not None:
+                if xend == float('inf'):
+                    dur = -1
+                else:
+                    dur = xend - xstart
+                ev = list(ev)
+                ev[2] = xstart
+                ev[3] = dur
+                cropped.append(ev)
     return cropped
 
 

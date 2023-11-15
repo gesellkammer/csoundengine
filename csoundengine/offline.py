@@ -1741,12 +1741,13 @@ def cropScore(events: list[SchedEvent], start=0., end=0.) -> list[SchedEvent]:
             cropped.append(ev)
         else:
             xstart, xend = emlib.mathlib.intersection(start, end, ev.start, ev.end)
-            if xend == float('inf'):
-                dur = -1
-            else:
-                dur = xend - xstart
-            ev = ev.clone(start=xstart, dur=dur)
-            cropped.append(ev)
+            if xstart is not None:
+                if xend == float('inf'):
+                    dur = -1
+                else:
+                    dur = xend - xstart
+                ev = ev.clone(start=xstart, dur=dur)
+                cropped.append(ev)
     return cropped
 
 
