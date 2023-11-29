@@ -442,6 +442,7 @@ class Session(AbstractRenderer):
         self._notificationUseOsc = False
         self._notificationOscPort = 0
         self._includes: set[str] = set()
+        self._lockedLatency: float | None = None
 
         self.maxDynamicArgs = maxControlsPerInstr or config['max_dynamic_args_per_instr']
         """The max. number of dynamic parameters per instr"""
@@ -479,7 +480,7 @@ class Session(AbstractRenderer):
         """Stop this session and the underlying engine"""
         self.engine.stop()
         self.engine._session = None
-        
+
     def _dispatcher(self):
         while self._acceptingMessages:
             task = self._inbox.get()
@@ -709,7 +710,7 @@ class Session(AbstractRenderer):
         bucket[instrname] = instrnum
         return instrnum
 
-    def setSchedCallback(self, callback: Callable[[Event], None]
+    def setSchedCallback(self, callback: Callable[[Event], SchedEvent]
                          ) -> Callable | None:
         """
         Set the schedule callback
@@ -1190,6 +1191,26 @@ class Session(AbstractRenderer):
                                mode=automation.interpolation,
                                overtake=automation.overtake)
         return synth
+
+    def lockedClock(self, latency: float | None) -> Session:
+        """
+        context manager to lock the live clock and ensure sync
+
+        .. seealso:: :meth:`csoundengine.engine.Engine.lockClock`
+        """
+        self._lockedLatency = latency
+        return self
+
+    def __enter__(self):
+        if self.engine.isClockLocked():
+            logger.warning("This session is already locked")
+        else:
+            self.engine.pushLock(self._lockedLatency)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.engine.isClockLocked():
+            self.engine.popLock()
+        self._lockedLatency = None
 
     def rendering(self,
                   outfile: str = '',

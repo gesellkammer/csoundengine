@@ -970,6 +970,7 @@ class Renderer(AbstractRenderer):
                starttime=0.,
                compressionBitrate: int = None,
                sr: int = None,
+               ksmps: int = None,
                tail=0.,
                numthreads=0,
                csoundoptions: list[str] = None
@@ -1078,6 +1079,9 @@ class Renderer(AbstractRenderer):
                 logger.warning(f"Rendering with a different sr ({sr}) as the sr of this Renderer "
                                f"{self.sr}. This might result in unexpected results")
             csd.sr = sr
+
+        if ksmps:
+            csd.ksmps = ksmps
 
         if encoding:
             csd.setSampleEncoding(encoding)

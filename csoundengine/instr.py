@@ -358,14 +358,14 @@ class Instr:
         self._preschedCallback = preschedCallback
         self._defaultPfieldValues = list(self.pfields.values())
 
-    def register(self, session: AbstractRenderer) -> None:
+    def register(self, renderer: AbstractRenderer) -> None:
         """
         Register this Instr at the given session
 
         This is just a shortcut for ``session.register(instr)``
 
         Args:
-            session: the session to register this Instr at
+            renderer: the renderer to register this Instr at
 
 
         Example
@@ -379,7 +379,7 @@ class Instr:
 
             >>> s.defInstr('myinstr', ...)
         """
-        session.registerInstr(self)
+        renderer.registerInstr(self)
 
     def _calculateHash(self) -> int:
         argshash = hash(frozenset(self.pfields.items())) if self.pfields else 0
@@ -404,19 +404,25 @@ class Instr:
 
         return f"Instr({', '.join(parts)})"
 
-    def generateBody(self, renderer: AbstractRenderer) -> str:
+    def generateBody(self, renderer: AbstractRenderer = None) -> str:
         """
         Generate the actual body of this instrument
 
         An Instr can generate different csound code depending on the renderer.
 
         Args:
-            renderer: the renderer for which to generate the body.
+            renderer: the renderer for which to generate the body. If not given
+                the code generated for a live session is returned
 
         Returns:
             the actual csound code to be used as the body of this instrument
+
+        .. seealso:: :meth:`csoundengine.session.Session.defaultInstrBody`
         """
-        return renderer.generateInstrBody(self)
+        if renderer:
+            return renderer.generateInstrBody(self)
+        from csoundengine import session
+        return session.Session.defaultInstrBody(self)
 
     def _pfieldsRepr(self) -> str:
         pargs = self.pfieldIndexToName

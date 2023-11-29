@@ -8,8 +8,13 @@ from .config import logger
 import platform
 from functools import cache
 from collections import UserString
+from typing import TypeVar
 
-def makeUniqueFilename(ext:str, prefix='', folder:str='.') -> str:
+
+_T = TypeVar("_T")
+
+
+def makeUniqueFilename(ext: str, prefix='', folder='.') -> str:
     """
     Create a unique filename
 
@@ -104,3 +109,4 @@ def _platformArch() -> str:
             return 'x86'
 
     raise RuntimeError(f"Architecture not supported ({machine=}, {bits=}, {linkage=})")
+

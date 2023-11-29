@@ -7,15 +7,14 @@ import numpy as np
 import emlib.iterlib as _iterlib
 import emlib.misc as _misc
 
-from .config import logger, config
 from . import internalTools
-from .baseschedevent import BaseSchedEvent
 from . import jupytertools
+from .config import logger, config
+from .baseschedevent import BaseSchedEvent
 from .schedevent import SchedEvent
 from ._common import EMPTYSET, EMPTYDICT
 
 from typing import TYPE_CHECKING, Sequence
-
 if TYPE_CHECKING:
     from .engine import Engine
     from .instr import Instr
@@ -234,7 +233,8 @@ class Synth(SchedEvent, ISynth):
         instr: the Instr of this synth
         start: start time (absolute)
         dur: duration of the synth (-1 if no end)
-        args: the pfields used to create the actual event, starting with p4
+        args: the pfields used to create the actual event, starting with p5 (p4 is
+            reserved for the controlsSlot
         autostop: if True, the underlying csound event is stopped when this object
             is deallocated
         priority: the priority at which this event was scheduled
@@ -638,7 +638,7 @@ class Synth(SchedEvent, ISynth):
         self.session.unsched(self.p1, delay=delay)
 
 
-def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int = None, tablestyle=''
+def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int = None, tablestyle='',
                            ) -> str:
     synth0 = synths[0]
     instr0 = synth0.instr
@@ -646,7 +646,7 @@ def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int = None, tablestyle=
         # multiple instrs per group, not allowed here
         raise ValueError("Only synths of the same instr allowed here")
 
-    colnames = ["p1", "start", "dur"]
+    colnames = ["p1", "start", "dur", "p4"]
     if maxrows is None:
         maxrows = config['synthgroup_repr_max_rows']
     if maxrows and len(synths) > maxrows:
@@ -661,6 +661,7 @@ def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int = None, tablestyle=
         row.append(f'{synth.p1} <b>{_synthStatusIcon[synth.playStatus()]}</b>')
         row.append("%.3f" % (synth.start - now))
         row.append("%.3f" % synth.dur)
+        row.append(str(synth.controlsSlot))
 
     if keys := synth0.controlNames():
         colnames.extend(keys)
@@ -681,11 +682,12 @@ def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int = None, tablestyle=
             if i > maxi:
                 colnames.append("...")
                 break
-            name = i2n.get(i+4)
+            pidx = i + 5
+            name = i2n.get(pidx)
             if name:
-                colnames.append(f"{i+4}:{name}")
+                colnames.append(f"{pidx}:{name}")
             else:
-                colnames.append(str(i+4))
+                colnames.append(str(pidx))
         for row, synth in zip(rows, synths):
             row.extend(f"{parg:.5g}" if not isinstance(parg, str) else parg
                        for parg in synth.args[:maxi])
@@ -727,14 +729,13 @@ class SynthGroup(BaseSchedEvent):
         >>> group.stop(delay=11)
 
     """
-    __slots__ = ('synths', 'session' '__weakref__',)
+    __slots__ = ('synths', 'session', 'autostop', '__weakref__')
 
     def __init__(self, synths: list[Synth], autostop=False) -> None:
         start = min(synth.start for synth in synths)
         end = max(synth.end for synth in synths)
         dur = end - start
         BaseSchedEvent.__init__(self, start=start, dur=dur)
-        self.session = synths[0].session
         flatsynths: list[Synth] = []
         for synth in synths:
             if isinstance(synth, SynthGroup):
@@ -743,6 +744,7 @@ class SynthGroup(BaseSchedEvent):
                 flatsynths.append(synth)
         self.synths: list[Synth] = flatsynths
         self.autostop = autostop
+        self.session = self.synths[0].session
 
     def __del__(self):
         if self.autostop:
@@ -874,7 +876,7 @@ class SynthGroup(BaseSchedEvent):
                              f"parameters: {self.dynamicParamNames()}")
         return eventids
 
-    def _htmlTable(self, style='') -> str:
+    def _htmlTable(self, style='', maxrows: int = None) -> str:
         subgroups = _iterlib.classify(self.synths, lambda synth: synth.instr.name)
         lines = []
         instrcol = jupytertools.defaultPalette["name.color"]
@@ -882,7 +884,7 @@ class SynthGroup(BaseSchedEvent):
             lines.append(f'<p><small>Instr: <strong style="color:{instrcol}">'
                          f'{instrname}'
                          f'</strong> - <b>{len(synths)}</b> synths</small></p>')
-            htmltable = _synthsCreateHtmlTable(synths, tablestyle=style)
+            htmltable = _synthsCreateHtmlTable(synths, maxrows=maxrows, tablestyle=style)
             lines.append(htmltable)
         out = '\n'.join(lines)
         return out
@@ -948,21 +950,7 @@ class SynthGroup(BaseSchedEvent):
         lines = [f'<small>{header}</small>']
         numrows = config['synthgroup_repr_max_rows']
         style = config['synthgroup_html_table_style']
-        if numrows == 0 or len(self) <= numrows:
-            lines.append(self._htmlTable(style=style))
-        else:
-            subgroups = _iterlib.classify(self.synths, lambda synth: synth.instr.name)
-            instrline = []
-            instrcol = jupytertools.defaultPalette["name.color"]
-            for instrname, synths in subgroups.items():
-                s = f'<strong style="color:{instrcol}">{instrname}</strong> - {len(synths)} synths'
-                namedparams = synths[0].pfieldNames()
-                kparams = [p for p in namedparams if p[0] == 'k']
-                if kparams:
-                    s += ' (' + ', '.join(kparams) + ')'
-                instrline.append(s)
-            line = f'<p><small>Instrs: {", ".join(instrline)}</small></p>'
-            lines.append(line)
+        lines.append(self._htmlTable(style=style, maxrows=numrows))
         return "\n".join(lines)
 
     def __repr__(self) -> str:

@@ -695,3 +695,28 @@ def waitWhileTrue(func: Callable[[], bool],
     while func():
         sleepfunc(pollinterval)
     removeSigintHandler()
+
+
+def classify(objs: tuple[str, _T]) -> dict[str, _T]:
+    """
+    Example
+    ~~~~~~~
+
+        @dataclass
+        def Person:
+            name: str
+            country: str
+
+        persons = [Person("A", "Germany"),
+                   Person("B", "Italy"),
+                   Person("C", "Germany")]
+        classify([(person.country, person) for person in persons])
+        -> {'Germany': [Person(name="A", country="Germany"),
+                        Person(name="C", country="Germany)],
+            'Italy': [Person(name="B", country="Italy"]}
+
+    """
+    groups = {}
+    for key, obj in objs:
+        groups.setdefault(key, []).append(obj)
+    return groups

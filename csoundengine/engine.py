@@ -1490,6 +1490,10 @@ class Engine:
 
         .. seealso:: :meth:`Engine.pushLock`
         """
+        if not self._clockStatesStack:
+            logger.warning("Clock stack is empty, ignoring")
+            return
+
         waslocked, latency = self._clockStatesStack.pop()
         if not waslocked:
             self.lockClock(False)
