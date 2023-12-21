@@ -124,8 +124,9 @@ higher level interface, allowing to:
       busmix(imasterbus, asig)
     ''')
 
+    # NB: p4 is reserved, attempting to use it will result in an error
     session.defInstr("master", r'''
-      imasterbus = p4
+      imasterbus = p5
       asig = busin(imasterbus)
       asig compress2 asig, asig, -120, -40, -12, 3, 0.1, 0.01, 0.05
       outch 1, asig
@@ -135,7 +136,7 @@ higher level interface, allowing to:
     masterbus = session.assignBus()
 
     # Start a master instance at the end of the evaluation chain
-    master = session.sched("master", imasterbus=masterbus, priority=10)
+    master = session.sched("master", imasterbus=masterbus, priority=3)
 
     # Launch some notes
     for i, midinote in enumerate(range(60, 72, 2)):

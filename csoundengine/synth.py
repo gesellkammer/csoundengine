@@ -23,7 +23,8 @@ if TYPE_CHECKING:
 
 __all__ = (
     'Synth',
-    'SynthGroup'
+    'SynthGroup',
+    'ui'
 )
 
 
@@ -94,10 +95,10 @@ class ISynth(ABC):
             - :meth:`Engine.eventui`
 
         """
-        raise NotImplementedError
+        return ui(self, specs=specs)
 
 
-def _ui(event: Synth | SynthGroup, specs: dict[str, tuple[float, float]]):
+def ui(event, specs: dict[str, tuple[float, float]]):
     from . import interact
     dynparams = event.dynamicParamNames(aliases=True, aliased=False)
     if not dynparams:
@@ -386,7 +387,7 @@ class Synth(SchedEvent, ISynth):
 
             - :meth:`Engine.eventui`
         """
-        return _ui(event=self, specs=specs)
+        return ui(event=self, specs=specs)
 
     def _html(self) -> str:
         argsfontsize = config['html_args_fontsize']
@@ -932,7 +933,7 @@ class SynthGroup(BaseSchedEvent):
 
             - :meth:`Engine.eventui`
         """
-        _ui(event=self, specs=specs)
+        ui(event=self, specs=specs)
 
     def _repr_html_(self) -> str:
         assert jupytertools.inside_jupyter()

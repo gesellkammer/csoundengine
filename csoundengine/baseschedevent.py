@@ -313,4 +313,6 @@ class BaseSchedEvent(ABC):
         if jupytertools.inside_jupyter():
             from IPython.display import display
             display(self)
+        else:
+            print(repr(self))
 

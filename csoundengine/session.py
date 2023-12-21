@@ -526,7 +526,7 @@ class Session(AbstractRenderer):
             # TODO: check (in general) if this converting between numpy/list/numpy
             # can be a bottleneck when automation lines get big
             pairs = pairs.tolist()
-        assert isinstance(pairs, list)
+        assert isinstance(pairs, (list, tuple))
         automStart = now + delay + pairs[0]
         automEnd = now + delay + pairs[-2]
         if automEnd <= event.start or automStart >= event.end:
@@ -1526,7 +1526,16 @@ class Session(AbstractRenderer):
             raise KeyError(f"Unknown parameter {param} for {event}. "
                            f"Possible parameters: {event.dynamicParamNames()}")
         assert isinstance(event.p1, (int, float))
-        self.engine.setp(event.p1, idx, value, delay=delay)
+        timeoffset = event.start - self.engine.elapsedTime()
+        if timeoffset > delay:
+            # The event will not have started by the time this operation is performed. pwrite will not find
+            # the instrument and will do nothing.
+            # Instead, we schedule an automation on the future, starting somewhat before the event
+            # and ending just after the event has started.
+            # self.engine.setp(event.p1, idx, value, delay=timeoffset)
+            self._automatePfield(event, param=idx, pairs=[max(0., timeoffset-0.25), value, timeoffset+0.01, value])
+        else:
+            self.engine.setp(event.p1, idx, value, delay=delay)
 
     def _setNamedControl(self,
                          event: SchedEvent,
