@@ -402,7 +402,7 @@ class Synth(SchedEvent, ISynth):
         if self.args and len(self.args) > 1:
             i2n = self.instr.pfieldIndexToName
             argsstrs = []
-            pargs = self.args[1:]
+            pargs = self.args
             if any(arg.startswith('k') for arg in self.instr.pfieldNameToIndex):
                 maxi = max(i+4 for i, n in i2n.items()
                            if n.startswith('k'))

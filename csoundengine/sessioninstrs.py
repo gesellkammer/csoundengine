@@ -40,6 +40,10 @@ builtinInstrs = [
         ;   kgain: gain
         ;   kpan: pan position, between 0-1. Use -1 to use default, which is 0 for mono and 0.5 for stereo
         ;   ixfade: crossfade time, if negative no looping
+        if isndtab <= 0 || ftexists(isndtab) == 0 then
+            initerror sprintf("Table %d does not exist", isndtab)
+        endif
+        
         iloop = ixfade >= 0 ? 1 : 0
         ionecycle = ksmps/sr
         ifadein = max(ifadein, ionecycle)
@@ -58,7 +62,7 @@ builtinInstrs = [
             ; not a gen1 table, fail
             initerror sprintf("Table %d was not generated via gen1", isndtab)
         endif
-
+        
         kidx init 0
         aenv = linsegr:a(0, ifadein, 1, ifadeout, 0)
         aenv *= interp(kgain)
@@ -97,7 +101,7 @@ builtinInstrs = [
         imaxtime = idur - ifadeout - ionecycle
         if iloop == 0 && know >= imaxtime then
             turnoff
-        endif   
+        endif
     """, aliases={'speed': 'kspeed', 'gain': 'kgain', 'pan': 'kpan'}),
     Instr('.playbuf', body="""
         |itabnum=0, ioutchan=1, igain=1, iloop=0|

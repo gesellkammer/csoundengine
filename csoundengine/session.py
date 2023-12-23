@@ -434,7 +434,7 @@ class Session(AbstractRenderer):
         self._pathToTabproxy: dict[str, TableProxy] = {}
         self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
         self._schedCallback: Callable | None = None
-        self._rendering = False
+        self._offlineRenderer: Renderer | None = None
         self._inbox: _queue.Queue[Callable] = _queue.Queue()
         self._acceptingMessages = True
         self._dispatchingThread: threading.Thread | None = None
@@ -475,6 +475,9 @@ class Session(AbstractRenderer):
 
     def __hash__(self):
         return id(self)
+
+    def isRendering(self) -> bool:
+        return self._offlineRenderer is not None
 
     def stop(self) -> None:
         """Stop this session and the underlying engine"""
@@ -1283,7 +1286,7 @@ class Session(AbstractRenderer):
                                      ksmps=ksmps)
 
         schedCallback = self._schedCallback
-        self._rendering = True
+        self._offlineRenderer = renderer
 
         if redirect:
             self._schedCallback = renderer.schedEvent
@@ -1293,7 +1296,7 @@ class Session(AbstractRenderer):
                      starttime=starttime, openWhenDone=openWhenDone,
                      tail=tail, verbose=verbose)
             self._schedCallback = _schedCallback
-            self._rendering = False
+            self._offlineRenderer = None
 
         renderer._registerExitCallback(_exit)
         return renderer
@@ -1992,16 +1995,23 @@ class Session(AbstractRenderer):
             A Synth with the following mutable parameters: kgain, kspeed, kchan, kpan
 
         """
+        if self.isRendering():
+            raise RuntimeError("This Session is in rendering mode. Call .playSample on the renderer instead")
+
+        sourcedur = None
         if isinstance(source, int):
             tabnum = source
         elif isinstance(source, TableProxy):
             tabnum = source.tabnum
+            sourcedur = source.duration()
         elif isinstance(source, str):
             table = self.readSoundfile(source)
             tabnum = table.tabnum
+            sourcedur = table.duration()
         elif isinstance(source, tuple) and isinstance(source[0], np.ndarray):
             table = self.makeTable(source[0], sr=source[1])
             tabnum = table.tabnum
+            sourcedur = table.duration()
         else:
             raise TypeError(f"Expected int, TableProxy or str, got {source}")
         # isndtab, iloop, istart, ifade
@@ -2014,6 +2024,8 @@ class Session(AbstractRenderer):
                 fadein = fadeout = fade
         if not loop:
             crossfade = -1
+
+        assert isinstance(tabnum, int) and tabnum >= 1
         return self.sched('.playSample',
                           delay=delay,
                           dur=dur,
