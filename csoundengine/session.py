@@ -341,6 +341,7 @@ class Session(AbstractRenderer):
                  priorities: int = None,
                  maxControlsPerInstr: int = None,
                  numControlSlots: int = None,
+                 blockWhileRendering=True,
                  **enginekws
                  ) -> None:
         """
@@ -360,6 +361,9 @@ class Session(AbstractRenderer):
                 dynamic parameters. Each synth which declares named controls is
                 assigned a slot, used to hold all its named controls. This is also
                 the max. number of simultaneous events with named controls.
+            blockWhileRendering: if True, when .rendering is called on a session, any
+                operation which affects the session will raise an error. This is to prevent
+                that the user from confusing the renderer.
             enginekws: any keywords are used to create an Engine, if no engine
                 has been provided. See docs for :class:`~csoundengine.engine.Engine`
                 for available keywords.
@@ -400,6 +404,9 @@ class Session(AbstractRenderer):
 
         self.numPriorities: int = priorities if priorities else config['session_priorities']
         "Number of priorities in this Session"
+
+        self._blockWhileRendering: bool = (blockWhileRendering if blockWhileRendering is not None
+                                           else config['session_block_while_rendering'])
 
         if not isinstance(self.numPriorities, int) or self.numPriorities < 2:
             raise ValueError(f"Invalid number of priorites. Expected an int >= 2, got "
@@ -1460,6 +1467,9 @@ class Session(AbstractRenderer):
                           kws=kwargs)
             return self._schedCallback(event)
 
+        if self.isRendering() and self._blockWhileRendering:
+            raise RuntimeError("This Session is blocked during rendering. Call .sched on the offline renderer instead")
+
         assert isinstance(priority, int) and 1 <= priority <= self.numPriorities
         assert self._dynargsArray is not None
         abstime = delay if not relative else self.engine.elapsedTime() + delay + self.engine.extraLatency
@@ -1597,6 +1607,8 @@ class Session(AbstractRenderer):
             event: the event to stop, either a Synth or the p1
             delay: how long to wait before stopping them
         """
+        if self.isRendering() and self._blockWhileRendering:
+            raise RuntimeError("This Session is blocked while in rendering mode. Call .unsched on the renderer instead")
 
         synthid = event if isinstance(event, (int, float)) else event.p1
         assert isinstance(synthid, (int, float))
@@ -1683,6 +1695,9 @@ class Session(AbstractRenderer):
             >>> session.playSample(table)
 
         """
+        if self.isRendering() and self._blockWhileRendering:
+            raise RuntimeError("This Session is blocked during rendering. Call .readSoundFile on the offline "
+                               "renderer instead")
         if path == "?":
             path = _state.openSoundfile()
         if (table := self._pathToTabproxy.get(path)) is not None and not force:
@@ -1739,6 +1754,10 @@ class Session(AbstractRenderer):
             a TableProxy object
 
         """
+        if self.isRendering() and self._blockWhileRendering:
+            raise RuntimeError("This Session is in rendering mode. Call .makeTable on the renderer instead "
+                               "(with session.rendering() as r: ... r.makeTable(...)")
+
         # TODO: check block / callback for empty table
         if delay > 0:
             logger.info(f"Delay parameter ignored ({delay=} when allocating table")
@@ -1894,6 +1913,9 @@ class Session(AbstractRenderer):
             >>> session.playPartials(source='packed.mtx', speed=0.5)
 
         """
+        if self.isRendering() and self._blockWhileRendering:
+            raise RuntimeError("This Session is blocked during rendering")
+
         iskip, inumrows, inumcols = -1, 0, 0
 
         if isinstance(source, int):
@@ -1995,23 +2017,19 @@ class Session(AbstractRenderer):
             A Synth with the following mutable parameters: kgain, kspeed, kchan, kpan
 
         """
-        if self.isRendering():
+        if self.isRendering() and self._blockWhileRendering:
             raise RuntimeError("This Session is in rendering mode. Call .playSample on the renderer instead")
 
-        sourcedur = None
         if isinstance(source, int):
             tabnum = source
         elif isinstance(source, TableProxy):
             tabnum = source.tabnum
-            sourcedur = source.duration()
         elif isinstance(source, str):
             table = self.readSoundfile(source)
             tabnum = table.tabnum
-            sourcedur = table.duration()
         elif isinstance(source, tuple) and isinstance(source[0], np.ndarray):
             table = self.makeTable(source[0], sr=source[1])
             tabnum = table.tabnum
-            sourcedur = table.duration()
         else:
             raise TypeError(f"Expected int, TableProxy or str, got {source}")
         # isndtab, iloop, istart, ifade
