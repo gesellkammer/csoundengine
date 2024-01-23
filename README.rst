@@ -58,14 +58,15 @@ instance. All audio processing is run in a separate performance thread.
     # of the running instrument, which can be used to further control it
     event = engine.sched("synth", args=[48, 0.2, 3000, 4])
 
-    # Change midinote. setp means: set p-field. This sets p4 (kmidinote) to 50
+    # Change midinote. setp means: set p-field. This sets kmidinote (p4) to 50
     engine.setp(event, 4, 50)
 
     # Modify cutoff
     engine.setp(event, 6, 1000, delay=4)
 
-    # Create a ui for this event:
-    engine.eventui(event, p4=(0, 127), p5=(0, 1), kcutoff=(100, 5000))
+    # Create a graphic interface to interact with this event. If running within a jupyter notebook
+    # a html gui is generated, otherwise a native gui is used:
+    engine.eventUI(event, p4=(0, 127), p5=(0, 1), kcutoff=(100, 5000))
 
 
 .. figure:: https://raw.githubusercontent.com/gesellkammer/csoundengine/master/docs/assets/eventui2.png

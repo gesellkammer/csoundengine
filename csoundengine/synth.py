@@ -108,111 +108,6 @@ def ui(event, specs: dict[str, tuple[float, float]]):
     paramspecs = interact.guessParamSpecs(params, ranges=specs)
     return interact.interactSynth(event, specs=paramspecs)
 
-#
-# class AbstrSynth(baseevent.BaseEvent):
-#     """
-#     A base class for online events: Synth and SynthGroup
-#
-#     Args:
-#         start: the start time relative to the start of the engine
-#         dur: the duration of the synth
-#         session: the parent session
-#         autostop: if True, link the lifetime of the csound synth to the lifetime
-#             of this object
-#     """
-#
-#     __slots__ = ('autostop', 'session')
-#
-#     def __init__(self,
-#                  start: float,
-#                  dur: float,
-#                  session: Session,
-#                  autostop: bool = False):
-#         super().__init__(start=start, dur=dur)
-#
-#         self.session = session
-#         """The session of this synth"""
-#
-#         self.autostop: bool = autostop
-#         "If True, stop the underlying csound synth when this object is deleted"
-#
-#     def __del__(self):
-#         if self.autostop:
-#             self.stop()
-#
-#     @abstractmethod
-#     def playing(self) -> bool:
-#         """ Is this synth playing? """
-#         raise NotImplementedError
-#
-#     @abstractmethod
-#     def finished(self) -> bool:
-#         """ Has this synth ceased to play? """
-#         raise NotImplementedError
-#
-#     def wait(self, pollinterval: float = 0.02, sleepfunc=time.sleep) -> None:
-#         """
-#         Wait until this synth has stopped
-#
-#         Args:
-#             pollinterval: polling interval in seconds
-#             sleepfunc: the function to call when sleeping, defaults to time.sleep
-#         """
-#         internalTools.setSigintHandler()
-#         while self.playing():
-#             sleepfunc(pollinterval)
-#         internalTools.removeSigintHandler()
-#
-#     def ui(self, **specs: tuple[float, float]) -> None:
-#         """
-#         Modify dynamic (named) arguments through an interactive user-interface
-#
-#         If run inside a jupyter notebook, this method will create embedded widgets
-#         to control the values of the dynamic pfields of an event. Dynamic pfields
-#         are those assigned to a k-variable or declared as ``|karg|`` (see below)
-#
-#         Args:
-#             specs: map named arg to a tuple (minvalue, maxvalue), the keyword
-#                 is the name of the parameter, the value is a tuple with the
-#                 range
-#
-#         Example
-#         ~~~~~~~
-#
-#         .. code::
-#
-#             # Inside jupyter
-#             from csoundengine import *
-#             s = Engine().session()
-#             s.defInstr('vco', r'''
-#               |kmidinote, kampdb=-12, kcutoff=3000, kres=0.9|
-#               kfreq = mtof:k(kmidinote)
-#               asig = vco2:a(ampdb(kampdb), kfreq)
-#               asig = moogladder2(asig, kcutoff, kres)
-#               asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
-#               outs asig, asig
-#             ''')
-#             synth = s.sched('vco', kmidinote=67)
-#             # Specify the ranges for some sliders. All named parameters
-#             # are assigned a widget
-#             synth.ui(kampdb=(-48, 0), kres=(0, 1))
-#
-#         .. figure:: assets/synthui.png
-#
-#         .. seealso::
-#
-#             - :meth:`Engine.eventui`
-#
-#         """
-#         from . import interact
-#         dynparams = self.dynamicParamNames(aliases=True, aliased=False)
-#         if not dynparams:
-#             logger.error(f"No named parameters for {self}")
-#             return
-#         params = {param: self.paramValue(param) for param in sorted(dynparams)}
-#         paramspecs = interact.guessParamSpecs(params, ranges=specs)
-#         return interact.interactSynth(self, specs=paramspecs)
-
 
 _synthStatusIcon = {
     'playing': '▶',
@@ -589,7 +484,7 @@ class Synth(SchedEvent, ISynth):
         elif isinstance(param, str):
             param = self.unaliasParam(param, param)
             if (paramidx := self.instr.pfieldIndex(param, -1)) >= 0:
-                paramidx0 = paramidx - 4
+                paramidx0 = paramidx - 5
                 if self.args and paramidx0 < len(self.args):
                     return self.args[paramidx0]
                 else:

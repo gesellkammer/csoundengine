@@ -810,6 +810,9 @@ class Engine:
         Args:
             instrnum (int): the instrument number
 
+        Returns:
+            the eventid assigned, a float
+
         """
         if isinstance(instrnum, str):
             instrnum = self.queryNamedInstr(instrnum)
@@ -1743,7 +1746,7 @@ class Engine:
         Query the assigned instr number async
 
         The result is put in the cache and, if given, callback is called
-        as `callback(name:str, instrnum:int)`
+        as `callback(name: str, instrnum: int)`
         """
         synctoken = self._getSyncToken()
         msg = f'i {self._builtinInstrs["nstrnum"]} {delay} 0 {synctoken} "{name}"'
@@ -2095,7 +2098,6 @@ class Engine:
         """
         Returns True if a table with the given number exists
         """
-
         try:
             _ = self.tableInfo(tabnum)
         except TableNotFoundError:
