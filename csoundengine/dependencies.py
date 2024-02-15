@@ -288,7 +288,7 @@ def _checkDependencies(fix=False, updateState=True, quiet=False) -> Optional[str
         return "csound not installed. See https://csound.com/download.html"
 
     version = csoundlib.getVersion(useApi=True)
-    if version  < (6, 16, 0):
+    if version < (6, 16, 0):
         return f"Csound version ({version}) is too old, should be >= 6.16"
 
     if version[0] >= 7:
@@ -301,20 +301,17 @@ def _checkDependencies(fix=False, updateState=True, quiet=False) -> Optional[str
 
     if not pluginsInstalled(cached=False):
         if fix:
-            if not quiet:
-                print("** csoundengine: Csound external plugins are not installed or are too old."
-                      " I will try to install them now")
+            print("** csoundengine: Csound external plugins are not installed or are too old."
+                  " I will try to install them now")
             ok = installPlugins(version[0])
             if ok:
-                if not quiet:
-                    print("** csoundengine: csound external plugins installed ok")
+                print("** csoundengine: csound external plugins installed ok")
             else:
-                if not quiet:
-                    print("** csoundengine: csound external plugins could not be installed")
+                print("** csoundengine: csound external plugins could not be installed")
                 return "csound external plugins could not be installed"
         else:
             return ("Some plugins are not installed. They can be installed via 'import csoundengine; csoundengine.installDependencies()'. "
-                    "To install the plugins manually you will need risset installed Install them via risset "
+                    "To install the plugins manually you will need risset installed. Install them via risset "
                     "(risset install \"*\"), or manually from "
                     "https://github.com/csound-plugins/csound-plugins/releases")
     logger.info("Dependencies OK")
