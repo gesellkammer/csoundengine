@@ -174,6 +174,15 @@ class SchedEvent(BaseSchedEvent):
             raise RuntimeError("This event is not assigned to a Renderer")
         self.parent._setPfield(self, delay=delay, param=param, value=value)
 
+    def aliases(self) -> dict[str, str]:
+        if self.parent is None:
+            raise RuntimeError("This event is not assigned to a Renderer")
+        if not self.instrname:
+            logger.error(f"This SchedEvent does not have an instrument assigned ({self=})")
+            return {}
+        instr = self.parent.getInstr(self.instrname)
+        return instr.aliases
+
     @property
     def instr(self) -> instr.Instr:
         """
@@ -361,13 +370,22 @@ class SchedEventGroup(BaseSchedEvent):
 
         if param:
             count = 0
+            allparams = set()
             for ev in self:
-                if param in ev.dynamicParamNames(aliases=True, aliased=True):
+                evparams = ev.dynamicParamNames(aliases=True, aliased=True)
+                allparams.update(evparams)
+                if param in evparams:
                     count += 1
                     ev.set(param=param, value=value, delay=delay)
             if count == 0:
                 raise KeyError(f"Param '{param}' not known by any events in this group. "
-                               f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
+                               f"Possible parameters: {allparams}")
+
+    def aliases(self) -> dict[str, str]:
+        out = {}
+        for ev in self.events:
+            out.update(ev.aliases())
+        return out
 
     def automate(self,
                  param: str,

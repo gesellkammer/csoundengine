@@ -53,6 +53,7 @@ def _validateFigsize(cfg: dict, key: str, val) -> bool:
     parts = val.split(":")
     return len(parts) == 2 and all(p.isnumeric() for p in parts)
 
+
 config = ConfigDict(modulename, persistent=False)
 _ = config.addKey
 

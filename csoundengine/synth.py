@@ -580,10 +580,11 @@ def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int = None, tablestyle=
                 break
             pidx = i + 5
             name = i2n.get(pidx)
-            if name:
-                colnames.append(f"{pidx}:{name}")
+            if config['synth_repr_show_pfield_index']:
+                colname = f"{pidx}:{name}" if name else str(pidx)
             else:
-                colnames.append(str(pidx))
+                colname = name if name else str(pidx)
+            colnames.append(colname)
         for row, synth in zip(rows, synths):
             row.extend(f"{parg:.5g}" if not isinstance(parg, str) else parg
                        for parg in synth.args[:maxi])

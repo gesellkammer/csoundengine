@@ -112,14 +112,19 @@ class BaseSchedEvent(ABC):
                 self.set(param=k, value=v, delay=delay)
 
         if param:
-            param = self.unaliasParam(param, param)
-            if csoundlib.isPfield(param) or param in self.pfieldNames(aliases=False):
+            if csoundlib.isPfield(param):
                 self._setPfield(param=param, value=value, delay=delay)
-            elif param in self.controlNames(aliases=False):
-                self._setTable(param=param, value=value, delay=delay)
             else:
-                raise KeyError(f"Unknown parameter: '{param}'. "
-                               f"Possible parameters for this event: {self.dynamicParamNames(aliased=True)}")
+                unaliased = self.unaliasParam(param, param)
+                if unaliased in self.pfieldNames(aliases=False):
+                    self._setPfield(param=unaliased, value=value, delay=delay)
+                elif unaliased in self.controlNames(aliases=False):
+                    self._setTable(param=param, value=value, delay=delay)
+                else:
+                    raise KeyError(f"Unknown parameter: '{param}'. "
+                                   f"Possible parameters for this event: {self.dynamicParamNames(aliased=True)}, "
+                                   f"aliases: {self.aliases()}, pfields: {self.pfieldNames(aliases=False)}, "
+                                   f"control names: {self.controlNames(aliases=False)}")
 
     def _automatePfield(self,
                         param: int | str,
