@@ -2,7 +2,7 @@ on: [push]
 
 jobs:
   alltest:
-    runs-on: $${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ "windows-latest", "macos-latest", "ubuntu-latest" ]
