@@ -55,7 +55,7 @@ jobs:
           pip install .
 
       - name: install from pip
-        if: ${{ matrix.install-method == 'pip' }}
+        if: ${{ matrix.install-method == 'pip' && matrix.python-version == '3.11' }}
         run: |
           pip install csoundengine
 
