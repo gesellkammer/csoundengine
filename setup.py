@@ -4,7 +4,7 @@
 from setuptools import setup
 import os
 
-version = (2, 6, 1)
+version = (2, 7, 0)
 
 from os import path
 this_directory = path.abspath(path.dirname(__file__))
@@ -57,6 +57,7 @@ setup(
         "numpyx>=1.3.1",
         "pitchtools>=1.12.0",
         "risset>=2.7.7",
+        "pyaudio"
     ],
     license="BSD",
     classifiers=[

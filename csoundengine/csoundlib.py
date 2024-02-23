@@ -25,6 +25,9 @@ from pathlib import Path as _Path
 import tempfile as _tempfile
 import cachetools as _cachetools
 import dataclasses
+
+import pyaudio
+
 from ._common import *
 from csoundengine import jacktools
 from csoundengine import linuxaudio
@@ -255,6 +258,7 @@ class AudioBackend:
         """
         return (self.defaultBufferSize, self.defaultNumBuffers)
 
+    # @_functools.cache
     def audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
         """
         Query csound for audio devices for this backend
@@ -407,6 +411,12 @@ class _PortaudioBackend(AudioBackend):
                          alwaysAvailable=True,
                          longname=longname,
                          hasSystemSr=hasSystemSr)
+        self._pyaudio: pyaudio.PyAudio | None = None
+
+    def _getpyaudio(self):
+        if self._pyaudio is None:
+            self._pyaudio = pyaudio.PyAudio()
+        return self._pyaudio
 
     def getSystemSr(self) -> int | None:
         if sys.platform == 'linux' and linuxaudio.isPipewireRunning():
@@ -415,20 +425,42 @@ class _PortaudioBackend(AudioBackend):
         return super().getSystemSr()
 
     def defaultAudioDevices(self) -> tuple[AudioDevice | None, AudioDevice | None]:
-        indevs, outdevs = getAudioDevices(self.name)
-        indev = next((d for d in indevs if _re.search(r"\bdefault\b", d.name)), None)
-        outdev = next((d for d in outdevs if _re.search(r"\bdefault\b", d.name)), None)
-        if indev is None:
-            if not indevs:
-                logger.warning(f"No input devices for backend {self.name}")
-            else:
-                indev = indevs[0]
-        if outdev is None:
-            if not outdevs:
-                logger.warning(f"No output devices for backend {self.name}")
-            else:
-                outdev = outdevs[0]
-        return indev, outdev
+        pa = self._getpyaudio()
+        logger.debug("Querying default device via pyaudio")
+        pyaudioDefaultOut = pa.get_default_output_device_info()
+        pyaudioDefaultIn = pa.get_default_input_device_info()
+        indevs, outdevs = self.audioDevices()
+        defaultoutdev, defaultindev = None, None
+        if outdevs:
+            for outdev in outdevs:
+                name = outdev.name.split("[")[0].strip()
+                if name == pyaudioDefaultOut['name']:
+                    defaultoutdev = outdev
+                    break
+        if indevs:
+            for indev in indevs:
+                name = indev.name.split("[")[0].strip()
+                if name == pyaudioDefaultIn['name']:
+                    defaultindev = indev
+                    break
+        return defaultindev, defaultoutdev
+
+    # def _defaultAudioDevices(self) -> tuple[AudioDevice | None, AudioDevice | None]:
+    #     indevs, outdevs = getAudioDevices(self.name)
+    #     indev = next((d for d in indevs if _re.search(r"\bdefault\b", d.name)), None)
+    #     outdev = next((d for d in outdevs if _re.search(r"\bdefault\b", d.name)), None)
+    #     indevname, outdevname = _portaudioGetDefaultDevices()
+    #     if indev is None:
+    #         if not indevs:
+    #             logger.warning(f"No input devices for backend {self.name}")
+    #         else:
+    #             indev = indevs[0]
+    #     if outdev is None:
+    #         if not outdevs:
+    #             logger.warning(f"No output devices for backend {self.name}")
+    #         else:
+    #             outdev = outdevs[0]
+    #     return indev, outdev
 
     def _audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
         indevices: list[AudioDevice] = []
@@ -494,7 +526,7 @@ _backendCoreaudio = AudioBackend('auhal',
 
 
 _allAudioBackends: dict[str, AudioBackend] = {
-    'jack' : _backendJack,
+    'jack': _backendJack,
     'auhal': _backendCoreaudio,
     'coreaudio': _backendCoreaudio,
     'pa_cb': _backendPortaudioCallback,
@@ -502,7 +534,7 @@ _allAudioBackends: dict[str, AudioBackend] = {
     'pa_bl': _backendPortaudioBlocking,
     'pulse': _backendPulseaudio,
     'pulseaudio': _backendPulseaudio,
-    'alsa' : _backendAlsa
+    'alsa': _backendAlsa
 }
 
 
@@ -2869,9 +2901,16 @@ def dumpAudioDevices(backend=''):
     inputrows = [dataclasses.astuple(dev) for dev in indevs]
     outputrows = [dataclasses.astuple(dev) for dev in outdevs]
     print("\nInput Devices:")
-    print_table(inputrows, headers=fields, showindex=False)
+    if inputrows:
+        print_table(inputrows, headers=fields, showindex=False)
+    else:
+        print("-- No input devices")
+
     print("\nOutput Devices:")
-    print_table(outputrows, headers=fields, showindex=False)
+    if outputrows:
+        print_table(outputrows, headers=fields, showindex=False)
+    else:
+        print("-- No output devices")
 
 
 def instrNames(instrdef: str) -> list[int | str]:
@@ -2882,7 +2921,7 @@ def instrNames(instrdef: str) -> list[int | str]:
     number or a name
 
     Args:
-        code (str): the code defining an instrument
+        instrdef: the code defining an instrument
 
     Returns:
         a list of names/instrument numbers. An empty list is returned if
