@@ -324,7 +324,7 @@ class AudioBackend:
             a tuple ``(inputDevice: AudioDevice, outputDevice: AudioDevice)`` for this backend
         """
         indevs, outdevs = getAudioDevices(self.name)  # self.audioDevices()
-        return indevs[0], outdevs[0]
+        return indevs[0] if indevs else None, outdevs[0] if outdevs else None
 
 
 class _JackAudioBackend(AudioBackend):
@@ -427,22 +427,24 @@ class _PortaudioBackend(AudioBackend):
     def defaultAudioDevices(self) -> tuple[AudioDevice | None, AudioDevice | None]:
         pa = self._getpyaudio()
         logger.debug("Querying default device via pyaudio")
-        pyaudioDefaultOut = pa.get_default_output_device_info()
-        pyaudioDefaultIn = pa.get_default_input_device_info()
-        indevs, outdevs = self.audioDevices()
         defaultoutdev, defaultindev = None, None
+        indevs, outdevs = self.audioDevices()
+        if indevs:
+            pyaudioDefaultIn = pa.get_default_input_device_info()
+            for indev in indevs:
+                name = indev.name.split("[")[0].strip()
+                if name == pyaudioDefaultIn['name']:
+                    defaultindev = indev
+                    break
         if outdevs:
+            pyaudioDefaultOut = pa.get_default_output_device_info()
             for outdev in outdevs:
                 name = outdev.name.split("[")[0].strip()
                 if name == pyaudioDefaultOut['name']:
                     defaultoutdev = outdev
                     break
         if indevs:
-            for indev in indevs:
-                name = indev.name.split("[")[0].strip()
-                if name == pyaudioDefaultIn['name']:
-                    defaultindev = indev
-                    break
+
         return defaultindev, defaultoutdev
 
     # def _defaultAudioDevices(self) -> tuple[AudioDevice | None, AudioDevice | None]:
