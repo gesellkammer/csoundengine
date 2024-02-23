@@ -411,12 +411,6 @@ class _PortaudioBackend(AudioBackend):
                          alwaysAvailable=True,
                          longname=longname,
                          hasSystemSr=hasSystemSr)
-        self._pyaudio: pyaudio.PyAudio | None = None
-
-    def _getpyaudio(self):
-        if self._pyaudio is None:
-            self._pyaudio = pyaudio.PyAudio()
-        return self._pyaudio
 
     def getSystemSr(self) -> int | None:
         if sys.platform == 'linux' and linuxaudio.isPipewireRunning():
@@ -425,43 +419,50 @@ class _PortaudioBackend(AudioBackend):
         return super().getSystemSr()
 
     def defaultAudioDevices(self) -> tuple[AudioDevice | None, AudioDevice | None]:
-        pa = self._getpyaudio()
         logger.debug("Querying default device via pyaudio")
+        try:
+            import sounddevice as sd
+        except ImportError:
+            logger.warning('Could not initialize the sounddevice library. Falling back'
+                           ' to querying csound')
+            return self._defaultAudioDevices()
+
+        devices = sd.query_devices()
         defaultoutdev, defaultindev = None, None
         indevs, outdevs = self.audioDevices()
         if indevs:
-            pyaudioDefaultIn = pa.get_default_input_device_info()
+            paDefaultIndev = devices[sd.default.device[0]]
             for indev in indevs:
                 name = indev.name.split("[")[0].strip()
-                if name == pyaudioDefaultIn['name']:
+                if name == paDefaultIndev['name']:
                     defaultindev = indev
                     break
         if outdevs:
-            pyaudioDefaultOut = pa.get_default_output_device_info()
+            paDefaultOutdev = devices[sd.default.device[1]]
             for outdev in outdevs:
                 name = outdev.name.split("[")[0].strip()
-                if name == pyaudioDefaultOut['name']:
+                if name == paDefaultOutdev['name']:
                     defaultoutdev = outdev
                     break
 
         return defaultindev, defaultoutdev
 
-    # def _defaultAudioDevices(self) -> tuple[AudioDevice | None, AudioDevice | None]:
-    #     indevs, outdevs = getAudioDevices(self.name)
-    #     indev = next((d for d in indevs if _re.search(r"\bdefault\b", d.name)), None)
-    #     outdev = next((d for d in outdevs if _re.search(r"\bdefault\b", d.name)), None)
-    #     indevname, outdevname = _portaudioGetDefaultDevices()
-    #     if indev is None:
-    #         if not indevs:
-    #             logger.warning(f"No input devices for backend {self.name}")
-    #         else:
-    #             indev = indevs[0]
-    #     if outdev is None:
-    #         if not outdevs:
-    #             logger.warning(f"No output devices for backend {self.name}")
-    #         else:
-    #             outdev = outdevs[0]
-    #     return indev, outdev
+    def _defaultAudioDevices(self) -> tuple[AudioDevice | None, AudioDevice | None]:
+        indevs, outdevs = getAudioDevices(self.name)
+        indev = next((d for d in indevs if _re.search(r"\bdefault\b", d.name)), None)
+        outdev = next((d for d in outdevs if _re.search(r"\bdefault\b", d.name)), None)
+        indevname, outdevname = _portaudioGetDefaultDevices()
+        if indev is None:
+            if not indevs:
+                logger.warning(f"No input devices for backend {self.name}")
+            else:
+                indev = indevs[0]
+        if outdev is None:
+            if not outdevs:
+                logger.warning(f"No output devices for backend {self.name}")
+            else:
+                outdev = outdevs[0]
+        return indev, outdev
 
     def _audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
         indevices: list[AudioDevice] = []

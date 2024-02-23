@@ -57,7 +57,7 @@ setup(
         "numpyx>=1.3.1",
         "pitchtools>=1.12.0",
         "risset>=2.7.7",
-        "pyaudio"
+        "sounddevice"
     ],
     license="BSD",
     classifiers=[
