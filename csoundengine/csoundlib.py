@@ -443,7 +443,6 @@ class _PortaudioBackend(AudioBackend):
                 if name == pyaudioDefaultOut['name']:
                     defaultoutdev = outdev
                     break
-        if indevs:
 
         return defaultindev, defaultoutdev
 
