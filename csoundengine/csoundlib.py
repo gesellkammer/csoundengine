@@ -416,8 +416,9 @@ class _PortaudioBackend(AudioBackend):
             return info.sr
         return super().getSystemSr()
 
+    @_functools.cache
     def defaultAudioDevices(self) -> tuple[AudioDevice | None, AudioDevice | None]:
-        logger.debug("Querying default device via pyaudio")
+        logger.debug("Querying default device via portaudio/sounddevice")
         try:
             import sounddevice as sd
         except ImportError:
