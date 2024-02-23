@@ -17,3 +17,8 @@ ce.csoundlib.dumpAudioBackends()
 print("Audio Devices for portaudio")
 ce.csoundlib.dumpAudioDevices(backend='portaudio')
 
+pa = ce.csoundlib.getAudioBackend('portaudio')
+print("Default Audio Devices")
+indev, outdev = pa.defaultAudioDevices()
+print(indev)
+print(outdev)
