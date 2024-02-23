@@ -10,3 +10,10 @@ if not ok:
     print("*************** Some dependencies where not met")
     sys.exit(1)
 print(":::::::::::::::: Dependencies ok")
+
+ce.csoundlib.dumpAudioBackends()
+
+# Portaudio
+print("Audio Devices for portaudio")
+ce.csoundlib.dumpAudioDevices(backend='portaudio')
+

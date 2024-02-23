@@ -215,7 +215,11 @@ class AudioBackend:
         return bool(indevices or outdevices)
 
     def getSystemSr(self) -> int | None:
-        """Get the system samplerate for this backend, if available"""
+        """
+        Get the system samplerate for this backend, if available
+
+        We use the default output device.
+        """
         if not self.hasSystemSr:
             logger.debug(f"Backend {self.name} does not have a system sr, returning default")
             return 44100
@@ -407,7 +411,6 @@ class _PortaudioBackend(AudioBackend):
     def getSystemSr(self) -> int | None:
         if sys.platform == 'linux' and linuxaudio.isPipewireRunning():
             info = linuxaudio.pipewireInfo()
-            assert info is not None
             return info.sr
         return super().getSystemSr()
 

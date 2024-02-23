@@ -386,7 +386,7 @@ class Engine:
         indevs, outdevs = backendDef.audioDevices()
         defaultin, defaultout = backendDef.defaultAudioDevices()
         indevName, outdevName = "adc", "dac"
-        if outdev is None:
+        if not outdev:
             if not defaultout:
                 raise RuntimeError(f"No output devices for backend {backendDef.name}")
             outdev, outdevName = defaultout.id, defaultout.name

@@ -989,6 +989,7 @@ class Renderer(AbstractRenderer):
                 the format (wav, flac, etc). None will render to a temp wav file.
             sr: the sample rate used for recording, overrides the samplerate of
                 the renderer
+            ksmps: the samples per cycle used when rendering
             encoding: the sample encoding of the rendered file, given as
                 'pcmXX' or 'floatXX', where XX represent the bit-depth
                 ('pcm16', 'float32', etc). If no encoding is given a suitable default for

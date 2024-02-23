@@ -206,6 +206,7 @@ from . import instrtools
 from . import csoundlib
 from .offline import Renderer
 from . import busproxy
+from .sessionhandler import SessionHandler
 
 from typing import Callable, Sequence
 
@@ -214,6 +215,9 @@ __all__ = [
     'Session',
     'Event'
 ]
+
+
+
 
 
 @dataclass
@@ -341,7 +345,6 @@ class Session(AbstractRenderer):
                  priorities: int = None,
                  maxControlsPerInstr: int = None,
                  numControlSlots: int = None,
-                 blockWhileRendering=True,
                  **enginekws
                  ) -> None:
         """
@@ -361,9 +364,6 @@ class Session(AbstractRenderer):
                 dynamic parameters. Each synth which declares named controls is
                 assigned a slot, used to hold all its named controls. This is also
                 the max. number of simultaneous events with named controls.
-            blockWhileRendering: if True, when .rendering is called on a session, any
-                operation which affects the session will raise an error. This is to prevent
-                that the user from confusing the renderer.
             enginekws: any keywords are used to create an Engine, if no engine
                 has been provided. See docs for :class:`~csoundengine.engine.Engine`
                 for available keywords.
@@ -404,9 +404,6 @@ class Session(AbstractRenderer):
 
         self.numPriorities: int = priorities if priorities else config['session_priorities']
         "Number of priorities in this Session"
-
-        self._blockWhileRendering: bool = (blockWhileRendering if blockWhileRendering is not None
-                                           else config['session_block_while_rendering'])
 
         if not isinstance(self.numPriorities, int) or self.numPriorities < 2:
             raise ValueError(f"Invalid number of priorites. Expected an int >= 2, got "
@@ -450,6 +447,7 @@ class Session(AbstractRenderer):
         self._notificationOscPort = 0
         self._includes: set[str] = set()
         self._lockedLatency: float | None = None
+        self._handler: SessionHandler | None = None
 
         self.maxDynamicArgs = maxControlsPerInstr or config['max_dynamic_args_per_instr']
         """The max. number of dynamic parameters per instr"""
@@ -485,6 +483,9 @@ class Session(AbstractRenderer):
 
     def isRendering(self) -> bool:
         return self._offlineRenderer is not None
+
+    def isRedirected(self) -> bool:
+        return self._handler is not None
 
     def stop(self) -> None:
         """Stop this session and the underlying engine"""
@@ -719,6 +720,11 @@ class Session(AbstractRenderer):
         instrnum = bucketstart + idx
         bucket[instrname] = instrnum
         return instrnum
+
+    def setHandler(self, handler: SessionHandler | None) -> SessionHandler | None:
+        prevhandler = self._handler
+        self._handler = handler
+        return prevhandler
 
     def setSchedCallback(self, callback: Callable[[Event], SchedEvent]
                          ) -> Callable | None:
@@ -1456,19 +1462,24 @@ class Session(AbstractRenderer):
 
         :meth:`~csoundengine.synth.Synth.stop`
         """
-        if self._schedCallback:
-            event = Event(instrname=instrname,
-                          delay=delay,
-                          dur=dur,
-                          priority=priority,
-                          args=args,
-                          whenfinished=whenfinished,
-                          relative=relative,
-                          kws=kwargs)
-            return self._schedCallback(event)
+        if self._handler:
+            event = Event(instrname=instrname, delay=delay, dur=dur, priority=priority,
+                          args=args, whenfinished=whenfinished, relative=relative, kws=kwargs)
+            return self._handler.sched(event)
 
-        if self.isRendering() and self._blockWhileRendering:
-            raise RuntimeError("This Session is blocked during rendering. Call .sched on the offline renderer instead")
+        # if self._schedCallback:
+        #     event = Event(instrname=instrname,
+        #                   delay=delay,
+        #                   dur=dur,
+        #                   priority=priority,
+        #                   args=args,
+        #                   whenfinished=whenfinished,
+        #                   relative=relative,
+        #                   kws=kwargs)
+        #     return self._schedCallback(event)
+
+        if self.isRendering():
+            raise RuntimeError("Session blocked during rendering")
 
         assert isinstance(priority, int) and 1 <= priority <= self.numPriorities
         assert self._dynargsArray is not None
@@ -1758,6 +1769,13 @@ class Session(AbstractRenderer):
             raise RuntimeError("This Session is in rendering mode. Call .makeTable on the renderer instead "
                                "(with session.rendering() as r: ... r.makeTable(...)")
 
+        if self._handler is not None:
+            try:
+                return self._handler.makeTable(data=data, size=size, sr=sr)
+            except NotImplementedError:
+                # The handler does not implement makeTable, so we need to do that here
+                pass
+
         # TODO: check block / callback for empty table
         if delay > 0:
             logger.info(f"Delay parameter ignored ({delay=} when allocating table")
@@ -2028,7 +2046,7 @@ class Session(AbstractRenderer):
             table = self.readSoundfile(source)
             tabnum = table.tabnum
         elif isinstance(source, tuple) and isinstance(source[0], np.ndarray):
-            table = self.makeTable(source[0], sr=source[1])
+            table = self.makeTable(source[0], sr=source[1], unique=False)
             tabnum = table.tabnum
         else:
             raise TypeError(f"Expected int, TableProxy or str, got {source}")
