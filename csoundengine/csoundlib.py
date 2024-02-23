@@ -26,8 +26,6 @@ import tempfile as _tempfile
 import cachetools as _cachetools
 import dataclasses
 
-import pyaudio
-
 from ._common import *
 from csoundengine import jacktools
 from csoundengine import linuxaudio
