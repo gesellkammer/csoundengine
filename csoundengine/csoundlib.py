@@ -59,15 +59,10 @@ except Exception as e:
 logger = _logging.getLogger("csoundengine")
 
 
-@_cachetools.cached(cache=_cachetools.TTLCache(1, 10))
-def _isPulseaudioRunning() -> bool:
-    """ Return True if Pulseaudio is running """
-    if not _shutil.which("pactl"):
-        return False
-    output = _subprocess.check_output(['pactl', 'info']).decode('utf-8')
-    if _re.search(r'\bConnection\ failure', output) is None:
-        return True
-    return False
+_cache: dict[str, Any] = {
+    'opcodes': None,
+    'versionTriplet': None
+}
 
 
 _audioDeviceRegex = r"(\d+):\s((?:adc|dac)\d+)\s*\((.*)\)(?:\s+\[ch:(\d+)\])?"
@@ -108,7 +103,7 @@ def midiDevices(backend='portmidi') -> tuple[list[MidiDevice], list[MidiDevice]]
                for d in inputdevs]
     midiouts = [MidiDevice(deviceid=d['device_id'], kind='output',
                            name=f"{d['interface_name']}:{d['device_name']}")
-               for d in outputdevs]
+                for d in outputdevs]
     return midiins, midiouts
 
 
@@ -235,20 +230,20 @@ class AudioBackend:
         cs.stop()
         return int(sr) if sr > 0 else None
 
-    def _getSystemSr(self) -> int | None:
-        """Get the system samplerate for this backend, if available"""
-        if not self.hasSystemSr:
-            return 44100
-        proc = csoundSubproc(["-odac", f"-+rtaudio={self.name}", "--get-system-sr"], wait=True)
-        if not proc.stdout:
-            return None
-        for line in proc.stdout.readlines():
-            if line.startswith(b"system sr:"):
-                uline = line.decode('utf-8')
-                sr = int(float(uline.split(":")[1].strip()))
-                return sr if sr > 0 else None
-        logger.error(f"Failed to get sr with backend {self.name}")
-        return None
+    # def _getSystemSr(self) -> int | None:
+    #     """Get the system samplerate for this backend, if available"""
+    #     if not self.hasSystemSr:
+    #         return 44100
+    #     proc = csoundSubproc(["-odac", f"-+rtaudio={self.name}", "--get-system-sr"], wait=True)
+    #     if not proc.stdout:
+    #         return None
+    #     for line in proc.stdout.readlines():
+    #         if line.startswith(b"system sr:"):
+    #             uline = line.decode('utf-8')
+    #             sr = int(float(uline.split(":")[1].strip()))
+    #             return sr if sr > 0 else None
+    #     logger.error(f"Failed to get sr with backend {self.name}")
+    #     return None
 
     def bufferSizeAndNum(self) -> tuple[int, int]:
         """
@@ -286,33 +281,33 @@ class AudioBackend:
         cs.stop()
         return indevs, outdevs
 
-    def _audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
-        """
-        Returns a tuple (input devices, output devices)
-        """
-        indevices: list[AudioDevice] = []
-        outdevices: list[AudioDevice] = []
-        proc = csoundSubproc(['-+rtaudio=%s' % self.name, '--devices'])
-        proc.wait()
-        assert proc.stderr is not None
-        lines = proc.stderr.readlines()
-        for line in lines:
-            line = line.decode("utf-8")
-            match = _re.search(self.audioDeviceRegex, line)
-            if not match:
-                continue
-            groups = match.groups()
-            if len(groups) == 3:
-                idxstr, devid, devname = groups
-                numchannels = None
-            else:
-                idxstr, devid, devname, numchannels_ = groups
-                numchannels = int(numchannels_) if numchannels_ is not None else 2
-            kind = 'input' if devid.startswith("adc") else 'output'
-            dev = AudioDevice(index=int(idxstr), id=devid.strip(), name=devname,
-                              kind=kind, numchannels=numchannels)
-            (indevices if kind == 'input' else outdevices).append(dev)
-        return indevices, outdevices
+    # def _audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
+    #     """
+    #     Returns a tuple (input devices, output devices)
+    #     """
+    #     indevices: list[AudioDevice] = []
+    #     outdevices: list[AudioDevice] = []
+    #     proc = csoundSubproc(['-+rtaudio=%s' % self.name, '--devices'])
+    #     proc.wait()
+    #     assert proc.stderr is not None
+    #     lines = proc.stderr.readlines()
+    #     for line in lines:
+    #         line = line.decode("utf-8")
+    #         match = _re.search(self.audioDeviceRegex, line)
+    #         if not match:
+    #             continue
+    #         groups = match.groups()
+    #         if len(groups) == 3:
+    #             idxstr, devid, devname = groups
+    #             numchannels = None
+    #         else:
+    #             idxstr, devid, devname, numchannels_ = groups
+    #             numchannels = int(numchannels_) if numchannels_ is not None else 2
+    #         kind = 'input' if devid.startswith("adc") else 'output'
+    #         dev = AudioDevice(index=int(idxstr), id=devid.strip(), name=devname,
+    #                           kind=kind, numchannels=numchannels)
+    #         (indevices if kind == 'input' else outdevices).append(dev)
+    #     return indevices, outdevices
 
     def defaultAudioDevices(self) -> tuple[AudioDevice | None, AudioDevice | None]:
         """
@@ -423,34 +418,28 @@ class _PortaudioBackend(AudioBackend):
             import sounddevice as sd
         except ImportError:
             logger.warning('Could not initialize the sounddevice library. Falling back'
-                           ' to querying csound')
-            return self._defaultAudioDevices()
+                           ' to querying via csound')
+            return self._defaultAudioDevicesViaCsound()
 
         devices = sd.query_devices()
         defaultoutdev, defaultindev = None, None
         indevs, outdevs = self.audioDevices()
         if indevs:
-            paDefaultIndev = devices[sd.default.device[0]]
-            for indev in indevs:
-                name = indev.name.split("[")[0].strip()
-                if name == paDefaultIndev['name']:
-                    defaultindev = indev
-                    break
+            defaultName = devices[sd.default.device[0]]['name']
+            defaultindev = next((dev for dev in indevs
+                                 if dev.name.split("[")[0].strip() == defaultName), None)
+
         if outdevs:
-            paDefaultOutdev = devices[sd.default.device[1]]
-            for outdev in outdevs:
-                name = outdev.name.split("[")[0].strip()
-                if name == paDefaultOutdev['name']:
-                    defaultoutdev = outdev
-                    break
+            defaultName = devices[sd.default.device[1]]['name']
+            defaultoutdev = next((dev for dev in outdevs
+                                  if dev.name.split("[")[0].strip() == defaultName), None)
 
         return defaultindev, defaultoutdev
 
-    def _defaultAudioDevices(self) -> tuple[AudioDevice | None, AudioDevice | None]:
+    def _defaultAudioDevicesViaCsound(self) -> tuple[AudioDevice | None, AudioDevice | None]:
         indevs, outdevs = getAudioDevices(self.name)
         indev = next((d for d in indevs if _re.search(r"\bdefault\b", d.name)), None)
         outdev = next((d for d in outdevs if _re.search(r"\bdefault\b", d.name)), None)
-        indevname, outdevname = _portaudioGetDefaultDevices()
         if indev is None:
             if not indevs:
                 logger.warning(f"No input devices for backend {self.name}")
@@ -462,40 +451,6 @@ class _PortaudioBackend(AudioBackend):
             else:
                 outdev = outdevs[0]
         return indev, outdev
-
-    def _audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
-        indevices: list[AudioDevice] = []
-        outdevices: list[AudioDevice] = []
-        proc = csoundSubproc(['-+rtaudio=pa_cb', '-odac', '--devices'], wait=True)
-        if sys.platform == 'win32':
-            assert proc.stdout is not None
-            lines = proc.stdout.readlines()
-        else:
-            assert proc.stderr is not None
-            lines = proc.stderr.readlines()
-        for line in lines:
-            line = line.decode("utf-8")
-            if match := _re.search(self.audioDeviceRegex, line):
-                groups = match.groups()
-                if len(groups) == 3:
-                    idxstr, devid, devname = groups
-                    numchannels = None
-                else:
-                    idxstr, devid, devname, numchannels_ = groups
-                    numchannels = int(numchannels_) if numchannels_ is not None else 2
-                kind = 'input' if devid.startswith("adc") else 'output'
-                dev = AudioDevice(index=int(idxstr), id=devid, name=devname, kind=kind,
-                                  numchannels=numchannels)
-                (indevices if kind == 'input' else outdevices).append(dev)
-            elif match := _re.search(r"(\d+):\s*(dac\d+)\s\((.+)", line):
-                idxstr = match.group(1)
-                devid = match.group(2)
-                devname = match.group(3)
-                kind = 'input' if devid.startswith("adc") else 'output'
-                dev = AudioDevice(index=int(idxstr), id=devid, name=devname, kind=kind,
-                                  numchannels=None)
-                (indevices if kind == 'input' else outdevices).append(dev)
-        return indevices, outdevices
 
 
 class _AlsaBackend(AudioBackend):
@@ -544,12 +499,6 @@ _backendsByPlatform: dict[str, list[AudioBackend]] = {
               _backendPortaudioBlocking, _backendPulseaudio],
     'darwin': [_backendJack, _backendCoreaudio, _backendPortaudioCallback],
     'win32': [_backendPortaudioCallback, _backendPortaudioBlocking]
-}
-
-
-_cache: dict[str, Any] = {
-    'opcodes': None,
-    'versionTriplet': None
 }
 
 
@@ -779,21 +728,22 @@ def userPluginsFolder(float64=True, apiversion='6.0') -> str:
     """
     key = apiversion if float64 else 'float32'
     folders = _pluginsFolders[key]
-    if not sys.platform in folders:
+    if sys.platform not in folders:
         raise RuntimeError(f"Platform {sys.platform} not known")
     folder = folders[sys.platform]
     return _os.path.abspath(_os.path.expandvars(folder))
 
 
 def runCsd(csdfile:str,
-           outdev = "",
-           indev = "",
-           backend = "",
-           nodisplay = False,
-           nomessages = False,
-           comment:str = None,
-           piped = False,
-           extra:list[str] = None) -> _subprocess.Popen:
+           outdev="",
+           indev="",
+           backend="",
+           nodisplay=False,
+           nomessages=False,
+           comment='',
+           piped=False,
+           extra: list[str] = None
+           ) -> _subprocess.Popen:
     """
     Run the given .csd as a csound subprocess
 
@@ -1447,7 +1397,9 @@ def getSamplerateForBackend(backend='') -> int | None:
     """
     backendDef = getAudioBackend(backend)
     if backendDef is None:
-        raise ValueError(f"Backend {backend} not supported")
+        possible = [name for name, backend in _allAudioBackends.items()
+                    if sys.platform in backend.platforms]
+        raise ValueError(f"Backend '{backend}' not supported. Possible backends for this platform: {possible}")
     if not backendDef.isAvailable():
         raise RuntimeError(f"Audiobackend {backendDef.name} is not available")
     return backendDef.getSystemSr()
@@ -1625,6 +1577,23 @@ _defaultEncodingForFormat = {
     'aiff': 'float32',
     'ogg': 'vorbis'
 }
+
+
+def _normalizeArgs(args, quote=True) -> list[float | str]:
+    out = []
+    for arg in args:
+        if isinstance(arg, str):
+            if quote:
+                arg = emlib.textlib.quoteIfNeeded(arg)
+            out.append(arg)
+        elif isinstance(arg, (int, float)):
+            out.append(arg)
+        else:
+            try:
+                out.append(float(arg))
+            except ValueError as e:
+                raise ValueError(f"Could not interpret {arg} as float: {e}")
+    return out
 
 
 def csoundOptionsForOutputFormat(fmt='wav',
@@ -1940,12 +1909,10 @@ class Csd:
         start = round(start, 8)
         dur = round(dur, 8)
         event = ["i", _quoteIfNeeded(instr), start, dur]
+
         if args:
-            if any(not isinstance(arg, (int, float, str)) for arg in args):
-                badargs = [f"{a} ({type(a)})" for a in args if not isinstance(a, (int, float, str))]
-                raise TypeError(f"pargs must be int, float or str, got {', '.join(badargs)} "
-                                f"({instr=}, {args=}, {start=}, {dur=})")
-            event.extend(_quoteIfNeeded(arg) for arg in args)
+            args = _normalizeArgs(args)
+            event.extend(args)
         if comment:
             event.append(f"     ; {comment}")
         self.score.append(event)
