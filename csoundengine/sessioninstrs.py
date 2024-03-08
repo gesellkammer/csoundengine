@@ -127,7 +127,7 @@ builtinInstrs = [
         endif
         """),
     Instr('.playPartials', body=r'''
-        |ifn, iskip=-1, inumrows=0, inumcols=0, kspeed=1, kloop=0, kminfreq=0, kmaxfreq=0, iflags=0, istart=0, istop=0, kfreqscale=1, ichan=1, kbwscale=1., kgain=1., iposition=0.|
+        |ifn, iskip=-1, inumrows=0, inumcols=0, kspeed=1, kloop=0, kminfreq=0, kmaxfreq=0, iflags=0, istart=0, istop=0, kfreqscale=1, ichan=1, kbwscale=1., kgain=1., iposition=0., kfreqoffset=0., kminbw=0., kmaxbw=1., kminamp=0.|
         ifade = 0.02
         kplayhead init istart
         
@@ -163,6 +163,20 @@ builtinInstrs = [
           kA *= kSel
         endif
         
+        if kminbw > 0 || kmaxbw < 1 then
+          kSel cmp kminbw, "<=", kB, "<=", kmaxbw
+          kA *= kSel
+        endif
+        
+        if kfreqoffset > 0 then
+          kF += kfreqoffset
+        endif
+        
+        if kminamp > 0 then
+          kSel cmp kA, ">=", kminamp
+          kA *= kSel
+        endif 
+        
         aout beadsynt kF, kA, kB, -1, iflags, kfreqscale, kbwscale
         
         aenv cossegr 0, ifade, 1, ifade, 0
@@ -186,6 +200,7 @@ builtinInstrs = [
           endif
         endif  
     '''),
+
     Instr('.dummy', body="")
 ]
 

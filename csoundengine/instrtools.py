@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import re
 from . import csoundlib
 from ._common import EMPTYDICT
 
@@ -265,13 +266,25 @@ def parseInlineArgs(body: str | list[str],
 
     assert linenum is not None
 
+    inlinerx = r'\s*([kiS]\w+)\s*=\s*(\".*\"|-?([0-9]*[.])?[0-9]+)'
+
     args = {}
     line2 = lines[linenum].strip()
     parts = line2[1:-1].split(",")
     for part in parts:
         if "=" in part:
-            varname, defaultval = part.split("=")
-            args[varname.strip()] = float(defaultval)
+            match = re.match(inlinerx, part)
+            if not match:
+                raise ValueError(f"Invalid format for inline args: '{part}'")
+            varname = match.group(1)
+            value = match.group(2)
+            if varname[0] == 'S':
+                assert value[0] == value[-1] == '"'
+                value = value[1:-1]
+            else:
+                value = float(value)
+            # varname, defaultval = part.split("=")
+            args[varname.strip()] = value
         else:
             args[part.strip()] = 0
     bodyWithoutArgs = "\n".join(lines[linenum+1:])

@@ -505,7 +505,7 @@ class Synth(SchedEvent, ISynth):
 
     def automate(self,
                  param: str,
-                 pairs: Sequence[float] | np.ndarray,
+                 pairs: Sequence[float] | np.ndarray | tuple[np.ndarray, np.ndarray],
                  mode='linear',
                  delay=0.,
                  overtake=False,
@@ -517,7 +517,8 @@ class Synth(SchedEvent, ISynth):
 
         Args:
             param: the name of the parameter to automate
-            pairs: automation data as a flat array with the form [time0, value0, time1, value1, ...]
+            pairs: automation data as a flat array with the form [time0, value0, time1, value1, ...] or a
+                tuple of the form (times, values)
             mode: one of 'linear', 'cos'. Determines the curve between values
             delay: when to start the automation
             overtake: if True, do not use the first value in pairs but overtake the current value
@@ -713,7 +714,7 @@ class SynthGroup(BaseSchedEvent):
 
     def automate(self,
                  param: int | str,
-                 pairs: Sequence[float] | np.ndarray,
+                 pairs: Sequence[float] | np.ndarray | tuple[np.ndarray, np.ndarray],
                  mode="linear",
                  delay=0.,
                  overtake=False,

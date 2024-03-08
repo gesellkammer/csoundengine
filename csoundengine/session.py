@@ -186,6 +186,7 @@ import threading
 
 import emlib.dialogs as _dialogs
 import emlib.textlib as _textlib
+import emlib.numpytools as _numpytools
 import bpf4
 
 from .abstractrenderer import AbstractRenderer
@@ -511,7 +512,7 @@ class Session(AbstractRenderer):
     def automate(self,
                  event: SchedEvent,
                  param: str,
-                 pairs: Sequence[float] | np.ndarray,
+                 pairs: Sequence[float] | np.ndarray | tuple[np.ndarray, np.ndarray],
                  mode='linear',
                  delay=0.,
                  overtake=False,
@@ -537,6 +538,10 @@ class Session(AbstractRenderer):
             # TODO: check (in general) if this converting between numpy/list/numpy
             # can be a bottleneck when automation lines get big
             pairs = pairs.tolist()
+        elif isinstance(pairs, tuple) and isinstance(pairs[0], np.ndarray):
+            assert len(pairs) == 2
+            pairs = _numpytools.interlace(*pairs).tolist()
+
         assert isinstance(pairs, (list, tuple))
         automStart = now + delay + pairs[0]
         automEnd = now + delay + pairs[-2]
@@ -1210,7 +1215,7 @@ class Session(AbstractRenderer):
 
     def lockedClock(self, latency: float | None) -> Session:
         """
-        context manager to lock the live clock and ensure sync
+        context manager to ensure sync
 
         .. seealso:: :meth:`csoundengine.engine.Engine.lockClock`
         """
@@ -1221,7 +1226,9 @@ class Session(AbstractRenderer):
         if self.engine.isClockLocked():
             logger.warning("This session is already locked")
         else:
-            self.engine.pushLock(self._lockedLatency)
+            latency = self._lockedLatency if self._lockedLatency is not None else min(0.2, self.engine.extraLatency*2)
+            self.engine.pushLock(latency)
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.engine.isClockLocked():
@@ -1592,7 +1599,7 @@ class Session(AbstractRenderer):
         Returns:
             a list of active :class:`Synths<csoundengine.synth.Synth>`
         """
-        synths = [synth for synth in self._synths.values() if synth.playing()]
+        synths = [synth for synth in self._synths.values() if synth.playStatus() != 'stopped']
         if sortby == "start":
             synths.sort(key=lambda synth: synth.start)
         return synths
@@ -1624,18 +1631,25 @@ class Session(AbstractRenderer):
         synthid = event if isinstance(event, (int, float)) else event.p1
         assert isinstance(synthid, (int, float))
         synth = self._synths.get(synthid)
-        if not synth or synth.finished():
+        if not synth:
+            logger.error(f"Event {event} not found, cannot unschedule")
+            return
+        elif synth.finished():
+            logger.debug(f"Event {event} already finished, cannot unschedule")
             return
         elif synth.playing():
-            self.engine.unsched(synthid, delay)
+            self.engine.unsched(synthid, delay=delay)
             # Normally the outvalue callback calls the dealloc sequence itself
             # But it seems that when the event is turned off (via the turnoff
             # opcode) the outvalue callback is not triggered.
             # TODO: this needs to be investigated further.
             # self._deallocSynthResources(synthid, delay)
         elif synth.start > self.engine.elapsedTime():
-            self.engine.unschedFuture(synth.p1)
-            self._deallocSynthResources(synthid, delay)
+            if delay == 0:
+                self.engine.unschedFuture(synth.p1)
+                self._deallocSynthResources(synthid, delay)
+            else:
+                self.engine.unsched(synthid, delay=delay)
         else:
             self._deallocSynthResources(synthid, delay)
 
@@ -1668,6 +1682,7 @@ class Session(AbstractRenderer):
                       skiptime=0.,
                       delay=0.,
                       force=False,
+                      block=False
                       ) -> TableProxy:
         """
         Read a soundfile, store its metadata in a :class:`~csoundengine.tableproxy.TableProxy`
@@ -1683,6 +1698,7 @@ class Session(AbstractRenderer):
                 same path has already been read before.#
             delay: when to read the soundfile (0=now)
             skiptime: start playback from this time instead of the beginning
+            block: block execution while reading the soundfile
 
         Returns:
             a TableProxy, holding information like
@@ -1713,7 +1729,7 @@ class Session(AbstractRenderer):
             path = _state.openSoundfile()
         if (table := self._pathToTabproxy.get(path)) is not None and not force:
             return table
-        tabnum = self.engine.readSoundfile(path=path, chan=chan, skiptime=skiptime)
+        tabnum = self.engine.readSoundfile(path=path, chan=chan, skiptime=skiptime, block=block)
         import sndfileio
         info = sndfileio.sndinfo(path)
         table = TableProxy(tabnum=tabnum,
@@ -1878,7 +1894,11 @@ class Session(AbstractRenderer):
                      gaussian=False,
                      interpfreq=True,
                      interposcil=True,
-                     position=0.
+                     position=0.,
+                     freqoffset=0.,
+                     minbw=0.,
+                     maxbw=1.,
+                     minamp=0.
                      ) -> Synth:
         """
         Play a packed spectrum
@@ -1888,7 +1908,7 @@ class Session(AbstractRenderer):
         into such a matrix where each row represents the state of all oscillators
         over time.
 
-        The **loristrck** packge is needed for both partial-tracking analysis and
+        The **loristrck** package is needed for both partial-tracking analysis and
         packing. It can be installed via ``pip install loristrck`` (see
         https://github.com/gesellkammer/loristrck). This is an optional dependency
 
@@ -1915,6 +1935,11 @@ class Session(AbstractRenderer):
             freqscale: frequency scaling factor
             gain: playback gain
             bwscale: bandwidth scaling factor
+            minbw: breakpoints with bw less than this value are not played
+            maxbw: breakpoints with bw higher than this value are not played
+            freqoffset: an offset to add to all frequencies, shifting them by a fixed amount. Notice
+                that this will make a harmonic spectrum inharmonic
+            minamp: exclude breanpoints with an amplitude less than this value
 
         Returns:
             the playing Synth
@@ -1988,7 +2013,11 @@ class Session(AbstractRenderer):
                                     iflags=flags,
                                     iposition=position,
                                     kbwscale=bwscale,
-                                    kgain=gain))
+                                    kgain=gain,
+                                    kminbw=minbw,
+                                    kmaxbw=maxbw,
+                                    kfreqoffset=freqoffset,
+                                    kminamp=minamp))
 
     def playSample(self,
                    source: int | TableProxy | str | tuple[np.ndarray, int],
@@ -2002,6 +2031,7 @@ class Session(AbstractRenderer):
                    skip=0.,
                    fade: float | tuple[float, float] | None = None,
                    crossfade=0.02,
+                   blockread=True
                    ) -> Synth:
 
         """
@@ -2030,6 +2060,7 @@ class Session(AbstractRenderer):
             fade: fade in/out in secods. None=default. Either a fade value or a tuple
                 (fadein, fadeout)
             crossfade: if looping, this indicates the length of the crossfade
+            blockread: block while reading the source (if needed) before playback is scheduled
 
         Returns:
             A Synth with the following mutable parameters: kgain, kspeed, kchan, kpan
@@ -2043,13 +2074,14 @@ class Session(AbstractRenderer):
         elif isinstance(source, TableProxy):
             tabnum = source.tabnum
         elif isinstance(source, str):
-            table = self.readSoundfile(source)
+            table = self.readSoundfile(source, block=blockread)
             tabnum = table.tabnum
-        elif isinstance(source, tuple) and isinstance(source[0], np.ndarray):
-            table = self.makeTable(source[0], sr=source[1], unique=False)
+        elif isinstance(source, tuple) and isinstance(source[0], np.ndarray) and isinstance(source[1], int):
+            table = self.makeTable(source[0], sr=source[1], unique=False, block=blockread)
             tabnum = table.tabnum
         else:
-            raise TypeError(f"Expected int, TableProxy or str, got {source}")
+            raise TypeError(f"Expected table number as int, TableProxy, a path to a soundfile as str or a "
+                            f"tuple (samples: np.ndarray, sr: int), got {source}")
         # isndtab, iloop, istart, ifade
         if fade is None:
             fadein = fadeout = config['sample_fade_time']

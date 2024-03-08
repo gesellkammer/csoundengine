@@ -6,11 +6,12 @@ from .baseschedevent import BaseSchedEvent
 from .config import logger
 from . import instr
 from ._common import EMPTYSET
+import numpy as np
+import emlib.numpytools
 
 
 from typing import TYPE_CHECKING, Sequence
 if TYPE_CHECKING:
-    import numpy as np
     from .abstractrenderer import AbstractRenderer
 
 
@@ -207,7 +208,7 @@ class SchedEvent(BaseSchedEvent):
 
     def automate(self,
                  param: str,
-                 pairs: Sequence[float] | np.ndarray,
+                 pairs: Sequence[float] | np.ndarray | tuple[np.ndarray, np.ndarray],
                  mode="linear",
                  delay: float = None,
                  overtake=False,
@@ -216,7 +217,8 @@ class SchedEvent(BaseSchedEvent):
         if self.parent is None:
             if param not in (params := self.instr.dynamicParams(aliased=True)):
                 raise KeyError(f"Unknown parameter '{param}' for {self}. Possible parameters: {params}")
-
+            if isinstance(pairs, tuple) and len(pairs) == 0 and isinstance(pairs[0], np.ndarray):
+                pairs = numpytools.interlace(*pairs)
             automation = SchedAutomation(param=param, pairs=pairs, interpolation=mode, delay=delay)
             if self.automations is None:
                 self.automations = [automation]
@@ -389,7 +391,7 @@ class SchedEventGroup(BaseSchedEvent):
 
     def automate(self,
                  param: str,
-                 pairs: Sequence[float] | np.ndarray,
+                 pairs: Sequence[float] | np.ndarray | tuple[np.ndarray, np.ndarray],
                  mode="linear",
                  delay: float = None,
                  overtake=False,

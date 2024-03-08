@@ -1486,6 +1486,7 @@ class Engine:
             self.lockClock(True)
         if latency is not None:
             self.extraLatency = latency
+        logger.debug(f"Locking this engine's clock with latency {self.extraLatency}")
 
     def popLock(self):
         """
@@ -1505,6 +1506,7 @@ class Engine:
 
     def __enter__(self):
         self.pushLock()
+        return self
 
     def __exit__(self, *args, **kws):
         self.popLock()
