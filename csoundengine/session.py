@@ -205,7 +205,7 @@ from . import state as _state
 from . import jupytertools
 from . import instrtools
 from . import csoundlib
-from .offline import Renderer
+from . import offline
 from . import busproxy
 from .sessionhandler import SessionHandler
 
@@ -216,9 +216,6 @@ __all__ = [
     'Session',
     'Event'
 ]
-
-
-
 
 
 @dataclass
@@ -243,6 +240,33 @@ class _ReifiedInstr:
 
     def __post_init__(self):
         assert isinstance(self.instrnum, int)
+
+
+class _RenderingSessionHandler(SessionHandler):
+    """
+    Adapts a Session for offline rendering
+    """
+    def __init__(self, renderer: offline.Renderer):
+        self.renderer = renderer
+
+    def schedEvent(self, event: csoundengine.event.Event):
+        return self.renderer.schedEvent(event)
+
+    def makeTable(self,
+                  data: np.ndarray | list[float] | None = None,
+                  size: int | tuple[int, int] = 0,
+                  sr: int = 0,
+                  ) -> TableProxy:
+        self.renderer.makeTable(data=data, size=size, sr=sr)
+
+    def readSoundfile(self,
+                      path: str,
+                      chan=0,
+                      skiptime=0.,
+                      delay=0.,
+                      force=False,
+                      ) -> TableProxy:
+        self.renderer.readSoundfile(path)
 
 
 class Session(AbstractRenderer):
@@ -438,8 +462,7 @@ class Session(AbstractRenderer):
         self._tabnumToTabproxy: dict[int, TableProxy] = {}
         self._pathToTabproxy: dict[str, TableProxy] = {}
         self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
-        self._schedCallback: Callable | None = None
-        self._offlineRenderer: Renderer | None = None
+        self._offlineRenderer: offline.Renderer | None = None
         self._inbox: _queue.Queue[Callable] = _queue.Queue()
         self._acceptingMessages = True
         self._dispatchingThread: threading.Thread | None = None
@@ -726,34 +749,35 @@ class Session(AbstractRenderer):
         bucket[instrname] = instrnum
         return instrnum
 
-    def setHandler(self, handler: SessionHandler | None) -> SessionHandler | None:
+    def setHandler(self, handler: SessionHandler | None
+                   ) -> SessionHandler | None:
         prevhandler = self._handler
         self._handler = handler
         return prevhandler
 
-    def setSchedCallback(self, callback: Callable[[Event], SchedEvent]
-                         ) -> Callable | None:
-        """
-        Set the schedule callback
-
-        A Session can be set to bypass its schedule mechanism. When the schedule callback
-        is set, the function given will be called whenever :meth:`Session.sched` is called
-        and the Session will not perform any other action than calling this callback.
-
-        This is used, for example, to create a context manager under which a series
-        of events need to be scheduled but instead of scheduling one by one all are
-        first collected, they are initialized and then scheduled all at once (with
-        the engine's time locked) in order to keep them in synch.
-
-        Args:
-            callback: the callback to set. The signature is the same as :meth:`Session.sched`
-
-        Returns:
-            the old callback, or None if no callback was set
-        """
-        oldcallback = self._schedCallback
-        self._schedCallback = callback
-        return oldcallback
+    # def setSchedCallback(self, callback: Callable[[Event], SchedEvent]
+    #                      ) -> Callable | None:
+    #     """
+    #     Set the schedule callback
+    #
+    #     A Session can be set to bypass its schedule mechanism. When the schedule callback
+    #     is set, the function given will be called whenever :meth:`Session.sched` is called
+    #     and the Session will not perform any other action than calling this callback.
+    #
+    #     This is used, for example, to create a context manager under which a series
+    #     of events need to be scheduled but instead of scheduling one by one all are
+    #     first collected, they are initialized and then scheduled all at once (with
+    #     the engine's time locked) in order to keep them in synch.
+    #
+    #     Args:
+    #         callback: the callback to set. The signature is the same as :meth:`Session.sched`
+    #
+    #     Returns:
+    #         the old callback, or None if no callback was set
+    #     """
+    #     oldcallback = self._schedCallback
+    #     self._schedCallback = callback
+    #     return oldcallback
 
     def defInstr(self,
                  name: str,
@@ -1245,7 +1269,6 @@ class Session(AbstractRenderer):
                   endtime=0.,
                   tail=0.,
                   openWhenDone=False,
-                  redirect=True,
                   verbose: bool = None) -> Renderer:
         """
         A context-manager for offline rendering
@@ -1304,21 +1327,18 @@ class Session(AbstractRenderer):
         renderer = self.makeRenderer(sr=sr or self.engine.sr,
                                      nchnls=nchnls or self.engine.nchnls,
                                      ksmps=ksmps)
+        handler = _RenderingSessionHandler(renderer=renderer)
+        self.setHandler(handler)
 
-        schedCallback = self._schedCallback
-        self._offlineRenderer = renderer
-
-        if redirect:
-            self._schedCallback = renderer.schedEvent
-
-        def _exit(r: Renderer, _outfile=outfile, _schedCallback=schedCallback):
+        def atexit(r: Renderer, _outfile=outfile):
             r.render(outfile=_outfile, endtime=endtime, encoding=encoding,
                      starttime=starttime, openWhenDone=openWhenDone,
                      tail=tail, verbose=verbose)
-            self._schedCallback = _schedCallback
             self._offlineRenderer = None
+            self.setHandler(None)
 
-        renderer._registerExitCallback(_exit)
+        renderer._registerExitCallback(atexit)
+        self._offlineRenderer = renderer
         return renderer
 
     def _dynargsAssignSlot(self) -> int:
@@ -1472,7 +1492,7 @@ class Session(AbstractRenderer):
         if self._handler:
             event = Event(instrname=instrname, delay=delay, dur=dur, priority=priority,
                           args=args, whenfinished=whenfinished, relative=relative, kws=kwargs)
-            return self._handler.sched(event)
+            return self._handler.schedEvent(event)
 
         # if self._schedCallback:
         #     event = Event(instrname=instrname,
@@ -2140,12 +2160,12 @@ class Session(AbstractRenderer):
             >>> renderer.render("out.wav")
 
         """
-        renderer = Renderer(sr=sr or config['rec_sr'],
-                            nchnls=nchnls if nchnls is not None else self.engine.nchnls,
-                            ksmps=ksmps or config['rec_ksmps'],
-                            a4=self.engine.a4,
-                            dynamicArgsPerInstr=self.maxDynamicArgs,
-                            dynamicArgsSlots=self._dynargsNumSlots)
+        renderer = offline.Renderer(sr=sr or config['rec_sr'],
+                                    nchnls=nchnls if nchnls is not None else self.engine.nchnls,
+                                    ksmps=ksmps or config['rec_ksmps'],
+                                    a4=self.engine.a4,
+                                    dynamicArgsPerInstr=self.maxDynamicArgs,
+                                    dynamicArgsSlots=self._dynargsNumSlots)
         for instrname, instrdef in self.instrs.items():
             renderer.registerInstr(instrdef)
         return renderer

@@ -195,7 +195,8 @@ class Renderer(AbstractRenderer):
         priorities: max. number of priority groups. This will determine
             how long an effect chain can be
         numAudioBuses: max. number of audio buses. This is the max. number of simultaneous
-            events using an audio bus
+            events using an audio bus. To disable bus support use 0 and set numControlBuses also to 0
+        numControlBuses: the number of control buses.
 
     Example
     ~~~~~~~
@@ -229,6 +230,7 @@ class Renderer(AbstractRenderer):
                  a4: float | None = None,
                  priorities: int = None,
                  numAudioBuses=1000,
+                 numControlBuses=10000,
                  dynamicArgsPerInstr: int = 16,
                  dynamicArgsSlots: int = None):
 
@@ -275,7 +277,7 @@ class Renderer(AbstractRenderer):
         self._instanceCounters: dict[int, int] = {}
         self._numInstancesPerInstr = 10000
         self._numAudioBuses = numAudioBuses
-        self._numControlBuses = 10000
+        self._numControlBuses = numControlBuses
         self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
 
         self._channelRegistry: dict[str, ChannelDef] = {}
