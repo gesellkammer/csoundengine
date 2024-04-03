@@ -17,7 +17,9 @@ class InlineArgs:
     """The body of the instrument WITHOUT the args"""
 
     linenum: int
-    """The line number withint the original body where the inline args are placed"""
+    """The line number within the original body where the inline args are placed"""
+
+    numlines: int = 1
 
     def __post_init__(self):
         assert self.delimiters == '||' or self.delimiters == '{}'
@@ -97,7 +99,7 @@ def generatePfieldsCode(body: str,
         return pfieldsText, rest, docstring
 
 
-def detectInlineArgs(lines: list[str]) -> tuple[str, int | None]:
+def detectInlineArgs(lines: list[str]) -> tuple[str, int, int]:
     """
     Given a list of lines of an instrument's body, detect
     if the instrument has inline args defined, and which kind
@@ -111,19 +113,39 @@ def detectInlineArgs(lines: list[str]) -> tuple[str, int | None]:
         lines: the body of the instrument split in lines
 
     Returns:
-        a tuple (kind of delimiters, line number), where kind of
+        a tuple (kind of delimiters, first line number, last line number), where kind of
         delimiters will be either "||" or "{}". If no inline args are found
-        the tuple ("", 0) is returned
+        the tuple ("", 0, 0) is returned
 
     """
+    inlineArgsStarted = False
+    line0 = 0
+    line1 = 0
+    delim = ''
     for i, line in enumerate(lines):
         line = line.strip()
         if not line:
             continue
-        if (line[0] == "|" and line[-1] == "|") or (line[0] == "{" and line[-1] == "}"):
-            return line[0]+line[-1], i
-        break
-    return "", None
+        if re.match(r'\|\s*[ik]\w+', line):
+            if inlineArgsStarted:
+                raise ValueError(f"Invalid inline args: {lines}")
+            line0 = i
+            delim = '||'
+            inlineArgsStarted = True
+        elif not inlineArgsStarted and re.match(r'\{\s*[ik]\w+', line):
+            delim = '{}'
+            line0 = i
+            inlineArgsStarted = True
+
+        if inlineArgsStarted and line.endswith('|'):
+            line1 = i + 1
+            assert delim == '||'
+            break
+        elif inlineArgsStarted and line.endswith('}'):
+            line1 = i + 1
+            assert delim == '{}'
+            break
+    return delim, line0, line1
 
 
 def pfieldsMergeDeclaration(args: dict[str, float],
@@ -259,19 +281,29 @@ def parseInlineArgs(body: str | list[str],
         return None
 
     lines = body if isinstance(body, list) else body.splitlines()
-    delimiters, linenum = detectInlineArgs(lines)
+    delimiters, linenum0, linenum1 = detectInlineArgs(lines)
 
     if not delimiters:
         return None
 
-    assert linenum is not None
-
     inlinerx = r'\s*([kiS]\w+)\s*=\s*(\".*\"|-?([0-9]*[.])?[0-9]+)'
 
     args = {}
-    line2 = lines[linenum].strip()
-    parts = line2[1:-1].split(",")
+    arglines = [line.strip() for line in lines[linenum0:linenum1]]
+    assert arglines[0][0] == delimiters[0]
+    assert arglines[-1][-1] == delimiters[-1]
+
+    parts = []
+    arglines[0] = arglines[0][1:]
+    arglines[-1] = arglines[-1][:-1]
+
+    for line in arglines:
+        parts.extend(line.split(','))
+
     for part in parts:
+        part = part.strip()
+        if not part:
+            continue
         if "=" in part:
             match = re.match(inlinerx, part)
             if not match:
@@ -286,9 +318,11 @@ def parseInlineArgs(body: str | list[str],
             # varname, defaultval = part.split("=")
             args[varname.strip()] = value
         else:
-            args[part.strip()] = 0
-    bodyWithoutArgs = "\n".join(lines[linenum+1:])
-    return InlineArgs(delimiters, args=args, body=bodyWithoutArgs, linenum=linenum)
+            args[part] = 0
+    assert all(k.startswith(('i', 'k', 'S')) for k in args)
+    bodyWithoutArgs = "\n".join(lines[linenum1:])
+    return InlineArgs(delimiters, args=args, body=bodyWithoutArgs,
+                      linenum=linenum0, numlines=linenum1 - linenum0)
 
 
 def parseDocstring(text: str | list[str]) -> Docstring | None:
@@ -353,3 +387,4 @@ def distributeParams(params: dict[str, float],
         # if controls:
         #     assert all(control in controlNames for control in controls)
         return pfields, controls
+    

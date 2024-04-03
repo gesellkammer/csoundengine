@@ -400,7 +400,7 @@ class Instr:
         if s := self._pfieldsRepr():
             parts.append(s)
         if self.controls:
-            parts.append(f"tabargs={self.controls}")
+            parts.append(f"controls={self.controls}")
 
         return f"Instr({', '.join(parts)})"
 
@@ -435,7 +435,11 @@ class Instr:
                     continue
                 if self.aliases and (alias := self._argToAlias.get(pname)) is not None:
                     pname = f"{alias}({pname})"
-                parts.append(f"{pname}:{i}={self.pfieldIndexToValue.get(i, 0):.6g}")
+                if config['instr_repr_show_pfield_pnumber']:
+                    pfield = f"{pname}:{i}={self.pfieldIndexToValue.get(i, 0):.6g}"
+                else:
+                    pfield = f"{pname}={self.pfieldIndexToValue.get(i, 0):.6g}"
+                parts.append(pfield)
             return ", ".join(parts)
         else:
             return ", ".join(

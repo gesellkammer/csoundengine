@@ -190,6 +190,9 @@ _('dynamic_args_num_slots', 10000,
       'size = num_dynamic_args_slices * max_instr_dynamic_args. For 10000 slots, the'
       'amount of memory is ~0.8Mb')
 
+_('instr_repr_show_pfield_pnumber', False,
+  doc='Add pfield number when printing pfields in instruments')
+
 # Plotting
 _('spectrogram_colormap', 'inferno', choices={'viridis', 'plasma', 'inferno', 'magma', 'cividis'})
 _('samplesplot_figsize', "12:4", validatefunc=_validateFigsize,
