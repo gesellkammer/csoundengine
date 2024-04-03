@@ -2431,9 +2431,9 @@ class Csd:
             csdfile: str = None,
             inputdev: str = None,
             backend: str = None,
-            suppressdisplay = True,
-            nomessages = False,
-            piped = False,
+            suppressdisplay=True,
+            nomessages=False,
+            piped=False,
             extraOptions: list[str] = None) -> _subprocess.Popen:
         """
         Run this csd. 

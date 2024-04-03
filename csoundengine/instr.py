@@ -463,11 +463,13 @@ class Instr:
                     if self.aliases and (alias := self._argToAlias.get(pname)):
                         pname = f'{alias}({pname})'
                     # parg = _(f'p{idx}', fontsize='90%')
-                    parg = f'p{idx}'
                     if pname:
-                        pnamehtml = f"<b>{pname}</b>:{parg}"
+                        if config['instr_repr_show_pfield_pnumber']:
+                            pnamehtml = f"<b>{pname}</b>:p{idx}"
+                        else:
+                            pnamehtml = f"<b>{pname}</b>"
                     else:
-                        pnamehtml = parg
+                        pnamehtml = f'p{idx}'
                     html = f"{pnamehtml}=<code>{self.pfieldIndexToValue.get(idx, 0):.6g}</code>"
                     html = _(html, fontsize='90%')
                     htmls.append(html)

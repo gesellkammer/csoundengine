@@ -131,6 +131,11 @@ class RenderJob:
     process: subprocess.Popen | None = None
     """The csound subprocess used to render the soundfile"""
 
+    @property
+    def args(self) -> list[str]:
+        """The args used to render this job, if a process was used"""
+        return self.process.args if self.process else []
+
     def openOutfile(self, timeout=None, appwait=True, app=''):
         """
         Open outfile in external app
