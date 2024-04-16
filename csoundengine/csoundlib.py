@@ -31,7 +31,7 @@ from csoundengine import jacktools
 from csoundengine import linuxaudio
 from csoundengine import state as _state
 from csoundengine.config import config
-from csoundengine.internalTools import normalizePlatform
+from csoundengine.internal import normalizePlatform
 import functools as _functools
 import emlib.misc
 import emlib.textlib

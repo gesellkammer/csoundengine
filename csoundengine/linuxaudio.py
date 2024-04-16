@@ -1,7 +1,7 @@
 from __future__ import annotations
 import cachetools
 import os
-from . import internalTools
+from . import internal
 from dataclasses import dataclass
 import subprocess
 import shutil

@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 from emlib import numpytools
 from emlib.envir import inside_jupyter
-from . import internalTools
+from . import internal
 from .config import config
 
 

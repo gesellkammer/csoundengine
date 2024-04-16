@@ -51,7 +51,7 @@ from .schedevent import SchedEvent, SchedEventGroup
 from .event import Event
 from .abstractrenderer import AbstractRenderer
 from . import csoundlib
-from . import internalTools
+from . import internal
 from . import sessioninstrs
 from . import state as _state
 from . import offlineorc

@@ -117,7 +117,7 @@ from emlib.containers import IntPool
 from .config import config, logger
 from . import csoundlib
 from . import jacktools as jacktools
-from . import internalTools
+from . import internal
 from . import engineorc
 from . import state as _state
 from . import termui as _termui

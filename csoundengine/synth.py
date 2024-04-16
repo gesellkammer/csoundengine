@@ -7,7 +7,7 @@ import numpy as np
 import emlib.iterlib as _iterlib
 import emlib.misc as _misc
 
-from . import internalTools
+from . import internal
 from . import jupytertools
 from .config import logger, config
 from .baseschedevent import BaseSchedEvent

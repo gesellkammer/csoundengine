@@ -199,7 +199,7 @@ from .instr import Instr
 from .synth import Synth, SynthGroup
 from .tableproxy import TableProxy
 from .config import config, logger
-from . import internalTools as _tools
+from . import internal as _tools
 from .sessioninstrs import builtinInstrs
 from . import state as _state
 from . import jupytertools

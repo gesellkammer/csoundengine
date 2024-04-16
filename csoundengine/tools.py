@@ -8,10 +8,6 @@ from .config import logger
 import platform
 from functools import cache
 from collections import UserString
-from typing import TypeVar
-
-
-_T = TypeVar("_T")
 
 
 def makeUniqueFilename(ext: str, prefix='', folder='.') -> str:

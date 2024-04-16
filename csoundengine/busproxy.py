@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Sequence
 from .abstractrenderer import AbstractRenderer
 from .config import logger
-from . import internalTools
+from . import internal
 
 
 class Bus:

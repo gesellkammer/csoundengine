@@ -2,7 +2,7 @@ from __future__ import annotations
 from string import Template
 from functools import cache
 from typing import Any
-from . import internalTools
+from . import internal
 
 
 # In all templates we make the difference between substitutions which

@@ -107,12 +107,12 @@ def getChannel(samples: np.ndarray, channel: int) -> np.ndarray:
     return samples if len(samples.shape) == 1 else samples[:, channel]
 
 
-def sigintHandler(sig, frame):
+def _dummySigintHandler(sig, frame):
     print(frame)
     raise KeyboardInterrupt("SIGINT (CTRL-C) while waiting")
 
 
-def setSigintHandler():
+def setSigintHandler(handler=None):
     """
     Set own sigint handler to prevent CTRL-C from crashing csound
 
@@ -120,9 +120,11 @@ def setSigintHandler():
     """
     if _registry.get('sigint_handler_set'):
         return
-    original_handler = signal.getsignal(signal.SIGINT)
-    signal.signal(signal.SIGINT, sigintHandler)
-    _registry['original_sigint_handler'] = original_handler
+    if handler is None:
+        handler = _dummySigintHandler
+    originalHandler = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGINT, handler)
+    _registry['original_sigint_handler'] = originalHandler
     _registry['sigint_handler_set'] = True
 
 
@@ -682,11 +684,11 @@ def waitWhileTrue(func: Callable[[], bool],
     ~~~~~~~
 
         >>> from csoundengine import *
-        >>> from csoundengine import internalTools
+        >>> from csoundengine import internal
         >>> session = Session()
         >>> session.defInstr('test', ...)
         >>> synth = session.sched('test', ...)
-        >>> internalTools.waitWhileTrue(synth.playing)
+        >>> internal.waitWhileTrue(synth.playing)
 
 
     .. seealso:: :meth:`csoundengine.synth.Synth.wait`
