@@ -17,7 +17,8 @@ if TYPE_CHECKING:
     from typing import *
 
 
-logger = logging.getLogger("csoundengine")
+logger = logging.getLogger("csoundengine.dependencies")
+logger.setLevel("INFO")
 
 
 def _asVersionTriplet(tagname: str) -> Tuple[int, int, int]:
@@ -115,16 +116,15 @@ def downloadLatestPluginForPlatform(destFolder: Path | None = None) -> Path:
     return _download(pluginurl, destFolder)
 
 
-def _download(url: str, destFolder: Union[str, Path]) -> Path:
+def _download(url: str, destFolder: str | Path) -> Path:
     assert os.path.exists(destFolder) and os.path.isdir(destFolder)
     fileName = os.path.split(url)[1]
     dest = Path(destFolder) / fileName
     if dest.exists():
-        logger.warning(f"Destination {dest} already exists, overwriting")
+        logger.warning(f"Destination '{dest}' already exists, overwriting")
         os.remove(dest)
-    logger.info(f"Downloading {url}")
     urllib.request.urlretrieve(url, dest)
-    logger.info(f"   ... saved to {dest}")
+    logger.info(f"Downloaded '{url}', saved to '{dest}'")
     return dest
 
 
@@ -141,7 +141,7 @@ def _copyFiles(files: List[str], dest: str, verbose=False) -> None:
     assert os.path.isdir(dest)
     for f in files:
         if verbose:
-            print(f"Copying file {f} to {dest}")
+            print(f"Copying file '{f}' to '{dest}'")
         shutil.copy(f, dest)
 
 
@@ -187,11 +187,11 @@ def _installPluginsFromDist(apiversion=6, codesign=True) -> None:
         raise RuntimeError(f"Could not find own csound plugins. Folder: {pluginspath}")
     plugins = list(pluginspath.glob(globpattern))
     if not plugins:
-        logger.error(f"Plugins not found. Plugins folder: {pluginspath}, "
-                     f"glob patter: {globpattern}")
+        logger.error(f"Plugins not found. Plugins folder: '{pluginspath}', "
+                     f"glob patter: '{globpattern}'")
         raise RuntimeError("Plugins not found")
     pluginsDest = csoundlib.userPluginsFolder(apiversion=f'{apiversion}.0')
-    logger.info(f"Installing plugins in folder: {pluginsDest}")
+    logger.info(f"Installing plugins in folder: '{pluginsDest}'")
     os.makedirs(pluginsDest, exist_ok=True)
     _copyFiles([plugin.as_posix() for plugin in plugins], pluginsDest, verbose=True)
     if platformid.osname == 'macos' and codesign:
@@ -246,9 +246,9 @@ def installPlugins(majorversion=6, risset=True) -> bool:
     Returns:
         True if installation succeeded. Any errors are logged
     """
-    logger.info("Installing external plugins via risset")
 
     if risset:
+        logger.info("Installing external plugins via risset")
         try:
             ok = _installPluginsViaRisset()
             pluginsok = pluginsInstalled(cached=False)
@@ -346,7 +346,7 @@ def checkDependencies(force=False, fix=True) -> bool:
     """
     # Skip checks if only building docs
     if 'sphinx' in sys.modules:
-        logger.info("Called by sphinx? Skipping dependency check")
+        logger.debug("Called by sphinx? Skipping dependency check")
         return True
 
     timeSincelast_run = datetime.now() - datetime.fromisoformat(state['last_run'])
@@ -368,5 +368,5 @@ def _codesignBinaries(binaries: list[str]) -> None:
     Raises RuntimeError on fail
     """
     import risset
-    logger.info(f"Codesigning macos binaries: {binaries}")
+    logger.warning(f"Codesigning macos binaries: {binaries}")
     risset.macos_codesign(binaries, signature='-')
