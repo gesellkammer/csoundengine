@@ -48,10 +48,10 @@ class ISynth(ABC):
             pollinterval: polling interval in seconds
             sleepfunc: the function to call when sleeping, defaults to time.sleep
         """
-        internalTools.setSigintHandler()
+        internal.setSigintHandler()
         while self.playing():
             sleepfunc(pollinterval)
-        internalTools.removeSigintHandler()
+        internal.removeSigintHandler()
 
     @abstractmethod
     def ui(self, **specs: tuple[float, float]) -> None:
@@ -229,7 +229,7 @@ class Synth(SchedEvent, ISynth):
             pollinterval: polling interval in seconds
             sleepfunc: the function to call when sleeping, defaults to time.sleep
         """
-        internalTools.waitWhileTrue(self.playing, pollinterval=pollinterval, sleepfunc=sleepfunc)
+        internal.waitWhileTrue(self.playing, pollinterval=pollinterval, sleepfunc=sleepfunc)
 
     def aliases(self) -> dict[str, str]:
         """The parameter aliases of this synth, or an empty dict if no aliases defined"""
@@ -924,7 +924,7 @@ class SynthGroup(BaseSchedEvent):
             pollinterval: polling interval in seconds
             sleepfunc: the function to call when sleeping, defaults to time.sleep
         """
-        internalTools.waitWhileTrue(self.playing, pollinterval=pollinterval, sleepfunc=sleepfunc)
+        internal.waitWhileTrue(self.playing, pollinterval=pollinterval, sleepfunc=sleepfunc)
 
 
 """

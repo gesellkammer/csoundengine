@@ -158,7 +158,7 @@ class RenderJob:
 
     def _repr_html_(self):
         self.wait()
-        blue = internalTools.safeColors['blue1']
+        blue = internal.safeColors['blue1']
 
         def _(s, color=blue):
             return f'<code style="color:{color}">{s}</code>'
@@ -169,7 +169,7 @@ class RenderJob:
             return f'<string>RenderJob</strong>({info})'
         else:
             sndfile = self.outfile
-            soundfileHtml = internalTools.soundfileHtml(sndfile, withHeader=False)
+            soundfileHtml = internal.soundfileHtml(sndfile, withHeader=False)
             info = (f"outfile='{_(self.outfile)}' (not found), sr={_(self.samplerate)}, "
                     f"encoding='{self.encoding}'")
             htmlparts = (
@@ -870,7 +870,7 @@ class Renderer(AbstractRenderer):
                               dur=pairs[-2] + self.ksmps/self.sr,
                               args=args)
         else:
-            for groupdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize//2):
+            for groupdelay, subgroup in internal.splitAutomation(pairs, maxDataSize//2):
                 self._automateBus(bus=bus, pairs=subgroup, delay=groupdelay+delay,
                                   mode=mode, overtake=overtake)
 
@@ -1293,7 +1293,7 @@ class Renderer(AbstractRenderer):
         if data is not None:
             if isinstance(data, list):
                 data = np.array(data)
-            arrayhash = internalTools.ndarrayhash(data)
+            arrayhash = internal.ndarrayhash(data)
             if not unique and (tabproxy := self._ndarrayHashToTabproxy.get(arrayhash)) is not None:
                 return tabproxy
             tabnum = self.csd.addTableFromData(data=data, tabnum=tabnum, start=delay, sr=sr)
@@ -1463,7 +1463,7 @@ class Renderer(AbstractRenderer):
                 for the given parameter is used in its place.
         """
         instr = event.instr
-        pairs = internalTools.aslist(pairs)
+        pairs = internal.aslist(pairs)
         param = instr.unaliasParam(param, param)
         params = instr.dynamicParamNames(aliases=False)
         if param not in params:
@@ -1483,20 +1483,20 @@ class Renderer(AbstractRenderer):
             return 0
 
         if automStart > event.start or automEnd < event.end:
-            pairs, delay = internalTools.cropDelayedPairs(pairs=pairs, delay=delay,
+            pairs, delay = internal.cropDelayedPairs(pairs=pairs, delay=delay,
                                                           start=automStart, end=automEnd)
             if not pairs:
                 logger.warning("There is no intersection between event and automation data")
                 return 0.
 
         if pairs[0] > 0:
-            pairs, delay = internalTools.consolidateDelay(pairs, delay)
+            pairs, delay = internal.consolidateDelay(pairs, delay)
 
         instr = event.instr
         assert instr is not None
         maxDataSize = config['max_pfields'] - 10
         if len(pairs) > maxDataSize:
-            for subdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize//2):
+            for subdelay, subgroup in internal.splitAutomation(pairs, maxDataSize//2):
                 self.automate(event=event, param=param, pairs=subgroup, mode=mode,
                               delay=delay+subdelay, overtake=overtake)
             return 0.
@@ -1579,7 +1579,7 @@ class Renderer(AbstractRenderer):
             self.render()
 
     def _repr_html_(self) -> str:
-        blue = internalTools.safeColors['blue1']
+        blue = internal.safeColors['blue1']
 
         def _(s):
             return f'<code style="color:{blue}">{s}</code>'
@@ -1587,7 +1587,7 @@ class Renderer(AbstractRenderer):
         if self.renderedJobs and os.path.exists(self.renderedJobs[-1].outfile):
             last = self.renderedJobs[-1]
             sndfile = last.outfile
-            soundfileHtml = internalTools.soundfileHtml(sndfile)
+            soundfileHtml = internal.soundfileHtml(sndfile)
             info = f'sr={_(self.sr)}, renderedJobs={_(self.renderedJobs)}'
             htmlparts = (
                 f'<strong>Renderer</strong>({info})',

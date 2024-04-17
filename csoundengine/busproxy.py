@@ -162,7 +162,7 @@ class Bus:
         """
         if self.token < 0:
             raise ValueError("This Bus has been already released")
-        pairs = internalTools.flattenAutomationData(pairs)
+        pairs = internal.flattenAutomationData(pairs)
         self.renderer._automateBus(self, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
 
     def release(self) -> None:

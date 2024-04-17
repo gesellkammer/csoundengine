@@ -355,9 +355,9 @@ class Engine:
         cfg = config
         availableBackends = csoundlib.getAudioBackendNames(available=True)
         if backend is None or backend == 'default':
-            backend = cfg[f'{internalTools.platform}_backend']
+            backend = cfg[f'{internal.platform}_backend']
         elif backend == '?':
-            backend = internalTools.selectItem(availableBackends, title="Select Backend")
+            backend = internal.selectItem(availableBackends, title="Select Backend")
             if backend is None:
                 raise ValueError("No backend selected")
         elif backend not in availableBackends:
@@ -370,7 +370,7 @@ class Engine:
                              f"{availableBackends}")
 
         cascadingBackends = [b.strip() for b in backend.split(",")]
-        resolvedBackend = internalTools.resolveOption(cascadingBackends,
+        resolvedBackend = internal.resolveOption(cascadingBackends,
                                                       availableBackends)
         backendDef = csoundlib.getAudioBackend(resolvedBackend)
 
@@ -380,7 +380,7 @@ class Engine:
             logger.error('To configure the default backends, do:\n'
                          '    from csoundengine import config\n'
                          '    config.edit()\n'
-                         f'And edit the "{internalTools.platform}.backend" key.')
+                         f'And edit the "{internal.platform}.backend" key.')
             raise CsoundError(f'Backend "{resolvedBackend}" not available')
 
         indevs, outdevs = backendDef.audioDevices()
@@ -395,7 +395,7 @@ class Engine:
         elif outdev == '?':
             if len(outdevs) == 0:
                 raise RuntimeError("No output audio devices")
-            selected = internalTools.selectAudioDevice(outdevs, title="Select output device")
+            selected = internal.selectAudioDevice(outdevs, title="Select output device")
             if selected is None:
                 raise RuntimeError("No output audio device selected")
             outdev, outdevName = selected.id, selected.name
@@ -429,7 +429,7 @@ class Engine:
         elif indev == '?':
             if len(indevs) == 0:
                 raise RuntimeError("No input audio devices")
-            selected = internalTools.selectAudioDevice(indevs, title="Select input device")
+            selected = internal.selectAudioDevice(indevs, title="Select input device")
             if selected is None:
                 raise RuntimeError("No output audio device selected")
             indev, indevName = selected.id, selected.name
@@ -566,7 +566,7 @@ class Engine:
         buffersize = max(ksmps * 2, buffersize)
 
         numbuffers = (numbuffers or backendNumBuffers or config['numbuffers'] or
-                      internalTools.determineNumbuffers(self.backend or "portaudio", buffersize=buffersize))
+                      internal.determineNumbuffers(self.backend or "portaudio", buffersize=buffersize))
 
         self.bufferSize = buffersize
         "Buffer size"
@@ -591,7 +591,7 @@ class Engine:
         elif midiin == '?':
             midiindevs, midioutdevs = csoundlib.midiDevices(self.midiBackend)
             midiindevs.append(csoundlib.MidiDevice('all', 'all'))
-            selecteddev = internalTools.selectMidiDevice(midiindevs)
+            selecteddev = internal.selectMidiDevice(midiindevs)
             if selecteddev is not None:
                 midiindev = selecteddev
             else:
@@ -912,7 +912,7 @@ class Engine:
             logger.error(f"Error compiling base orchestra. A copy of the orchestra"
                          f" has been saved to {tmporc}")
 
-            logger.error(internalTools.addLineNumbers(orc))
+            logger.error(internal.addLineNumbers(orc))
             raise CsoundError(f"Error compiling base ochestra, error: {err}")
         logger.info(f"Starting csound with options: {options}")
         cs.start()
@@ -923,7 +923,7 @@ class Engine:
         self.csound = cs
         self._perfThread = pt
         if config['set_sigint_handler']:
-            internalTools.setSigintHandler()
+            internal.setSigintHandler()
 
         self._responsesTable = self.csound.table(self._builtinTables['responses'])
 
@@ -1146,7 +1146,7 @@ class Engine:
                 err = self.csound.compileOrc(code)
                 if err:
                     logger.error("compileOrc error: ")
-                    logger.error(internalTools.addLineNumbers(code))
+                    logger.error(internal.addLineNumbers(code))
                     raise CsoundError("Could not compile code")
             else:
                 logger.debug("Compiling csound code (async):")
@@ -1157,7 +1157,7 @@ class Engine:
                     err = self.csound.compileOrcAsync(code)
                     if err:
                         logger.error("compileOrcAsync error: ")
-                        logger.error(internalTools.addLineNumbers(code))
+                        logger.error(internal.addLineNumbers(code))
                         raise CsoundError("Could not compile async")
         self._modified()
 
@@ -2236,7 +2236,7 @@ class Engine:
         """
         from . import plotting
         data = self.getTableData(tabnum)
-        if internalTools.arrayNumChannels(data) > 1:
+        if internal.arrayNumChannels(data) > 1:
             data = data[:, chan]
         tabinfo = self.tableInfo(tabnum)
         if tabinfo.sr > 0:
@@ -2518,7 +2518,7 @@ class Engine:
             # Create table with data
             if not isinstance(data, np.ndarray):
                 data = np.asarray(data)
-            numchannels = internalTools.arrayNumChannels(data)
+            numchannels = internal.arrayNumChannels(data)
             numitems = len(data) * numchannels
             if numchannels > 1:
                 data = data.flatten()
@@ -2527,7 +2527,7 @@ class Engine:
                 # create a table with the given data
                 # if the table is small we can create it and fill it in one go
                 empty = 0
-                numchannels = internalTools.arrayNumChannels(data)
+                numchannels = internal.arrayNumChannels(data)
                 if numchannels > 1:
                     data = data.flatten()
                 pargs = [maketableInstrnum, delay, 0., token, tabnum, numitems, empty,
@@ -3346,7 +3346,7 @@ class Engine:
             events = [self.automateTable(tabnum=tabnum, idx=idx, pairs=subgroup,
                                          mode=mode, delay=delay+subdelay,
                                          overtake=overtake)
-                      for subdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize//2)]
+                      for subdelay, subgroup in internal.splitAutomation(pairs, maxDataSize//2)]
             return events[0]
 
     def automatep(self,
@@ -3407,7 +3407,7 @@ class Engine:
         else:
             events = [self.automatep(p1=p1, pidx=pidx, pairs=subgroup, mode=mode, delay=delay+subdelay,
                                      overtake=overtake)
-                      for subdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize // 2)]
+                      for subdelay, subgroup in internal.splitAutomation(pairs, maxDataSize // 2)]
             return events[0]
 
     def strSet(self, s: str, sync=False) -> int:
@@ -3722,7 +3722,7 @@ class Engine:
         if not self.hasBusSupport():
             raise RuntimeError("This engine does not have bus support")
         maxDataSize = config['max_pfields'] - 10
-        pairs = internalTools.flattenAutomationData(pairs)
+        pairs = internal.flattenAutomationData(pairs)
         if len(pairs) <= maxDataSize:
             args = [int(bus), self.strSet(mode), int(overtake), len(pairs), *pairs]
             self.sched(self._builtinInstrs['automateBusViaPargs'],
@@ -3730,7 +3730,7 @@ class Engine:
                        dur=pairs[-2] + self.ksmps/self.sr,
                        args=args)
         else:
-            for subdelay, subgroup in internalTools.splitAutomation(pairs, maxDataSize // 2):
+            for subdelay, subgroup in internal.splitAutomation(pairs, maxDataSize // 2):
                 self.automateBus(bus=bus, pairs=subgroup, delay=delay+subdelay,
                                  mode=mode, overtake=overtake)
 
@@ -4063,12 +4063,12 @@ class Engine:
         """
         from . import interact
         specs: dict[int|str, interact.ParamSpec] = {}
-        instr = internalTools.instrNameFromP1(eventid)
+        instr = internal.instrNameFromP1(eventid)
         body = self._instrRegistry.get(instr)
         pfieldsNameToIndex = csoundlib.instrParseBody(body).pfieldNameToIndex if body else None
         for pfield, spec in pargs.items():
             minval, maxval = spec
-            idx = internalTools.resolvePfieldIndex(pfield, pfieldsNameToIndex)
+            idx = internal.resolvePfieldIndex(pfield, pfieldsNameToIndex)
             if not idx:
                 raise KeyError(f"pfield {pfield} not understood")
             value = self.getp(eventid, idx)

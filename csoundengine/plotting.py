@@ -9,19 +9,19 @@ from . import internal
 from .config import config
 
 
-def _envelope(x: np.ndarray, hop:int):
-    return numpytools.overlapping_frames(x, hop_length=hop,
+def _envelope(x: np.ndarray, hop: int):
+    return numpytools.overlapping_frames(x, hoplength=hop,
                                          frame_length=hop).max(axis=0)
 
 
-def _frames_to_time(frames, sr:int, hop_length:int, n_fft=0):
-    samples = _frames_to_samples(frames, hop_length=hop_length, n_fft=n_fft)
+def _framesToTime(frames, sr: int, hoplength: int, nfft=0):
+    samples = _framesToSamples(frames, hoplength=hoplength, nfft=nfft)
     return samples / sr
 
 
-def _frames_to_samples(frames:np.ndarray, hop_length=512, n_fft=0) -> np.ndarray:
-    offset = int(n_fft // 2) if n_fft else 0
-    return (np.asanyarray(frames) * hop_length + offset).astype(int)
+def _framesToSamples(frames: np.ndarray, hoplength=512, nfft=0) -> np.ndarray:
+    offset = int(nfft // 2) if nfft else 0
+    return (np.asanyarray(frames) * hoplength + offset).astype(int)
 
 
 def _figsizeAsTuple(figsize) -> tuple[int, int]:
@@ -42,7 +42,7 @@ def _figsizeAsTuple(figsize) -> tuple[int, int]:
 
 def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False
                      ) -> plt.Figure:
-    numch = internalTools.arrayNumChannels(samples)
+    numch = internal.arrayNumChannels(samples)
     numsamples = samples.shape[0]
     dur = numsamples / samplerate
     times = np.linspace(0, dur, numsamples)
@@ -57,7 +57,7 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False
             axes = f.add_subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
         if i < numch - 1:
             plt.setp(axes.get_xticklabels(), visible=False)
-        chan = internalTools.getChannel(samples, i)
+        chan = internal.getChannel(samples, i)
         axes.plot(times, chan, linewidth=1)
         plt.xlim([0, dur])
     if not matplotlibIsInline() and show:
@@ -65,7 +65,7 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False
     return f
 
 
-def matplotlibIsInline():
+def matplotlibIsInline() -> bool:
     """
     Return True if matplotlib is set to display plots inline
 
@@ -74,14 +74,15 @@ def matplotlibIsInline():
     return inside_jupyter() and 'inline' in matplotlib.get_backend()
 
 
-def _plot_subsample(samples: np.ndarray, samplerate: int, maxpoints: int,
-                    maxsr: int, show: bool, figsizeFactor=1.) -> plt.Figure:
+def _plotSubsample(samples: np.ndarray, samplerate: int, maxpoints: int,
+                   maxsr: int, show: bool, figsizeFactor=1.
+                   ) -> plt.Figure:
     targetsr = samplerate
-    numch = internalTools.arrayNumChannels(samples)
+    numch = internal.arrayNumChannels(samples)
     numsamples = samples.shape[0]
     if maxpoints < numsamples:
         targetsr = min(maxsr, (samplerate * numsamples) // maxpoints)
-    hop_length = samplerate // targetsr
+    hoplength = samplerate // targetsr
     figsize = _figsizeAsTuple(config['samplesplot_figsize'])
     figsize = (int(figsize[0] * figsizeFactor), figsize[1])
     f = plt.figure(figsize=figsize)
@@ -91,13 +92,13 @@ def _plot_subsample(samples: np.ndarray, samplerate: int, maxpoints: int,
         if i < numch - 1:
             plt.setp(ax.get_xticklabels(), visible=False)
 
-        chan = internalTools.getChannel(samples, i)
-        env = _envelope(np.ascontiguousarray(chan), hop_length)
+        chan = internal.getChannel(samples, i)
+        env = _envelope(np.ascontiguousarray(chan), hoplength)
         samples_top = env
         samples_bottom = -env
-        locs = _frames_to_time(np.arange(len(samples_top)),
+        locs = _framesToTime(np.arange(len(samples_top)),
                                sr=samplerate,
-                               hop_length=hop_length)
+                               hoplength=hoplength)
         ax.fill_between(locs, samples_bottom, samples_top)
         ax.set_xlim([locs.min(), locs.max()])
     f.subplots_adjust(left=0.1, right=0.1, top=0.1, bottom=0.1)
@@ -112,7 +113,7 @@ def plotSamples(samples: np.ndarray,
                 profile='auto',
                 show=False,
                 saveas=''
-                ):
+                ) -> plt.Figure:
     """
     Plot the samples
 
@@ -122,6 +123,9 @@ def plotSamples(samples: np.ndarray,
         profile: one of 'low', 'medium', 'high', 'highest', 'auto'
         show: if True, the plot is shown. Otherwise matplotlib.pyplot.show() needs
             to be called explicitely (when not in inline mode inside jupyter)
+
+    Returns:
+        the figure used
 
     """
     if saveas:
@@ -138,10 +142,10 @@ def plotSamples(samples: np.ndarray,
             profile = 'highest'
 
     if profile == 'low':
-        fig = _plot_subsample(samples=samples, samplerate=samplerate,
+        fig = _plotSubsample(samples=samples, samplerate=samplerate,
                               maxpoints=2000, maxsr=300, show=show)
     elif profile == 'medium':
-        fig = _plot_subsample(samples=samples, samplerate=samplerate, maxpoints=4000,
+        fig = _plotSubsample(samples=samples, samplerate=samplerate, maxpoints=4000,
                               maxsr=600, show=show, figsizeFactor=1.4)
     elif profile == 'high':
         undersample = min(32, len(samples) // (1024*8))
@@ -157,8 +161,8 @@ def plotSamples(samples: np.ndarray,
     return fig
 
 
-def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:str=None,
-                    overlap=4, axes:plt.Axes=None, cmap=None, interpolation='bilinear',
+def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window='',
+                    overlap=4, axes: plt.Axes = None, cmap=None, interpolation='bilinear',
                     minfreq=40, maxfreq=None,
                     mindb=-90, show=False):
     """
@@ -192,7 +196,7 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
     noverlap = fftsize - hopsize
     if window is None:
         window = config['spectrogram_window']
-    win = signal.get_window(window, fftsize)
+    win = signal.get_window(window or None, fftsize)
     cmap = cmap if cmap is not None else config['spectrogram_colormap']
     axes.specgram(samples,
                   NFFT=fftsize,

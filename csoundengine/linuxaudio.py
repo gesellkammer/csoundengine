@@ -35,7 +35,7 @@ def _getprocs() -> list[tuple[int, list[str]]]:
 
 # @cachetools.cached(cache=cachetools.TTLCache(1, 20))
 def isPipewireRunning() -> bool:
-    return internalTools.isrunning("pipewire")
+    return internal.isrunning("pipewire")
 
 
 # @cachetools.cached(cache=cachetools.TTLCache(1, 20))
@@ -99,7 +99,7 @@ def pulseaudioInfo() -> PulseaudioInfo | None:
     Returns:
         a PulseaudioInfo object, or None if pulseaudio is not running
     """
-    if internalTools.isrunning('pulseaudio'):
+    if internal.isrunning('pulseaudio'):
         # pulseaudio server is running
         return _pactlinfo()
 
@@ -125,7 +125,7 @@ def pulseaudioInfo() -> PulseaudioInfo | None:
 
 @cachetools.cached(cache=cachetools.TTLCache(1, 5))
 def pipewireInfo() -> PipewireInfo | None:
-    if not internalTools.isrunning('pipewire'):
+    if not internal.isrunning('pipewire'):
         return None
 
     if shutil.which('pw-cli') is None:
@@ -143,8 +143,8 @@ def pipewireInfo() -> PipewireInfo | None:
     if shutil.which('pactl'):
         pactlinfo = _pactlinfo()
         isPulseServer = pactlinfo.onPipewire if pactlinfo is not None else False
-    elif internalTools.isrunning('pulseaudio'):
+    elif internal.isrunning('pulseaudio'):
         isPulseServer = False
     else:
-        isPulseServer = internalTools.isrunning('pipewire-pulse') is not None
+        isPulseServer = internal.isrunning('pipewire-pulse') is not None
     return PipewireInfo(sr=sr, quantum=quantum, isPulseServer=isPulseServer)

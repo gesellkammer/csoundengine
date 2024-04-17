@@ -863,9 +863,9 @@ def makeOrc(sr: int,
     withBusSupport = numAudioBuses > 0 or numControlBuses > 0
     orcproto = _joinOrc(busSupport=withBusSupport)
     template = Template(orcproto)
-    instrs = internalTools.assignInstrNumbers(orcproto,
-                                              startInstr=CONSTS['reservedInstrsStart'],
-                                              postInstrNum=CONSTS['postProcInstrnum'])
+    instrs = internal.assignInstrNumbers(orcproto,
+                                         startInstr=CONSTS['reservedInstrsStart'],
+                                         postInstrNum=CONSTS['postProcInstrnum'])
     subs: dict[str, Any] = {name: f"{num}  /* {name} */"
                             for name, num in instrs.items()}
     subs.update(BUILTIN_TABLES)
@@ -901,7 +901,7 @@ def busSupportCode(numAudioBuses: int,
             instruments should have a _post in their name
         startInstr: start instrument number for non-post instruments
     """
-    instrnums = internalTools.assignInstrNumbers(_busOrc,
+    instrnums = internal.assignInstrNumbers(_busOrc,
                                                  startInstr=startInstr,
                                                  postInstrNum=postInstrNum)
     subs: dict[str, Any] = {name: f"{num}  /* {name} */"
