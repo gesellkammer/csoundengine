@@ -230,14 +230,14 @@ class Instr:
                  name: str,
                  body: str,
                  args: dict[str, float | str] | None = None,
-                 init: str = '',
-                 numchans: int = 1,
+                 init='',
+                 numchans=1,
                  preschedCallback=None,
-                 doc: str = '',
+                 doc='',
                  includes: list[str] | None = None,
-                 aliases: dict[str, str] = None,
-                 maxNamedArgs: int = 0,
-                 useDynamicPfields: bool = None
+                 aliases: dict[str, str] | None = None,
+                 maxNamedArgs=0,
+                 useDynamicPfields: bool | None = None
                  ) -> None:
 
         assert isinstance(name, str)
@@ -692,7 +692,7 @@ class Instr:
         defaults = self.paramDefaultValues(aliased=True)
         if param2 not in defaults:
             raise KeyError(f"Unknown parameter '{param}'. "
-                           f"Possible parameters: {default.keys()}")
+                           f"Possible parameters: {defaults.keys()}")
         return defaults[param2]
 
     @cache
@@ -932,6 +932,8 @@ class Instr:
         if kws:
             kwsindexes = [k if isinstance(k, int) else self.pfieldIndex(k) for k in kws]
             maxidx = max(maxidx, max(kwsindexes) - 5)
+        else:
+            kwsindexes = []
 
         numpfields = maxidx + 1
         if not args:
@@ -960,12 +962,12 @@ class Instr:
 
     def rec(self,
             dur: float,
-            outfile: str | None = None,
+            outfile='',
             args: list[float] | dict[str, float] | None = None,
             sr: int | None = None,
             ksmps: int | None = None,
             encoding: str | None = None,
-            nchnls: int = 2,
+            nchnls=2,
             wait=True,
             a4: int | None = None,
             delay=0.,

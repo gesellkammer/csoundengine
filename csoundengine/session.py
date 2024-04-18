@@ -249,7 +249,7 @@ class _RenderingSessionHandler(SessionHandler):
     def __init__(self, renderer: offline.Renderer):
         self.renderer = renderer
 
-    def schedEvent(self, event: csoundengine.event.Event):
+    def schedEvent(self, event: Event):
         return self.renderer.schedEvent(event)
 
     def makeTable(self,
@@ -257,7 +257,7 @@ class _RenderingSessionHandler(SessionHandler):
                   size: int | tuple[int, int] = 0,
                   sr: int = 0,
                   ) -> TableProxy:
-        self.renderer.makeTable(data=data, size=size, sr=sr)
+        return self.renderer.makeTable(data=data, size=size, sr=sr)
 
     def readSoundfile(self,
                       path: str,
@@ -266,7 +266,7 @@ class _RenderingSessionHandler(SessionHandler):
                       delay=0.,
                       force=False,
                       ) -> TableProxy:
-        self.renderer.readSoundfile(path)
+        return self.renderer.readSoundfile(path)
 
 
 class Session(AbstractRenderer):
@@ -350,9 +350,9 @@ class Session(AbstractRenderer):
     """
     def __new__(cls,
                 engine: str | Engine | None = None,
-                priorities: int = None,
-                dynamicArgsPerInstr: int = None,
-                dynamicArgsSlots: int = None,
+                priorities: int | None = None,
+                dynamicArgsPerInstr: int | None = None,
+                dynamicArgsSlots: int | None = None,
                 **enginekws):
 
         if isinstance(engine, str):
@@ -367,9 +367,9 @@ class Session(AbstractRenderer):
 
     def __init__(self,
                  engine: str | Engine | None = None,
-                 priorities: int = None,
-                 maxControlsPerInstr: int = None,
-                 numControlSlots: int = None,
+                 priorities: int | None = None,
+                 maxControlsPerInstr: int | None = None,
+                 numControlSlots: int | None = None,
                  **enginekws
                  ) -> None:
         """
@@ -782,13 +782,13 @@ class Session(AbstractRenderer):
     def defInstr(self,
                  name: str,
                  body: str,
-                 args: dict[str, float|str] = None,
-                 init: str = '',
-                 priority: int = None,
-                 doc: str = '',
+                 args: dict[str, float|str] | None = None,
+                 init='',
+                 priority: int | None = None,
+                 doc='',
                  includes: list[str] | None = None,
-                 aliases: dict[str, str] = None,
-                 useDynamicPfields: bool = None,
+                 aliases: dict[str, str] | None = None,
+                 useDynamicPfields: bool | None = None,
                  **kws) -> Instr:
         """
         Create an :class:`~csoundengine.instr.Instr` and register it at this session
@@ -986,6 +986,8 @@ class Session(AbstractRenderer):
         """
         if instrname == "?":
             instrname = _dialogs.selectItem(list(self.instrs.keys()))
+            if instrname is None:
+                return None
         return self.instrs.get(instrname)
 
     def _getReifiedInstr(self, name: str, priority: int) -> _ReifiedInstr | None:
@@ -1073,7 +1075,7 @@ class Session(AbstractRenderer):
         rinstr, needssync = self.prepareSched(instrname, priority)
         return rinstr.instrnum
 
-    def assignBus(self, kind='', value: float = None, persist=False
+    def assignBus(self, kind='', value: float | None = None, persist=False
                   ) -> busproxy.Bus:
         """
         Creates a bus in the engine
@@ -1232,7 +1234,7 @@ class Session(AbstractRenderer):
             for automation in event.automations:
                 synth.automate(param=automation.param,
                                pairs=automation.pairs,
-                               delay=automation.delay,
+                               delay=automation.delay or 0.,
                                mode=automation.interpolation,
                                overtake=automation.overtake)
         return synth
@@ -1260,16 +1262,17 @@ class Session(AbstractRenderer):
         self._lockedLatency = None
 
     def rendering(self,
-                  outfile: str = '',
-                  sr: int | None = None,
+                  outfile='',
+                  sr=0,
                   nchnls: int | None = None,
-                  ksmps: int | None = None,
+                  ksmps=0,
                   encoding='',
                   starttime=0.,
                   endtime=0.,
                   tail=0.,
                   openWhenDone=False,
-                  verbose: bool = None) -> Renderer:
+                  verbose: bool | None = None
+                  ) -> offline.Renderer:
         """
         A context-manager for offline rendering
 
@@ -1296,8 +1299,6 @@ class Session(AbstractRenderer):
                 the rendering.
             tail: extra render time at the end, to accomodate extended releases
             openWhenDone: open the file in the default application after rendering.
-            redirect: if True, within the context any call to .sched will be
-                redirected to the offline Renderer
             verbose: if True, output rendering information. If None uses the value
                 specified in the config (``config['rec_suppress_output']``)
 
@@ -1330,7 +1331,7 @@ class Session(AbstractRenderer):
         handler = _RenderingSessionHandler(renderer=renderer)
         self.setHandler(handler)
 
-        def atexit(r: Renderer, _outfile=outfile):
+        def atexit(r: offline.Renderer, _outfile=outfile):
             r.render(outfile=_outfile, endtime=endtime, encoding=encoding,
                      starttime=starttime, openWhenDone=openWhenDone,
                      tail=tail, verbose=verbose)
@@ -1513,9 +1514,11 @@ class Session(AbstractRenderer):
         abstime = delay if not relative else self.engine.elapsedTime() + delay + self.engine.extraLatency
 
         if instrname == "?":
-            instrname = _dialogs.selectItem(list(self.instrs.keys()),
-                                            title="Select Instr",
-                                            ensureSelection=True)
+            selected = _dialogs.selectItem(list(self.instrs.keys()),
+                                           title="Select Instr",
+                                           ensureSelection=True)
+            assert selected is not None
+            instrname = selected
 
         instr = self.getInstr(instrname)
         if instr is None:
@@ -1645,7 +1648,7 @@ class Session(AbstractRenderer):
             event: the event to stop, either a Synth or the p1
             delay: how long to wait before stopping them
         """
-        if self.isRendering() and self._blockWhileRendering:
+        if self.isRendering():
             raise RuntimeError("This Session is blocked while in rendering mode. Call .unsched on the renderer instead")
 
         synthid = event if isinstance(event, (int, float)) else event.p1
@@ -1742,7 +1745,7 @@ class Session(AbstractRenderer):
             >>> session.playSample(table)
 
         """
-        if self.isRendering() and self._blockWhileRendering:
+        if self.isRendering():
             raise RuntimeError("This Session is blocked during rendering. Call .readSoundFile on the offline "
                                "renderer instead")
         if path == "?":
@@ -1801,7 +1804,7 @@ class Session(AbstractRenderer):
             a TableProxy object
 
         """
-        if self.isRendering() and self._blockWhileRendering:
+        if self.isRendering():
             raise RuntimeError("This Session is in rendering mode. Call .makeTable on the renderer instead "
                                "(with session.rendering() as r: ... r.makeTable(...)")
 
@@ -1976,7 +1979,7 @@ class Session(AbstractRenderer):
             >>> session.playPartials(source='packed.mtx', speed=0.5)
 
         """
-        if self.isRendering() and self._blockWhileRendering:
+        if self.isRendering():
             raise RuntimeError("This Session is blocked during rendering")
 
         iskip, inumrows, inumcols = -1, 0, 0
@@ -2086,7 +2089,7 @@ class Session(AbstractRenderer):
             A Synth with the following mutable parameters: kgain, kspeed, kchan, kpan
 
         """
-        if self.isRendering() and self._blockWhileRendering:
+        if self.isRendering():
             raise RuntimeError("This Session is in rendering mode. Call .playSample on the renderer instead")
 
         if isinstance(source, int):
@@ -2127,8 +2130,8 @@ class Session(AbstractRenderer):
                                     kgain=gain,
                                     ixfade=crossfade))
 
-    def makeRenderer(self, sr: int = None, nchnls: int = None, ksmps: int = None,
-                     ) -> Renderer:
+    def makeRenderer(self, sr=0, nchnls: int | None = None, ksmps=0,
+                     ) -> offline.Renderer:
         """
         Create a :class:`~csoundengine.offline.Renderer` (to render offline) with
         the instruments defined in this Session
@@ -2138,7 +2141,8 @@ class Session(AbstractRenderer):
 
         Args:
             sr: the samplerate (see config['rec_sr'])
-            ksmps: ksmps used for rendering (see also config['rec_ksmps'])
+            ksmps: ksmps used for rendering (see also config['rec_ksmps']). 0 uses
+                the default defined in the config
             nchnls: the number of output channels. If not given, nchnls is taken
                 from the session
 

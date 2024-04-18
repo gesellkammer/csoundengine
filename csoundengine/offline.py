@@ -233,14 +233,16 @@ class Renderer(AbstractRenderer):
                  nchnls: int = 2,
                  ksmps: int | None = None,
                  a4: float | None = None,
-                 priorities: int = None,
+                 priorities: int | None = None,
                  numAudioBuses=1000,
                  numControlBuses=10000,
                  dynamicArgsPerInstr: int = 16,
-                 dynamicArgsSlots: int = None):
+                 dynamicArgsSlots: int | None = None):
 
         if priorities is None:
             priorities = config['session_priorities']
+
+        assert isinstance(priorities, int)
 
         self.sr = sr or config['rec_sr']
         """Samplerate"""
@@ -276,7 +278,7 @@ class Renderer(AbstractRenderer):
         self._idCounter = 0
         self._nameAndPriorityToInstrnum: dict[tuple[str, int], int] = {}
         self._instrnumToNameAndPriority: dict[int, tuple[str, int]] = {}
-        self._numbuckets = priorities
+        self._numbuckets: int = priorities
         self._bucketCounters = [0] * priorities
         self._startUserInstrs = 50
         self._instanceCounters: dict[int, int] = {}
@@ -516,13 +518,13 @@ class Renderer(AbstractRenderer):
     def defInstr(self,
                  name: str,
                  body: str,
-                 args: dict[str, float|str] = None,
+                 args: dict[str, float|str] | None = None,
                  init: str = '',
-                 priority: int = None,
+                 priority: int | None = None,
                  doc: str = '',
                  includes: list[str] | None = None,
-                 aliases: dict[str, str] = None,
-                 useDynamicPfields: bool = None,
+                 aliases: dict[str, str] | None = None,
+                 useDynamicPfields: bool | None = None,
                  **kws) -> Instr:
         """
         Create an :class:`~csoundengine.instr.Instr` and register it with this renderer
@@ -657,7 +659,7 @@ class Renderer(AbstractRenderer):
               dur=-1.,
               priority=1,
               args: Sequence[float | str] | dict[str, float] | None = None,
-              whenfinished: Callable = None,
+              whenfinished: Callable | None = None,
               relative=True,
               **kwargs
               ) -> SchedEvent:
@@ -975,12 +977,12 @@ class Renderer(AbstractRenderer):
                verbose: bool | None = None,
                openWhenDone=False,
                starttime=0.,
-               compressionBitrate: int = None,
-               sr: int = None,
-               ksmps: int = None,
+               compressionBitrate: int | None = None,
+               sr: int | None = None,
+               ksmps: int | None = None,
                tail=0.,
                numthreads=0,
-               csoundoptions: list[str] = None
+               csoundoptions: list[str] | None = None
                ) -> RenderJob:
         """
         Render to a soundfile
@@ -1194,7 +1196,7 @@ class Renderer(AbstractRenderer):
         """
         return [ev for ev in self.scheduledEvents.values() if ev.p1 == p1]
 
-    def strSet(self, s: str, index: int = None) -> int:
+    def strSet(self, s: str, index: int | None = None) -> int:
         """
         Set a string in this renderer.
 

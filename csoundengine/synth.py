@@ -339,7 +339,7 @@ class Synth(SchedEvent, ISynth):
         if self.instr.hasControls():
             ctrlparts = []
             for k, v in self.instr.controls.items():
-                if k in self.controls:
+                if self.controls is not None and k in self.controls:
                     v = self.controls[k]
                 ctrlparts.append(f'{k}={v}')
             parts.append(f"|{' '.join(ctrlparts)}|")
@@ -535,7 +535,7 @@ class Synth(SchedEvent, ISynth):
         self.session.unsched(self.p1, delay=delay)
 
 
-def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int = None, tablestyle='',
+def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int | None = None, tablestyle='',
                            ) -> str:
     synth0 = synths[0]
     instr0 = synth0.instr
@@ -774,7 +774,7 @@ class SynthGroup(BaseSchedEvent):
                              f"parameters: {self.dynamicParamNames()}")
         return eventids
 
-    def _htmlTable(self, style='', maxrows: int = None) -> str:
+    def _htmlTable(self, style='', maxrows: int | None = None) -> str:
         subgroups = _iterlib.classify(self.synths, lambda synth: synth.instr.name)
         lines = []
         instrcol = jupytertools.defaultPalette["name.color"]

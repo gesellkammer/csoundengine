@@ -335,8 +335,8 @@ class Engine:
                  globalcode: str = "",
                  numAudioBuses: int | None = None,
                  numControlBuses: int | None = None,
-                 quiet: bool = None,
-                 udpserver: bool = None,
+                 quiet: bool | None = None,
+                 udpserver: bool | None = None,
                  udpport: int = 0,
                  commandlineOptions: list[str] | None = None,
                  includes: list[str] | None = None,
@@ -370,8 +370,10 @@ class Engine:
                              f"{availableBackends}")
 
         cascadingBackends = [b.strip() for b in backend.split(",")]
-        resolvedBackend = internal.resolveOption(cascadingBackends,
-                                                      availableBackends)
+        resolvedBackend = internal.resolveOption(cascadingBackends, availableBackends)
+        if resolvedBackend is None:
+            raise RuntimeError(f"No audio backends available")
+
         backendDef = csoundlib.getAudioBackend(resolvedBackend)
 
         if not backendDef:
@@ -403,7 +405,7 @@ class Engine:
                 nchnls = selected.numchannels
         elif isinstance(outdev, int) or _re.search(r"\bdac[0-9]+\b", outdev):
             # dac1, dac8
-            if resolvedBackend == 'jack':
+            if backendDef.name == 'jack':
                 logger.warning(
                     "This way of setting the audio device is discouraged with jack"
                     ". Use a regex to select a specific client or None to connect"
@@ -411,7 +413,7 @@ class Engine:
             if isinstance(outdev, int):
                 outdev = f"dac{outdev}"
         else:
-            if resolvedBackend == 'jack':
+            if backendDef.name == 'jack':
                 outdevName = outdev
             else:
                 selected = next((d for d in outdevs if _fnmatch.fnmatch(d.name, outdev)), None)
@@ -471,10 +473,12 @@ class Engine:
                 logger.error(f"Asked for system sr, but backend '{resolvedBackend}', does not"
                              f"have a fixed sr. Using sr={sr}")
 
-        if a4 is None: a4 = cfg['A4']
+        if a4 is None:
+            a4 = cfg['A4']
         if numthreads == 0:
             numthreads = config['numthreads']
-        if ksmps is None: ksmps = cfg['ksmps']
+        if ksmps is None:
+            ksmps = cfg['ksmps']
         if nchnls_i is None:
             nchnls_i = cfg['nchnls_i']
         if nchnls is None:
@@ -484,30 +488,32 @@ class Engine:
                                                     outpattern=outdev, inpattern=indev)
             nchnls = nchnls or outchnls
             nchnls_i = nchnls_i or inchnls
-        assert nchnls > 0
-        assert nchnls_i >= 0
+        assert nchnls is not None and nchnls > 0
+        assert nchnls_i is not None and nchnls_i >= 0
 
-        if quiet is None: quiet = cfg['suppress_output']
+        if quiet is None:
+            quiet = cfg['suppress_output']
+
         if quiet:
             commandlineOptions.append('-m0')
             commandlineOptions.append('-d')
         self.name = name
         "Name of this Engine"
 
-        assert sr > 0
-        self.sr = sr
+        assert sr is not None and sr > 0
+        self.sr: int = sr
         "Sample rate"
 
         self.backend = resolvedBackend
         "Name of the backend used (jack, portaudio, etc)"
 
-        self.a4 = a4
+        self.a4: int | float = a4
         "Reference frequency for A4"
 
-        self.ksmps = ksmps
+        self.ksmps: int = ksmps
         "Number of samples per cycle"
 
-        self.onecycle = ksmps / sr
+        self.onecycle: float = ksmps / sr
         "Duration of one performance cycle (ksmps/sr)"
 
         self.outdev = outdev
@@ -522,19 +528,19 @@ class Engine:
         self.indevName = indevName
         "Long name of the input device"
 
-        self.nchnls = nchnls
+        self.nchnls: int = nchnls
         "Number of output channels"
 
-        self.nchnls_i = nchnls_i
+        self.nchnls_i: int = nchnls_i
         "Number of input channels"
 
-        self.globalCode = globalcode
+        self.globalCode: str = globalcode
         "Global (init) code to execute at the start of the Engine"
 
         self.started = False
         "Is this engine started?"
 
-        self.extraOptions = commandlineOptions
+        self.extraOptions: list[str] = commandlineOptions
         "Extra options passed to csound"
 
         self.commandlineOptions: list[str] = []
@@ -543,13 +549,13 @@ class Engine:
         self.includes: list[str] = includes if includes is not None else []
         "List of include files"
 
-        self.extraLatency = latency if latency is not None else config['sched_latency']
+        self.extraLatency: float = latency if latency is not None else config['sched_latency']
         "Added latency for better synch"
 
-        self.numAudioBuses = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
+        self.numAudioBuses: int = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
         "Number of audio buses"
 
-        self.numControlBuses = numControlBuses if numControlBuses is not None else config['num_control_buses']
+        self.numControlBuses: int = numControlBuses if numControlBuses is not None else config['num_control_buses']
         "Number of control buses"
 
         self.udpPort = 0
@@ -558,20 +564,20 @@ class Engine:
         self.csound: None | ctcsound.Csound = None
         "The csound object"
 
-        self.autosync = autosync
+        self.autosync: bool = autosync
         """If True, call .sync whenever is needed"""
 
         backendBufferSize, backendNumBuffers = backendDef.bufferSizeAndNum()
         buffersize = (buffersize or backendBufferSize or config['buffersize'] or 256)
-        buffersize = max(ksmps * 2, buffersize)
+        buffersize = max(self.ksmps * 2, buffersize)
 
         numbuffers = (numbuffers or backendNumBuffers or config['numbuffers'] or
                       internal.determineNumbuffers(self.backend or "portaudio", buffersize=buffersize))
 
-        self.bufferSize = buffersize
+        self.bufferSize: int = buffersize
         "Buffer size"
 
-        self.numBuffers = numbuffers
+        self.numBuffers: int = numbuffers
         "Number of buffers to fill"
 
         self.midiBackend: None | str = midibackend
@@ -580,7 +586,7 @@ class Engine:
         self.started = False
         """Has this engine already started?"""
 
-        self.numthreads = numthreads
+        self.numthreads: int = numthreads
         """Number of threads to use in performance (corresponds to csound -j N)"""
 
         self._builtinInstrs: dict[str, int] = {}
@@ -767,7 +773,7 @@ class Engine:
         self._responsesTable[token] = _UNSET
         return token
 
-    def _waitOnToken(self, token: int, sleepfunc=time.sleep, period=0.001, timeout: float = None
+    def _waitOnToken(self, token: int, sleepfunc=time.sleep, period=0.001, timeout: float | None = None
                      ) -> float | None:
         if timeout is None:
             timeout = config['timeout']
@@ -960,10 +966,10 @@ class Engine:
         """
         if not hasattr(self, "name"):
             return
-        logger.info(f"stopping Engine {self.name}")
-        if not self.started or self._exited:
+        if self.csound is None or not self.started or self._exited:
             logger.debug(f"Engine {self.name} was not running, so can't stop it")
             return
+        logger.info(f"stopping Engine {self.name}")
         logger.info("... stopping thread")
         self._perfThread.stop()
         time.sleep(0.1)
@@ -1095,7 +1101,7 @@ class Engine:
         """
         return self.ksmps/self.sr * 2
 
-    def sync(self, timeout: float = None, force=False, threshold=2.) -> bool:
+    def sync(self, timeout: float | None = None, force=False, threshold=2.) -> bool:
         """
         Block until csound has processed its immediate events
 
@@ -1459,6 +1465,7 @@ class Engine:
             if self.isClockLocked():
                 logger.debug("The elapsed time clock is already locked")
             else:
+                assert self.csound is not None
                 self._lockedElapsedTime = self.csound.currentTimeSamples()/self.sr
         else:
             if not self._lockedElapsedTime:
@@ -1878,9 +1885,9 @@ class Engine:
         self._setupGlobalInstrs()
 
     def session(self,
-                priorities: int = None,
-                maxControlsPerInstr: int = None,
-                numControlSlots: int = None
+                priorities: int | None = None,
+                maxControlsPerInstr: int | None = None,
+                numControlSlots: int | None = None
                 ) -> _session.Session:
         """
         Return the Session corresponding to this Engine
@@ -2182,11 +2189,12 @@ class Engine:
         pargs = [self._builtinInstrs['pingback'], delay, 0.01, token]
         self._eventWithCallback(token, pargs, lambda token: callback())
 
-    def _eventWait(self, token: int, pargs: Sequence[float], timeout: float = None
+    def _eventWait(self, token: int, pargs: Sequence[float], timeout: float | None = None
                    ) -> float | None:
         if timeout is None:
             timeout = config['timeout']
-        assert timeout > 0
+        else:
+            assert timeout > 0
         q = self._registerSync(token)
         self._perfThread.scoreEvent(0, "i", pargs)
         try:
@@ -2200,7 +2208,7 @@ class Engine:
                              tabnum: int,
                              fftsize=2048,
                              mindb=-90,
-                             maxfreq: int = None,
+                             maxfreq: int | None = None,
                              overlap: int = 4,
                              minfreq: int = 0,
                              sr: int = 44100,
@@ -2597,7 +2605,7 @@ class Engine:
         return ptr
 
     def setChannel(self, channel: str, value: float | str | np.ndarray,
-                   method: str = None, delay=0.
+                   method='', delay=0.
                    ) -> None:
         """
         Set the value of a software channel
@@ -2607,7 +2615,7 @@ class Engine:
             value: the new value, should match the type of the channel (a float for
                 a control channel, a string for a string channel or a numpy array
                 for an audio channel)
-            method: one of ``'api'``, ``'score'``, ``'udp'``. None will choose the most appropriate
+            method: one of ``'api'``, ``'score'``, ``'udp'``. An empty str will choose the most appropriate
                 method for the current engine/args
             delay: a delay to set the channel
 
@@ -2633,7 +2641,7 @@ class Engine:
             method = "api"
         elif delay > 0:
             method = "score"
-        elif method is None:
+        elif not method:
             if self.udpPort and config['prefer_udp']:
                 method = 'udp'
             else:
@@ -2905,7 +2913,7 @@ class Engine:
                 return
         self.includes.append(abspath)
 
-    def readSoundfile(self, path="?", tabnum: int = None, chan=0,
+    def readSoundfile(self, path="?", tabnum: int | None = None, chan=0,
                       callback=None, block=False, skiptime=0.) -> int:
         """
         Read a soundfile into a table (via GEN1), returns the table number
@@ -2973,7 +2981,7 @@ class Engine:
         return tabnum
 
     def soundfontPlay(self, index: int, pitch: float, amp=0.7, delay=0.,
-                      dur=-1., vel: int = None, chan=1
+                      dur=-1., vel: int | None = None, chan=1
                       ) -> float:
         """
         Play a note of a previously loaded soundfont
@@ -3035,14 +3043,15 @@ class Engine:
         """
         assert index in self._soundfontPresets.values()
         if vel is None:
-            vel = amp/127
+            vel = amp*127
         args = [pitch, amp, index, vel, chan]
         return self.sched(self._builtinInstrs['soundfontPlay'], delay=delay, dur=dur,
                           args=args)
 
     def soundfontPreparePreset(self,
                                sf2path: str,
-                               preset: tuple[int, int] = None) -> int:
+                               preset: tuple[int, int] | None = None
+                               ) -> int:
         """
         Prepare a soundfont's preset to be used
 
@@ -3091,7 +3100,7 @@ class Engine:
 
     def _readSoundfileAsync(self,
                             path: str,
-                            tabnum: int = None,
+                            tabnum: int | None = None,
                             chan=0) -> int:
         assert self.started
         if tabnum is None:
@@ -3734,7 +3743,7 @@ class Engine:
                 self.automateBus(bus=bus, pairs=subgroup, delay=delay+subdelay,
                                  mode=mode, overtake=overtake)
 
-    def readBus(self, bus: int, default=0.) -> float:
+    def readBus(self, bus: int, default: float | None = None) -> float | None:
         """
         Read the current value of a control bus
 
@@ -3861,7 +3870,7 @@ class Engine:
         pargs = [self._builtinInstrs['busdump'], 0, 0, int(bus)]
         self._perfThread.scoreEvent(0, "i", pargs)
 
-    def assignBus(self, kind='', value: float = None, persist=False
+    def assignBus(self, kind='', value: float | None = None, persist=False
                   ) -> int:
         """
         Assign one audio/control bus, returns the bus number.

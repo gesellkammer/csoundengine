@@ -70,9 +70,8 @@ class Event:
                                 interpolation=interpolation, overtake=overtake)
         self.automations.append(autom)
 
-    def set(self, param: str = '', value: float = None, delay=0., **kws):
+    def set(self, param='', value=0., delay=0., **kws):
         if param:
-            assert value is not None
             self.automate(param=param, pairs=(0, value), delay=delay)
         if kws:
             for param, value in kws.items():

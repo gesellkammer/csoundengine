@@ -37,6 +37,7 @@ import emlib.misc
 import emlib.textlib
 import emlib.dialogs
 import emlib.mathlib
+from emlib.common import runonce
 import numpy as np
 
 from typing import TYPE_CHECKING
@@ -408,6 +409,7 @@ class _PortaudioBackend(AudioBackend):
     def getSystemSr(self) -> int | None:
         if sys.platform == 'linux' and linuxaudio.isPipewireRunning():
             info = linuxaudio.pipewireInfo()
+            assert info is not None
             return info.sr
         return super().getSystemSr()
 
@@ -507,7 +509,7 @@ def nextpow2(n:int) -> int:
     return int(2 ** _math.ceil(_math.log(n, 2)))
     
 
-@emlib.misc.runonce
+@runonce
 def findCsound() -> str | None:
     """
     Find the csound binary or None if not found
@@ -735,14 +737,14 @@ def userPluginsFolder(float64=True, apiversion='6.0') -> str:
 
 
 def runCsd(csdfile:str,
-           outdev="",
-           indev="",
-           backend="",
+           outdev='',
+           indev='',
+           backend='',
            nodisplay=False,
            nomessages=False,
            comment='',
            piped=False,
-           extra: list[str] = None
+           extra: list[str] | None = None
            ) -> _subprocess.Popen:
     """
     Run the given .csd as a csound subprocess
@@ -791,14 +793,15 @@ def runCsd(csdfile:str,
     if nomessages:
         args.append('-m16')
     if comment and offline:
-        args.append(f'-+id_comment="{comment}"')
+        args.append(f'-+id_comment="{comment}"'
+                    )
     if extra:
         args.extend(extra)
     args.append(csdfile)
     return csoundSubproc(args, piped=piped)
     
 
-def joinCsd(orc: str, sco="", options: list[str] | None = None) -> str:
+def joinCsd(orc: str, sco='', options: list[str] | None = None) -> str:
     """
     Joins an orc and a score (both as str), returns a csd as string
 
@@ -1044,6 +1047,7 @@ def _csoundGetInfoViaAPI(opcodedir='') -> dict:
     if opcodedir:
         cs.setOption(f'--opcode-dir={opcodedir}')
     opcodes, n = cs.newOpcodeList()
+    assert opcodes is not None
     opcodeNames = [opc.opname.decode('utf-8') for opc in opcodes]
     cs.disposeOpcodeList(opcodes)
     version = cs.version()
@@ -1079,7 +1083,7 @@ def _opcodesList(opcodedir='') -> list[str]:
 def saveAsGen23(data: Sequence[float] | np.ndarray,
                 outfile: str,
                 fmt="%.12f",
-                header=""
+                header=''
                 ) -> None:
     """
     Saves the data to a gen23 table
@@ -2428,13 +2432,14 @@ class Csd:
 
     def run(self,
             output: str,
-            csdfile: str = None,
-            inputdev: str = None,
-            backend: str = None,
+            csdfile='',
+            inputdev='',
+            backend='',
             suppressdisplay=True,
             nomessages=False,
             piped=False,
-            extraOptions: list[str] = None) -> _subprocess.Popen:
+            extraOptions: list[str] | None = None
+            ) -> _subprocess.Popen:
         """
         Run this csd. 
         
@@ -2552,9 +2557,9 @@ def mincer(sndfile:str,
     ts = np.arange(t0, t1+dt, dt)
     fmt = "%.12f"
     _, time_gen23 = _tempfile.mkstemp(prefix='time-', suffix='.gen23')
-    np.savetxt(time_gen23, timebpf.map(ts), fmt=fmt, header=str(dt), comments="")
+    np.savetxt(time_gen23, timebpf.map(ts), fmt=fmt, header=str(dt), comments='')
     _, pitch_gen23 = _tempfile.mkstemp(prefix='pitch-', suffix='.gen23')
-    np.savetxt(pitch_gen23, pitchbpf.map(ts), fmt=fmt, header=str(dt), comments="")
+    np.savetxt(pitch_gen23, pitchbpf.map(ts), fmt=fmt, header=str(dt), comments='')
     csd = f"""
     <CsoundSynthesizer>
     <CsOptions>
@@ -2645,7 +2650,7 @@ endin
     return orc
 
 
-def recInstr(body:str, events:list, init="", outfile:str=None,
+def recInstr(body: str, events: list, init='', outfile='',
              sr=44100, ksmps=64, nchnls=2, a4=442, samplefmt='float',
              dur=None
              ) -> tuple[str, _subprocess.Popen]:
@@ -3285,7 +3290,7 @@ def splitDocstring(body: str | list[str]) -> tuple[str, str]:
         rest = '\n'.join(lines[docend:])
     else:
         docstring = ''
-        rest = body
+        rest = body if isinstance(body, str) else '\n'.join(lines)
     return docstring, rest
 
 
@@ -3323,11 +3328,11 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                         pfieldsNameToIndex={'ibus': 4, 'kfreq': 5})
     """
     if not body.strip():
-        return ParsedInstrBody(pfieldIndexToValue=EMPTYDICT,
+        return ParsedInstrBody(pfieldIndexToValue={},
                                pfieldLines=(),
                                body='',
                                lines=(),
-                               pfieldIndexToName=EMPTYDICT)
+                               pfieldIndexToName={})
 
     pfieldLines = []
     bodyLines = []
@@ -3412,7 +3417,7 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                            lines=lines)
 
 
-def bestSampleEncodingForExtension(ext: str) -> str | None:
+def bestSampleEncodingForExtension(ext: str) -> str:
     """
     Given an extension, return the best sample encoding.
 
@@ -3541,9 +3546,10 @@ def _soundfontInstrumentsAndPresets(sfpath: str
     sf = Sf2File(f)
     instruments: list[tuple[int, str]] = [(num, instr.name.strip())
                                           for num, instr in enumerate(sf.instruments)
-                                          if instr.name != 'EOI']
+                                          if instr.name and instr.name != 'EOI']
     presets: list[tuple[int, int, str]] = [(p.bank, p.preset, p.name.strip())
-                                           for p in sf.presets if p.name != 'EOP']
+                                           for p in sf.presets
+                                           if p.name and p.name != 'EOP']
     presets.sort()
     return instruments, presets
 
