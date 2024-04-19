@@ -4,6 +4,8 @@ import sys
 import logging
 logging.basicConfig(level="DEBUG")
 
+
+print("---------------", sys.argv)
 # Test that all dependencies needed are there
 ok = dependencies.checkDependencies(force=True, fix=True)
 if not ok:
@@ -22,3 +24,8 @@ print("Default Audio Devices")
 indev, outdev = pa.defaultAudioDevices()
 print(indev)
 print(outdev)
+
+if outdev:
+    print(f"Testing audio for device {outdev}")
+    engine = ce.Engine()
+    engine.testAudio()
