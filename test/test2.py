@@ -28,4 +28,11 @@ print(outdev)
 if outdev:
     print(f"Testing audio for device {outdev}")
     engine = ce.Engine()
-    engine.testAudio()
+    engine.testAudio(dur=4)
+    import time
+    t0 = time.time()
+    while time.time() - t0 < 4:
+        print(".")
+        time.sleep(0.25)
+    
+    
