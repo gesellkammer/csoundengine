@@ -56,7 +56,7 @@ setup(
         "bpf4>=1.10.1",
         "numpyx>=1.3.3",
         "pitchtools>=1.14.0",
-        "risset>=2.8.0",
+        "risset>=2.9.1",
         "sounddevice"
     ],
     license="BSD",

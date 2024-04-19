@@ -145,10 +145,8 @@ def _copyFiles(files: List[str], dest: str, verbose=False) -> None:
         shutil.copy(f, dest)
 
 
-def pluginsInstalled(cached: bool) -> bool:
+def pluginsInstalled(cached=True) -> bool:
     """Returns True if the needed plugins are already installed"""
-    #opcodes = set(csoundlib.opcodesList(cached=cached,
-    #                                    opcodedir=csoundlib.userPluginsFolder(apiversion=apiversion)))
     opcodes = set(csoundlib.opcodesList(cached=cached))
     neededOpcodes = {
         "atstop", "pwrite", "pread", "initerror",
@@ -219,7 +217,7 @@ def _installPluginsViaRisset(majorversion: int | None = None) -> bool:
     for pluginname in ['else', 'beosc', 'klib', 'poly']:
         p = idx.plugins.get(pluginname)
         if p is None:
-            logger.error(f"Plugin '{pluginname}' not found in risset's index")
+            logger.error(f"Plugin '{pluginname}' not in risset's index")
             return False
         elif idx.is_plugin_installed(p):
             logger.debug(f"Plugin '{pluginname}' already installed, skipping")
@@ -280,7 +278,7 @@ def installPlugins(majorversion=6, risset=True) -> bool:
     return True
 
 
-def _checkDependencies(fix=False, updateState=True, quiet=False) -> Optional[str]:
+def _checkDependencies(fix=False, quiet=False) -> Optional[str]:
     """
     Either returns None or an error message
     """
@@ -288,18 +286,18 @@ def _checkDependencies(fix=False, updateState=True, quiet=False) -> Optional[str
         return "csound not installed. See https://csound.com/download.html"
 
     version = csoundlib.getVersion(useApi=True)
+
     if version < (6, 16, 0):
         return f"Csound version ({version}) is too old, should be >= 6.16"
 
     if version[0] >= 7:
         print(f"WARNING: Csound 7 is not fully supported. Proceed at yout own risk")
 
-    binversion = csoundlib.getVersion(useApi=False)
-    if version[:2] != binversion[:2]:
-        print(f"WARNING: the csound library found reported a version {version}, different"
-              f" from the version reported by the csound binary {binversion}")
-
-    if not pluginsInstalled(cached=False):
+    # binversion = csoundlib.getVersion(useApi=False)
+    # if version[:2] != binversion[:2]:
+    #     print(f"WARNING: the csound library found reported a version {version}, different"
+    #           f" from the version reported by the csound binary {binversion}")
+    if not pluginsInstalled():
         if fix:
             print("** csoundengine: Csound external plugins are not installed or are too old."
                   " I will try to install them now")
@@ -310,13 +308,13 @@ def _checkDependencies(fix=False, updateState=True, quiet=False) -> Optional[str
                 print("** csoundengine: csound external plugins could not be installed")
                 return "csound external plugins could not be installed"
         else:
-            return ("Some plugins are not installed. They can be installed via 'import csoundengine; csoundengine.installDependencies()'. "
+            return ("Some plugins are not installed. They can be installed via "
+                    "'import csoundengine; csoundengine.installDependencies()'. "
                     "To install the plugins manually you will need risset installed. Install them via risset "
                     "(risset install \"*\"), or manually from "
                     "https://github.com/csound-plugins/csound-plugins/releases")
     logger.info("Dependencies OK")
-    if updateState:
-        state['last_run'] = datetime.now().isoformat()
+    state['last_check'] = datetime.now().isoformat()
 
 
 def installDependencies() -> bool:
@@ -349,16 +347,18 @@ def checkDependencies(force=False, fix=True) -> bool:
         logger.debug("Called by sphinx? Skipping dependency check")
         return True
 
-    timeSincelast_run = datetime.now() - datetime.fromisoformat(state['last_run'])
-    if force or timeSincelast_run.days > 30:
-        logger.warning("Checking dependencies")
+    okstatus = True
+    now = datetime.now()
+    timeSinceLastCheck = now - datetime.fromisoformat(state['last_check'])
+    if force or timeSinceLastCheck.days >= 30:
+        logger.info("Checking dependencies")
         errormsg = _checkDependencies(fix=fix)
         if errormsg:
             logger.error(f"*** checkDependencies: {errormsg}")
             if not fix:
                 logger.error("*** You can try to fix this by calling installDependencies()")
-            return False
-    return True
+            okstatus = False
+    return okstatus
 
 
 def _codesignBinaries(binaries: list[str]) -> None:

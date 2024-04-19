@@ -99,16 +99,16 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
         # Automate the cutoff freq. of the filter
         filt.automate('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
 """
-# sndfileio sets numpy's denormal behaviour. If it happens later numpy spits
-# multiple warnings about it
-import sndfileio
+# This disables warning about denormals
+import numpy as np
+np.finfo(np.dtype("float32"))
+np.finfo(np.dtype("float64"))
 
 from .config import config, setLoggingLevel
 from .dependencies import checkDependencies, installDependencies
-ok = checkDependencies(force=False, fix=True)
-if not ok:
+_ok = checkDependencies(force=True, fix=True)
+if not _ok:
     raise RuntimeError("csoundengine: Depencencies not fullfilled")
-
 
 from .engine import *
 from .config import config, setLoggingLevel

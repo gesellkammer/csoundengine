@@ -15,7 +15,7 @@ def _isofmt(t:datetime) -> str:
 
 
 _defaultState = {
-    'last_run': datetime(1900, 1, 1).isoformat(),
+    'last_check': datetime(1900, 1, 1).isoformat(),
     'soundfont_last_dir': _home,
     'soundfile_last_dir': _home,
     'soundfile_save_last_dir': _home,
@@ -66,7 +66,5 @@ def openSoundfont(filter="Soundfont (*.sf2)", title="Open Soundfont", ensureSele
     if not out and ensureSelection:
         raise ValueError("No soundfont selected")
     return out
-
-
 
 

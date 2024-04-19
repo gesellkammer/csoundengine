@@ -1042,23 +1042,32 @@ def opcodesList(cached=True, opcodedir: str = '') -> list[str]:
 
 
 def _csoundGetInfoViaAPI(opcodedir='') -> dict:
+    global _cache
+
     cs = ctcsound.Csound()
-    cs.setOption("-d")  # supress displays
+    cs.setOption("-d")
+    cs.setOption("--nosound")
+    cs.setOption("--messagelevel=0")
+    cs.setOption("--m-amps=0")
+    cs.setOption("--m-range=0")
+
     if opcodedir:
         cs.setOption(f'--opcode-dir={opcodedir}')
-    opcodes, n = cs.newOpcodeList()
-    assert opcodes is not None
-    opcodeNames = [opc.opname.decode('utf-8') for opc in opcodes]
-    cs.disposeOpcodeList(opcodes)
     version = cs.version()
     vs = str(version)
     patch = int(vs[-1])
     minor = int(vs[-3:-1])
     major = int(vs[:-3])
-    opcodes = list(set(opcodeNames))
     versionTriplet = (major, minor, patch)
-    _cache['opcodes'] = opcodes
     _cache['versionTriplet'] = versionTriplet
+
+    opcodes, n = cs.newOpcodeList()
+    assert opcodes is not None
+    opcodeNames = [opc.opname.decode('utf-8') for opc in opcodes]
+    cs.disposeOpcodeList(opcodes)
+    opcodes = list(set(opcodeNames))
+    _cache['opcodes'] = opcodes
+    cs.stop()
     return {'opcodes': opcodes,
             'versionTriplet': versionTriplet}
 
