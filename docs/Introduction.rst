@@ -168,6 +168,90 @@ higher level interface, allowing to:
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start) 
 
 
+
+-----------------------------------------------------------
+
+Offline Rendering
+-----------------
+
+Offline rendering is implemented via the :class:`~csoundengine.offline.Renderer` class,
+which has the same interface as a :class:`~csoundengine.session.Session` and
+can be used as a drop-in replacement.
+
+.. code-block:: python
+
+    from csoundengine import *
+    from pitchtools import *
+
+    renderer = Renderer(sr=44100, nchnls=2)
+
+    renderer.defInstr('saw', r'''
+      kmidi = p5
+      outch 1, oscili:a(0.1, mtof:k(kfreq))
+    ''')
+
+    events = [
+        renderer.sched('saw', 0, 2, kmidi=ntom('C4')),
+        renderer.sched('saw', 1.5, 4, kmidi=ntom('4G')),
+        renderer.sched('saw', 1.5, 4, kmidi=ntom('4G+10'))
+    ]
+
+    # offline events can be modified just like real-time events
+    events[0].automate('kmidi', (0, 0, 2, ntom('B3')), overtake=True)
+
+    events[1].set(delay=3, kmidi=67.2)
+    events[2].set(kmidi=80, delay=4)
+    renderer.render("out.wav")
+
+A :class:`Renderer` can also be created from an existing :class:`Session`, either via
+:meth:`~csoundengine.session.Session.makeRenderer` or via the context manager
+:meth:`~csoundengine.session.Session.rendering`. In both cases an offline
+:class:`Renderer` is created in which all instruments and
+data defined in the Session are also available.
+
+Taking the first example, the same can be rendered offline by modifying this:
+
+.. code-block:: python
+
+    ...
+
+    masterbus = session.assignBus()
+    master = session.sched("master", imasterbus=masterbus, priority=3)
+    for i, midinote in enumerate(range(60, 72, 2)):
+        bus = session.assignBus()
+        delay = i
+        synth = session.sched("synth", delay=delay, dur=5, kmidi=midinote, ibus=bus)
+        synth.automatep('ktransp', [0, 0, dur, -2], delay=delay)
+        filt = session.sched("filter", delay=delay, dur=synth.dur,
+                             priority=synth.priority+1, kcutoff=2000,
+                             ibus=bus,
+                             imasterbus=masterbus)
+        filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
+
+
+with this:
+
+.. code-block:: python
+
+
+    with session.rendering("out.wav") as session:
+        masterbus = session.assignBus()
+        master = session.sched("master", imasterbus=masterbus, priority=3)
+        for i, midinote in enumerate(range(60, 72, 2)):
+            bus = session.assignBus()
+            delay = i
+            synth = session.sched("synth", delay=delay, dur=5, kmidi=midinote, ibus=bus)
+            synth.automatep('ktransp', [0, 0, dur, -2], delay=delay)
+            filt = session.sched("filter", delay=delay, dur=synth.dur,
+                             priority=synth.priority+1, kcutoff=2000,
+                             ibus=bus,
+                             imasterbus=masterbus)
+            filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
+
+
+----------------------------
+
+
 csoundengine vs ctcsound
 ------------------------
 
