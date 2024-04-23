@@ -103,6 +103,36 @@ builtinInstrs = [
             turnoff
         endif
     """, aliases={'speed': 'kspeed', 'gain': 'kgain', 'pan': 'kpan'}),
+    Instr('.diskin', body=r'''
+        |Spath, ichan=1, kgain=1, kspeed=1, kpan=-1, ifadein=0, ifadeout=0, iloop=0, istart=0, iwsize=4|
+        iformat = 0
+        know init 0
+        ionecycle = ksmps/sr
+        ifiledur = filelen(Spath)
+        idur = ifiledur / i(kspeed)
+        imaxtime = idur + ifadeout + ionecycle
+        aouts[] diskin2 Spath, kspeed, istart, iloop, iformat, iwsize
+        inumouts = lenarray(aouts)
+        aenv linsegr 0, ifadein, 1, ifadeout, 0
+        aenv *= interp(kgain)
+        aouts *= aenv
+        if inumouts == 1 then
+            kpan = kpan >= 0 ? kpan : 0.5
+            aL, aR pan2 aouts[0], kpan
+            outch ichan, aL, ichan+1, aR
+        elseif inumouts == 2 then
+            aL, aR panstereo aouts[0], aouts[1], kpan
+            outch ichan, aL, ichan+1, aR
+        else
+            ; panning is disabled for soundfiles with more than 2 channels
+            ichans[] genarray ichan, ichan+inumouts-1
+            poly0 inumouts, "outch", ichans, aouts
+        endif
+        know += ionecycle/kspeed 
+        if p3 < 0 && iloop == 0 && know > imaxtime then
+            turnoff
+        endif 
+    ''', aliases={'speed': 'kspeed', 'gain': 'kgain'}),
     Instr('.playbuf', body="""
         |itabnum=0, ioutchan=1, igain=1, iloop=0|
         inumsamps ftlen itabnum

@@ -126,13 +126,13 @@ def detectInlineArgs(lines: list[str]) -> tuple[str, int, int]:
         line = line.strip()
         if not line:
             continue
-        if re.match(r'\|\s*[ik]\w+', line):
+        if re.match(r'\|\s*[ikS]\w+', line):
             if inlineArgsStarted:
                 raise ValueError(f"Invalid inline args: {lines}")
             line0 = i
             delim = '||'
             inlineArgsStarted = True
-        elif not inlineArgsStarted and re.match(r'\{\s*[ik]\w+', line):
+        elif not inlineArgsStarted and re.match(r'\{\s*[ikS]\w+', line):
             delim = '{}'
             line0 = i
             inlineArgsStarted = True

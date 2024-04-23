@@ -1051,6 +1051,10 @@ class Renderer(AbstractRenderer):
             raise RenderError("Cannot render an infinite score. Set an endtime when calling "
                               ".render(...)")
         if renderend <= scorestart:
+            logger.error("Invalid render time. Score: ")
+            events = sorted(self.scheduledEvents.values(), key=lambda event: event.start)
+            for ev in events:
+                logger.error(f"    {event}")
             raise RenderError(f"No score to render (start: {scorestart}, end: {renderend})")
 
         if numthreads == 0:
@@ -1358,7 +1362,7 @@ class Renderer(AbstractRenderer):
     def playSample(self,
                    source: int | str | TableProxy | tuple[np.ndarray, int],
                    delay=0.,
-                   dur=0,
+                   dur=0.,
                    chan=1,
                    gain=1.,
                    speed=1.,
@@ -1392,36 +1396,12 @@ class Renderer(AbstractRenderer):
                 the table but at `starttime`
             dur: duration of playback. -1=indefinite duration, will stop at the end of the
                 sample if no looping was set; 0=definite duration, the event is scheduled
-                with dur=sampledur/speed
+                with dur=sampledur/speed. Do not use this if you plan to modify or modulate
+                the playback speed.
             crossfade: if looping, this indicates the length of the crossfade
         """
         if loop and dur == 0:
-            logger.warning(f"playSample was called with loop=True, but the duration ({dur}) given "
-                           f"will result in no looping taking place")
-        if isinstance(source, tuple):
-            assert len(source) == 2 and isinstance(source[0], np.ndarray)
-            data, sr = source
-            tabproxy = self.makeTable(data=source[0], sr=sr)
-            tabnum = tabproxy.tabnum
-            if dur == 0:
-                dur = (len(data)/sr) / speed
-        elif isinstance(source, TableProxy):
-            tabnum = source.tabnum
-        elif isinstance(source, str):
-            tabproxy = self.readSoundfile(path=source, delay=delay, skiptime=skip)
-            tabnum = tabproxy.tabnum
-            if dur == 0:
-                dur = tabproxy.duration() / speed
-        elif isinstance(source, int):
-            tabnum = source
-            if dur == 0:
-                dur = -1
-        else:
-            raise TypeError(f"Not a valid source: {source}, expected a TableProxy, "
-                            f"path, table number or sample data as (samples, sr: int)")
-        assert tabnum > 0
-        if not loop:
-            crossfade = -1
+            dur = -1
 
         if isinstance(fade, (int, float)):
             fadein = fadeout = fade
@@ -1432,6 +1412,40 @@ class Renderer(AbstractRenderer):
         else:
             raise TypeError(f"fade should be None to use default, or a time or a tuple "
                             f"(fadein, fadeout), got {fade}")
+
+        if isinstance(source, str):
+            source = os.path.abspath(source)
+            args = dict(
+                Spath=source,
+                ifadein=fadein,
+                ifadeout=fadeout,
+                iloop=int(loop),
+                kspeed=speed,
+                kpan=pan,
+                ichan=chan
+            )
+            if not loop and dur == 0:
+                info = sndfileio.sndinfo(source)
+                dur = info.duration / speed + fadeout
+            return self.sched('.diskin', delay=delay, dur=dur, args=args)
+
+        elif isinstance(source, tuple):
+            assert len(source) == 2 and isinstance(source[0], np.ndarray)
+            data, sr = source
+            tabproxy = self.makeTable(data=source[0], sr=sr)
+            tabnum = tabproxy.tabnum
+            if dur == 0:
+                dur = (len(data)/sr) / speed
+        elif isinstance(source, TableProxy):
+            tabnum = source.tabnum
+        elif isinstance(source, int):
+            tabnum = source
+        else:
+            raise TypeError(f"Not a valid source: {source}, expected a TableProxy, "
+                            f"path, table number or sample data as (samples, sr: int)")
+        assert tabnum > 0
+        if not loop:
+            crossfade = -1
 
         args = dict(isndtab=tabnum, istart=skip,
                     ifadein=fadein, ifadeout=fadeout,

@@ -176,7 +176,7 @@ class AbstractRenderer(ABC):
     def playSample(self,
                    source: int | tableproxy.TableProxy | str | tuple[np.ndarray, int],
                    delay=0.,
-                   dur=-1.,
+                   dur=0.,
                    chan=1,
                    gain=1.,
                    speed=1.,

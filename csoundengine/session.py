@@ -2045,7 +2045,7 @@ class Session(AbstractRenderer):
     def playSample(self,
                    source: int | TableProxy | str | tuple[np.ndarray, int],
                    delay=0.,
-                   dur=-1.,
+                   dur=0.,
                    chan=1,
                    gain=1.,
                    speed=1.,
@@ -2062,20 +2062,21 @@ class Session(AbstractRenderer):
 
         This method ensures that the sample is played at the original pitch,
         independent of the current samplerate. The source can be a table,
-        a soundfile or a :class:`~csoundengine.tableproxy.TableProxy`
+        a soundfile or a :class:`~csoundengine.tableproxy.TableProxy`. If a path
+        to a soundfile is given, the 'diskin2' opcode is used by default
 
         Args:
             source: table number, a path to a sample or a TableProxy, or a tuple
-                (numpy array, samplerate)
+                (numpy array, samplerate).
             dur: the duration of playback (-1 to play until the end of the sample
-                or indefinitely if loop==True)
+                or indefinitely if loop==True).
             chan: the channel to play the sample to. In the case of multichannel
                   samples, this is the first channel
             pan: a value between 0-1. -1 means default, which is 0 for mono,
                 0.5 for stereo. For multichannel (3+) samples, panning is not
                 taken into account
             gain: gain factor.
-            speed: speed of playback
+            speed: speed of playback. Pitch will be changed as well.
             loop: True/False or -1 to loop as defined in the file itself (not all
                 file formats define loop points)
             delay: time to wait before playback starts
@@ -2092,29 +2093,38 @@ class Session(AbstractRenderer):
         if self.isRendering():
             raise RuntimeError("This Session is in rendering mode. Call .playSample on the renderer instead")
 
-        if isinstance(source, int):
+        if fade is None:
+            fadein = fadeout = config['sample_fade_time']
+        else:
+            fadein, fadeout = fade if isinstance(fade, tuple) else fade, fade
+
+        if loop and dur == 0:
+            dur = -1
+
+        if isinstance(source, str):
+            if not loop and dur == 0:
+                info = sndfileio.sndinfo(source)
+                dur = info.duration / speed + fadeout
+            return self.sched('.diskin',
+                              delay=delay,
+                              dur=dur,
+                              Spath=source,
+                              ifadein=fadein,
+                              ifadeout=fadeout,
+                              iloop=int(loop),
+                              kspeed=speed,
+                              kpan=pan,
+                              ichan=chan)
+        elif isinstance(source, int):
             tabnum = source
         elif isinstance(source, TableProxy):
             tabnum = source.tabnum
-        elif isinstance(source, str):
-            table = self.readSoundfile(source, block=blockread)
-            tabnum = table.tabnum
         elif isinstance(source, tuple) and isinstance(source[0], np.ndarray) and isinstance(source[1], int):
             table = self.makeTable(source[0], sr=source[1], unique=False, block=blockread)
             tabnum = table.tabnum
         else:
             raise TypeError(f"Expected table number as int, TableProxy, a path to a soundfile as str or a "
                             f"tuple (samples: np.ndarray, sr: int), got {source}")
-        # isndtab, iloop, istart, ifade
-        if fade is None:
-            fadein = fadeout = config['sample_fade_time']
-        else:
-            if isinstance(fade, tuple):
-                fadein, fadeout = fade
-            else:
-                fadein = fadeout = fade
-        if not loop:
-            crossfade = -1
 
         assert isinstance(tabnum, int) and tabnum >= 1
         return self.sched('.playSample',
