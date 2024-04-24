@@ -11,7 +11,10 @@ table.autosummary {
 }
 
 
-/*
+a.headerlink {
+	visibility: hidden;
+}
+
 a {
 	text-decoration: none;
 }
@@ -20,9 +23,5 @@ a:hover {
 	text-decoration: underline;
 	text-decoration-thickness: max(3px, .0625em);
 }
-*/
 
 
-a.headerlink {
-	visibility: hidden;
-}
