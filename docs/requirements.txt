@@ -11,8 +11,9 @@ pitchtools
 bpf4
 numpyx
 appdirs
+
 sphinx-autodoc-typehints
 sphinx-automodapi
 autodocsumm
-sphinxawesome_theme
-sphinx_design
+sphinxawesome-theme
+sphinx-design

@@ -101,7 +101,7 @@ napoleon_use_rtype = True
 
 html_theme_options = {
     'navigation_depth': 3,
-    'awesome_headerlinks': True
+#     'awesome_headerlinks': True
 }
 
 html_css_files = [
