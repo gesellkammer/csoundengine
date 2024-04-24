@@ -13,8 +13,6 @@
 import os
 import sys
 
-from sphinxawesome_theme import ThemeOptions
-
 sys.path.insert(0, os.path.abspath('../'))
 
 
