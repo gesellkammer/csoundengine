@@ -12,6 +12,9 @@
 #
 import os
 import sys
+
+from sphinxawesome_theme import ThemeOptions
+
 sys.path.insert(0, os.path.abspath('../'))
 
 
@@ -36,7 +39,12 @@ extensions = [
     'sphinx_autodoc_typehints',
     'sphinx.ext.viewcode',
     'sphinx.ext.inheritance_diagram',
-    'sphinx.ext.graphviz'
+    'sphinx.ext.graphviz',
+    "sphinx.ext.autodoc",
+    "sphinx.ext.intersphinx",
+    "sphinx.ext.extlinks",
+    "sphinx_design",
+    "sphinxawesome_theme.highlighting",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -54,7 +62,8 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 # a list of builtin themes.
 #
 # html_theme = 'piccolo_theme'
-html_theme = 'sphinx_book_theme'
+# html_theme = 'sphinx_book_theme'
+html_theme = 'sphinxawesome_theme'
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -94,8 +103,11 @@ napoleon_use_rtype = True
 
 html_theme_options = {
     'navigation_depth': 3,
+    'awesome_headerlinks': True
 }
 
 html_css_files = [
     'custom.css',
 ]
+
+

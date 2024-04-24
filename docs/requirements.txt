@@ -13,6 +13,6 @@ numpyx
 appdirs
 sphinx-autodoc-typehints
 sphinx-automodapi
-piccolo-theme
 autodocsumm
-sphinx_book_theme
+sphinxawesome_theme
+sphinx_design

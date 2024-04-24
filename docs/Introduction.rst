@@ -42,42 +42,49 @@ csound code and schedule events without any overhead.
     # of the running instrument, which can be used to further control it
     event = engine.sched("synth", args=[48, 0.2, 3000, 4])
 
-A csound process is launched by creating a new Engine. One difference to *csound* here is
-that **csoundengine** will query the system regarding audio backend, audio device,
-number of channels, samplerate, etc., for any option that is not explicitly given
-(instead of using some arbitrary default). For example, in linux **csoundengine**
-will first check if jack is running and use that as backend, or fallback to using portaudio
-otherwise (the order can be configured). If not given an audio device it will use the default
-device for the backend and will query the number of channels and use that as
-the `nchnls` (number of channels) option.
-
-Another difference to notice is that in **csoundengine** instruments can declare
-*pfields* as dynamic values (*k-variables*), which can be modulated after the
-event has started.
-
-.. code-block:: python
-
-    # Change midinote. setp means: set p-field. This sets p4 (kmidinote) to 50
-    engine.setp(event, 4, 50)
-
-    # Modify cutoff (p6)
-    engine.setp(event, 6, 1000, delay=4)
-
-    # Stop the synth
-    engine.unsched(event)
-
+A csound process is launched by creating a new Engine. **csoundengine** will query the
+system regarding audio backend, audio device, number of channels, samplerate, etc.,
+for any option that is not explicitly given. For example, in linux **csoundengine**
+will first check if jack is running (either as jack itself or within pipewire) and,
+if so, use that as backend, or fallback to using portaudio otherwise. If not specified
+otherwise, **csoundengine** will use the default audio devices for the backend and query
+the number of channels and samplerate to match them.
 
 An :class:`~csoundengine.engine.Engine` uses the csound API to communicate with
-csound. All audio processing is run in a thread with realtime priority to avoid
-dropouts.
+csound. **All audio processing is run in a thread with realtime priority to avoid
+dropouts**
 
 Built-in instruments
 ~~~~~~~~~~~~~~~~~~~~
 
 An :class:`~csoundengine.engine.Engine` provides built-in functionality to
-perform common tasks, like reading a soundfile (:meth:`~csoundengine.engine.Engine.readSoundfile`),
-playing a sample from a table (:meth:`~csoundengine.engine.Engine.playSample`) or from disk
-(:meth:`~csoundengine.engine.Engine.playSoundFromDisk`)
+perform common tasks. For example:
+
+* :meth:`~csoundengine.engine.Engine.readSoundfile`: loads a soundfile into a table
+* :meth:`~csoundengine.engine.Engine.playSample`: plays a sample from a previously loaded table
+* :meth:`~csoundengine.engine.Engine.playSoundFromDisk`: plays an audio file directly from
+  disk, without loading the sample data first
+* :meth:`~csoundengine.engine.Engine.testAudio`: tests the Engine's output
+
+Modulation / Automation
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Within **csoundengine** instruments can declare *pfields* as dynamic values (*k-variables*),
+which can be modified, modulated and / or automated after the event has started. Notice
+that in the definition of the 'synth' instrument, ``kmidinote = p4`` or ``kcutoff = p6``
+assign a parameter (``p4``, ``p6``) to a control variable.
+
+.. code-block:: python
+
+    # Schedule an event with a unique id
+    event = engine.sched("synth", dur=20, args=[48, 0.2, 3000, 4])
+
+    # Change midinote. setp means: set p-field. This sets p4 (kmidinote) to 50
+    engine.setp(event, 4, 50)
+
+    # Automate cutoff (p6), from 500 to 2000 hz in 3 seconds, starting in 4 seconds
+    engine.automatep(event, 6, (0, 500, 3, 2000), delay=4)
+
 
 
 ----------------------------------
@@ -90,10 +97,11 @@ Each Engine can have an associated :class:`~csoundengine.session.Session`. A Ses
 higher level interface, allowing to:
 
 * Define instrument templates (an :class:`~csoundengine.instr.Instr`), which can be
-  instantiated at any order of evaluation, allowing to implement processing chains
+  instantiated at **any order of evaluation**, allowing to implement **processing chains**
   of any complexity
-* An :class:`~csoundengine.instr.Instr` can have named parameters which can be
-  used to control the scheduled event.
+* Define **named parameters** and **default values**. An :class:`~csoundengine.instr.Instr`
+  can use named parameters and assign default values; when an instrument is scheduled,
+  only parameters which diverge from the default need to be passed.
 * A :class:`~csoundengine.session.Session` provides a series of built-in
   :class:`~csoundengine.instr.Instr`'s to perform some common tasks, like playing
   samples from memory or from disk, perform audio analysis, etc.
@@ -103,9 +111,17 @@ higher level interface, allowing to:
     
     from csoundengine import *
 
-    # Create an Engine and a corresponding Session. It is possible to be specific about
-    # Engine parameters.
+    # When a session is created, the underlying Engine is created as well. The engine
+    # is thus created with default values
+    session = Session()
+
+    # If the Engine needs to be customized in some way, then the Engine needs to be
+    # created first
     session = Engine(nchnls=4, ksmps=32).session()
+
+    # An Engine has only one Session assigned to it. Calling .session() on the engine
+    # again will return the same session
+    assert session.engine.session() is session
 
     # define instruments
     session.defInstr("synth", r'''
@@ -132,7 +148,7 @@ higher level interface, allowing to:
       outch 1, asig
     ''')
 
-    # create a master audio channel
+    # create a master audio bus
     masterbus = session.assignBus()
 
     # Start a master instance at the end of the evaluation chain
@@ -209,7 +225,7 @@ A :class:`Renderer` can also be created from an existing :class:`Session`, eithe
 :class:`Renderer` is created in which all instruments and
 data defined in the Session are also available.
 
-Taking the first example, the same can be rendered offline by modifying this:
+Taking the first example, the same can be rendered offline by placing this:
 
 .. code-block:: python
 
@@ -229,7 +245,7 @@ Taking the first example, the same can be rendered offline by modifying this:
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
 
 
-with this:
+inside the ``rendering`` context manager:
 
 .. code-block:: python
 
@@ -262,6 +278,7 @@ this knowledge into a wrapper which is flexible for advanced use cases but enabl
 user to start and control a csound process very easily. See below for a detailed description of
 *csoundengine* ´s features
 
+
 Features
 --------
 
@@ -280,8 +297,10 @@ Features
   in order to minimize latency and/or increase performance.
 * **Automation** - *csoundengine* provides a built-in method to automate the parameters of a
   running event, either via break-point curves or in realtime via any python process.
-  See :meth:`Engine.automatep() <csoundengine.engine.Engine.automatep>` or
-  :meth:`Engine.setp() <csoundengine.engine.Engine.setp>`
+  See :meth:`Engine.automatep() <csoundengine.engine.Engine.automatep>`,
+  :meth:`Engine.setp() <csoundengine.engine.Engine.setp>` or the corresponding
+  :class:`~csoundengine.synth.Synth` methods: :meth:`~csoundengine.synth.Synth.set` and
+  :meth:`~csoundengine.synth.Synth.automate`
 * **Bus system** - an :class:`~csoundengine.engine.Engine` provides a bus system (both for
   audio and control values) to make communication between running events much easier. See
   :meth:`~csoundengine.engine.Engine.assignBus` and :ref:`Bus opcodes<busopcodes>`
