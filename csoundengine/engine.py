@@ -1572,15 +1572,17 @@ class Engine:
               delay=0.,
               dur=-1.,
               args: np.ndarray | Sequence[float | str] | None = None,
-              relative=True
+              relative=True,
+              unique=True
               ) -> float:
         """
         Schedule an instrument
 
         Args:
             instr : the instrument number/name. If it is a fractional number,
-                that value will be used as the instance number. An integer or a string
-                will result in a unique instance assigned by csound. Named instruments
+                that value will be used as the instance number.
+                An integer or a string will result in a unique instance assigned
+                by csound if unique is True. Named instruments
                 with a fractional number can also be scheduled (for example,
                 for an instrument named "myinstr" you canuse "myinstr.001")
             delay: time to wait before instrument is started. If relative is False,
@@ -1594,6 +1596,7 @@ class Engine:
                 otherwise it is relative to the start time of the engine.
                 To get an absolute time since start of the engine, call
                 `engine.elapsedTime()`
+            unique: if True, assign a unique p1
 
         Returns: 
             a fractional p1 of the instr started, which identifies this event.
@@ -1646,10 +1649,24 @@ class Engine:
             self.sync()
 
         if isinstance(instr, float):
-            instrfrac = instr
+            if unique and int(instr) == instr:
+                instrfrac = self._assignEventId(int(instr))
+            else:
+                instrfrac = instr
         elif isinstance(instr, int):
             instrfrac = self._assignEventId(instr)
         elif isinstance(instr, str):
+            if not unique and "." not in instr:
+                instrnum = self._instrNumCache.get(instr)
+                if instrnum:
+                    instrfrac = instrnum
+                else:
+                    msg = f'i {instr} {delay} {dur}'
+                    if args:
+                        msg += ' '.join(map(str, args))
+                    self._perfThread.inputMessage(msg)
+                    return instr
+
             if "." in instr:
                 name, fractionstr = instr.split(".")
                 instrnum = self._instrNumCache.get(name)
