@@ -36,7 +36,6 @@ Reference
 .. _offlineintro:
 
 **Offline Rendering**
-
     Both an :class:`~csoundengine.engine.Engine` and its associated
     :class:`~csoundengine.session.Session` are concieved to run in real-time. For offline rendering
     **csoundengine** provides the :class:`~csoundengine.offline.Renderer` class, which has the same
