@@ -1,0 +1,2 @@
+
+.. automodapi:: csoundengine.schedevent

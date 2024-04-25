@@ -926,14 +926,3 @@ class SynthGroup(BaseSchedEvent):
         """
         internal.waitWhileTrue(self.playing, pollinterval=pollinterval, sleepfunc=sleepfunc)
 
-
-"""
-class FutureSynth(AbstrSynth):
-    def __init__(self, event: sessionevent.SessionEvent, engine: Engine):
-        super().__init__(start=event.delay, dur=event.dur, engine=engine)
-        self.event = event
-        self._session = self.engine.session()
-
-    def set(self, param='', value: float = 0., delay=0., **kws) -> None:
-        self.session.
-"""

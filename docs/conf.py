@@ -100,10 +100,11 @@ napoleon_use_param = True
 napoleon_use_rtype = True
 
 html_theme_options = {
-    'navigation_depth': 3,
+    # 'navigation_depth': 3,
     'use_fullscreen_button': False,
     'use_download_button': False,
-    'show_navbar_depth': 2
+    "show_toc_level": 2
+    # 'show_navbar_depth': 2
 }
 
 html_css_files = [

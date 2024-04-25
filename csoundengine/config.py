@@ -110,35 +110,36 @@ _('offline_score_table_size_limit', 1900,
   doc='size limit when writing tables as f score statements via gen2. If a table '
       'is bigger than this size, it is saved as a datafile as gen23 or wav')
 _('dynamic_pfields', True,
-  doc='If True, use pfields for dynamic parameters (named args starting with k)')
+  doc='If True, use pfields for dynamic parameters (named args starting with k). '
+      'Otherwise, dynamic controls are implemented via a global table')
 _('fail_if_unmatched_pargs', False,
-  doc='Fail if the # of passed pargs doesnt match the # of pargs'),
+  doc='Fail if the number of passed arguments doesnt match the number of defined arguments'),
 _('set_sigint_handler', True,
   doc='Set a sigint handler to prevent csound crash with CTRL-C')
 _('disable_signals', True,
   doc='Disable atexit and sigint signal handler')
-_('generalmidi_soundfont', '')
+_('generalmidi_soundfont', '',
+  doc='Default soundfont used for general midi rendering')
 _('suppress_output', True,
   doc='Suppress csound´s debugging information')
 _('unknown_parameter_fail_silently', True,
   doc='Do not raise if a synth tries to set an unknown parameter')
 _('define_builtin_instrs', True,
   doc="If True, a Session with have all builtin instruments defined")
-_('sample_fade_time', 0.05,
-  doc="Fade time when playing samples via a Session")
+_('sample_fade_time', 0.02,
+  doc="Fade time (in seconds) when playing samples via a Session")
 _("prefer_udp", True,
-  doc="If true and a server was defined prefer UDP over the API for communication")
+  doc="If true and a udp server was defined,  prefer UDP over the API for communication")
 _("start_udp_server", False,
   doc="Start an engine with udp communication support")
-_('associated_table_min_size', 16,
-  doc="Min. size of the param table associated with a synth")
 _('num_audio_buses', 64,
   doc="Num. of audio buses in an Engine/Session")
 _('num_control_buses', 512,
-  doc="Num. of control buses in an Engine/Session")
+  doc="Num. of control buses in an Engine/Session. This sets the upper limit to the "
+      "number of simultaneous control buses in use")
 _('html_theme', 'light',
   choices={'dark', 'light'},
-  doc="Style to use when displaying syntax highlighting")
+  doc="Style to use when displaying syntax highlighting in jupyter")
 _('html_args_fontsize', '12px',
   doc="Font size used for args when outputing html (in jupyter)")
 _('synth_repr_max_args', 12,
@@ -175,7 +176,8 @@ _('datafile_format', 'gen23',
 
 _('max_dynamic_args_per_instr', 10,
   range=(2, 512),
-  doc='Max. number of dynamic parameters per instr')
+  doc='Max. number of dynamic parameters per instr. This applies only if dynamic args '
+      'are implemented via a global table')
 
 _('session_priorities', 10,
   range=(1, 99),

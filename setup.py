@@ -48,6 +48,7 @@ setup(
         "progressbar2",
         "xxhash",
         "docstring-parser",
+        "typing_extensions",
 
         "ctcsound7>=0.4.6",
         "sndfileio>=1.9.4",

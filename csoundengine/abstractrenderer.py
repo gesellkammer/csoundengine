@@ -18,6 +18,10 @@ __all__ = (
 
 
 class AbstractRenderer(ABC):
+    """
+    Base class for live rendering (:class:`~csoundengine.session.Session`) and
+    offline rendering (:class:`~csoundengine.offline.Renderer`)
+    """
 
     @abstractmethod
     def renderMode(self) -> str:
@@ -135,6 +139,7 @@ class AbstractRenderer(ABC):
 
     @abstractmethod
     def hasBusSupport(self) -> bool:
+        """Does this renderer have bus support?"""
         raise NotImplementedError
 
     @abstractmethod
@@ -164,6 +169,9 @@ class AbstractRenderer(ABC):
 
     @abstractmethod
     def schedEvent(self, event: Event) -> SchedEvent:
+        """
+        Schedule the given event
+        """
         raise NotImplementedError
     
     def schedEvents(self, events: Sequence[Event]) -> SchedEventGroup:

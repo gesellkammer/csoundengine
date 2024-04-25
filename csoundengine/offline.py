@@ -1,38 +1,3 @@
-"""
-Offline rendering is implemented via the class :class:`~csoundengine.offline.Renderer`,
-which has the same interface as a :class:`~csoundengine.session.Session` and
-can be used as a drop-in replacement.
-
-Example
-=======
-
-.. code-block:: python
-
-    from csoundengine import *
-    from pitchtools import *
-
-    renderer = Renderer(sr=44100, nchnls=2)
-
-    renderer.defInstr('saw', r'''
-      kmidi = p5
-      outch 1, oscili:a(0.1, mtof:k(kfreq))
-    ''')
-
-    events = [
-        renderer.sched('saw', 0, 2, kmidi=ntom('C4')),
-        renderer.sched('saw', 1.5, 4, kmidi=ntom('4G')),
-        renderer.sched('saw', 1.5, 4, kmidi=ntom('4G+10'))
-    ]
-
-    # offline events can be modified just like real-time events
-    events[0].automate('kmidi', (0, 0, 2, ntom('B3')), overtake=True)
-
-    events[1].set(delay=3, kmidi=67.2)
-    events[2].set(kmidi=80, delay=4)
-    renderer.render("out.wav")
-
-"""
-
 from __future__ import annotations
 
 import os
@@ -76,8 +41,6 @@ if TYPE_CHECKING or "sphinx" in sys.modules:
 
 __all__ = (
     "Renderer",
-    "SchedEvent",
-    "SchedEventGroup",
     "RenderJob"
 )
 
@@ -267,13 +230,16 @@ class Renderer(AbstractRenderer):
         """Csd structure for this renderer (see :class:`~csoundengine.csoundlib.Csd`"""
 
         self.controlArgsPerInstr = dynamicArgsPerInstr or config['max_dynamic_args_per_instr']
-        """The max. number of dynamic controls per instr"""
+        """The maximum number of dynamic controls per instr"""
 
         self.instrs: dict[str, Instr] = {}
         """Maps instr name to Instr instance"""
 
         self.numPriorities: int = priorities
         """Number of priorities in this Renderer"""
+
+        self.soundfileRegistry: dict[str, TableProxy] = {}
+        """A dict mapping soundfile paths to their corresponding TableProxy"""
 
         self._idCounter = 0
         self._nameAndPriorityToInstrnum: dict[tuple[str, int], int] = {}
@@ -316,7 +282,6 @@ class Renderer(AbstractRenderer):
         self._stringRegistry: dict[str, int] = {}
         self._includes: set[str] = set()
         self._builtinInstrs: dict[str, int] = {}
-        self._soundfileRegistry: dict[str, TableProxy] = {}
 
         prelude = offlineorc.prelude(controlNumSlots=self._dynargsNumSlices,
                                      controlArgsPerInstr=self._dynargsSliceSize)
@@ -1342,7 +1307,7 @@ class Renderer(AbstractRenderer):
         if path == "?":
             path = _state.openSoundfile()
 
-        tabproxy = self._soundfileRegistry.get(path)
+        tabproxy = self.soundfileRegistry.get(path)
         if tabproxy is not None:
             logger.warning(f"Soundfile '{path}' has already been added to this project")
             if not force and tabproxy.skiptime == skiptime:
@@ -1356,7 +1321,7 @@ class Renderer(AbstractRenderer):
         tabproxy = TableProxy(tabnum=tabnum, parent=self, numframes=info.nframes,
                               sr=info.samplerate, nchnls=info.channels, path=path,
                               skiptime=skiptime)
-        self._soundfileRegistry[path] = tabproxy
+        self.soundfileRegistry[path] = tabproxy
         return tabproxy
 
     def playSample(self,
@@ -1500,7 +1465,7 @@ class Renderer(AbstractRenderer):
 
         if automStart > event.start or automEnd < event.end:
             pairs, delay = internal.cropDelayedPairs(pairs=pairs, delay=delay,
-                                                          start=automStart, end=automEnd)
+                                                     start=automStart, end=automEnd)
             if not pairs:
                 logger.warning("There is no intersection between event and automation data")
                 return 0.
@@ -1743,40 +1708,6 @@ class Renderer(AbstractRenderer):
                                     kgain=gain))
 
 # ------------------ end Renderer ---------------------
-
-
-def cropScore(events: list[SchedEvent], start=0., end=0.) -> list[SchedEvent]:
-    """
-    Crop the score so that no event exceeds the given limits
-
-    Args:
-        events: a list of ScoreEvents
-        start: the min. start time for any event
-        end: the max. end time for any event
-
-    Returns:
-        a list with the cropped events
-    """
-    scoreend = max(ev.end for ev in events)
-    if end == 0:
-        end = scoreend
-    cropped = []
-    for ev in events:
-        if ev.end < start or ev.start > end:
-            continue
-
-        if start <= ev.start <= ev.end:
-            cropped.append(ev)
-        else:
-            xstart, xend = emlib.mathlib.intersection(start, end, ev.start, ev.end)
-            if xstart is not None:
-                if xend == float('inf'):
-                    dur = -1
-                else:
-                    dur = xend - xstart
-                ev = ev.clone(start=xstart, dur=dur)
-                cropped.append(ev)
-    return cropped
 
 
 def _checkParams(params: Iterator[str], dynamicParams: set[str], obj=None) -> None:

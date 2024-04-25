@@ -32,6 +32,12 @@ class SchedAutomation:
     to which this automation belongs"""
 
     overtake: bool = False
+    """
+    If True, use the current value of the parameter as initial value, 
+    diregarding the value in the automation line
+    
+    This is also done if the first value in the automation line is NAN
+    """
 
 
 class SchedEvent(BaseSchedEvent):

@@ -2,9 +2,6 @@
 Reference
 =========
 
-Overview
---------
-
 **Engine**
     An :class:`~csoundengine.engine.Engine` wraps a live csound process and provides a simple way to define instruments,
     schedule events, load soundfiles, etc., for realtime audio processing / synthesis.
@@ -21,31 +18,39 @@ Overview
     The same instrument templates can be reused for
     :ref:`offline (non-real-time) rendering<offlineintro>`
 
+**Instr**
+    An :class:`~csoundengine.instr.Instr` is an instrument template. It defines the
+    csound code and its parameters and default values. A concrete csound instrument is
+    created only when an :class:`~csoundengine.instr.Instr` is scheduled.
+    The main difference with a csound ``instr`` is that an
+    :class:`~csoundengine.instr.Instr` can be scheduled at any level within the
+    evaluation chain. Similar to plugins in a DAW, ``Instr`` can be organized to build
+    processing chains of any depth.
+
 **Synth**
-    Within a :class:`~csoundengine.session.Session`, each scheduled event is wrapped in a
-    :class:`~csoundengine.synth.Synth`. A :class:`Synth` has methods for setting and automating/modulating
-    parameters, querying audio inputs and outputs and can auto-generate a user-interface to interact with
-    its parameters in real-time.
+    A :class:`~csoundengine.synth.Synth` wraps an event scheduled within a
+    :class:`~csoundengine.session.Session`. It has methods for setting and
+    automating/modulating parameters, querying audio inputs and outputs and
+    can auto-generate a user-interface to interact with its parameters in real-time.
 
 .. _offlineintro:
 
 **Offline Rendering**
+
     Both an :class:`~csoundengine.engine.Engine` and its associated
     :class:`~csoundengine.session.Session` are concieved to run in real-time. For offline rendering
     **csoundengine** provides the :class:`~csoundengine.offline.Renderer` class, which has the same
     interface as a :class:`~csoundengine.session.Session` but collects all scheduled events,
-    soundfiles, automation, etc. and renders everything in non-real-time (and probably much faster).
+    soundfiles, automation, etc. and renders everything offline (and probably much faster).
     A :class:`~csoundengine.offline.Renderer` is a drop-in replacement for a
     :class:`~csoundengine.session.Session`. It can also be used to generate a csound project to be
     further edited and/or rendered by the csound executable. See :ref:`offlinemod`
 
 ---------------
 
-Table of Contents
------------------
-
 .. toctree::
     :maxdepth: 1
+    :hidden:
 
     csoundengine
     session

@@ -90,11 +90,29 @@ A4:
     | Between 410 - 460
     | *Frequency for A4*
 
+.. _config_numthreads:
+
+numthreads:
+    | Default: **1**  -- ``int``
+    | *Number of threads to use for realtime performance. This is an experimental feature if csound and might not necessarily result in better performance*
+
+.. _config_rec_numthreads:
+
+rec_numthreads:
+    | Default: **0**  -- ``int``
+    | *Number of threads to use when rendering online. If not given, the value set in `numthreads` is used*
+
 .. _config_check_pargs:
 
 check_pargs:
     | Default: **False**  -- ``bool``
     | *Check number of pargs passed to instr*
+
+.. _config_max_pfields:
+
+max_pfields:
+    | Default: **1900**  -- ``int``
+    | *The size limit for pfields in an event*
 
 .. _config_offline_score_table_size_limit:
 
@@ -102,11 +120,17 @@ offline_score_table_size_limit:
     | Default: **1900**  -- ``int``
     | *size limit when writing tables as f score statements via gen2. If a table is bigger than this size, it is saved as a datafile as gen23 or wav*
 
+.. _config_dynamic_pfields:
+
+dynamic_pfields:
+    | Default: **True**  -- ``bool``
+    | *If True, use pfields for dynamic parameters (named args starting with k). Otherwise, dynamic controls are implemented via a global table*
+
 .. _config_fail_if_unmatched_pargs:
 
 fail_if_unmatched_pargs:
     | Default: **False**  -- ``bool``
-    | *Fail if the # of passed pargs doesnt match the # of pargs*
+    | *Fail if the number of passed arguments doesnt match the number of defined arguments*
 
 .. _config_set_sigint_handler:
 
@@ -114,10 +138,17 @@ set_sigint_handler:
     | Default: **True**  -- ``bool``
     | *Set a sigint handler to prevent csound crash with CTRL-C*
 
+.. _config_disable_signals:
+
+disable_signals:
+    | Default: **True**  -- ``bool``
+    | *Disable atexit and sigint signal handler*
+
 .. _config_generalmidi_soundfont:
 
 generalmidi_soundfont:
     | Default: **''**  -- ``str``
+    | *Default soundfont used for general midi rendering*
 
 .. _config_suppress_output:
 
@@ -140,26 +171,20 @@ define_builtin_instrs:
 .. _config_sample_fade_time:
 
 sample_fade_time:
-    | Default: **0.05**  -- ``float``
-    | *Fade time when playing samples via a Session*
+    | Default: **0.02**  -- ``float``
+    | *Fade time (in seconds) when playing samples via a Session*
 
 .. _config_prefer_udp:
 
 prefer_udp:
     | Default: **True**  -- ``bool``
-    | *If true and a server was defined prefer UDP over the API for communication*
+    | *If true and a udp server was defined,  prefer UDP over the API for communication*
 
 .. _config_start_udp_server:
 
 start_udp_server:
     | Default: **False**  -- ``bool``
     | *Start an engine with udp communication support*
-
-.. _config_associated_table_min_size:
-
-associated_table_min_size:
-    | Default: **16**  -- ``int``
-    | *Min. size of the param table associated with a synth*
 
 .. _config_num_audio_buses:
 
@@ -171,14 +196,14 @@ num_audio_buses:
 
 num_control_buses:
     | Default: **512**  -- ``int``
-    | *Num. of control buses in an Engine/Session*
+    | *Num. of control buses in an Engine/Session. This sets the upper limit to the number of simultaneous control buses in use*
 
 .. _config_html_theme:
 
 html_theme:
     | Default: **light**  -- ``str``
     | Choices: ``dark, light``
-    | *Style to use when displaying syntax highlighting*
+    | *Style to use when displaying syntax highlighting in jupyter*
 
 .. _config_html_args_fontsize:
 
@@ -192,11 +217,23 @@ synth_repr_max_args:
     | Default: **12**  -- ``int``
     | *Max. number of pfields shown when in a synth's repr*
 
+.. _config_synth_repr_show_pfield_index:
+
+synth_repr_show_pfield_index:
+    | Default: **False**  -- ``bool``
+    | *Show the pfield index for named pfields in a Synths repr*
+
 .. _config_synthgroup_repr_max_rows:
 
 synthgroup_repr_max_rows:
     | Default: **4**  -- ``int``
     | *Max. number of rows for a SynthGroup repr. Use 0 to disable*
+
+.. _config_synthgroup_html_table_style:
+
+synthgroup_html_table_style:
+    | Default: **font-size: smaller**  -- ``str``
+    | *Inline css style applied to the table displayed as html for synthgroups*
 
 .. _config_jupyter_synth_repr_stopbutton:
 
@@ -243,7 +280,7 @@ timeout:
 .. _config_sched_latency:
 
 sched_latency:
-    | Default: **0.0**  -- ``float``
+    | Default: **0.05**  -- ``float``
     | *Time delay added to any event scheduled to ensure that simultameous events arenot offset by scheduling overhead*
 
 .. _config_datafile_format:
@@ -252,6 +289,33 @@ datafile_format:
     | Default: **gen23**  -- ``str``
     | Choices: ``gen23, wav``
     | *Format used when saving a table as a datafile*
+
+.. _config_max_dynamic_args_per_instr:
+
+max_dynamic_args_per_instr:
+    | Default: **10**  -- ``int``
+    | Between 2 - 512
+    | *Max. number of dynamic parameters per instr*
+
+.. _config_session_priorities:
+
+session_priorities:
+    | Default: **10**  -- ``int``
+    | Between 1 - 99
+    | *Number of priorities within a session*
+
+.. _config_dynamic_args_num_slots:
+
+dynamic_args_num_slots:
+    | Default: **10000**  -- ``int``
+    | Between 10 - 9999999
+    | *Number of slots for dynamic parameters. args slices. Dynamic args are implemented as a big array divided in slices. This parameter sets the max. number of such slices, and thus the max number of simultaneous events with named args which can coexist. The size of the allocated table will be size = num_dynamic_args_slices * max_instr_dynamic_args. For 10000 slots, theamount of memory is ~0.8Mb*
+
+.. _config_instr_repr_show_pfield_pnumber:
+
+instr_repr_show_pfield_pnumber:
+    | Default: **False**  -- ``bool``
+    | *Add pfield number when printing pfields in instruments*
 
 .. _config_spectrogram_colormap:
 
@@ -282,10 +346,3 @@ spectrogram_maxfreq:
 spectrogram_window:
     | Default: **hamming**  -- ``str``
     | Choices: ``hamming, hanning``
-
-.. _config_dependencies_check_timeout_days:
-
-dependencies_check_timeout_days:
-    | Default: **7**  -- ``int``
-    | Between 1 - 365
-    | *Elapsed time (in days) after which dependencies will be checked*

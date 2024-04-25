@@ -69,6 +69,8 @@ Generated ui inside jupyter:
 .. figure:: assets/synthui.png
 
 
+-------------------------------------
+
 SynthGroup
 ==========
 
