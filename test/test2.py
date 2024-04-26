@@ -22,11 +22,13 @@ ce.csoundlib.dumpAudioDevices(backend='portaudio')
 pa = ce.csoundlib.getAudioBackend('portaudio')
 print("Default Audio Devices")
 indev, outdev = pa.defaultAudioDevices()
-print(indev)
-print(outdev)
+print(f"Default Input device : '{indev}'")
+print(f"Default Output device: '{outdev}'")
 
-if outdev:
-    print(f"Testing audio for device {outdev}")
+if not outdev:
+    print("---------- No output device")
+else:
+    print(f"--------- Testing audio for device {outdev}")
     engine = ce.Engine()
     engine.testAudio(dur=4)
     import time
@@ -34,5 +36,5 @@ if outdev:
     while time.time() - t0 < 4:
         print(".")
         time.sleep(0.25)
-    
+    print("------- exiting")    
     
