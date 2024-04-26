@@ -7,10 +7,14 @@
 csoundengine - Documentation
 ============================
 
-**csoundengine** is a library to run and control a csound process for realtime or offline
-sound processing.
+**csoundengine** is a library to run and control a `csound <https://csound.com>`_
+process for **realtime** or **offline** sound processing.
 
-The source code of this package lives in https://github.com/gesellkammer/csoundengine
+Interaction with *csound* is through its API using `ctypes bindings <https://csound.com/docs/ctcsound/>`_
+See the `Csound FLOSS manual <https://flossmanual.csound.com/introduction/preface>`_
+to learn more about csound and its syntax and run examples online
+
+The source code of this package is hosted at https://github.com/gesellkammer/csoundengine
 
 .. image:: assets/jupyter-session-1.png
   :alt: Jupyter Session 1
