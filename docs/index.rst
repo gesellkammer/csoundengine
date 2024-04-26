@@ -15,9 +15,14 @@ The source code of this package lives in https://github.com/gesellkammer/csounde
 .. image:: assets/jupyter-session-1.png
   :alt: Jupyter Session 1
 
+----------------------------
+
+
+Contents
+--------
+
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
    
    Introduction
    Installation
