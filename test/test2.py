@@ -5,7 +5,7 @@ import logging
 logging.basicConfig(level="DEBUG")
 
 
-print("---------------", sys.argv)
+print("--------------- test2 -----------------", sys.argv)
 # Test that all dependencies needed are there
 ok = dependencies.checkDependencies(force=True, fix=True)
 if not ok:
