@@ -26,7 +26,6 @@ from . import engineorc
 from .engineorc import BUSKIND_CONTROL, BUSKIND_AUDIO
 from .tableproxy import TableProxy
 
-
 import emlib.misc
 import emlib.filetools
 import emlib.mathlib

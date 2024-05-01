@@ -47,7 +47,7 @@ setup(
         "ipywidgets",
         "progressbar2",
         "xxhash",
-        "docstring-parser",
+        "docstring_parser",
         "typing_extensions",
 
         "ctcsound7>=0.4.6",
