@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 
 
-def waitWithAnimation(waittime: float, dt=0.1) -> None:
+def waitWithAnimation(label: str, waittime: float, dt=0.1) -> None:
     """
     Show a waiting animation at the terminal (blocking)
 
@@ -15,7 +15,9 @@ def waitWithAnimation(waittime: float, dt=0.1) -> None:
     """
     # Uses progressbar2
     import progressbar
-    widgets = ['Restarting ', progressbar.AnimatedMarker(markers='◢◣◤◥')]
+    if not label[-1].isspace():
+        label += ' '
+    widgets = [label, progressbar.AnimatedMarker(markers='◢◣◤◥')]
     bar = progressbar.ProgressBar(widgets=widgets)
     for i in bar((i for i in range(int(waittime / dt)))):
         time.sleep(dt)
