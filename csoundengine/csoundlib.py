@@ -20,11 +20,13 @@ import re as _re
 import shutil as _shutil
 import logging as _logging
 import textwrap as _textwrap
+import functools as _functools
 import io as _io
 from pathlib import Path as _Path
 import tempfile as _tempfile
-import cachetools as _cachetools
 import dataclasses
+import cachetools as _cachetools
+import numpy as np
 
 from ._common import *
 from csoundengine import jacktools
@@ -32,18 +34,17 @@ from csoundengine import linuxaudio
 from csoundengine import state as _state
 from csoundengine.config import config
 from csoundengine.internal import normalizePlatform
-import functools as _functools
 import emlib.misc
 import emlib.textlib
 import emlib.dialogs
 import emlib.mathlib
 from emlib.common import runonce
-import numpy as np
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Callable, Sequence, Iterator, Any, Set
     Curve = Callable[[float], float]
+    from sf2utils.sf2parse import Sf2File
 
 
 try:
@@ -3533,6 +3534,13 @@ def soundfontIndex(sfpath: str) -> SoundFontIndex:
 
 
 @_functools.cache
+def _sf2file(path: str) -> Sf2File:
+    from sf2utils.sf2parse import Sf2File
+    f = open(path, 'rb')
+    return S2File(f)
+
+
+@_functools.cache
 def _soundfontInstrumentsAndPresets(sfpath: str
                                     ) -> tuple[list[tuple[int, str]],
                                                list[tuple[int, int, str]]]:
@@ -3550,9 +3558,7 @@ def _soundfontInstrumentsAndPresets(sfpath: str
         of tuples (instrindex, instrname) and prests is a list of
         tuples (bank, presetindex, name)
     """
-    from sf2utils.sf2parse import Sf2File
-    f = open(sfpath, 'rb')
-    sf = Sf2File(f)
+    sf = _sf2file(sfpath)
     instruments: list[tuple[int, str]] = [(num, instr.name.strip())
                                           for num, instr in enumerate(sf.instruments)
                                           if instr.name and instr.name != 'EOI']

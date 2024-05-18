@@ -52,7 +52,7 @@ setup(
 
         "ctcsound7>=0.4.6",
         "sndfileio>=1.9.4",
-        "emlib>=1.14.1",
+        "emlib>=1.15.0",
         "configdict>=2.10.0",
         "bpf4>=1.10.1",
         "numpyx>=1.3.3",
