@@ -253,7 +253,6 @@ class AudioBackend:
         """
         return (self.defaultBufferSize, self.defaultNumBuffers)
 
-    # @_functools.cache
     def audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
         """
         Query csound for audio devices for this backend
@@ -3537,7 +3536,7 @@ def soundfontIndex(sfpath: str) -> SoundFontIndex:
 def _sf2file(path: str) -> Sf2File:
     from sf2utils.sf2parse import Sf2File
     f = open(path, 'rb')
-    return S2File(f)
+    return Sf2File(f)
 
 
 @_functools.cache
@@ -3646,6 +3645,58 @@ def soundfontInstrument(sfpath: str, name:str) -> int | None:
         sfpath = _state.openSoundfont(ensureSelection=True)
     sfindex = soundfontIndex(sfpath)
     return sfindex.nameToIndex.get(name)
+
+
+@_functools.cache
+def soundfontKeyrange(sfpath: str, preset: tuple[int, int]) -> tuple[int, int] | None:
+    sf = _sf2file(sfpath)
+    for p in sf.presets:
+        if p.bank == preset[0] and p.preset == preset[1]:
+            return p.key_range.start, p.key_range.stop
+    return None
+
+
+def soundfontPeak(sfpath: str, preset: tuple[int, int], pitches: tuple[int, int] = None, dur=0.05
+                  ) -> float:
+    from csoundengine.offline import OfflineEngine
+    e = OfflineEngine(nchnls=0, ksmps=128, numAudioBuses=0, numControlBuses=0)
+    bank, prog = preset
+    presetnum = 1
+    if pitches is None:
+        keyrange = soundfontKeyrange(sfpath, preset)
+        if not keyrange:
+            raise ValueError(f"No defined key range for preset {preset} in soundfont {sfpath}")
+        minpitch, maxpitch = keyrange
+        pitch1 = int((maxpitch - minpitch) * 0.2 + minpitch)
+        pitch2 = int((maxpitch - minpitch) * 0.8 + minpitch)
+        pitches = (pitch1, pitch2)
+    e.compile(fr'''
+    gi_sfhandle sfload "{sfpath}"
+    gi_presetindex sfpreset {prog}, {bank}, gi_sfhandle, {presetnum}
+    chnset 0, "sfpeak"
+    
+    instr sfpeak
+        ipreset = p4
+        ipitch1 = p5
+        ipitch2 = p6
+        kmax0 init 0
+        a1 sfplaym 127, ipitch1, 1, 1, ipreset, 0
+        a2 sfplaym 127, ipitch2, 1, 1, ipreset, 0
+        kmax1 peak a1
+        kmax2 peak a2
+        kmax = max(kmax1, kmax2)
+        if kmax > kmax0 then
+            chnset kmax, "sfpeak"
+        endif
+        kmax0 = kmax
+    endin
+    ''')
+
+    e.sched('sfpeak', 0, dur, (presetnum, pitches[0], pitches[1]))
+    e.perform(extratime=0.1)
+    value, error = e.csound.controlChannel("sfpeak")
+    e.stop()
+    return float(value)
 
 
 def splitInclude(line: str) -> str:

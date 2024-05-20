@@ -8,8 +8,10 @@ import numpy as np
 from functools import cache
 from dataclasses import dataclass
 import textwrap
+import tempfile
+import ctcsound7 as ctcsound
 
-from .errors import RenderError
+from .errors import RenderError, CsoundError
 from .config import config, logger
 from .instr import Instr
 from .schedevent import SchedEvent, SchedEventGroup
@@ -40,7 +42,8 @@ if TYPE_CHECKING or "sphinx" in sys.modules:
 
 __all__ = (
     "Renderer",
-    "RenderJob"
+    "RenderJob",
+    "OfflineEngine"
 )
 
 
@@ -1747,3 +1750,172 @@ def _namedControlsGenerateCodeOffline(controls: dict) -> str:
     lines.append("    ; --- end generated code\n")
     out = emlib.textlib.stripLines(emlib.textlib.joinPreservingIndentation(lines))
     return out
+
+
+class OfflineEngine:
+    def __init__(self,
+                 sr=44100,
+                 ksmps: int = 64,
+                 outfile: str = '',
+                 nchnls=2,
+                 a4: int = 0,
+                 globalcode='',
+                 numAudioBuses: int | None = None,
+                 numControlBuses: int | None = None,
+                 quiet=True,
+                 includes: list[str] | None = None,
+                 sampleAccurate=False,
+                 commandlineOptions: list[str] = None):
+        self.outfile = outfile or tempfile.mktemp(prefix='csoundengine', suffix='.wav')
+        self.sr = sr
+        self.ksmps = ksmps
+        self.a4 = a4 or config['A4']
+        self.nchnls = nchnls
+        self.globalcode = globalcode
+        self.numAudioBuses = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
+        self.numControlBuses = numControlBuses if numControlBuses is not None else config['num_control_buses']
+        self.includes = includes
+        self._builtinInstrs: dict[str, int] = {}
+        """Dict of built-in instrs, mapping instr name to number"""
+
+        self._reservedInstrnums: set[int] = set()
+        self._reservedInstrnumRanges: list[tuple[str, int, int]] = [
+            ('builtinorc', engineorc.CONSTS['reservedInstrsStart'], engineorc.CONSTS['userInstrsStart'] - 1)]
+
+        self._shouldPerform = False
+        self._endtime = 0.
+        self.nosound = False
+        self.options = ["-d"]
+        if quiet:
+            self.options.extend(["--messagelevel=0", "--m-amps=0", "--m-range=0"])
+
+        if nchnls == 0:
+            self.options.append('--nosound')
+            self.nosound = True
+        if sampleAccurate:
+            self.options.append('--sample-accurate')
+        if commandlineOptions:
+            self.options.extend(commandlineOptions)
+        self.csound = self._start()
+
+    def _start(self) -> ctcsound.Csound:
+        cs = ctcsound.Csound()
+        for option in self.options:
+            cs.setOption(option)
+        if not self.nosound:
+            cs.setOption(f'-o{self.outfile}')
+
+        if self.includes:
+            includelines = [f'#include "{include}"' for include in self.includes]
+            includestr = "\n".join(includelines)
+        else:
+            includestr = ""
+
+        orc, instrmap = engineorc.makeOrc(sr=self.sr,
+                                          ksmps=self.ksmps,
+                                          nchnls=self.nchnls,
+                                          nchnls_i=0,
+                                          a4=self.a4,
+                                          globalcode=self.globalcode,
+                                          includestr=includestr,
+                                          numAudioBuses=self.numAudioBuses,
+                                          numControlBuses=self.numControlBuses)
+
+        self._builtinInstrs = instrmap
+        self._reservedInstrnums.update(set(instrmap.values()))
+
+        err = cs.compileOrc(orc)
+        if err:
+            tmporc = tempfile.mktemp(prefix="csoundengine-", suffix=".orc")
+            open(tmporc, "w").write(orc)
+            logger.error(f"Error compiling base orchestra. A copy of the orchestra"
+                         f" has been saved to {tmporc}")
+
+            logger.error(internal.addLineNumbers(orc))
+            raise CsoundError(f"Error compiling base ochestra, error: {err}")
+        cs.start()
+        return cs
+
+    def compile(self, code: str) -> None:
+        codeblocks = csoundlib.parseOrc(code)
+        for codeblock in codeblocks:
+            if codeblock.kind == 'instr' and codeblock.name[0].isdigit():
+                instrnum = int(codeblock.name)
+                for rangename, mininstr, maxinstr in self._reservedInstrnumRanges:
+                    if mininstr <= instrnum < maxinstr:
+                        logger.error(f"Instrument number {instrnum} is reserved. Code:")
+                        logger.error("\n" + textwrap.indent(codeblock.text, "    "))
+                        raise ValueError(f"Cannot use instrument number {instrnum}, "
+                                         f"the range {mininstr} - {maxinstr} is reserved for '{rangename}'")
+
+                if instrnum in self._reservedInstrnums:
+                    raise ValueError("Cannot compile instrument with number "
+                                     f"{instrnum}: this is a reserved instr and "
+                                     f"cannot be redefined. Reserved instrs: "
+                                     f"{sorted(self._reservedInstrnums)}")
+
+        self.csound.compileOrc(code)
+        self._shouldPerform = True
+
+    def sched(self,
+              instr: int | float | str,
+              delay=0.,
+              dur=-1,
+              args: np.ndarray | list[float | str] | None = None,
+              ):
+        if dur >= 0 and delay + dur > self._endtime:
+            self._endtime = delay + dur
+        elif delay > self._endtime:
+            self._endtime = delay
+
+        if isinstance(instr, str):
+            msg = f'i "{instr}" {delay} {dur} '
+            if args:
+                argstrs = [str(arg) if not isinstance(arg, str) else f'"{arg}"'
+                           for arg in args]
+                msg += ' '.join(argstrs)
+            self.csound.inputMessage(msg)
+
+        else:
+            if isinstance(args, np.ndarray):
+                pfields = np.empty((len(args) + 3,), dtype=float)
+                pfields[0] = instr
+                pfields[1] = delay
+                pfields[2] = dur
+                pfields[3:] = args
+            elif not args:
+                pfields = [instr, delay, dur]
+            elif isinstance(args, (list, tuple)):
+                pfields = [instr, delay, dur]
+                pfields.extend(float(a) if not isinstance(a, str) else self.strSet(a) for a in args)
+            else:
+                raise TypeError(f"Expected a sequence or array, got {args}")
+            self.csound.scoreEventAbsolute(type_='i', pFields=pfields, timeOffset=0)
+        self._shouldPerform = True
+
+    def setEndMarker(self, time: float):
+        self._endtime = time
+
+    def perform(self, extratime=0.):
+        assert self.csound is not None
+        if self._endtime == 0.:
+            raise CsoundError("The render time is 0.")
+
+        if self._shouldPerform:
+            maxsamples = int((self._endtime + extratime) * self.sr)
+            cs = self.csound
+            logger.debug("Starting performance")
+            while not cs.performKsmps() and cs.currentTimeSamples() < maxsamples:
+                pass
+
+    def stop(self):
+        self.csound.stop()
+
+    def cancel(self):
+        self._shouldPerform = False
+        if self.csound:
+            self.csound.stop()
+
+    def __del__(self):
+        if self.csound and self._shouldPerform:
+            self.perform()

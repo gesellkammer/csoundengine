@@ -344,6 +344,7 @@ class Engine:
                  midiin: str | None = None,
                  autosync=False,
                  latency: float | None = None,
+                 sampleAccurate: bool = None,
                  numthreads: int = 0):
         if not name:
             name = _generateUniqueEngineName()
@@ -497,6 +498,10 @@ class Engine:
         if quiet:
             commandlineOptions.append('-m0')
             commandlineOptions.append('-d')
+
+        if sampleAccurate:
+            commandlineOptions.append('--sample-accurate')
+
         self.name = name
         "Name of this Engine"
 
