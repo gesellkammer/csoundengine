@@ -19,7 +19,6 @@ A4     = ${a4}
 
 ${includes}
 
-gi__subgains        ftgen  ${subgains},  0, 100, -2, 0
 gi__responses       ftgen  ${responses}, 0, ${numtokens}, -2, 0
 gi__tokenToInstrnum ftgen ${tokenToInstrnum}, 0, ${maxNumInstrs}, -2, 0
 gi__soundfontIndexes dict_new "str:float"
@@ -38,6 +37,24 @@ opcode _panweights, kk, k
     kampR = bpf:k(kpos, 0, 0,      0.5, 1, 1, 1.4142)
     xout kampL, kampR
 endop 
+
+opcode namedinstrtofrac, i, S
+    ; similar to nametoinstrnum but takes the fractional part into account
+    ; given "foo.003", if foo is instr 35, then this returns 35.003
+    Sname xin
+    indx strindex Sname, "."
+    if indx < 0 then
+        ip1 = nametoinstrnum(Sname)
+    else
+        Sbase = strsub(Sname, 0, indx)
+        Sfrac = strsub(Sname, indx)
+        ip1 = nametoinstrnum(Sbase)
+        if ip1 > 0 then
+            ip1 += strtod(Sfrac)
+        endif
+    endif
+    xout ip1
+endop
 
 opcode sfloadonce, i, S
     Spath xin
@@ -165,14 +182,20 @@ instr ${maketable}
 endin
 
 instr ${automatePargViaPargs}
-    ip1 = p4
     ipindex = p5
     imode = p6;  interpolation method
     iovertake = p7
     ilenpairs = p8
-    
+    ip1string = p9
+    if ip1string == 0 then
+        ip1 = p4
+    else
+        Sp1 = p4
+        ip1 = namedinstrtofrac(Sp1)
+    endif
+
     ; special case: simple line, two pairs
-    if ilenpairs == 4 && p9 == 0 && iovertake == 0 then
+    if ilenpairs == 4 && p10 == 0 && iovertake == 0 then
         iy0 = p10
         ix1 = p11
         iy1 = p12
@@ -180,7 +203,7 @@ instr ${automatePargViaPargs}
         goto end 
     endif
     
-    ipairs[] passign 9, 9+ilenpairs
+    ipairs[] passign 10, 10+ilenpairs
     iXs[] slicearray ipairs, 0, ilenpairs-1, 2
     iYs[] slicearray ipairs, 1, ilenpairs-1, 2
     Sinterpmethod = strget(imode)
@@ -330,7 +353,6 @@ instr ${playgen1}
     aouts[] loscilx 1, kspeed, itabnum, 4, 1, istartframe
     inumouts = lenarray(aouts)
     aenv = linsegr:a(0, ifade, 1, ifade, 0)
-    kgain *= table:k(igaingroup, gi__subgains)
     again = lag:a(a(kgain), ilagtime)
     aenv *= again
     aouts = aouts * aenv
@@ -371,6 +393,25 @@ instr ${pwrite}
         initerror sprintf("Max. pairs is 5, got %d", inumpairs)
     endif
 endin
+
+instr ${pwritenamed}
+    Sp1 = p4
+    ip1 = namedinstrtofrac(Sp1)
+    inumpairs = p5
+    if inumpairs == 1 then
+        pwrite ip1, p(6), p(7)
+    elseif inumpairs == 2 then
+        pwrite ip1, p(6), p(7), p(8), p(9)
+    elseif inumpairs == 3 then
+        pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11)
+    elseif inumpairs == 4 then
+        pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13)
+    elseif inumpairs == 5 then
+        pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13), p(14), p(15)
+    else
+        initerror sprintf("Max. pairs is 5, got %d", inumpairs)
+    endif
+endif
 
 instr ${pread}
     itoken = p4
@@ -475,7 +516,6 @@ instr ${dummy_post}
 endin
 
 
-ftset gi__subgains, 1
 chnset 1, "_soundfontPresetCount"   
 
 ; ----------------------
@@ -816,7 +856,7 @@ CONSTS = {
     'reservedInstrsStart': 1,
     'userInstrsStart': 100,
     'sessionInstrsStart': 500,
-    'numReservedTables': 2000,
+    'numReservedTables': 100,
     'maxNumInstrs': 10000,
     'BUSUNSET': -999999999,
 
@@ -828,7 +868,7 @@ BUSKIND_AUDIO = 0
 BUSKIND_CONTROL = 1
 
 
-_tableNames = ['responses', 'subgains', 'tokenToInstrnum']
+_tableNames = ['responses', 'tokenToInstrnum']
 
 BUILTIN_TABLES = {name:i for i, name in enumerate(_tableNames, start=1)}
 

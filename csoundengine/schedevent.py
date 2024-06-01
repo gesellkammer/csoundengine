@@ -216,7 +216,7 @@ class SchedEvent(BaseSchedEvent):
                  param: str,
                  pairs: Sequence[float] | np.ndarray | tuple[np.ndarray, np.ndarray],
                  mode="linear",
-                 delay: float = None,
+                 delay: float | None = None,
                  overtake=False,
                  ) -> float:
         param = self.unaliasParam(param, param)

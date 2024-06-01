@@ -50,7 +50,7 @@ class EngineMagics(Magics):
             engine = _engine.getEngine(engineName)
             if engine is None:
                 logger.warning(f"Engine {engineName} not known. "
-                               f"Possible engines: {_engine.activeEngines()}")
+                               f"Possible engines: {_engine.Engine.activeEngines.keys()}")
                 return None
             return engine
         if self.currentEngine:
@@ -66,7 +66,7 @@ class EngineMagics(Magics):
         engine = _engine.getEngine(line)
         if not engine:
             logger.error(f"Engine {engine} unknown. Active engines: "
-                         f"{_engine.activeEngines()}")
+                         f"{_engine.Engine.activeEngines.keys()}")
         else:
             self.currentEngine = engine
 
@@ -165,7 +165,11 @@ class EngineMagics(Magics):
         parts = line.split()
         if len(parts) == 2:
             enginename, instrname = parts
-            self.currentEngine = _engine.getEngine(enginename)
+            engine = _engine.Engine.activeEngines.get(enginename)
+            if engine is None:
+                raise ValueError(f"Engine '{enginename}' not known. Available engines: "
+                                 f"{_engine.Engine.activeEngines.keys()}")
+            self.currentEngine = _engine.Engine.activeEngines.get(enginename)
         elif len(parts) == 1:
             instrname = parts[0]
             if not self.currentEngine:

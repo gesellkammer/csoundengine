@@ -18,6 +18,7 @@ from .schedevent import SchedEvent, SchedEventGroup
 from .event import Event
 from .abstractrenderer import AbstractRenderer
 from . import csoundlib
+from . import csd as _csd
 from . import internal
 from . import sessioninstrs
 from . import state as _state
@@ -25,6 +26,9 @@ from . import offlineorc
 from . import instrtools
 from . import busproxy
 from . import engineorc
+from .offlinengine import OfflineEngine
+from .renderjob import RenderJob
+from .enginebase import TableInfo
 from .engineorc import BUSKIND_CONTROL, BUSKIND_AUDIO
 from .tableproxy import TableProxy
 
@@ -67,81 +71,6 @@ class ChannelDef:
     def __post_init__(self):
         assert self.kind in ('k', 'S', 'a')
         assert self.mode in ('r', 'w', 'rw', 'wr')
-
-
-@dataclass
-class RenderJob:
-    """
-    Represent an offline render process
-
-    A RenderJob is generated each time :meth:`Renderer.render` is called.
-    Each new process is appended to :attr:`Renderer.renderedJobs`. The
-    last render job can be accesses via :meth:`Renderer.lastRenderJob`
-    """
-    outfile: str
-    """The soundfile rendered / being rendererd"""
-
-    samplerate: int
-    """Samplerate of the rendered soundfile"""
-
-    encoding: str = ''
-    """Encoding of the rendered soundfile"""
-
-    starttime: float = 0.
-    """Start time of the rendered timeline"""
-
-    endtime: float = 0.
-    """Endtime of the rendered timeline"""
-
-    process: subprocess.Popen | None = None
-    """The csound subprocess used to render the soundfile"""
-
-    @property
-    def args(self) -> list[str]:
-        """The args used to render this job, if a process was used"""
-        return self.process.args if self.process else []
-
-    def openOutfile(self, timeout=None, appwait=True, app=''):
-        """
-        Open outfile in external app
-
-        Args:
-            timeout: if still rendering, timeout after this number of seconds. None
-                means to wait until rendering is finished
-            app: if given, use the given application. Otherwise the default
-                application
-            appwait: if True, wait until the external app exits before returning
-                from this method
-        """
-        self.wait(timeout=timeout)
-        emlib.misc.open_with_app(self.outfile, wait=appwait, app=app)
-
-    def wait(self, timeout: float | None = None):
-        """Wait for the render process to finish"""
-        if self.process is not None:
-            self.process.wait(timeout=timeout)
-
-    def _repr_html_(self):
-        self.wait()
-        blue = internal.safeColors['blue1']
-
-        def _(s, color=blue):
-            return f'<code style="color:{color}">{s}</code>'
-
-        if not os.path.exists(self.outfile):
-            info = (f"outfile='{self.outfile}' (not found), sr={_(self.samplerate)}, "
-                    f"encoding={self.encoding}")
-            return f'<string>RenderJob</strong>({info})'
-        else:
-            sndfile = self.outfile
-            soundfileHtml = internal.soundfileHtml(sndfile, withHeader=False)
-            info = (f"outfile='{_(self.outfile)}' (not found), sr={_(self.samplerate)}, "
-                    f"encoding='{self.encoding}'")
-            htmlparts = (
-                f'<strong>RenderJob</strong>({info})',
-                soundfileHtml
-            )
-            return '<br>'.join(htmlparts)
 
 
 class Renderer(AbstractRenderer):
@@ -228,8 +157,8 @@ class Renderer(AbstractRenderer):
         self.renderedJobs: list[RenderJob] = []
         """A stack of rendered jobs"""
 
-        self.csd = csoundlib.Csd(sr=self.sr, nchnls=nchnls, ksmps=self.ksmps, a4=self.a4)
-        """Csd structure for this renderer (see :class:`~csoundengine.csoundlib.Csd`"""
+        self.csd = _csd.Csd(sr=self.sr, nchnls=nchnls, ksmps=self.ksmps, a4=self.a4)
+        """Csd structure for this renderer (see :class:`~csoundengine.csd.Csd`"""
 
         self.controlArgsPerInstr = dynamicArgsPerInstr or config['max_dynamic_args_per_instr']
         """The maximum number of dynamic controls per instr"""
@@ -585,9 +514,17 @@ class Renderer(AbstractRenderer):
             logger.warning(f"Adding an include '{path}', but this path does not exist")
         self.csd.addGlobalCode(f'#include "{path}"')
 
-    def addGlobalCode(self, code: str) -> None:
+    def addGlobalCode(self, code: str, unique=False) -> None:
         """
-        Add global code (instr 0)
+        Add global code
+
+        This can be used to add resources, define global variables,
+        define udos, etc
+
+        Args:
+            code: the code to add. This must be valid orc code
+            unique: if True, code which is already added will be skipped.
+
 
         Example
         ~~~~~~~
@@ -596,7 +533,7 @@ class Renderer(AbstractRenderer):
         >>> renderer = Renderer(...)
         >>> renderer.addGlobalCode("giMelody[] fillarray 60, 62, 64, 65, 67, 69, 71")
         """
-        self.csd.addGlobalCode(code, acceptDuplicates=False)
+        self.csd.addGlobalCode(code, acceptDuplicates=not unique)
 
     def _getUniqueP1(self, instrnum: int) -> float:
         count = self._instanceCounters.get(instrnum, 0)
@@ -612,6 +549,7 @@ class Renderer(AbstractRenderer):
                                 dur=event.dur,
                                 priority=event.priority,
                                 args=event.args,
+                                whenfinished=None,
                                 **kws)
         if event.automations:
             for autom in event.automations:
@@ -624,8 +562,8 @@ class Renderer(AbstractRenderer):
               instrname: str,
               delay=0.,
               dur=-1.,
-              priority=1,
               args: Sequence[float | str] | dict[str, float] | None = None,
+              priority=1,
               whenfinished: Callable | None = None,
               relative=True,
               **kwargs
@@ -1021,7 +959,7 @@ class Renderer(AbstractRenderer):
             logger.error("Invalid render time. Score: ")
             events = sorted(self.scheduledEvents.values(), key=lambda event: event.start)
             for ev in events:
-                logger.error(f"    {event}")
+                logger.error(f"    {ev}")
             raise RenderError(f"No score to render (start: {scorestart}, end: {renderend})")
 
         if numthreads == 0:
@@ -1070,23 +1008,23 @@ class Renderer(AbstractRenderer):
         if compressionBitrate:
             csd.setCompressionBitrate(compressionBitrate)
 
-        proc = csd.run(output=outfile,
-                       suppressdisplay=runSuppressdisplay,
-                       nomessages=runSuppressdisplay,
-                       piped=runPiped)
+        job = csd.run(output=outfile,
+                      suppressdisplay=runSuppressdisplay,
+                      nomessages=runSuppressdisplay,
+                      piped=runPiped)
+        job.endtime = endtime
+        job.starttime = starttime
+
         if openWhenDone:
             if not wait:
                 logger.info("Waiting for the render to finish...")
-            proc.wait()
+            job.wait()
             emlib.misc.open_with_app(outfile, wait=True)
         elif wait:
-            proc.wait()
+            job.wait()
 
-        renderjob = RenderJob(outfile=outfile, encoding=encoding, samplerate=self.sr,
-                              endtime=endtime, starttime=starttime, process=proc)
-
-        self.renderedJobs.append(renderjob)
-        return renderjob
+        self.renderedJobs.append(job)
+        return job
 
     def openLastSoundfile(self, app='') -> None:
         lastjob = self.lastRenderJob()
@@ -1425,7 +1363,7 @@ class Renderer(AbstractRenderer):
                  param: str,
                  pairs: Sequence[float] | np.ndarray,
                  mode="linear",
-                 delay: float = None,
+                 delay: float | None = None,
                  overtake=False
                  ) -> float:
         """
@@ -1433,13 +1371,13 @@ class Renderer(AbstractRenderer):
 
         Args:
             event: the event to automate, as returned by sched
-            param (str): the name of the parameter to automate. The instr should
+            param: the name of the parameter to automate. The instr should
                 have a corresponding line of the sort "kparam = pn".
                 Call :meth:`ScoreEvent.dynamicParams` to query the set of accepted
                 parameters
             pairs: the automateion data as a flat list ``[t0, y0, t1, y1, ...]``, where
                 the times are relative to the start of the automation event
-            mode (str): one of "linear", "cos", "smooth", "exp=xx" (see interp1d)
+            mode: one of "linear", "cos", "smooth", "exp=xx" (see interp1d)
             delay: start time of the automation event. If None is given, the start
                 time of the automated event will be used.
             overtake: if True, the first value is not used, the current value
@@ -1752,170 +1690,3 @@ def _namedControlsGenerateCodeOffline(controls: dict) -> str:
     return out
 
 
-class OfflineEngine:
-    def __init__(self,
-                 sr=44100,
-                 ksmps: int = 64,
-                 outfile: str = '',
-                 nchnls=2,
-                 a4: int = 0,
-                 globalcode='',
-                 numAudioBuses: int | None = None,
-                 numControlBuses: int | None = None,
-                 quiet=True,
-                 includes: list[str] | None = None,
-                 sampleAccurate=False,
-                 commandlineOptions: list[str] = None):
-        self.outfile = outfile or tempfile.mktemp(prefix='csoundengine', suffix='.wav')
-        self.sr = sr
-        self.ksmps = ksmps
-        self.a4 = a4 or config['A4']
-        self.nchnls = nchnls
-        self.globalcode = globalcode
-        self.numAudioBuses = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
-        self.numControlBuses = numControlBuses if numControlBuses is not None else config['num_control_buses']
-        self.includes = includes
-        self._builtinInstrs: dict[str, int] = {}
-        """Dict of built-in instrs, mapping instr name to number"""
-
-        self._reservedInstrnums: set[int] = set()
-        self._reservedInstrnumRanges: list[tuple[str, int, int]] = [
-            ('builtinorc', engineorc.CONSTS['reservedInstrsStart'], engineorc.CONSTS['userInstrsStart'] - 1)]
-
-        self._shouldPerform = False
-        self._endtime = 0.
-        self.nosound = False
-        self.options = ["-d"]
-        if quiet:
-            self.options.extend(["--messagelevel=0", "--m-amps=0", "--m-range=0"])
-
-        if nchnls == 0:
-            self.options.append('--nosound')
-            self.nosound = True
-        if sampleAccurate:
-            self.options.append('--sample-accurate')
-        if commandlineOptions:
-            self.options.extend(commandlineOptions)
-        self.csound = self._start()
-
-    def _start(self) -> ctcsound.Csound:
-        cs = ctcsound.Csound()
-        for option in self.options:
-            cs.setOption(option)
-        if not self.nosound:
-            cs.setOption(f'-o{self.outfile}')
-
-        if self.includes:
-            includelines = [f'#include "{include}"' for include in self.includes]
-            includestr = "\n".join(includelines)
-        else:
-            includestr = ""
-
-        orc, instrmap = engineorc.makeOrc(sr=self.sr,
-                                          ksmps=self.ksmps,
-                                          nchnls=self.nchnls,
-                                          nchnls_i=0,
-                                          a4=self.a4,
-                                          globalcode=self.globalcode,
-                                          includestr=includestr,
-                                          numAudioBuses=self.numAudioBuses,
-                                          numControlBuses=self.numControlBuses)
-
-        self._builtinInstrs = instrmap
-        self._reservedInstrnums.update(set(instrmap.values()))
-
-        err = cs.compileOrc(orc)
-        if err:
-            tmporc = tempfile.mktemp(prefix="csoundengine-", suffix=".orc")
-            open(tmporc, "w").write(orc)
-            logger.error(f"Error compiling base orchestra. A copy of the orchestra"
-                         f" has been saved to {tmporc}")
-
-            logger.error(internal.addLineNumbers(orc))
-            raise CsoundError(f"Error compiling base ochestra, error: {err}")
-        cs.start()
-        return cs
-
-    def compile(self, code: str) -> None:
-        codeblocks = csoundlib.parseOrc(code)
-        for codeblock in codeblocks:
-            if codeblock.kind == 'instr' and codeblock.name[0].isdigit():
-                instrnum = int(codeblock.name)
-                for rangename, mininstr, maxinstr in self._reservedInstrnumRanges:
-                    if mininstr <= instrnum < maxinstr:
-                        logger.error(f"Instrument number {instrnum} is reserved. Code:")
-                        logger.error("\n" + textwrap.indent(codeblock.text, "    "))
-                        raise ValueError(f"Cannot use instrument number {instrnum}, "
-                                         f"the range {mininstr} - {maxinstr} is reserved for '{rangename}'")
-
-                if instrnum in self._reservedInstrnums:
-                    raise ValueError("Cannot compile instrument with number "
-                                     f"{instrnum}: this is a reserved instr and "
-                                     f"cannot be redefined. Reserved instrs: "
-                                     f"{sorted(self._reservedInstrnums)}")
-
-        self.csound.compileOrc(code)
-        self._shouldPerform = True
-
-    def sched(self,
-              instr: int | float | str,
-              delay=0.,
-              dur=-1,
-              args: np.ndarray | list[float | str] | None = None,
-              ):
-        if dur >= 0 and delay + dur > self._endtime:
-            self._endtime = delay + dur
-        elif delay > self._endtime:
-            self._endtime = delay
-
-        if isinstance(instr, str):
-            msg = f'i "{instr}" {delay} {dur} '
-            if args:
-                argstrs = [str(arg) if not isinstance(arg, str) else f'"{arg}"'
-                           for arg in args]
-                msg += ' '.join(argstrs)
-            self.csound.inputMessage(msg)
-
-        else:
-            if isinstance(args, np.ndarray):
-                pfields = np.empty((len(args) + 3,), dtype=float)
-                pfields[0] = instr
-                pfields[1] = delay
-                pfields[2] = dur
-                pfields[3:] = args
-            elif not args:
-                pfields = [instr, delay, dur]
-            elif isinstance(args, (list, tuple)):
-                pfields = [instr, delay, dur]
-                pfields.extend(float(a) if not isinstance(a, str) else self.strSet(a) for a in args)
-            else:
-                raise TypeError(f"Expected a sequence or array, got {args}")
-            self.csound.scoreEventAbsolute(type_='i', pFields=pfields, timeOffset=0)
-        self._shouldPerform = True
-
-    def setEndMarker(self, time: float):
-        self._endtime = time
-
-    def perform(self, extratime=0.):
-        assert self.csound is not None
-        if self._endtime == 0.:
-            raise CsoundError("The render time is 0.")
-
-        if self._shouldPerform:
-            maxsamples = int((self._endtime + extratime) * self.sr)
-            cs = self.csound
-            logger.debug("Starting performance")
-            while not cs.performKsmps() and cs.currentTimeSamples() < maxsamples:
-                pass
-
-    def stop(self):
-        self.csound.stop()
-
-    def cancel(self):
-        self._shouldPerform = False
-        if self.csound:
-            self.csound.stop()
-
-    def __del__(self):
-        if self.csound and self._shouldPerform:
-            self.perform()

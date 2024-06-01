@@ -84,7 +84,7 @@ Renderer
 
 **RenderJob**
 
-.. autoclass:: csoundengine.offline.RenderJob
+.. autoclass:: csoundengine.enginebase.RenderJob
     :members:
     :autosummary:
 

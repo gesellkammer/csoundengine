@@ -9,6 +9,7 @@ from . import jacktools
 import signal
 import math
 import textwrap
+import sndfileio
 from typing import TYPE_CHECKING
 import emlib.dialogs
 import emlib.iterlib
@@ -524,14 +525,66 @@ def splitPairs(flatpairs: Sequence[float], maxpairs: int) -> list[Sequence[float
     return groups
 
 
+def hashSoundfile(path: str) -> int:
+    """
+    Produce a hash for a soundfile
+
+    The hash does not actually depend on the contents, only
+    metadata is used (modification time, number of frames, etc.)
+
+    Args:
+        path: the path to the soundfile
+
+    Returns:
+        a hash in the form of an integer
+    """
+    info = sndfileio.sndinfo(path)
+    mtime = os.path.getmtime(path)
+    return hash((mtime, info.nframes, info.encoding, info.channels, info.samplerate))
+
+
+_soundfileHtmlCache = {}
+
+
 def soundfileHtml(sndfile: str,
                   withHeader=True,
                   withAudiotag=True,
                   audiotagMaxDuration=10,
                   audiotagWidth='100%',
                   audiotagMaxWidth='1200px',
-                  embedThreshold=2.
+                  embedThreshold=2.,
+                  cachesize=100
                   ) -> str:
+    args = (hashSoundfile(sndfile), withHeader, withAudiotag, audiotagMaxDuration,
+            audiotagWidth, audiotagMaxWidth, embedThreshold)
+    h = hash(args)
+    if h in _soundfileHtmlCache:
+        html, t = _soundfileHtmlCache[h]
+        return html
+
+    html = _soundfileHtml(sndfile=sndfile,
+                          withHeader=withHeader,
+                          withAudiotag=withAudiotag,
+                          audiotagMaxDuration=audiotagMaxDuration,
+                          audiotagWidth=audiotagWidth,
+                          audiotagMaxWidth=audiotagMaxWidth,
+                          embedThreshold=embedThreshold)
+    _soundfileHtmlCache[args] = (html, time.time())
+    if len(_soundfileHtmlCache) > cachesize:
+        oldestkey = min(_soundfileHtmlCache.keys(), key=lambda key: _soundfileHtmlCachet[key][1])
+        del _soundfileHtmlCache[oldestkey]
+
+    return html
+
+
+def _soundfileHtml(sndfile: str,
+                   withHeader=True,
+                   withAudiotag=True,
+                   audiotagMaxDuration=10,
+                   audiotagWidth='100%',
+                   audiotagMaxWidth='1200px',
+                   embedThreshold=2.
+                   ) -> str:
     """
     Returns an HTML representation of this Sample
 
@@ -554,7 +607,6 @@ def soundfileHtml(sndfile: str,
         the HTML repr as str
 
     """
-    import sndfileio
     import IPython.display
     import emlib.img
     from . import plotting
@@ -722,3 +774,4 @@ def classify(objs: tuple[str, _T]) -> dict[str, _T]:
     for key, obj in objs:
         groups.setdefault(key, []).append(obj)
     return groups
+

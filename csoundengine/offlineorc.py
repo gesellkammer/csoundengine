@@ -20,9 +20,6 @@ gi__soundfontIndexCounter init 1000
 ; numtokens = 1000
 gi__responses   ftgen  0, 0, 1000, -2, 0
 
-gi__subgains    ftgen 0, 0, 100, -2, 0
-ftset gi__subgains, 1
-
 chn_k "_soundfontPresetCount", 3
 
 opcode _assignControlSlot, i, i
@@ -212,7 +209,7 @@ endin
 '''
 
 
-# @cache
+@cache
 def prelude(controlNumSlots: int,
             controlArgsPerInstr: int,
             ) -> str:

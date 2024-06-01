@@ -10,6 +10,7 @@ def waitWithAnimation(label: str, waittime: float, dt=0.1) -> None:
     Show a waiting animation at the terminal (blocking)
 
     Args:
+        label: a label to show
         waittime: the total time to wait
         dt: interval at which the animation is updated
     """

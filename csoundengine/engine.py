@@ -114,6 +114,8 @@ import pitchtools as pt
 
 from emlib.containers import IntPool
 
+from .renderjob import RenderJob
+from .enginebase import TableInfo, _EngineBase, _channelMode
 from .config import config, logger
 from . import csoundlib
 from . import jacktools as jacktools
@@ -159,9 +161,6 @@ __all__ = [
     'Engine',
     'getEngine',
     'activeEngines',
-    'config',
-    'logger',
-    'csoundlib'
 ]
 
 
@@ -187,49 +186,12 @@ def _asEngine(e: str | Engine) -> Engine:
     return out
 
 
-@dataclasses.dataclass
-class TableInfo:
+class Engine(_EngineBase):
     """
-    Information about a csound table
-    """
-    sr: int
-    size: int
-    numChannels: int = 1
-    numFrames: int = -1
-    path: str = ''
-    hasGuard: bool | None = None
+    Implements a simple interface to run and control a realtime csound process.
 
-    def __post_init__(self):
-        if self.hasGuard is None:
-            self.hasGuard = self.size == self.numFrames * self.numChannels + 1
-        if self.numFrames == -1:
-            self.numFrames = self.size // self.numChannels
-
-
-def _getSoundfileInfo(path) -> TableInfo:
-    import sndfileio
-    sndinfo = sndfileio.sndinfo(path)
-    return TableInfo(sr=sndinfo.samplerate,
-                     numChannels=sndinfo.channels,
-                     numFrames=sndinfo.nframes,
-                     size=sndinfo.channels*sndinfo.nframes,
-                     path=path)
-
-
-def _channelMode(kind: str) -> int:
-    if kind == 'r':
-        return ctcsound.CSOUND_INPUT_CHANNEL
-    elif kind == 'w':
-        return ctcsound.CSOUND_INPUT_CHANNEL
-    elif kind == 'rw':
-        return ctcsound.CSOUND_INPUT_CHANNEL | ctcsound.CSOUND_OUTPUT_CHANNEL
-    else:
-        raise ValueError(f"Expected r, w or rw, got {kind}")
-
-
-class Engine:
-    """
-    Implements a simple interface to run and control a csound process.
+    For offline rendering, see :class:`~csoundengine.offline.Renderer` and
+    :class:`~csoundengine.offline.OfflineEngine`
 
     Args:
         name: the name of the engine
@@ -257,12 +219,13 @@ class Engine:
         quiet: if True, suppress output of csound (-m 0)
         udpserver: if True, start a udp server for communication (see udpport)
         udpport: the udpport to use for real-time messages. 0=autoassign port
-        commandlineOptions: extraOptions command line options passed verbatim to the
+        commandlineOptions: command line options passed verbatim to the
             csound process when started
         midiin: if given, use this device as midi input. Can be '?' to select
             from a list, or 'all' to use all devices. None indicates no midi input
         latency: an extra latency added when scheduling events to ensure synchronicity.
             See also :meth:`Engine.lockClock` and :meth:`Engine.pushClock`
+        sampleAccurate: use sample-accurate scheduling
 
     .. note::
         Any option with a default value of None has a corresponding slot in the
@@ -635,6 +598,9 @@ class Engine:
         # Maps instrname/number: code
         self._instrRegistry: dict[str | int, str] = {}
 
+        # Keeps parsed instr bodies, used to analyze pfields, defaults, etc.
+        self._parsedInstrs: dict[str, csoundlib.ParsedInstrBody] = {}
+
         # a dict of callbacks, reacting to outvalue opcodes
         self._outvalueCallbacks: dict[bytes, callback_t] = {}
 
@@ -833,7 +799,7 @@ class Engine:
         instancenum = (c % int(10 ** self._fracnumdigits - 2)) + 1
         return self._makeEventId(instrnum, instancenum)
 
-    def _makeEventId(self, num:int, instance:int) -> float:
+    def _makeEventId(self, num: int, instance: int) -> float:
         frac = (instance / (10**self._fracnumdigits)) % 1
         return num + frac
         
@@ -1233,21 +1199,23 @@ class Engine:
                 if not os.path.exists(includepath):
                     logger.warning(f"Include path not found '{includepath}'")
                 self.includes.append(includepath)
+            elif codeblock.kind == 'instr':
+                parsedbody = csoundlib.instrParseBody(csoundlib.instrGetBody(codeblock.text))
+                self._parsedInstrs[codeblock.name] = parsedbody
+                if codeblock.name[0].isdigit():
+                    instrnum = int(codeblock.name)
+                    for rangename, mininstr, maxinstr in self._reservedInstrnumRanges:
+                        if mininstr <= instrnum < maxinstr:
+                            logger.error(f"Instrument number {instrnum} is reserved. Code:")
+                            logger.error("\n" + _textwrap.indent(codeblock.text, "    "))
+                            raise ValueError(f"Cannot use instrument number {instrnum}, "
+                                             f"the range {mininstr} - {maxinstr} is reserved for '{rangename}'")
 
-            elif codeblock.kind == 'instr' and codeblock.name[0].isdigit():
-                instrnum = int(codeblock.name)
-                for rangename, mininstr, maxinstr in self._reservedInstrnumRanges:
-                    if mininstr <= instrnum < maxinstr:
-                        logger.error(f"Instrument number {instrnum} is reserved. Code:")
-                        logger.error("\n" + _textwrap.indent(codeblock.text, "    "))
-                        raise ValueError(f"Cannot use instrument number {instrnum}, "
-                                         f"the range {mininstr} - {maxinstr} is reserved for '{rangename}'")
-
-                if instrnum in self._reservedInstrnums:
-                    raise ValueError("Cannot compile instrument with number "
-                                     f"{instrnum}: this is a reserved instr and "
-                                     f"cannot be redefined. Reserved instrs: "
-                                     f"{sorted(self._reservedInstrnums)}")
+                    if instrnum in self._reservedInstrnums:
+                        raise ValueError("Cannot compile instrument with number "
+                                         f"{instrnum}: this is a reserved instr and "
+                                         f"cannot be redefined. Reserved instrs: "
+                                         f"{sorted(self._reservedInstrnums)}")
 
         instrs = [b for b in codeblocks if b.kind == 'instr']
 
@@ -1349,7 +1317,7 @@ class Engine:
             array with samples interleaved.
 
         Args:
-            idx (int): the table index
+            idx: the table index
             flat: if True, the data will be returned as a flat (1D) array
                 even if the table holds a multi-channel sample.
 
@@ -1363,7 +1331,7 @@ class Engine:
         if arr is None:
             arr = self.csound.table(idx)
             if arr is None:
-                raise IndexError(f"Table {idx} was not found")
+                raise ValueError(f"Table {idx} does not exist")
             if not flat:
                 tabinfo = self.tableInfo(idx)
                 if tabinfo.numChannels > 1:
@@ -1576,9 +1544,11 @@ class Engine:
               instr: int | float | str,
               delay=0.,
               dur=-1.,
+              *pfields,
               args: np.ndarray | Sequence[float | str] | None = None,
               relative=True,
-              unique=True
+              unique=False,
+              **namedpfields
               ) -> float:
         """
         Schedule an instrument
@@ -1602,6 +1572,9 @@ class Engine:
                 To get an absolute time since start of the engine, call
                 `engine.elapsedTime()`
             unique: if True, assign a unique p1
+            namedpfields: pfields can be given as keyword arguments of the form p4=..., p6=...
+                Defaults are filled with values defined via ``pset``
+
 
         Returns: 
             a fractional p1 of the instr started, which identifies this event.
@@ -1653,13 +1626,28 @@ class Engine:
         if self.autosync:
             self.sync()
 
+        if pfields and args:
+            raise ValueError(f"Either pfields as positional arguments or args can be given, "
+                             f"got both")
+        elif pfields:
+            args = pfields
+
+        if namedpfields:
+            instrdef = self._parsedInstrs.get(int(instr) if isinstance(instr, float) else instr)
+            if instrdef:
+                kwargs = csoundlib.normalizeNamedPfields(namedpfields, instrdef.pfieldNameToIndex)
+            else:
+                assert all(csoundlib.isPfield(key) for key in namedpfields)
+                kwargs = {int(key[1:]):value for key, value in namedpfields.items()}
+            args = csoundlib.fillPfields(args, kwargs, defaults=instrdef.pfieldIndexToValue if instrdef else None)
+
         if isinstance(instr, float):
             if unique and int(instr) == instr:
                 instrfrac = self._assignEventId(int(instr))
             else:
                 instrfrac = instr
         elif isinstance(instr, int):
-            instrfrac = self._assignEventId(instr)
+            instrfrac = self._assignEventId(instr) if unique else instr
         elif isinstance(instr, str):
             if not unique and "." not in instr:
                 instrnum = self._instrNumCache.get(instr)
@@ -1670,7 +1658,7 @@ class Engine:
                     if args:
                         msg += ' '.join(map(str, args))
                     self._perfThread.inputMessage(msg)
-                    return instr
+                    return 0
 
             if "." in instr:
                 name, fractionstr = instr.split(".")
@@ -1682,7 +1670,7 @@ class Engine:
                     if args:
                         msg += ' '.join(map(str, args))
                     self._perfThread.inputMessage(msg)
-                    return instr
+                    return 0
             else:
                 instrfrac = self._assignEventId(instr)
         else:
@@ -2595,24 +2583,6 @@ class Engine:
         return tabnum
 
     def channelPointer(self, channel: str, kind='control', mode='rw') -> np.ndarray:
-        """
-        Returns a numpy array aliasing the memory of a control or audio channel
-
-        If the channel does not exist, it will be created with the given `kind` and set to
-        the given mode.
-        The returned numpy arrays are internally cached and are valid as long as this
-        Engine is active. Accessing the channel through the pointer is not thread-safe.
-
-        Args:
-            channel: the name of the channel
-            kind: one of 'control' or 'audio' (string channels are not supported yet)
-            mode: the kind of channel, 'r', 'w' or 'rw'
-
-        Returns:
-            a numpy array of either 1 or ksmps size
-
-        .. seealso:: :meth:`Engine.setChannel`
-        """
         if kind != 'control' and kind != 'audio':
             raise NotImplementedError("Only kind 'control' and 'audio' are implemented at the moment")
         assert self.csound is not None
@@ -2934,9 +2904,12 @@ class Engine:
             if abspath == f:
                 return
         self.includes.append(abspath)
+        code = open(abspath).read()
+        self.compile(code)
 
     def readSoundfile(self, path="?", tabnum: int | None = None, chan=0,
-                      callback=None, block=False, skiptime=0.) -> int:
+                      callback=None, block=False, skiptime=0.
+                      ) -> int:
         """
         Read a soundfile into a table (via GEN1), returns the table number
 
@@ -2985,7 +2958,7 @@ class Engine:
                         "operation can be non-blocking")
             block = True
 
-        self._tableInfo[tabnum] = _getSoundfileInfo(path)
+        self._tableInfo[tabnum] = TableInfo.get(path)
 
         if block or callback:
             token = self._getSyncToken()
@@ -3207,7 +3180,7 @@ class Engine:
         return self.sched(self._builtinInstrs['playgen1'], delay=delay, dur=dur,
                           args=args)
 
-    def playSoundFromDisk(self, path: str, delay=0., chan=0, speed=1., fade=0.01
+    def playSoundFromDisk(self, path: str, delay=0., dur=-1, chan=0, speed=1., fade=0.01
                           ) -> float:
         """
         Play a soundfile from disk via diskin2
@@ -3215,6 +3188,8 @@ class Engine:
         Args:
             path: the path to the output
             delay: time offset to start playing
+            dur: duration of playback, use -1 to play until the
+                end of the file
             chan: first channel to output to
             speed: playback speed (2.0 will sound an octave higher)
             fade: fadein/out in seconds
@@ -3231,7 +3206,7 @@ class Engine:
         """
         assert self.started
         p1 = self._assignEventId(self._builtinInstrs['playsndfile'])
-        msg = f'i {p1} {delay} -1 "{path}" {chan} {speed} {fade}'
+        msg = f'i {p1} {delay} {dur} "{path}" {chan} {speed} {fade}'
         self._perfThread.inputMessage(msg)
         return p1
 
@@ -3269,6 +3244,8 @@ class Engine:
         * :meth:`~Engine.getp`
         * :meth:`~Engine.automatep`
         """
+        if isinstance(p1, str):
+            raise TypeError(f"named instrs not supported yet")
         numpairs = len(pairs) // 2
         assert len(pairs) % 2 == 0 and numpairs <= 5
         # this limit is just the limit of the pwrite instr, not of the opcode
@@ -3381,7 +3358,7 @@ class Engine:
             return events[0]
 
     def automatep(self,
-                  p1: float,
+                  p1: float | str,
                   pidx: int,
                   pairs: Sequence[float] | np.ndarray,
                   mode='linear',
@@ -3396,7 +3373,8 @@ class Engine:
 
         Args:
             p1: the fractional instr number of a running event, or an int number
-                to modify all running instances of that instr
+                to modify all running instances of that instr. A named instr with
+                an optional fractional part is also accepted
             pidx: the pfield index. For example, if the pfield to modify if p4,
                 pidx should be 4. Values of 1, 2, and 3 are not allowed.
             pairs: the automation data is given as a flat data. of pairs (time, value).
@@ -3430,7 +3408,11 @@ class Engine:
         if len(pairs) <= maxDataSize:
             if isinstance(pairs, np.ndarray):
                 pairs = pairs.tolist()
-            args = [p1, pidx, self.strSet(mode), int(overtake), len(pairs), *pairs]
+            if isinstance(p1, str):
+                args = [self.strSet(p1), pidx, self.strSet(mode), int(overtake), len(pairs), 1]
+            else:
+                args = [p1, pidx, self.strSet(mode), int(overtake), len(pairs), 0]
+            args.extend(pairs)
             return self.sched(self._builtinInstrs['automatePargViaPargs'],
                               delay=delay,
                               dur=pairs[-2] + self.ksmps / self.sr,
@@ -3909,7 +3891,8 @@ class Engine:
                 bus. For audio buses this should be left as None
             persist: if True the bus created is kept alive until the user
                 calls :meth:`~Engine.releaseBus`. Otherwise, the bus is
-                garanteed
+                reference counted and is released after the last
+                user releases it. 
 
         Returns:
             the bus token, can be passed to any instrument expecting a bus
@@ -4055,6 +4038,12 @@ class Engine:
             :meth:`Engine.readBus`
         """
         return (self.numAudioBuses > 0 or self.numControlBuses > 0)
+
+    @staticmethod
+    def lastEngine() -> Engine | None:
+        if not Engine.activeEngines:
+            return None
+        return list(Engine.activeEngines.values())[-1]
 
     def eventUI(self, eventid: float, **pargs: tuple[float, float]) -> None:
         """

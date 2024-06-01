@@ -29,6 +29,7 @@ import cachetools as _cachetools
 import numpy as np
 
 from ._common import *
+from .renderjob import RenderJob
 from csoundengine import jacktools
 from csoundengine import linuxaudio
 from csoundengine import state as _state
@@ -109,29 +110,29 @@ def midiDevices(backend='portmidi') -> tuple[list[MidiDevice], list[MidiDevice]]
     return midiins, midiouts
 
 
-def compressionBitrateToQuality(bitrate: int, format='ogg') -> float:
+def compressionBitrateToQuality(bitrate: int, fmt='ogg') -> float:
     """
     Convert a bitrate to a compression quality between 0-1, as passed to --vbr-quality
 
     Args:
         bitrate: the bitrate in kb/s, oneof 64, 80, 96, 128, 160, 192, 224, 256, 320, 500
-        format: the encoding format (ogg at the moment)
+        fmt: the encoding format (ogg at the moment)
     """
-    if format == 'ogg':
+    if fmt == 'ogg':
         bitrates = [64, 80, 96, 128, 128, 160, 192, 224, 256, 320, 500]
         idx = emlib.misc.nearest_index(bitrate, bitrates)
         return idx / 10
     else:
-        raise ValueError(f"Format {format} not supported")
+        raise ValueError(f"Format {fmt} not supported")
 
 
-def compressionQualityToBitrate(quality: float, format='ogg') -> int:
+def compressionQualityToBitrate(quality: float, fmt='ogg') -> int:
     """
     Convert compression quality to bitrate
 
     Args:
         quality: the compression quality (0-1) as passed to --vbr-quality
-        format: the encoding format (ogg at the moment)
+        fmt: the encoding format (ogg at the moment)
 
     =======   =======
     quality   bitrate
@@ -149,13 +150,13 @@ def compressionQualityToBitrate(quality: float, format='ogg') -> int:
     1.0       500
     =======   =======
     """
-    if format == 'ogg':
+    if fmt == 'ogg':
         idx = int(quality * 10 + 0.5)
         if idx > 10:
             idx = 10
         return (64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 500)[idx]
     else:
-        raise ValueError(f"Format {format} not supported")
+        raise ValueError(f"Format {fmt} not supported")
 
 
 @dataclasses.dataclass(unsafe_hash=True)
@@ -891,136 +892,6 @@ endin
                       nchnls=nchnls, csdstr=csd)
 
 
-@dataclasses.dataclass
-class ScoreLine:
-    """
-    An event line in the score (an instrument, a table declaration, etc.)
-
-    Attributes:
-        kind: 'i' for instrument event, 'f' for table definition
-        p1: the p1 of the event
-        start: the start time of the event
-        dur: the duration of the event
-        args: any other args of the event (starting with p4)
-    """
-    kind: str
-    p1: str | int | float
-    start: float
-    dur: float
-    args: list[float | str]
-
-
-@dataclasses.dataclass
-class TableDataFile:
-    """
-    A table holding either the data or a file to the data
-
-    Attributes:
-        tabnum: the f-table number
-        data: the data itself or a path to a file
-        fmt: the format of the file
-        start: start time to define the table
-        size: the size of the table
-    """
-    tabnum: int
-    """The assigned table number"""
-
-    data: Sequence[float] | np.ndarray | str
-    """the data itself or a path to a file"""
-
-    fmt: str   # One of 'wav', 'flac', 'gen23', etc
-    """The format of the data, one of 'wav', flac', 'gen23', etc"""
-
-    start: float = 0
-    """Allocation time of the table (p2)"""
-
-    size: int = 0
-    """Size of the data"""
-
-    chan: int = 0
-    """Which channel to read, if applicable. 0=all"""
-
-    def __post_init__(self):
-        assert self.fmt in {'gen23', 'wav', 'aif', 'aiff', 'flac'}, \
-            f"Format not supported: {self.fmt}"
-        if self.fmt == 'gen23' and isinstance(self.data, np.ndarray):
-            assert len(self.data.shape) == 1 or self.data.shape[1] == 1
-
-    def write(self, outfile:str) -> None:
-        if isinstance(self.data, str):
-            # just copy the file
-            assert _os.path.exists(self.data)
-            _shutil.copy(self.data, outfile)
-            return
-
-        base, ext = _os.path.splitext(outfile)
-        if self.fmt == 'gen23':
-            if ext != '.gen23':
-                raise ValueError(f"Wrong extension: it should be .gen23, got {outfile}")
-            saveAsGen23(self.data, outfile=outfile)
-        elif self.fmt in ('wav', 'aif', 'aiff', 'flac'):
-            import sndfileio
-            dataarr = np.asarray(self.data, dtype=float)
-            sndfileio.sndwrite(outfile, dataarr, sr=44100,
-                               metadata={'comment': 'Datafile'})
-
-    def scoreLine(self, outfile: str) -> str:
-        if self.fmt == 'gen23':
-            return f'f {self.tabnum} {self.start} {self.size} -23 "{outfile}"'
-        elif self.fmt == 'wav':
-            # time  size  1  filcod  skiptime  format  channel
-            return f'f {self.tabnum} {self.start} {self.size} -1 "{outfile}" 0 0 0'
-        raise ValueError(f"Unknown format {self.fmt}")
-
-    def orchestraLine(self, outfile: str) -> str:
-        if self.fmt == 'gen23':
-            return f'ftgen {self.tabnum}, {self.start}, {self.size}, -23, "{outfile}"'
-        elif self.fmt in ('wav', 'aif', 'aiff', 'flac'):
-            return f'ftgen {self.tabnum}, {self.start}, {self.size}, -1, "{outfile}", 0, 0, 0'
-        raise ValueError(f"Unknown format {self.fmt}")
-
-
-def parseScore(sco: str) -> Iterator[ScoreLine]:
-    """
-    Parse a score given as string, returns a data. of :class:`ScoreLine`
-    
-    Args:
-        sco: the score to parse, as string
-        
-    Returns:
-        a generator of ScoreLines
-    """
-    p1: str | int
-    for line in sco.splitlines():
-        words = line.split()
-        w0 = words[0]
-        if w0 in {'i', 'f'}:
-            kind = w0
-            p1 = words[1]
-            if namenum := emlib.misc.asnumber(p1) is not None:
-                p1 = namenum
-            t0 = float(words[2])
-            dur = float(words[3])
-            rest = words[4:]
-        elif w0[0] in {'i', 'f'}:
-            kind = w0[0]
-            p1 = w0[1:]
-            t0 = float(words[1])
-            dur = float(words[2])
-            rest = words[3:]
-        else:
-            continue
-        args: list[float | str] = []
-        for w in rest:
-            if w.startswith('"'):
-                args.append(w)
-            else:
-                arg = emlib.misc.asnumber(w)
-                assert isinstance(arg, (int, float))
-                args.append(arg)
-        yield ScoreLine(kind, p1, t0, dur, args)
-
-
 def opcodesList(cached=True, opcodedir: str = '') -> list[str]:
     """
     Return a list of the opcodes present
@@ -1419,7 +1290,7 @@ def getSamplerateForBackend(backend='') -> int | None:
 
 
 def _csoundTestJackRunning():
-    proc = csoundSubproc(['-+rtaudio=jack', '-odac', '--get-system-sr'], wait=True)
+    proc = csoundSubproc(['-+rtaudio=jack', '-odac', '--get-system-sr'], wait=True, piped=True)
     return b'could not connect to JACK server' not in proc.stderr.read()
 
 
@@ -1540,16 +1411,6 @@ def _quoteIfNeeded(arg: float | int | str) -> float | int | str:
         return arg
 
 
-def _eventStartTime(event: Sequence) -> float:
-    kind = event[0]
-    if kind == "e":           # end
-        return event[1]
-    elif kind == "C":         # carry
-        return 0.
-    else:
-        assert len(event) >= 3
-        return event[2]
-
 _normalizer = emlib.textlib.makeReplacer({".":"_", ":":"_", " ":"_"})
 
 
@@ -1561,11 +1422,11 @@ def normalizeInstrumentName(name:str) -> str:
 
 
 _fmtoptions = {
-    'pcm16'    : '',
-    'pcm24'    : '--format=24bit',
-    'float32'  : '--format=float',  # also -f
-    'float64'  : '--format=double',
-    'vorbis'   : '--format=vorbis'
+    'pcm16': '',
+    'pcm24': '--format=24bit',
+    'float32': '--format=float',  # also -f
+    'float64': '--format=double',
+    'vorbis': '--format=vorbis'
 }
 
 
@@ -1579,8 +1440,8 @@ _optionForSampleFormat = {
 
 
 _csoundFormatOptions = {'-3', '-f', '--format=24bit', '--format=float',
-                          '--format=double', '--format=long', '--format=vorbis',
-                          '--format=short'}
+                        '--format=double', '--format=long', '--format=vorbis',
+                        '--format=short'}
 
 
 _defaultEncodingForFormat = {
@@ -1682,823 +1543,6 @@ def csoundOptionForSampleEncoding(encoding: str) -> str:
                          f'{_fmtoptions.keys()}')
     return _fmtoptions[encoding]
 
-_builtinInstrs = {
-    '_playgen1': r'''
-      kgain  = p4
-      kspeed = p5
-      ; 6      7      8      9
-      itabnum, ichan, ifade, ioffset passign 6
-      ifade = max(ifade, 0.005)
-      ksampsplayed = 0
-      inumsamples = nsamp(itabnum)
-      itabsr = ftsr(itabnum)
-      istartframe = ioffset * itabsr
-      ksampsplayed += ksmps * kspeed
-      aouts[] loscilx kgain, kspeed, itabnum, 4, 1, istartframe
-      aenv linsegr 0, ifade, 1, ifade, 0
-      aouts = aouts * aenv
-      inumouts = lenarray(aouts)
-      kchan = 0
-      while kchan < inumouts do
-        outch kchan+ichan, aouts[kchan]
-        kchan += 1
-      od
-      if ksampsplayed >= inumsamples then
-        turnoff
-      endif
-    ''',
-    '_ftnew': r'''
-      itabnum = p4
-      isize = p5
-      isr = p6
-      inumchannels = p7
-      ift ftgen itabnum, 0, -isize, -2, 0
-      if isr > 0 || inumchannels > 0 then
-        ftsetparams itabnum, isr, inumchannels
-      endif
-    ''',
-    '_ftfree': r'''
-        itabnum = p4
-        ftfree itabnum, 0
-        turnoff
-    '''
-}
-
-
-@dataclasses.dataclass
-class _InstrDef:
-    p1: int | str
-    body: str
-    samelineComment: str = ''
-    preComment: str = ''
-    postComment: str = ''
-
-
-class Csd:
-    """
-    Build a csound script by adding global code, instruments, score events, etc.
-
-    Args:
-        sr: the sample rate of the generated audio
-        ksmps: the samples per cycle to use
-        nchnls: the number of output channels
-        nchnls_i: if given, the number of input channels
-        a4: the reference frequency
-        options (list[str]): any number of command-line options passed to csound
-        nodisplay: if True, avoid outputting debug information
-        carry: should carry be enabled in the score?
-        reservedTables: when creating tables, table numbers are autoassigned from
-            python. There can be conflicts of any code uses ``ftgen``
-
-    Example
-    =======
-
-    .. code::
-
-        >>> from csoundengine.csoundlib import *
-        >>> csd = Csd(ksmps=32, nchnls=4)
-        >>> csd.addInstr('sine', r'''
-        ...   ifreq = p4
-        ...   outch 1, oscili:a(0.1, ifreq)
-        ... ''')
-        >>> source = csd.addSndfile("sounds/sound1.wav")
-        >>> csd.playTable(source)
-        >>> csd.addEvent('sine', 0, 2, [1000])
-        >>> csd.write('out.csd')
-    """
-
-    def __init__(self,
-                 sr: int = 44100,
-                 ksmps=64,
-                 nchnls=2,
-                 a4=442.,
-                 options: list[str] | None = None,
-                 nodisplay=False,
-                 carry=False,
-                 nchnls_i: int | None = None,
-                 numthreads=0,
-                 reservedTables=0):
-        self.score: list[Sequence[int | float | str]] = []
-        """The score, a list of events of the form (p1, p2, p3, ...)"""
-
-        self.instrs: dict[str | int, _InstrDef] = {}
-        """The orchestra"""
-
-        self.globalcodes: list[str] = []
-        """Code to evaluate at the instr0 level"""
-
-        self.options: list[str] = []
-        """Command line options"""
-
-        self._sr = sr
-        """Samplerate"""
-
-        self.ksmps = ksmps
-        """Samples per cycle"""
-
-        self.nchnls = nchnls
-        """Number of output channels"""
-
-        self.nchnls_i = nchnls_i
-        """Number of input channels"""
-
-        self.a4 = a4
-        """Reference frequency"""
-
-        self.nodisplay = nodisplay
-        """Disable display opcodes"""
-
-        self.enableCarry = carry
-        """Enable carry in the score"""
-
-        self.numthreads = numthreads
-        """Number of threads used for rendering"""
-
-        self.datafiles: dict[int, TableDataFile] = {}
-        """Maps assigned table numbers to their metadata"""
-
-        self._datafileIndex: dict[str, TableDataFile] = {}
-        """Maps soundfiles read to their assigned table number"""
-
-        self._strLastIndex = 20
-        self._str2index: dict[str, int] = {}
-
-        if options:
-            self.addOptions(*options)
-
-        self._outfileFormat = ''
-        self._outfileEncoding = ''
-        self._compressionQuality = ''
-
-        self._definedTables: Set[int] = set()
-        self._minTableIndex = 1
-        self._endMarker: float = 0
-        self._numReservedTables = reservedTables
-        self._maxTableNumber = reservedTables
-        self.score.append(("C", 0, "    ; Disable carry"))
-
-    @property
-    def sr(self) -> int:
-        return self._sr
-
-    @sr.setter
-    def sr(self, value: int):
-        if not isinstance(value, int):
-            raise TypeError(f"Samplerate must be an int, got {value}")
-        self._sr = value
-
-    def copy(self) -> Csd:
-        """
-        Copy this csd
-        """
-        out = Csd(sr=self.sr,
-                  ksmps=self.ksmps,
-                  nchnls=self.nchnls,
-                  a4=self.a4,
-                  options=self.options.copy(),
-                  nodisplay=self.nodisplay,
-                  carry=self.enableCarry,
-                  nchnls_i=self.nchnls_i,
-                  numthreads=self.numthreads)
-
-        out.instrs = self.instrs.copy()
-        out.score = self.score.copy()
-        out._str2index = self._str2index.copy()
-        out._strLastIndex = self._strLastIndex
-        if self.globalcodes:
-            for code in self.globalcodes:
-                out.addGlobalCode(code)
-
-        out._outfileEncoding = self._outfileEncoding
-        out._outfileFormat = self._outfileFormat
-        out._compressionQuality = self._compressionQuality
-
-        out._definedTables = self._definedTables
-        out._minTableIndex = self._minTableIndex
-        out._maxTableNumber = self._maxTableNumber
-
-        if self.datafiles:
-            out.datafiles = self.datafiles.copy()
-
-        if self._outfileEncoding:
-            out.setSampleEncoding(self._outfileEncoding)
-
-        return out
-
-    def cropScore(self, start=0., end=0.) -> None:
-        """
-        Crop the score at the given boundaries
-
-        Any event starting earlier or ending after the given times will
-        be cropped, any event ending before start or starting before
-        end will be removed
-        """
-        score = _cropScore(self.score, start, end)
-        self.score = score
-
-    def dumpScore(self) -> None:
-        from emlib.misc import print_table
-        maxp = max(len(event) for event in self.score)
-        headers = ["#"] + [f'p{n}' for n in range(maxp)]
-        print_table(self.score, headers=headers, floatfmt=".3f")
-
-    def addEvent(self,
-                 instr: int | float | str,
-                 start: float,
-                 dur: float,
-                 args: Sequence[float | str] | None = None,
-                 comment='') -> None:
-        """
-        Add an instrument ("i") event to the score
-
-        Args:
-            instr: the instr number or name, as passed to addInstr
-            start: the start time
-            dur: the duration of the event
-            args: pargs beginning at p4
-            comment: if given, the text is attached as a comment to the event
-                line in the score
-        """
-        start = round(start, 8)
-        dur = round(dur, 8)
-        event = ["i", _quoteIfNeeded(instr), start, dur]
-
-        if args:
-            args = _normalizeArgs(args)
-            event.extend(args)
-        if comment:
-            event.append(f"     ; {comment}")
-        self.score.append(event)
-
-    def strset(self, s: str, index: int | None) -> int:
-        """
-        Add a strset to this csd
-
-        If ``s`` has already been passed, the same index is returned
-        """
-        if s in self._str2index:
-            if index is not None and index != self._str2index[s]:
-                raise KeyError(f"String '{s}' already set with different index "
-                               f"(old: {self._str2index[s]}, new: {index})")
-            return self._str2index[s]
-
-        if index is None:
-            index = self._strLastIndex
-        else:
-            self._strLastIndex = max(self._strLastIndex, index)
-        self._strLastIndex += 1
-        self._str2index[s] = index
-        return index
-
-    def _assignTableIndex(self, tabnum=0) -> int:
-        if tabnum == 0:
-            tabnum = self._maxTableNumber + 1
-        else:
-            if tabnum in self._definedTables:
-                raise ValueError(f"ftable {tabnum} already defined")
-        if tabnum > self._maxTableNumber:
-            self._maxTableNumber = tabnum
-        self._definedTables.add(tabnum)
-        return tabnum
-
-    def _addTable(self, pargs, comment='') -> int:
-        """
-        Adds a ftable to the score
-
-        Args:
-            pargs: as passed to csound (without the "f")
-                p1 can be 0, in which case a table number
-                is assigned
-
-        Returns:
-            The index of the new ftable
-        """
-        tabnum = pargs[0]
-        if tabnum == 0:
-            tabnum = self._assignTableIndex()
-        else:
-            assert tabnum in self._definedTables
-        pargs = [_quoteIfNeeded(p) for p in pargs[1:]]
-        scoreline = ["f", tabnum] + pargs
-        if comment:
-            scoreline.append(f'    ; {comment}')
-        self.score.append(scoreline)
-        return tabnum
-
-    def addTableFromData(self,
-                         data: Sequence[float] | np.ndarray,
-                         tabnum: int = 0,
-                         start=0,
-                         filefmt='',
-                         sr=0,
-                         ) -> int:
-        """
-        Add a table definition with the data
-
-        Args:
-            data: a sequence of floats to fill the table. The size of the
-                table is determined by the size of the seq.
-            tabnum: 0 to auto-assign an index
-            start: allocation time of the table
-            filefmt: format to use when saving the table as a datafile. If not given,
-                the default is used. Possible values: 'gen23', 'wav'
-            sr: if given and data is a numpy array, it is saved as a soundfile
-                and loaded via gen1
-
-        Returns:
-            the table number
-
-        .. note::
-
-            The data is either included in the table definition (if it is
-            small enough) or saved as an external file. All external files are
-            saved relative to the generated .csd file when writing. Table data
-            is saved as 32 bit floats, so it might loose some precission from
-            the original.
-        """
-        sizeThreshold = config['offline_score_table_size_limit']
-
-        if isinstance(data, np.ndarray) and sr:
-            sndfile = _tempfile.mktemp(suffix=".wav")
-            import sndfileio
-            sndfileio.sndwrite(sndfile, samples=data, sr=sr, encoding='float32')
-            tabnum = self.addSndfile(sndfile, tabnum=tabnum, asProjectFile=True,
-                                     start=start)
-        else:
-            if not filefmt:
-                filefmt = config['datafile_format']
-
-            tabnum = self._assignTableIndex(tabnum)
-
-            if len(data) > sizeThreshold:
-                # If the data is big, we save the data. We will write
-                # it to a file when rendering
-                datafile = TableDataFile(tabnum, data, start=start, fmt=filefmt)
-                self._addProjectFile(datafile)
-            else:
-                pargs = [tabnum, start, -len(data), -2]
-                pargs.extend(data)
-                tabnum = self._addTable(pargs)
-
-        assert tabnum > 0
-        return tabnum
-
-    def _addProjectFile(self, datafile: TableDataFile) -> None:
-        self.datafiles[datafile.tabnum] = datafile
-        if isinstance(datafile.data, str):
-            self._datafileIndex[datafile.data] = datafile
-        assert datafile.tabnum in self._definedTables
-
-    def addEmptyTable(self, size: int, tabnum: int = 0, sr: int = 0,
-                      numchannels=1, time=0.
-                      ) -> int:
-        """
-        Add an empty table to this Csd
-
-        A table remains valid until the end of the csound process or until
-        the table is explicitely freed (see :meth:`~Csd.freeTable`)
-
-        Args:
-            tabnum: use 0 to autoassign an index
-            size: the size of the empty table
-            sr: if given, set the sr of the empty table to the given sr
-            numchannels: the number of channels in the table
-            time: when to do the allocation.
-
-        Returns:
-            The index of the created table
-        """
-        if sr == 0:
-            pargs = (tabnum, 0, -size, -2, 0)
-            return self._addTable(pargs)
-        else:
-            tabnum = self._assignTableIndex(tabnum)
-            self._ensureBuiltinInstr('_ftnew')
-            args = [tabnum, size, sr, numchannels]
-            self.addEvent('_ftnew', start=time, dur=0, args=args)
-            return tabnum
-
-    def freeTable(self, tabnum: int, time: float):
-        """
-        Free a table
-
-        Args:
-            tabnum: the table number
-            time: when to free it
-        """
-        self._ensureBuiltinInstr('_ftfree')
-        self.addEvent('_ftfree', start=time, dur=0, args=[tabnum])
-
-    def _ensureBuiltinInstr(self, name: str):
-        if self.instrs.get(name) is None:
-            self.addInstr(name, _builtinInstrs[name])
-
-    def addSndfile(self, sndfile: str, tabnum=0, start=0., skiptime=0, chan=0,
-                   asProjectFile=False) -> int:
-        """
-        Add a table which will load this sndfile
-
-        Args:
-            sndfile: the output to load
-            tabnum: fix the table number or use 0 to generate a unique table number
-            start: when to load this output (normally this should be left 0)
-            skiptime: begin reading at `skiptime` seconds into the file.
-            chan: channel number to read. 0 denotes read all channels.
-            asProjectFile: if True, the sndfile is included as a project file and
-                copied to a path relative to the .csd when writing
-
-        Returns:
-            the table number
-        """
-        sndfmt = _os.path.splitext(sndfile)[1][1:].lower()
-        supportedFormats = ('wav', 'aif', 'aiff', 'flac')
-        if sndfmt not in supportedFormats:
-            raise ValueError(f"Format '{sndfmt}' not supported, "
-                             f"supported formats: {supportedFormats}")
-
-        if datafile := self._datafileIndex.get(sndfile):
-            return datafile.tabnum
-
-        tabnum = self._assignTableIndex(tabnum)
-        datafile = TableDataFile(tabnum, data=sndfile, start=start, fmt=sndfmt)
-
-        if not asProjectFile:
-            pargs = [tabnum, start, 0, -1, sndfile, skiptime, 0, chan]
-            self._datafileIndex[sndfile] = datafile
-            self._addTable(pargs)
-        else:
-            self._addProjectFile(datafile)
-        assert tabnum > 0
-        return tabnum
-
-    def destroyTable(self, tabnum: int, time: float) -> None:
-        """
-        Schedule ftable with index `source` to be destroyed at time `time`
-
-        Args:
-            tabnum: the index of the table to be destroyed
-            time: the time to destroy it
-        """
-        pargs = ("f", -tabnum, time)
-        self.score.append(pargs)
-
-    def setEndMarker(self, time: float) -> None:
-        """
-        Add an end marker to the score
-
-        This is needed if, for example, all events are endless
-        events (with dur == -1).
-
-        If an end marker has been already set, setting it later will remove
-        the previous endmarker (there can be only one)
-        """
-        if time == 0 or self._endMarker > 0:
-            self.removeEndMarker()
-        self._endMarker = time
-        # We don't add the marker to the score because this needs to go at the end
-        # of the score. Any score line after the end marker will not be read
-
-    def removeEndMarker(self) -> None:
-        """
-        Remove the end-of-score marker
-        """
-        self._endMarker = 0
-
-    def setComment(self, comment: str) -> None:
-        """ Add a comment to the renderer output soundfile"""
-        self.addOptions(f'-+id_comment="{comment}"')
-
-    def setOutfileFormat(self, fmt: str) -> None:
-        """
-        Sets the format for the output soundfile
-
-        If this is not explicitely set it will be induced from
-        the output soundfile set when running the csd
-
-        Args:
-            fmt: the format to use ('wav', 'aif', 'flac', etc)
-        """
-        assert fmt in {'wav', 'aif', 'aiff', 'flac', 'ogg'}
-        self._outfileFormat = fmt
-
-    def setSampleEncoding(self, encoding: str) -> None:
-        """
-        Set the sample encoding for recording
-
-        If not set, csound's own default for encoding will be used
-
-        Args:
-            encoding: one of 'pcm16', 'pcm24', 'pcm32', 'float32', 'float64'
-
-        """
-        assert encoding in {'pcm16', 'pcm24', 'pcm32', 'float32', 'float64', 'vorbis'}
-        self._outfileEncoding = encoding
-
-    def setCompressionQuality(self, quality=0.4) -> None:
-        """
-        Set the compression quality
-
-        Args:
-            quality: a value between 0 and 1
-        """
-        self._compressionQuality = quality
-
-    def setCompressionBitrate(self, bitrate=128, format='ogg') -> None:
-        """
-        Set the compression quality by defining a bitrate
-
-        Args:
-            bitrate: the bitrate in kB/s
-            format: the format used (only 'ogg' at the moment)
-        """
-        self.setCompressionQuality(compressionBitrateToQuality(bitrate, format))
-
-    def _writeScore(self, stream, datadir='.', dataprefix='') -> None:
-        """
-        Write the score to `stream`
-
-        Args:
-            stream (file-like): the open stream to write to
-            datadir: the folder to save data files
-        """
-        self.score.sort(key=_eventStartTime)
-        for event in self.score:
-            line = " ".join(str(arg) for arg in event)
-            stream.write(line)
-            stream.write("\n")
-        for tabnum, datafile in self.datafiles.items():
-            assert tabnum > 0
-            outfilebase = f'table-{tabnum:04d}.{datafile.fmt}'
-            if dataprefix:
-                outfilebase = f'{dataprefix}-{outfilebase}'
-            datadirpath = _Path(datadir)
-            outfile = datadirpath / outfilebase
-            datafile.write(outfile.as_posix())
-            relpath = outfile.relative_to(datadirpath.parent)
-            stream.write(datafile.scoreLine(relpath.as_posix()))
-            stream.write('\n')
-        if self._endMarker:
-            stream.write(f'e {self._endMarker}    ; end marker')
-
-    def scoreDuration(self) -> float:
-        if self._endMarker:
-            return self._endMarker
-
-        endtime = 0.
-        for ev in self.score:
-            evstart = ev[2]
-            evdur = ev[3]
-            assert isinstance(evdur, (int, float)) and isinstance(evstart, (int, float))
-            if evdur < 0:
-                endtime = float('inf')
-                break
-            else:
-                endtime = max(endtime, evstart + evdur)
-        return endtime
-
-    def addInstr(self, instr: int | str, body: str, instrComment='') -> None:
-        """
-        Add an instrument definition to this csd
-
-        Args:
-            instr: the instrument number of name
-            body: the body of the instrument (the part between 'instr' / 'endin')
-            instrComment: if given, it will be added at the end of the 'instr' line
-        """
-        if _re.search(r"^\s*instr", body):
-            raise ValueError(f"The body should only include the instrument definition, "
-                             f"the part between 'instr' / 'endin', got: {body}")
-
-        instrdef = _InstrDef(p1=instr, body=body, samelineComment=instrComment)
-        self.instrs[instr] = instrdef
-
-    def addGlobalCode(self, code: str, acceptDuplicates=True) -> None:
-        """ Add code to the instr 0 """
-        if not acceptDuplicates and code in self.globalcodes:
-            return
-        self.globalcodes.append(code)
-
-    def addOptions(self, *options: str) -> None:
-        """
-        Adds options to this csd
-
-        Options are any command-line options passed to csound itself or which could
-        be used within a <CsOptions> tag. They are not checked for correctness
-        """
-        self.options.extend(options)
-
-    def dump(self) -> str:
-        """ Returns a string with the .csd """
-        stream = _io.StringIO()
-        self._writeCsd(stream)
-        return stream.getvalue()
-
-    def playTable(self, tabnum: int, start: float, dur: float = -1,
-                  gain=1., speed=1., chan=1, fade=0.05,
-                  skip=0.) -> None:
-        """
-        Add an event to play the given table
-
-        Args:
-            tabnum: the table number to play
-            start: schedule time (p2)
-            dur: duration of the event (leave -1 to play until the end)
-            gain: a gain factor applied to the table samples
-            chan: ??
-            fade: fade time (both fade-in and fade-out
-            skip: time to skip from playback (enables playback to crop a fragment at the beginning)
-
-        Example
-        =======
-
-        >>> csd = Csd()
-        >>> source = csd.addSndfile("stereo.wav")
-        >>> csd.playTable(source, source, start=1, fade=0.1, speed=0.5)
-        >>> csd.write("out.csd")
-        """
-        if self.instrs.get('_playgen1') is None:
-            self.addInstr('_playgen1', _builtinInstrs['_playgen1'])
-        assert tabnum > 0
-        args = [gain, speed, tabnum, chan, fade, skip]
-        self.addEvent('_playgen1', start=start, dur=dur, args=args)
-
-    def write(self, csdfile: str) -> None:
-        """
-        Write this as a .csd
-
-        Any data files added are written to a folder <csdfile>.assets besides the
-        generated .csd file.
-
-        Example
-        -------
-
-        >>> from csoundengine.csoundlib import Csd
-        >>> csd = Csd(...)
-        >>> csd.write("myscript.csd")
-
-        This will generate a ``myscript.csd`` file and a folder ``myscript.assets`` holding
-        any data file needed. If no data files are used, no ``.assets`` folder is created
-
-        """
-        csdfile = _os.path.expanduser(csdfile)
-        base = _os.path.splitext(csdfile)[0]
-        stream = open(csdfile, "w")
-        if self.datafiles:
-            datadir = base + ".assets"
-            _os.makedirs(datadir, exist_ok=True)
-        else:
-            datadir = ''
-        self._writeCsd(stream, datadir=datadir)
-
-    def _writeCsd(self, stream, datadir='') -> None:
-        """
-        Write this as a csd
-
-        Args:
-            stream: the stream to write to. Either a path, an open file or
-                a io.StringIO
-            datadir: the folder where all datafiles are written. Datafiles are
-                used whenever the user defines tables with data too large to
-                include 'inline' (as gen2) or when adding soundfiles.
-        """
-        if isinstance(stream, str):
-            outfile = stream
-            stream = open(outfile, "w")
-        write = stream.write
-        write("<CsoundSynthesizer>\n<CsOptions>\n")
-        options = self.options.copy()
-        if self.nodisplay:
-            options.append("-m0")
-
-        if self.numthreads > 1:
-            options.append(f"-j {self.numthreads}")
-
-        if self._outfileFormat:
-            options.extend(csoundOptionsForOutputFormat(self._outfileFormat, self._outfileEncoding))
-        elif self._outfileEncoding:
-            options.append(csoundOptionForSampleEncoding(self._outfileEncoding))
-
-        for option in options:
-            write(option)
-            write("\n")
-        write("</CsOptions>\n")
-
-        srstr = f"sr     = {self.sr}" if self.sr is not None else ""
-        
-        txt = rf"""
-            <CsInstruments>
-
-            {srstr}
-            ksmps  = {self.ksmps}
-            0dbfs  = 1
-            A4     = {self.a4}
-            nchnls = {self.nchnls}
-            """
-        txt = _textwrap.dedent(txt)
-        write(txt)
-        if self.nchnls_i is not None:
-            write(f'nchnls_i = {self.nchnls_i}\n')
-        tab = "  "
-
-        if self._str2index:
-            for s, idx in self._str2index.items():
-                write(f'strset {idx}, "{s}"\n')
-            write("\n")
-
-        if self.globalcodes:
-            write("; ----- global code\n")
-            for globalcode in self.globalcodes:
-                write(globalcode)
-                write("\n")
-            write("; ----- end global code\n\n")
-
-        for instr, instrdef in self.instrs.items():
-            if instrdef.preComment:
-                for line in instrdef.preComment.splitlines():
-                    write(f";;  {line}\n")
-            instrline = f"instr {instr}"
-            if instrdef.samelineComment:
-                instrline += f"  ; {instrdef.samelineComment}\n"
-            else:
-                instrline += "\n"
-            write(instrline)
-            if instrdef.postComment:
-                if instrdef.preComment:
-                    for line in instrdef.preComment.splitlines():
-                        write(f"{tab};;  {line}\n")
-            body = _textwrap.dedent(instrdef.body)
-            body = _textwrap.indent(body, tab)
-            write(body)
-            write("\nendin\n")
-        
-        write("\n</CsInstruments>\n")
-        write("\n<CsScore>\n\n")
-        
-        self._writeScore(stream, datadir=datadir)
-        
-        write("\n</CsScore>\n")
-        write("</CsoundSynthesizer>")
-
-    def run(self,
-            output: str,
-            csdfile='',
-            inputdev='',
-            backend='',
-            suppressdisplay=True,
-            nomessages=False,
-            piped=False,
-            extraOptions: list[str] | None = None
-            ) -> _subprocess.Popen:
-        """
-        Run this csd. 
-        
-        Args:
-            output: the output of the csd. This will be passed
-                as the -o argument to csound. If an empty string or None is given,
-                no sound is produced (adds the '--nosound' flag).
-            inputdev: the input device to use when running in realtime
-            csdfile: if given, the csd file will be saved to this path and run
-                from it. Otherwise a temp file is created and run.
-            backend: the backend to use
-            suppressdisplay: if True, display (table plots, etc.) is supressed
-            nomessages: if True, debugging scheduling information is suppressed
-            piped: if True, stdout and stderr are piped through
-                the Popen object, accessible through .stdout and .stderr
-                streams
-            extraOptions: any extra args passed to the csound binary
-
-        Returns:
-            the _subprocess.Popen object
-
-        """
-        options = self.options.copy()
-        outfileFormat = ''
-        outfileEncoding = ''
-        if not output:
-            options.append('--nosound')
-        elif not output.startswith('dac'):
-            outfileFormat = self._outfileFormat or _os.path.splitext(output)[1][1:]
-            outfileEncoding = self._outfileEncoding or bestSampleEncodingForExtension(outfileFormat)
-            if self._compressionQuality:
-                options.append(f'--vbr-quality={self._compressionQuality}')
-
-        if not csdfile:
-            csdfile = _tempfile.mktemp(suffix=".csd")
-            logger.debug(f"Runnings Csd from tempfile {csdfile}")
-
-        if outfileFormat:
-            options.extend(csoundOptionsForOutputFormat(outfileFormat, outfileEncoding))
-
-        if extraOptions:
-            options.extend(extraOptions)
-
-        options = emlib.misc.remove_duplicates(options)
-
-        self.write(csdfile)
-        return runCsd(csdfile, outdev=output, indev=inputdev,
-                      backend=backend, nodisplay=suppressdisplay,
-                      nomessages=nomessages,
-                      piped=piped, extra=options)
 
 
 def mincer(sndfile:str,
@@ -2709,8 +1753,8 @@ def recInstr(body: str, events: list, init='', outfile='',
         raise ValueError("samplefmt should be one of 16, 24, 32, or 'float'")
     csd.addOptions(fmtoption)
 
-    proc = csd.run(output=outfile)
-    return outfile, proc
+    renderjob = csd.run(output=outfile)
+    return outfile, renderjob.process
 
 
 def _ftsaveReadText(path: str) -> list[np.ndarray]:
@@ -2921,7 +1965,7 @@ def instrNames(instrdef: str) -> list[int | str]:
         [10, "foo"]
 
     """
-    lines  = instrdef.splitlines()
+    lines = instrdef.splitlines()
     matches = [line for line in lines if _re.match(r"^[\ \t]*\binstr\b", line)]
     if len(matches) > 1:
         raise ValueError(f"Expected only one instrument definition, got {matches}")
@@ -2971,6 +2015,7 @@ class _OrcBlock:
     endLine: int = 0
     outargs: str = ""
     inargs: str = ""
+
 
 def parseOrc(code: str, keepComments=True) -> list[ParsedBlock]:
     """
@@ -3071,8 +2116,8 @@ def parseOrc(code: str, keepComments=True) -> list[ParsedBlock]:
                                       endLine=block.endLine,
                                       text='\n'.join(block.lines),
                                       name=block.name,
-                                      attrs={'outargs':block.outargs,
-                                              'inargs':block.inargs}))
+                                      attrs={'outargs': block.outargs,
+                                             'inargs': block.inargs}))
         elif context and context[-1] in {'instr', 'opcode'}:
             block.lines.append(line)
         elif match := _re.search(r"^\s*(sr|ksmps|kr|A4|0dbfs|nchnls|nchnls_i)\s*=\s*(\d+)", line):
@@ -3089,10 +2134,10 @@ def parseOrc(code: str, keepComments=True) -> list[ParsedBlock]:
         elif match := _re.search(r"^\s*opcode\s+(\w+)\s*,\s*([0ika\[\]]*),\s*([0ikaoOjJpP\[\]]*)", line):
             context.append('opcode')
             block = _OrcBlock(name=match.group(1),
-                              startLine = i,
-                              lines = [line],
-                              outargs = match.group(2),
-                              inargs = match.group(3)
+                              startLine=i,
+                              lines=[line],
+                              outargs=match.group(2),
+                              inargs=match.group(3)
                               )
         elif strippedline.startswith('#include'):
             blocks.append(ParsedBlock(kind='include',
@@ -3301,6 +2346,13 @@ def splitDocstring(body: str | list[str]) -> tuple[str, str]:
         docstring = ''
         rest = body if isinstance(body, str) else '\n'.join(lines)
     return docstring, rest
+
+
+def instrGetBody(text: str) -> str:
+    lines = emlib.textlib.splitAndStripLines(text)
+    assert lines[0].startswith('instr') and lines[-1].startswith('endin')
+    lines = lines[1:-1]
+    return '\n'.join(lines)
 
 
 @_functools.cache
@@ -3623,7 +2675,7 @@ def soundfontSelectPreset(sfpath: str
         return None
     idx = items.index(item)
     preset = presets[idx]
-    bank, pnum, name= preset
+    bank, pnum, name = preset
     return (name, bank, pnum)
 
 
@@ -3699,6 +2751,21 @@ def soundfontPeak(sfpath: str, preset: tuple[int, int], pitches: tuple[int, int]
     return float(value)
 
 
+def splitScoreLine(line: str, quote=False) -> list[float | str]:
+    # i "instr" 1 2 3 "foo bar" 0.5 "foofi"
+    kind = line[0]
+    assert kind in 'ife'
+    rest = line[1:]
+    allparts = [kind]
+    # even parts are not quoted strings, odd parts are quoted strings
+    for i, part in enumerate(rest.split('"')):
+        if i % 2 == 0:
+            allparts.extend(float(sub.strip()) for sub in part.split())
+        else:
+            allparts.append(f'"{part}"' if quote else part)
+    return allparts
+
+
 def splitInclude(line: str) -> str:
     """
     Given an include line it splits the include path
@@ -3765,72 +2832,6 @@ def highlightCsoundOrc(code: str, theme='') -> str:
     return html
 
 
-def _eventEnd(event) -> float | None:
-    if len(event) >= 4:
-        # 0 1  2  3
-        # i p1 p2 p3
-        start = event[2]
-        dur = event[3]
-        if dur == -1:
-            return float('inf')
-        return start + dur
-    elif len(event) == 2:
-        return event[1]
-    else:
-        return None
-
-
-def _cropScore(events: list[Sequence], start=0., end=0.) -> list:
-    """
-    Crop the score so that no event exceeds the given limits
-
-    Args:
-        events: a list of events, where each event is a sequence
-            representing the pargs [p1, p2, p3, ...]
-        start: the min. start time for any event
-        end: the max. end time for any event
-
-    Returns:
-        the score events which are between start and end
-    """
-    scoreend = max(_ for ev in events
-                   if (_ := _eventEnd(ev)) is not None)
-    assert scoreend is not None and scoreend > 0, f"Invalid score duration ({scoreend}): {events}"
-    if end == 0:
-        end = scoreend
-    cropped = []
-    for ev in events:
-        kind = ev[0]
-        if kind == 'e' or kind == 'f':
-            evstart = ev[1]
-            if start <= evstart < end:
-                cropped.append(ev)
-        elif kind != 'i':
-            cropped.append(ev)
-            continue
-
-        evstart = ev[2]
-        evdur = ev[3]
-        evend = evstart + evdur if evdur >= 0 else float('inf')
-        if evend < start or evstart > end:
-            continue
-
-        if start <= evstart and evend <= end:
-            cropped.append(ev)
-        else:
-            xstart, xend = emlib.mathlib.intersection(start, end, evstart, evend)
-            if xstart is not None:
-                if xend == float('inf'):
-                    dur = -1
-                else:
-                    dur = xend - xstart
-                ev = list(ev)
-                ev[2] = xstart
-                ev[3] = dur
-                cropped.append(ev)
-    return cropped
-
-
 def channelTypeFromValue(value: int | float | str) -> str:
     """
     Channel type (k, S, a) from value
@@ -3851,3 +2852,96 @@ def isPfield(name: str) -> bool:
     """
     return _re.match(r'\bp[1-9][0-9]*\b', name) is not None
 
+
+def fillPfields(args: list[float | str],
+                namedpargs: dict[int, float],
+                defaults: dict[int, float] | None) -> list[float | str]:
+    if not defaults:
+        if namedpargs and not args:
+            maxp = max(namedpargs.keys())
+            out = [0.] * (maxp - 3)
+            for idx, value in namedpargs.items():
+                out[idx - 4] = value
+            return out
+        elif namedpargs and args:
+            maxp = max(len(args) + 3, max(namedpargs.keys()))
+            out = [0.] * (maxp - 3)
+            for i, arg in enumerate(args):
+                out[i] = arg
+            for idx, value in namedpargs.items():
+                out[idx-4] = value
+            return out
+        elif args:
+            return args
+        else:
+            # no args at all
+            raise ValueError("No args or namedargs given and no default values defined")
+
+    # with defaults
+    if namedpargs and not args:
+        maxp = max(max(defaults.keys()), max(namedpargs.keys()))
+        out = [0.] * (maxp - 3)
+        for idx, value in defaults.items():
+            out[idx - 4] = value
+        for idx, value in namedpargs.items():
+            out[idx - 4] = value
+        return out
+    elif namedpargs and args:
+        maxp = max(len(args)+3, max(defaults.keys()), max(namedpargs.keys()))
+        out = [0.] * (maxp - 3)
+        for idx, value in defaults.items():
+            out[idx - 4] = value
+        out[:len(args)] = args
+        for idx, value in namedpargs.items():
+            out[idx - 4] = value
+        return out
+    elif args:
+        maxp = max(len(args) + 3, max(defaults.keys()))
+        out = [0.] * (maxp - 3)
+        for idx, value in defaults.items():
+            out[idx - 4] = value
+        out[:len(args)] = args
+        return out
+    else:
+        # only defaults
+        maxp = max(defaults.keys())
+        out = [0.] * (maxp - 3)
+        for idx, value in defaults.items():
+            out[idx - 4] = value
+        return out
+
+
+def normalizeNamedPfields(pfields: dict[str, float],
+                          namesToIndexes: dict[str, int] | None = None
+                          ) -> dict[int, float]:
+    """
+    Given a dict mapping pfield as str to value, return a dict mapping pfield index to value
+
+    Args:
+        pfields: a dict of the form {pfield: value} where pfield can be
+        a key like 'p<n>' or a variable name which was assigned to this pfield
+        (like ``ifreq = p4``
+        namesToIndexes: a dict mapping variable names to indexes
+
+    Returns:
+        a dict of the form {pfieldindex: value}
+
+    Example
+    ~~~~~~~
+
+        >>> normalizeNamedPfields({'p4': 0.5, 'ifreq': 2000}, {'ifreq': 5})
+        {4: 0.5, 5: 2000}
+    """
+    out: dict[int, float] = {}
+    for k, value in pfields.items():
+        if k.startswith('p'):
+            out[int(k[1:])] = value
+        elif namesToIndexes:
+            assert k.startswith('k') or k.startswith('i')
+            idx = namesToIndexes.get(k)
+            if idx is None:
+                raise KeyError(f"Keyword pfield not known: {k}")
+            out[idx] = value
+        else:
+            raise KeyError(f"Keyword pfield not known: {k}")
+    return out

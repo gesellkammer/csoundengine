@@ -104,23 +104,22 @@ import numpy as np
 np.finfo(np.dtype("float32"))
 np.finfo(np.dtype("float64"))
 
-from .config import config, setLoggingLevel
 from .dependencies import checkDependencies, installDependencies
 _ok = checkDependencies(force=True, fix=True)
 if not _ok:
     raise RuntimeError("csoundengine: Depencencies not fullfilled")
 
-from .engine import *
-from .config import config, setLoggingLevel
+from .config import config, logger, setLoggingLevel
+from .engine import Engine
 from .session import Session
-from .instr import Instr
+from .offlinengine import OfflineEngine
 from .offline import Renderer
 from .synth import SynthGroup
-from . import csoundlib
 from . import tools
 from . import busproxy
 from . import schedevent
-from .csoundlib import (dumpAudioInfo, audioBackends)
+from . import csoundlib
+from .csoundlib import dumpAudioInfo
 from .event import Event
 
 import emlib.envir

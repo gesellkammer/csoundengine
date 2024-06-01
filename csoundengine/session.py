@@ -239,7 +239,7 @@ class Session(AbstractRenderer):
             _engine = Engine(**enginekws)
             logger.debug(f"Creating an Engine with default arguments: {engine}")
         elif isinstance(engine, str):
-            _engine = getEngine(engine)
+            _engine = Engine.activeEngines.get(engine)
             if _engine is None:
                 raise ValueError(f"Engine '{engine}' does not exist")
             if _engine._session is not None:
@@ -1364,7 +1364,8 @@ class Session(AbstractRenderer):
 
         if needssync and syncifneeded:
             self.engine.sync()
-        synthid = self.engine.sched(rinstr.instrnum, delay=abstime, dur=dur, args=pfields4, relative=False)
+        synthid = self.engine.sched(rinstr.instrnum, delay=abstime, dur=dur, args=pfields4,
+                                    relative=False, unique=True)
         synth = Synth(session=self,
                       p1=synthid,
                       instr=instr,
