@@ -13,6 +13,7 @@ from .config import config, logger
 from .enginebase import TableInfo, _EngineBase, _channelMode
 from . import csoundlib
 from . import engineorc
+from .engineorc import CONSTS, BUSKIND_CONTROL, BUSKIND_AUDIO
 from . import internal
 from .renderjob import RenderJob
 import ctcsound7 as ctcsound
@@ -144,19 +145,20 @@ class OfflineEngine(_EngineBase):
                  sampleAccurate=False,
                  encoding='',
                  commandlineOptions: list[str] | None = None):
+        super().__init__(sr=sr,
+                         ksmps=ksmps,
+                         a4=a4 or config['A4'],
+                         nchnls=nchnls,
+                         numAudioBuses=numAudioBuses if numAudioBuses is not None else config['num_audio_buses'],
+                         numControlBuses=numControlBuses if numControlBuses is not None else config['num_control_buses'],
+                         sampleAccurate=sampleAccurate)
         self.outfile = outfile or tempfile.mktemp(prefix='csoundengine-', suffix='.wav')
-        self.sr = sr
-        self.ksmps = ksmps
-        self.a4 = a4 or config['A4']
-        self.nchnls = nchnls
         self.globalcode = globalcode
         self.numAudioBuses = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
         self.numControlBuses = numControlBuses if numControlBuses is not None else config['num_control_buses']
         self.includes = includes
         self.encoding = encoding or csoundlib.bestSampleEncodingForExtension(os.path.splitext(self.outfile)[1][1:])
         self._renderjob: RenderJob | None = None
-        self._builtinInstrs: dict[str, int] = {}
-        """Dict of built-in instrs, mapping instr name to number"""
 
         self._strToIndex: dict[str, int] = {}
         self._indexToStr: dict[int, str] = {}
@@ -206,11 +208,11 @@ class OfflineEngine(_EngineBase):
         return "\n".join(includelines)
 
     def _start(self) -> ctcsound.Csound:
-        cs = ctcsound.Csound()
+        csound = ctcsound.Csound()
         for option in self.options:
-            cs.setOption(option)
+            csound.setOption(option)
         if not self.nosound:
-            cs.setOption(f'-o{self.outfile}')
+            csound.setOption(f'-o{self.outfile}')
 
         orc, instrmap = engineorc.makeOrc(sr=self.sr,
                                           ksmps=self.ksmps,
@@ -225,7 +227,7 @@ class OfflineEngine(_EngineBase):
         self._builtinInstrs = instrmap
         self._reservedInstrnums.update(set(instrmap.values()))
 
-        err = cs.compileOrc(orc)
+        err = csound.compileOrc(orc)
         if err:
             tmporc = tempfile.mktemp(prefix="csoundengine-", suffix=".orc")
             open(tmporc, "w").write(orc)
@@ -234,8 +236,17 @@ class OfflineEngine(_EngineBase):
 
             logger.error(internal.addLineNumbers(orc))
             raise CsoundError(f"Error compiling base ochestra, error: {err}")
-        cs.start()
-        return cs
+        csound.start()
+        if self.hasBusSupport():
+            chanptr, error = csound.channelPtr("_busTokenCount",
+                                               ctcsound.CSOUND_CONTROL_CHANNEL |
+                                               ctcsound.CSOUND_INPUT_CHANNEL |
+                                               ctcsound.CSOUND_OUTPUT_CHANNEL)
+            assert chanptr is not None, f"_busTokenCount channel not set: {error}\n{orc}"
+            self._busTokenCountPtr = chanptr
+            kbustable = int(csound.evalCode("return gi__bustable"))
+            self._kbusTable = csound.table(kbustable)
+        return csound
 
     def compile(self, code: str) -> None:
         """
@@ -443,6 +454,13 @@ class OfflineEngine(_EngineBase):
 
         self._shouldPerform = True
         return instr
+
+    def unsched(self, p1: float | str, delay: float = 0) -> None:
+        if (isinstance(p1, int) and int(p1) != p1) or (isinstance(p1, str) and "." in p1):
+            mode = 4
+        else:
+            mode = 0
+        self.sched('turnoff', delay, 0, p1, mode)
 
     @contextmanager
     def nohistory(self):
@@ -726,6 +744,24 @@ class OfflineEngine(_EngineBase):
         return tabnum
 
     def queryVariable(self, variable: str) -> float:
+        """
+        Query the value of a csound variable via the ``return`` opcode
+
+        Example
+        ~~~~~~~
+
+            >>> engine.compile(r'''
+            ... gkfoo init 0
+            ... instr 100
+            ...   gkfoo = p4
+            ... endin
+            ... ''')
+            >>> engine.sched(100, 0, 0, 314)
+            >>> engine.perform()
+            >>> engine.queryVariable('gkfoo')
+            314.0
+
+        """
         assert self.csound is not None
         return self.csound.evalCode(fr'return {variable}\n')
 
@@ -1165,12 +1201,184 @@ class OfflineEngine(_EngineBase):
             # split and schedule the parts
             # TODO
             raise ValueError(f"Only up to 5 pairs supported, got {pairs}")
-        args = [p1, numpairs]
+        args = [1 if isinstance(p1, str) else 0, p1, numpairs]
         args.extend(pairs)
-        instr = self._builtinInstrs['pwrite' if isinstance(p1, (int, float)) else 'pwritenamed']
+        instr = self._builtinInstrs['pwrite']
         self.sched(instr, delay=delay, dur=0, args=args)
 
-    # add bus support
+    def _getBusIndex(self, bus: int) -> int | None:
+        bus = int(bus)
+        if (index := self._busIndexes.get(bus)) is not None:
+            return index
+        busindex = self.csound.evalCode(f'i0 dict_get gi__bustoken2num, {bus}, -1\nreturn i0')
+        if busindex < 0:
+            return None
+        self._busIndexes[bus] = busindex
+        return busindex
+
+    def assignBus(self,
+                  kind='',
+                  value: float | None = None,
+                  persist=False
+                  ) -> int:
+        """
+        Assign one audio/control bus, returns the bus number.
+
+        Audio buses are always mono.
+
+        Args:
+            kind: the kind of bus, "audio" or "control". If left unset and value
+                is not given it defaults to an audio bus. Otherwise, if value
+                is given a control bus is created. Explicitely asking for an
+                audio bus and setting an initial value will raise an expection
+            value: for control buses it is possible to set an initial value for
+                the bus. If a value is given the bus is created as a control
+                bus. For audio buses this should be left as None
+            persist: if True the bus created is kept alive until the user
+                calls :meth:`~Engine.releaseBus`. Otherwise, the bus is
+                reference counted and is released after the last
+                user releases it.
+
+        Returns:
+            the bus token, can be passed to any instrument expecting a bus
+            to be used with the built-in opcodes :ref:`busin`, :ref:`busout`, etc.
+
+        A bus created here can be used together with the built-in opcodes :ref:`busout`,
+        :ref:`busin` and :ref:`busmix`. A bus can also be created directly in csound by
+        calling :ref:`busassign`
+
+        A non-persistent bus is reference counted: it is kept alive as long as there
+        are clients using it and it is released when it is not used anymore. At
+        creation the bus is "parked", waiting to be used by any client.
+        As long as no clients use it, the bus stays in this state and is ready to
+        be used. A persistent bus stays alive until it is freed via :meth:`OfflineEngine.releaseBus`
+
+        Order of evaluation is important: **audio buses are cleared at the end of each
+        performance cycle** and can only be used to communicate from a low
+        priority to a high priority instrument.
+
+        For more information, see :ref:`Bus Opcodes<busopcodes>`
+
+        Example
+        ~~~~~~~
+
+        Pass audio from one instrument to another. The bus will be released after the events
+        are finished.
+
+        >>> e = OfflineEngine(...)
+        >>> e.compile(r'''
+        ... instr 100
+        ...   ibus = p4
+        ...   kfreq = 1000
+        ...   asig vco2 0.1, kfreq
+        ...   busout(ibus, asig)
+        ... endin
+        ... ''')
+        >>> e.compile(r'''
+        ... instr 110
+        ...   ibus = p4
+        ...   asig = busin(ibus)
+        ...   ; do something with asig
+        ...   asig *= 0.5
+        ...   outch 1, asig
+        ... endin
+        ... ''')
+        >>> bus = e.assignBus("audio")
+        >>> s1 = e.sched(100, 0, 4, (bus,))
+        >>> s2 = e.sched(110, 0, 4, (bus,))
+        >>> e.perform()
+
+
+        Modulate one instr with another, at k-rate. **NB: control buses act like global
+        variables, the are not cleared at the end of each cycle**.
+
+        >>> e = OfflineEngine(...)
+        >>> e.compile(r'''
+        ... instr 130
+        ...   ibus = p4
+        ...   ; lfo between -0.5 and 0 at 6 Hz
+        ...   kvibr = linlin(lfo:k(1, 6), -0.5, 0, -1, 1)
+        ...   busout(ibus, kvibr)
+        ... endin
+        ...
+        ... instr 140
+        ...   itranspbus = p4
+        ...   kpitch = p5
+        ...   ktransp = busin:k(itranspbus, 0)
+        ...   kpitch += ktransp
+        ...   asig vco2 0.1, mtof(kpitch)
+        ...   outch 1, asig
+        ... endin
+        ... ''')
+        >>> bus = e.assignBus()
+        >>> s1 = e.sched(140, 0, -1, (bus, 67))
+        >>> s2 = e.sched(130, 0, -1, (bus,))  # start moulation
+        >>> e.unsched(s2)        # remove modulation
+        >>> e.writeBus(bus, 0)   # reset value
+        >>> e.unschedAll()
+
+        .. seealso:: :meth:`~Engine.writeBus`, :meth:`~Engine.readBus`, :meth:`~Engine.releaseBus`
+
+        """
+        if not self.hasBusSupport():
+            raise RuntimeError("This Engine was created without bus support")
+
+        if kind:
+            if value is not None and kind == 'audio':
+                raise ValueError(f"You asked to assign an audio bus but gave an initial "
+                                 f"value ({value})")
+        else:
+            kind = 'audio' if value is None else 'control'
+
+        bustoken = int(self._busTokenCountPtr[0])
+        assert isinstance(bustoken, int) and (kind == 'audio' or kind == 'control')
+        self._busTokenToKind[bustoken] = kind
+        ikind = BUSKIND_AUDIO if kind == 'audio' else BUSKIND_CONTROL
+        ivalue = value if value is not None else 0.
+        self._busTokenCountPtr[0] = bustoken + 1
+        synctoken = 0
+        pfields = [synctoken, bustoken, ikind, int(persist), ivalue]
+        self.sched(self._builtinInstrs['busassign'], delay=self.elapsedTime(), dur=0, args=pfields)
+        self._usesBuses = True
+        return bustoken
+
+    def releaseBus(self, bus: int, delay: float | None = None) -> None:
+        """
+        Release a persistent bus
+
+        Args:
+            bus: the bus to release, as returned by :meth:`OfflineEngine.assignBus`
+            delay: when to release the bus. None means now
+
+        .. seealso:: :meth:`~OfflineEngine.assignBus`
+        """
+        # bus is the bustoken
+        if not self.hasBusSupport():
+            raise RuntimeError("This OfflineEngine was created without bus support")
+        now = self.elapsedTime()
+        if delay is None:
+            delay = now
+        elif delay < now:
+            raise ValueError(f"The delay given ({delay} lies in the past ({now=})")
+        self.sched(self._builtinInstrs['busrelease'], delay, 0, int(bus))
+
+    def writeBus(self, bus: int, value: float, delay=0.) -> None:
+        if not self.hasBusSupport():
+            raise RuntimeError("This engine does not have bus support")
+
+        bus = int(bus)
+        kind = self._busTokenToKind.get(bus)
+        if not kind:
+            logger.warning(f"Bus token {bus} not known")
+        elif kind != 'control':
+            raise ValueError(f"Only control buses can be written to, got {kind}")
+
+        self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.ksmps/self.sr*2, args=(bus, value))
+
+
+
+
+
 
 
 

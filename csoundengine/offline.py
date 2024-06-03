@@ -745,7 +745,8 @@ class Renderer(AbstractRenderer):
             freqbus.automate((0, 880, 5, 440))
 
         """
-        assert self.hasBusSupport()
+        if not self.hasBusSupport():
+            raise RuntimeError("This Renderer was created without bus support")
 
         if kind:
             if value is not None and kind == 'audio':

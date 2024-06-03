@@ -75,7 +75,7 @@ class RenderJob:
 
         if not os.path.exists(self.outfile):
             info = (f"outfile='{self.outfile}' (not found), sr={_(self.samplerate)}, "
-                    f"encoding={self.encoding}")
+                    f"encoding={self.encoding}, args={self.args}")
             return f'<string>RenderJob</strong>({info})'
         else:
             sndfile = self.outfile

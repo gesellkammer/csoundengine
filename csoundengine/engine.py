@@ -469,17 +469,17 @@ class Engine(_EngineBase):
         "Name of this Engine"
 
         assert sr is not None and sr > 0
-        self.sr: int = sr
-        "Sample rate"
+
+        super().__init__(sr=sr,
+                         ksmps=ksmps,
+                         nchnls=nchnls,
+                         numAudioBuses=numAudioBuses if numAudioBuses is not None else config['num_audio_buses'],
+                         numControlBuses=numControlBuses if numControlBuses is not None else config['num_control_buses'],
+                         sampleAccurate=sampleAccurate,
+                         a4=a4)
 
         self.backend = resolvedBackend
         "Name of the backend used (jack, portaudio, etc)"
-
-        self.a4: int | float = a4
-        "Reference frequency for A4"
-
-        self.ksmps: int = ksmps
-        "Number of samples per cycle"
 
         self.onecycle: float = ksmps / sr
         "Duration of one performance cycle (ksmps/sr)"
@@ -495,9 +495,6 @@ class Engine(_EngineBase):
 
         self.indevName = indevName
         "Long name of the input device"
-
-        self.nchnls: int = nchnls
-        "Number of output channels"
 
         self.nchnls_i: int = nchnls_i
         "Number of input channels"
@@ -519,12 +516,6 @@ class Engine(_EngineBase):
 
         self.extraLatency: float = latency if latency is not None else config['sched_latency']
         "Added latency for better synch"
-
-        self.numAudioBuses: int = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
-        "Number of audio buses"
-
-        self.numControlBuses: int = numControlBuses if numControlBuses is not None else config['num_control_buses']
-        "Number of control buses"
 
         self.udpPort = 0
         "UDP port used (0 if no udp port is active)"
@@ -556,9 +547,6 @@ class Engine(_EngineBase):
 
         self.numthreads: int = numthreads
         """Number of threads to use in performance (corresponds to csound -j N)"""
-
-        self._builtinInstrs: dict[str, int] = {}
-        """Dict of built-in instrs, mapping instr name to number"""
 
         if midiin == 'all':
             midiindev = csoundlib.MidiDevice(deviceid='all', name='all')
@@ -643,11 +631,11 @@ class Engine(_EngineBase):
         self._instrNumCache: dict[str, int] = {}
 
         self._session: None | _session.Session = None
-        self._busTokenCountPtr: np.ndarray = np.empty((1,), dtype=float)
+        # self._busTokenCountPtr: np.ndarray = np.empty((1,), dtype=float)
         self._soundfontPresetCountPtr: np.ndarray = np.empty((1,), dtype=float)
-        self._kbusTable: np.ndarray | None = None
+        # self._kbusTable: np.ndarray | None = None
         self._busIndexes: dict[int, int] = {}
-        self._busTokenToKind: dict[int, str] = {}
+        # self._busTokenToKind: dict[int, str] = {}
         self._soundfontPresets: dict[tuple[str, int, int], int] = {}
         self._soundfontPresetCount = 0
         self._startTime = 0.
@@ -1851,14 +1839,19 @@ class Engine(_EngineBase):
         :meth:`~Engine.unschedAll`
 
         """
-        if isinstance(p1, str):
-            p1 = self.queryNamedInstr(p1)
-        if int(p1) == p1:
-            mode = 0   # all instances
+        if (isinstance(p1, int) and int(p1) != p1) or (isinstance(p1, str) and "." in p1):
+            mode = 4
         else:
-            mode = 4   # exact matching
-        pfields = [self._builtinInstrs['turnoff'], delay, 0, p1, mode]
-        self._perfThread.scoreEvent(0, "i", pfields)
+            mode = 0
+        self.sched('turnoff', delay, 0, p1, mode)
+        # if isinstance(p1, str):
+        #     p1 = self.queryNamedInstr(p1)
+        # if int(p1) == p1:
+        #     mode = 0   # all instances
+        # else:
+        #     mode = 4   # exact matching
+        # pfields = [self._builtinInstrs['turnoff'], delay, 0, p1, mode]
+        # self._perfThread.scoreEvent(0, "i", pfields)
 
     def unschedFuture(self, p1: float | str) -> None:
         """
@@ -3249,7 +3242,7 @@ class Engine(_EngineBase):
         numpairs = len(pairs) // 2
         assert len(pairs) % 2 == 0 and numpairs <= 5
         # this limit is just the limit of the pwrite instr, not of the opcode
-        args = [p1, numpairs]
+        args = [0, p1, numpairs]
         args.extend(pairs)
         self.sched(self._builtinInstrs['pwrite'], delay=delay, dur=0, args=args)
 
@@ -3856,9 +3849,13 @@ class Engine(_EngineBase):
             self._eventWithCallback(token=synctoken, pargs=pfields, callback=callback)
             return None
 
-    def releaseBus(self, bus: int) -> None:
+    def releaseBus(self, bus: int, delay: float | None = None) -> None:
         """
         Release a persistent bus
+
+        Args:
+            bus: the bus to release, as returned by :meth:`OfflineEngine.assignBus`
+            delay: when to release the bus (relative time). None means now
 
         .. seealso:: :meth:`~Engine.assignBus`
         """
@@ -3867,7 +3864,7 @@ class Engine(_EngineBase):
             raise RuntimeError("This Engine was created without bus support")
 
         self._busIndexes.pop(bus, None)
-        pargs = [self._builtinInstrs['busrelease'], 0, 0, int(bus)]
+        pargs = [self._builtinInstrs['busrelease'], delay or 0., 0, int(bus)]
         self._perfThread.scoreEvent(0, "i", pargs)
 
     def _dumpbus(self, bus: int):
@@ -3892,7 +3889,7 @@ class Engine(_EngineBase):
             persist: if True the bus created is kept alive until the user
                 calls :meth:`~Engine.releaseBus`. Otherwise, the bus is
                 reference counted and is released after the last
-                user releases it. 
+                user releases it.
 
         Returns:
             the bus token, can be passed to any instrument expecting a bus
@@ -4027,17 +4024,6 @@ class Engine(_EngineBase):
                 'numAudioBuses': self.numAudioBuses,
                 'numControlBuses': self.numControlBuses}
 
-    def hasBusSupport(self) -> bool:
-        """
-        Returns True if this Engine was started with bus support
-
-        .. seealso::
-
-            :meth:`Engine.assignBus`
-            :meth:`Engine.writeBus`
-            :meth:`Engine.readBus`
-        """
-        return (self.numAudioBuses > 0 or self.numControlBuses > 0)
 
     @staticmethod
     def lastEngine() -> Engine | None:

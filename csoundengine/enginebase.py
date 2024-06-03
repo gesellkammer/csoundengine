@@ -7,7 +7,10 @@ import os
 import emlib.misc
 import sndfileio
 import numpy as np
+import ctcsound7 as ctcsound
+from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL
 from abc import ABC, abstractmethod
+from typing import Sequence
 
 
 @dataclasses.dataclass
@@ -64,6 +67,46 @@ def _channelMode(kind: str) -> int:
 
 
 class _EngineBase(ABC):
+
+    def __init__(self,
+                 sr: int,
+                 ksmps: int,
+                 nchnls: int,
+                 numAudioBuses: int,
+                 numControlBuses: int,
+                 sampleAccurate=False,
+                 a4: int = 442
+                 ):
+        self.sr = sr
+        "Sample rate"
+
+        self.ksmps = ksmps
+        "Number of samples per cycle"
+
+        self.nchnls = nchnls
+        "Number of output channels"
+
+        self.numAudioBuses = numAudioBuses
+        "Number of audio buses"
+
+        self.numControlBuses = numControlBuses
+        "Number of control buses"
+
+        self.sampleAccurate = sampleAccurate
+        "Use sample accurate scheduling"
+
+        self.a4 = a4
+        "Reference frequency for A4"
+
+        self._busTokenCountPtr: np.ndarray = np.empty((1,), dtype=float)
+        self._busTokenToKind: dict[int, str] = {}
+        self._kbusTable: np.ndarray | None = None
+        self._busIndexes: dict[int, int] = {}
+        self._builtinInstrs: dict[str, int] = {}
+        """Dict of built-in instrs, mapping instr name to number"""
+
+    @abstractmethod
+    def unsched(self, p1: float | str, delay: float = 0) -> None: ...
 
     @abstractmethod
     def readSoundfile(self, path: str, tabnum=0, chan=0, skiptime=0., delay=0., unique=True
@@ -174,13 +217,63 @@ class _EngineBase(ABC):
     @abstractmethod
     def freeTable(self, tableindex: int, delay=0.) -> None: ...
 
+    def hasBusSupport(self) -> bool:
+        """
+        Returns True if this Engine was started with bus support
 
+        .. seealso::
 
+            :meth:`~csoundengine.engine.Engine.assignBus`
+            :meth:`~csoundengine.engine.Engine.writeBus`
+            :meth:`~csoundengine.engine.Engine.readBus`
+        """
+        return (self.numAudioBuses > 0 or self.numControlBuses > 0)
 
+    @abstractmethod
+    def assignBus(self,
+                  kind='',
+                  value: float | None = None,
+                  persist=False
+                  ) -> int:
+        ...
 
+    @abstractmethod
+    def writeBus(self, bus: int, value: float, delay=0.) -> None:
+        """
+        Set the value of a control bus
 
+        Normally a control bus is set via another running instrument,
+        but it is possible to set it directly from python. The first
+        time a bus is set or queried there is short delay, all
+        subsequent operations on the bus are very fast.
 
+        Args:
+            bus: the bus token, as returned via :meth:`Engine.assignBus`
+            value: the new value
+            delay: if given, the modification is scheduled in the future
 
+        .. seealso::
 
+            :meth:`~Engine.readBus`
+            :meth:`~Engine.assignBus`
+            :meth:`~Engine.automateBus`
+
+        Example
+        ~~~~~~~
+
+        >>> e = Engine(...)
+        >>> e.compile(r'''
+        ... instr 100
+        ...   ifreqbus = p4
+        ...   kfreq = busin:k(ifreqbus)
+        ...   outch 1, vco2:a(0.1, kfreq)
+        ... endin
+        ... ''')
+        >>> freqbus = e.assignBus(value=1000)
+        >>> e.sched(100, 0, 4, args=[freqbus])
+        >>> e.writeBus(freqbus, 500, delay=0.5)
+
+        """
+        raise NotImplementedError
 
 

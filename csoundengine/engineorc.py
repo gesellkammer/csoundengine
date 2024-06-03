@@ -103,7 +103,12 @@ endin
 instr ${turnoff}
     iwhich = p4
     imode = p5
-    turnoff2_i iwhich, imode, 1
+    if qnan:i(iwhich) == 0 then
+        turnoff2_i iwhich, imode, 1
+    else
+        Swhich = p4
+        turnoff2_i iwhich, imode, 1
+    endif
 endin
 
 instr ${turnoff_future}
@@ -377,41 +382,29 @@ instr ${ftsetparams}
 endin
 
 instr ${pwrite}
-    ip1 = p4
-    inumpairs = p5
+    itype = p4
+    if itype == 1 then
+        Sp1 = p5
+        ip1 = namedinstrtofrac(Sp1)
+    else
+        ip1 = p5
+    endif
+    inumpairs = p6
+    
     if inumpairs == 1 then
-        pwrite ip1, p(6), p(7)
+        pwrite ip1, p7, p8
     elseif inumpairs == 2 then
-        pwrite ip1, p(6), p(7), p(8), p(9)
+        pwrite ip1, p7, p8, p9, p10
     elseif inumpairs == 3 then
-        pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11)
+        pwrite ip1, p7, p8, p9, p10, p11, p12
     elseif inumpairs == 4 then
-        pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13)
+        pwrite ip1, p7, p8, p9, p10, p11, p12, p13, p14
     elseif inumpairs == 5 then
-        pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13), p(14), p(15)
+        pwrite ip1, p7, p8, p9, p10, p11, p12, p13, p14, 15, p16
     else
         initerror sprintf("Max. pairs is 5, got %d", inumpairs)
     endif
 endin
-
-instr ${pwritenamed}
-    Sp1 = p4
-    ip1 = namedinstrtofrac(Sp1)
-    inumpairs = p5
-    if inumpairs == 1 then
-        pwrite ip1, p(6), p(7)
-    elseif inumpairs == 2 then
-        pwrite ip1, p(6), p(7), p(8), p(9)
-    elseif inumpairs == 3 then
-        pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11)
-    elseif inumpairs == 4 then
-        pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13)
-    elseif inumpairs == 5 then
-        pwrite ip1, p(6), p(7), p(8), p(9), p(10), p(11), p(12), p(13), p(14), p(15)
-    else
-        initerror sprintf("Max. pairs is 5, got %d", inumpairs)
-    endif
-endif
 
 instr ${pread}
     itoken = p4
@@ -649,6 +642,17 @@ opcode busassign, i, So
     xout itoken
 endop
 
+opcode busin, i, io
+    itoken, idefault xin
+    ibus = _bususe(itoken, $$_BUSKIND_CONTROL)
+    ival tab_i ibus, gi__bustable
+    if ival == $$_BUSUNSET then
+        tabw_i idefault, ibus, gi__bustable
+    endif
+    ival tab_i ibus, gi__bustable
+    xout ival
+endop
+
 opcode busin, a, i
     itoken xin
     ibus = _bususe(itoken, $$_BUSKIND_AUDIO)
@@ -690,6 +694,46 @@ opcode busmix, 0, ia
     ibus = _bususe(itoken, $$_BUSKIND_AUDIO)
     ga__buses[ibus] = ga__buses[ibus] + asig
 endop
+
+; This instr MUST come before any other instrs using buses for 
+; offline rendering to work
+instr ${busassign}
+    ; query the index of a bus / create a bus if not assigned
+    ; args: 
+    ;  isynctoken: the synctoken to return the bus index. if 0, no
+    ;    callback is scheduled
+    ;  ibustoken: the bus token
+    ;  iassign: if 1, assign a bus if no bus is found for this bustoken
+    ;  ikind: 0: audio bus, 1: scalar bus
+    isynctoken = p4
+    ibustoken  = p5
+    ikind      = p6
+    iaddref    = p7
+    ivalue     = p8
+    ibus dict_get gi__bustoken2num, ibustoken, -1
+    
+    if ibus == -1 then
+        ibus = _busnew(ibustoken, ikind)
+    else
+        goto __exit
+    endif
+    
+    if ikind == $$_BUSKIND_CONTROL then
+        ; a new control bus, set default value
+        tabw_i ivalue, ibus, gi__bustable
+    endif
+    
+    if iaddref == 1 then
+        _busaddref(ibus, ikind)
+    endif
+    
+__exit:
+    if isynctoken > 0 then
+        tabw_i ibus, isynctoken, gi__responses
+        outvalue "__sync__", isynctoken
+    endif
+    turnoff
+endin
 
 instr ${automateBusViaPargs}
     itoken        = p4
@@ -793,44 +837,6 @@ instr ${busoutk}
     ivalue = p5
     ibus = _busget(itoken, 1)
     tabw_i ivalue, ibus, gi__bustable
-    turnoff
-endin
-
-instr ${busassign}
-    ; query the index of a bus / create a bus if not assigned
-    ; args: 
-    ;  isynctoken: the synctoken to return the bus index. if 0, no
-    ;    callback is scheduled
-    ;  ibustoken: the bus token
-    ;  iassign: if 1, assign a bus if no bus is found for this bustoken
-    ;  ikind: 0: audio bus, 1: scalar bus
-    isynctoken = p4
-    ibustoken  = p5
-    ikind      = p6
-    iaddref    = p7
-    ivalue     = p8
-    ibus dict_get gi__bustoken2num, ibustoken, -1
-    
-    if ibus == -1 then
-        ibus = _busnew(ibustoken, ikind)
-    else
-        goto __exit
-    endif
-    
-    if ikind == $$_BUSKIND_CONTROL then
-        ; a new control bus, set default value
-        tabw_i ivalue, ibus, gi__bustable
-    endif
-    
-    if iaddref == 1 then
-        _busaddref(ibus, ikind)
-    endif
-    
-__exit:
-    if isynctoken > 0 then
-        tabw_i ibus, isynctoken, gi__responses
-        outvalue "__sync__", isynctoken
-    endif
     turnoff
 endin
 
