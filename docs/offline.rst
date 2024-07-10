@@ -3,29 +3,39 @@
 Offline Rendering
 =================
 
-Offline rendering is implemented via the :class:`~csoundengine.offline.Renderer` class,
-which has the same interface as a :class:`~csoundengine.session.Session` and
-can be used as a drop-in replacement.
+Offline rendering follows real-time processing very closely. The :class:`~csoundengine.offlineengine.OfflineEngine`
+class represents a csound process running in offline mode and is an almost drop-in replacement to the
+:class:`~csoundengine.engine.Engine` class.
+
+High-level rendering is implemented via the :class:`~csoundengine.offline.OfflineSession` class,
+which has the same interface as a :class:`~csoundengine.session.Session`
 
 
-**Example**
+Example low-level API
+---------------------
+
+.. include:: offlineengine_example.inc
+
+
+Example (high-level API)
+------------------------
 
 .. code-block:: python
 
     from csoundengine import *
     from pitchtools import *
 
-    renderer = Renderer(sr=44100, nchnls=2)
+    session = OfflineSession(sr=44100, nchnls=2)
 
-    renderer.defInstr('saw', r'''
+    session.defInstr('saw', r'''
       kmidi = p5
       outch 1, oscili:a(0.1, mtof:k(kfreq))
     ''')
 
     events = [
-        renderer.sched('saw', 0, 2, kmidi=ntom('C4')),
-        renderer.sched('saw', 1.5, 4, kmidi=ntom('4G')),
-        renderer.sched('saw', 1.5, 4, kmidi=ntom('4G+10'))
+        session.sched('saw', 0, 2, kmidi=ntom('C4')),
+        session.sched('saw', 1.5, 4, kmidi=ntom('4G')),
+        session.sched('saw', 1.5, 4, kmidi=ntom('4G+10'))
     ]
 
     # offline events can be automated just like real-time events
@@ -33,12 +43,12 @@ can be used as a drop-in replacement.
 
     events[1].set(delay=3, kmidi=67.2)
     events[2].set(kmidi=80, delay=4)
-    renderer.render("out.wav")
+    session.render("out.wav")
 
 
-It is possible to create a :class:`~csoundengine.offline.Renderer` out of an existing
+It is possible to create an :class:`~csoundengine.offline.OfflineSession` out of an existing
 :class:`~csoundengine.session.Session`, by calling :meth:`session.makeRenderer <csoundengine.session.Session.makeRenderer>`.
-This creates a :class:`~csoundengine.offline.Renderer` with all :class:`~csoundengine.instr.Instr` and resources
+This creates an :class:`~csoundengine.offline.OfflineSession` with all :class:`~csoundengine.instr.Instr` and resources
 (tables, include files, global code, etc.) in the :class:`~csoundengine.session.Session` already defined.
 
 .. code-block:: python
@@ -56,7 +66,7 @@ This creates a :class:`~csoundengine.offline.Renderer` with all :class:`~csounde
     renderer.playSample('path/to/soundfile')
     renderer.render('out.wav')
 
-A more convenient way to render offline given a live :class:`~csoundengine.session.Session` is to use the
+An alternative way to render offline given a live :class:`~csoundengine.session.Session` is to use the
 :meth:`~csoundengine.session.Session.rendering` method:
 
 .. code-block:: python
@@ -72,29 +82,16 @@ A more convenient way to render offline given a live :class:`~csoundengine.sessi
 
 ----------------------
 
-Renderer
-========
+.. toctree::
+    :maxdepth: 1
 
-.. autoclass:: csoundengine.offline.Renderer
-    :members:
-    :autosummary:
-
-
-----------------------
-
-**RenderJob**
-
-.. autoclass:: csoundengine.enginebase.RenderJob
-    :members:
-    :autosummary:
-
+    offlineengine
+    offlinerenderer
 
 
 .. toctree::
-    :maxdepth: 1
     :hidden:
-
+    renderjob
     schedevent
-
 
 

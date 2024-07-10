@@ -28,11 +28,11 @@ class Instr:
     An Instr is a template used to schedule a concrete instrument
 
     Instrs are used within a :class:`~csoundengine.session.Session` (realtime
-    rendering) or a :class:`~csoundengine.offline.Renderer` (offline rendering)
+    rendering) or a :class:`~csoundengine.offline.OfflineSession` (offline rendering)
 
     .. note::
 
-        An Instr must be registered at the Session/Renderer before it can be used.
+        An Instr must be registered at the Session/OfflineSession before it can be used.
         See :meth:`csoundengine.instr.Instr.register` or :meth:`csoundengine.session.Session.defInstr`
 
     Args:
@@ -166,7 +166,7 @@ class Instr:
     **Offline rendering**
 
     An Instr can also be used to define instruments for offline rendering (see
-    :class:`~csoundengine.offline.Renderer`)
+    :class:`~csoundengine.offlineengine.OfflineEngine`)
 
     .. code-block:: python
 
@@ -1021,8 +1021,8 @@ class Instr:
             duration   : 2.000
 
         """
-        from csoundengine.offline import Renderer
-        r = Renderer(sr=sr, nchnls=nchnls, ksmps=ksmps, a4=a4)
+        from csoundengine.offline import OfflineSession
+        r = OfflineSession(sr=sr, nchnls=nchnls, ksmps=ksmps, a4=a4)
         r.registerInstr(self)
         r.sched(instrname=self.name,
                 delay=delay,

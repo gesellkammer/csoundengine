@@ -112,8 +112,8 @@ if not _ok:
 from .config import config, logger, setLoggingLevel
 from .engine import Engine
 from .session import Session
-from .offlinengine import OfflineEngine
-from .offline import Renderer
+from .offlineengine import OfflineEngine
+from .offline import OfflineSession
 from .synth import SynthGroup
 from . import tools
 from . import busproxy

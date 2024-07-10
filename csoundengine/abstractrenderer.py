@@ -19,8 +19,7 @@ __all__ = (
 
 class AbstractRenderer(ABC):
     """
-    Base class for live rendering (:class:`~csoundengine.session.Session`) and
-    offline rendering (:class:`~csoundengine.offline.Renderer`)
+    Base class for rendering (both live and offline)
     """
 
     @abstractmethod
@@ -35,8 +34,9 @@ class AbstractRenderer(ABC):
               instrname: str,
               delay=0.,
               dur=-1.,
-              priority=1,
+              *pfields,
               args: Sequence[float|str] | dict[str, float] | None = None,
+              priority=1,
               whenfinished: Callable | None = None,
               relative=True,
               **kwargs) -> SchedEvent:

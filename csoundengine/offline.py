@@ -26,7 +26,7 @@ from . import offlineorc
 from . import instrtools
 from . import busproxy
 from . import engineorc
-from .offlinengine import OfflineEngine
+from .offlineengine import OfflineEngine
 from .renderjob import RenderJob
 from .enginebase import TableInfo
 from .engineorc import BUSKIND_CONTROL, BUSKIND_AUDIO
@@ -45,9 +45,9 @@ if TYPE_CHECKING or "sphinx" in sys.modules:
 
 
 __all__ = (
-    "Renderer",
-    "RenderJob",
+    "OfflineSession",
     "OfflineEngine"
+    "RenderJob",
 )
 
 
@@ -73,11 +73,11 @@ class ChannelDef:
         assert self.mode in ('r', 'w', 'rw', 'wr')
 
 
-class Renderer(AbstractRenderer):
+class OfflineSession(AbstractRenderer):
     """
-    A Renderer is used when rendering offline.
+    An OfflineSession is used when rendering offline.
 
-    In most cases a :class:`Renderer` is a drop-in replacement of a
+    In most cases an :class:`OfflineSession` is a drop-in replacement of a
     :class:`~csoundengine.session.Session` when rendering offline
     (see :meth:`~csoundengine.session.Session.makeRenderer`).
 
@@ -103,23 +103,23 @@ class Renderer(AbstractRenderer):
     .. code-block:: python
 
         from csoundengine import *
-        renderer = Renderer(sr=44100, nchnls=2)
+        session = OfflineSession(sr=44100, nchnls=2)
 
-        Instr('saw', r'''
+        session.defInstr('saw', r'''
           kmidi = p5
           outch 1, oscili:a(0.1, mtof:k(kfreq))
-        ''').register(renderer)
+        ''')
 
         score = [('saw', 0,   2, 60),
                  ('saw', 1.5, 4, 67),
                  ('saw', 1.5, 4, 67.1)]
-        events = [renderer.sched(ev[0], delay=ev[1], dur=ev[2], args=ev[3:])
+        events = [session.sched(ev[0], delay=ev[1], dur=ev[2], args=ev[3:])
                   for ev in score]
 
         # offline events can be modified just like real-time events
         events[0].automate('kmidi', pairs=[0, 60, 2, 59])
         events[1].set(3, 'kmidi', 67.2)
-        renderer.render("out.wav")
+        session.render("out.wav")
 
     """
     def __init__(self,
@@ -152,13 +152,13 @@ class Renderer(AbstractRenderer):
 
         # maps eventid -> ScoreEvent.
         self.scheduledEvents: dict[int, SchedEvent] = {}
-        """All events scheduled in this Renderer, mapps token to event"""
+        """All events scheduled in this session, mapps token to event"""
 
         self.renderedJobs: list[RenderJob] = []
         """A stack of rendered jobs"""
 
         self.csd = _csd.Csd(sr=self.sr, nchnls=nchnls, ksmps=self.ksmps, a4=self.a4)
-        """Csd structure for this renderer (see :class:`~csoundengine.csd.Csd`"""
+        """Csd structure for this session (see :class:`~csoundengine.csd.Csd`"""
 
         self.controlArgsPerInstr = dynamicArgsPerInstr or config['max_dynamic_args_per_instr']
         """The maximum number of dynamic controls per instr"""
@@ -167,7 +167,7 @@ class Renderer(AbstractRenderer):
         """Maps instr name to Instr instance"""
 
         self.numPriorities: int = priorities
-        """Number of priorities in this Renderer"""
+        """Number of priorities in this session"""
 
         self.soundfileRegistry: dict[str, TableProxy] = {}
         """A dict mapping soundfile paths to their corresponding TableProxy"""
@@ -365,17 +365,17 @@ class Renderer(AbstractRenderer):
         return textwrap.dedent(out)
 
     def generateInstrBody(self, instr: Instr) -> str:
-        return Renderer.defaultInstrBody(instr)
+        return OfflineSession.defaultInstrBody(instr)
 
     def _registerExitCallback(self, callback) -> None:
         """
-        Register a function to be called when exiting this Renderer as context manager
+        Register a function to be called when exiting this renderer as context manager
         """
         self._exitCallbacks.add(callback)
 
     def registerInstr(self, instr: Instr) -> bool:
         """
-        Register an Instr to be used in this Renderer
+        Register an Instr to be used in this session
 
         Args:
             instr: the insturment to register
@@ -388,7 +388,7 @@ class Renderer(AbstractRenderer):
         ~~~~~~~
 
             >>> from csoundengine import *
-            >>> renderer = Renderer(sr=44100, nchnls=2)
+            >>> session = OfflineSession(sr=44100, nchnls=2)
             >>> instrs = [
             ... Instr('vco', r'''
             ...   |kmidi=60|
@@ -399,10 +399,10 @@ class Renderer(AbstractRenderer):
             ...   outch 1, oscili:a(0.1, mtof:k(kmidi))
             ... ''')]
             >>> for instr in instrs:
-            ...     instr.register(renderer)   # This will call .registerInstr
-            >>> renderer.sched('vco', dur=4, kmidi=67)
-            >>> renderer.sched('sine', 2, dur=3, kmidi=68)
-            >>> renderer.render('out.wav')
+            ...     instr.register(session)   # This will call .registerInstr
+            >>> session.sched('vco', dur=4, kmidi=67)
+            >>> session.sched('sine', 2, dur=3, kmidi=68)
+            >>> session.render('out.wav')
 
         """
         oldinstr = self.instrs.get(instr.name)
@@ -423,7 +423,7 @@ class Renderer(AbstractRenderer):
                  useDynamicPfields: bool | None = None,
                  **kws) -> Instr:
         """
-        Create an :class:`~csoundengine.instr.Instr` and register it with this renderer
+        Create an :class:`~csoundengine.instr.Instr` and register it with this session
 
         Args:
             name (str): the name of the created instr
@@ -446,7 +446,7 @@ class Renderer(AbstractRenderer):
 
         Returns:
             the created Instr. If needed, this instr can be registered
-            at any other Renderer/Session
+            at any other session
 
         .. seealso: :class:`~csoundengine.instr.Instr`, :meth:`Session.defInstr <csoundengine.session.Session.defInstr>`
 
@@ -454,9 +454,9 @@ class Renderer(AbstractRenderer):
         ~~~~~~~
 
             >>> from csoundengine import *
-            >>> renderer = Renderer()
+            >>> session = OfflineSession()
             # An Instr with named pfields
-            >>> renderer.defInstr('synth', '''
+            >>> session.defInstr('synth', '''
             ... |ibus, kamp=0.5, kmidi=60|
             ... kfreq = mtof:k(lag:k(kmidi, 1))
             ... a0 vco2 kamp, kfreq
@@ -464,18 +464,18 @@ class Renderer(AbstractRenderer):
             ... busout ibus, a0
             ... ''')
             # An instr with named table args
-            >>> renderer.defInstr('filter', '''
+            >>> session.defInstr('filter', '''
             ... {ibus=0, kcutoff=1000, kresonance=0.9}
             ... a0 = busin(ibus)
             ... a0 = moogladder2(a0, kcutoff, kresonance)
             ... outch 1, a0
             ... ''')
 
-            >>> bus = renderer.assignBus()
-            >>> event = renderer.sched('synth', 0, dur=10, ibus=bus, kmidi=67)
+            >>> bus = session.assignBus()
+            >>> event = session.sched('synth', 0, dur=10, ibus=bus, kmidi=67)
             >>> event.set(kmidi=60, delay=2)  # This will set the kmidi param
 
-            >>> filt = renderer.sched('filter', 0, dur=event.dur, priority=event.priority+1,
+            >>> filt = session.sched('filter', 0, dur=event.dur, priority=event.priority+1,
             ...                       args={'ibus': bus, 'kcutoff': 1000})
             >>> filt.automate('kcutoff', [3, 1000, 6, 200, 10, 4000])
         """
@@ -530,8 +530,8 @@ class Renderer(AbstractRenderer):
         ~~~~~~~
 
         >>> from csoundengine import *
-        >>> renderer = Renderer(...)
-        >>> renderer.addGlobalCode("giMelody[] fillarray 60, 62, 64, 65, 67, 69, 71")
+        >>> session = OfflineSession(...)
+        >>> session.addGlobalCode("giMelody[] fillarray 60, 62, 64, 65, 67, 69, 71")
         """
         self.csd.addGlobalCode(code, acceptDuplicates=not unique)
 
@@ -562,6 +562,7 @@ class Renderer(AbstractRenderer):
               instrname: str,
               delay=0.,
               dur=-1.,
+              *pfields,
               args: Sequence[float | str] | dict[str, float] | None = None,
               priority=1,
               whenfinished: Callable | None = None,
@@ -590,7 +591,7 @@ class Renderer(AbstractRenderer):
         ~~~~~~~
 
             >>> from csoundengine import *
-            >>> renderer = Renderer(sr=44100, nchnls=2)
+            >>> session = OfflineSession(sr=44100, nchnls=2)
             >>> instrs = [
             ... Instr('vco', r'''
             ...   |kmidi=60|
@@ -601,12 +602,18 @@ class Renderer(AbstractRenderer):
             ...   outch 1, oscili:a(kamp, mtof:k(kmidi))
             ... ''')]
             >>> for instr in instrs:
-            ...     renderer.registerInstr(instr)
-            >>> renderer.sched('vco', dur=4, kmidi=67)
-            >>> renderer.sched('sine', 2, dur=3, kmidi=68)
-            >>> renderer.render('out.wav')
+            ...     session.registerInstr(instr)
+            >>> session.sched('vco', dur=4, kmidi=67)
+            >>> session.sched('sine', 2, dur=3, kmidi=68)
+            >>> session.render('out.wav')
 
         """
+        if pfields and args:
+            raise ValueError(f"Either pfields as positional arguments or args can be given, "
+                             f"got both")
+        elif pfields:
+            args = pfields
+
         instr = self.getInstr(instrname)
         if instr is None:
             raise KeyError(f"Instrument '{instrname}' is not defined. Known instruments: "
@@ -633,10 +640,10 @@ class Renderer(AbstractRenderer):
                   priority: int = 1,
                   ) -> SchedEvent:
         """
-        Create a SchedEvent for this Renderer
+        Create a SchedEvent for this session
 
         This method does not schedule the event, it only creates it. It must
-        be scheduled via :meth:`Renderer.schedEvent`
+        be scheduled via :meth:`OfflineSession.schedEvent`
 
         Args:
             start: the start time
@@ -718,7 +725,7 @@ class Renderer(AbstractRenderer):
         .. code-block:: python
 
             from csoundengine import *
-            r = Renderer()
+            r = OfflineSession()
 
             r.defInstr('sender', r'''
               ibus = p5
@@ -746,7 +753,7 @@ class Renderer(AbstractRenderer):
 
         """
         if not self.hasBusSupport():
-            raise RuntimeError("This Renderer was created without bus support")
+            raise RuntimeError("This session was created without bus support")
 
         if kind:
             if value is not None and kind == 'audio':
@@ -804,7 +811,7 @@ class Renderer(AbstractRenderer):
         """
         Set any command line options to use by all render operations
 
-        Options can also be set while calling :meth:`Renderer.render`
+        Options can also be set while calling :meth:`OfflineSession.render`
 
         Args:
             *options (str): any option will be passed directly to csound when rendering
@@ -812,8 +819,8 @@ class Renderer(AbstractRenderer):
         Examples
         ~~~~~~~~
 
-            >>> from csoundengine.offline import Renderer
-            >>> renderer = Renderer()
+            >>> from csoundengine.offline import OfflineSession
+            >>> renderer = OfflineSession()
             >>> instr = Instr("sine", ...)
             >>> renderer.registerInstr(instr)
             >>> renderer.sched("sine", ...)
@@ -829,7 +836,7 @@ class Renderer(AbstractRenderer):
         Returns:
             the duration of the render, in seconds
 
-        .. seealso:: :meth:`Renderer.setEndMarker`
+        .. seealso:: :meth:`OfflineSession.setEndMarker`
         """
         _, end = self.scoreTimeRange()
         if self._endMarker:
@@ -870,7 +877,7 @@ class Renderer(AbstractRenderer):
         .. note::
 
             To render only part of a score use the `starttime` and / or `endtime`
-            parameters when calling :meth:`Renderer.render`
+            parameters when calling :meth:`OfflineSession.render`
         """
         self._endMarker = time
         self.csd.setEndMarker(time)
@@ -894,7 +901,7 @@ class Renderer(AbstractRenderer):
         Render to a soundfile
 
         To further customize the render set any csound options via
-        :meth:`Renderer.setCsoundOptions`
+        :meth:`OfflineSession.setCsoundOptions`
 
         By default, if the output is an uncompressed file (.wav, .aif)
         the sample format is set to float32 (csound defaults to 16 bit pcm)
@@ -1034,13 +1041,13 @@ class Renderer(AbstractRenderer):
 
     def lastRenderJob(self) -> RenderJob | None:
         """
-        Returns the last RenderJob spawned by :meth:`Renderer.render`
+        Returns the last RenderJob spawned by :meth:`OfflineSession.render`
 
         Returns:
             the last :class:`RenderJob` or None if no rendering has been
             performed yet
 
-        .. seealso:: :meth:`Renderer.render`
+        .. seealso:: :meth:`OfflineSession.render`
         """
         return self.renderedJobs[-1] if self.renderedJobs else None
 
@@ -1155,8 +1162,8 @@ class Renderer(AbstractRenderer):
         Example
         -------
 
-            >>> from csoundengine.offline import Renderer
-            >>> renderer = Renderer()
+            >>> from csoundengine.offline import OfflineSession
+            >>> renderer = OfflineSession()
             >>> renderer.defInstr("sine", '''
             ... kmidi = p5
             ... outch 1, oscili:a(0.1, mtof:k(kmidi))
@@ -1283,7 +1290,7 @@ class Renderer(AbstractRenderer):
 
         Adds an instrument definition and an event to play the given
         table as sound (assumes that the table was allocated via
-        :meth:`~Renderer.readSoundFile` or any other GEN1 ftgen)
+        :meth:`~OfflineSession.readSoundFile` or any other GEN1 ftgen)
 
         Args:
             source: the table number to play, a :class:`~csoundengine.TableProxy`,
@@ -1691,3 +1698,7 @@ def _namedControlsGenerateCodeOffline(controls: dict) -> str:
     return out
 
 
+class Renderer:
+    def __new__(cls, *args, **kwargs):
+        warnings.warn("The class 'Renderer' has been renamed to 'OfflineSession'")
+        return OfflineSession(*args, **kwargs)

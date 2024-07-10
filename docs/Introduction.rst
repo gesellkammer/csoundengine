@@ -8,8 +8,8 @@ Engine
 ------
 
 The core of **csoundengine** is the :class:`~csoundengine.engine.Engine` class.
-An **Engine** wraps a csound process transparently: it lets the user compile
-csound code and schedule events without any overhead.
+An :class:`~csoundengine.engine.Engine` wraps a live csound process transparently:
+it lets the user compile csound code and schedule real-time events.
 
 .. code-block:: python
 
@@ -42,20 +42,24 @@ csound code and schedule events without any overhead.
     # of the running instrument, which can be used to further control it
     event = engine.sched("synth", args=[48, 0.2, 3000, 4])
 
-A csound process is launched by creating a new Engine. **csoundengine** will query the
-system regarding audio backend, audio device, number of channels, samplerate, etc.,
-for any option that is not explicitly given. For example, in linux **csoundengine**
-will first check if jack is running (either as jack itself or within pipewire) and,
-if so, use that as backend, or fallback to using portaudio otherwise. If not specified
-otherwise, **csoundengine** will use the default audio devices for the backend and query
-the number of channels and samplerate to match them.
+A csound process is launched by creating a new :class:`~csoundengine.engine.Engine`.
+**csoundengine** will query the system regarding audio backend, audio device, number
+of channels, samplerate, etc., for any option that is not explicitly given.
+For example, in linux **csoundengine** will first check if jack is running (either as
+jack itself or within pipewire) and, if so, use that as backend, or fallback to using
+portaudio otherwise. If not specified otherwise, **csoundengine** will use the default
+audio devices for the backend and query the number of channels and samplerate to match them.
 
 An :class:`~csoundengine.engine.Engine` uses the csound API to communicate with
 csound. **All audio processing is run in a thread with realtime priority to avoid
-dropouts**
+dropouts**.
 
-Built-in instruments
-~~~~~~~~~~~~~~~~~~~~
+An :class:`~csoundengine.engine.Engine` has an offline pendant, :class:`~csoundengine.offlineengine.OfflineEngine`,
+which has the same interface but renders offline to a soundfile.
+
+
+Common Tasks
+~~~~~~~~~~~~
 
 An :class:`~csoundengine.engine.Engine` provides built-in functionality to
 perform common tasks. For example:
@@ -66,11 +70,12 @@ perform common tasks. For example:
   disk, without loading the sample data first
 * :meth:`~csoundengine.engine.Engine.testAudio`: tests the Engine's output
 
+
 Modulation / Automation
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 Within **csoundengine** instruments can declare *pfields* as dynamic values (*k-variables*),
-which can be modified, modulated and / or automated after the event has started. Notice
+which can be modified, modulated and automated after the event has started. Notice
 that in the definition of the 'synth' instrument, ``kmidinote = p4`` or ``kcutoff = p6``
 assign a parameter (``p4``, ``p6``) to a control variable.
 
@@ -83,7 +88,9 @@ assign a parameter (``p4``, ``p6``) to a control variable.
     engine.setp(event, 4, 50)
 
     # Automate cutoff (p6), from 500 to 2000 hz in 3 seconds, starting in 4 seconds
-    engine.automatep(event, 6, (0, 500, 3, 2000), delay=4)
+    # Notice that csoundengine is aware of the assigned variable and the parameter
+    # can be adressed by name
+    engine.automatep(event, "kcutoff", (0, 500, 3, 2000), delay=4)
 
 
 
@@ -94,7 +101,7 @@ Session (high level interface)
 ------------------------------
 
 Each Engine can have an associated :class:`~csoundengine.session.Session`. A Session provides a
-higher level interface, allowing to:
+higher level interface to an existing :class:`Engine`, allowing to:
 
 * Define instrument templates (an :class:`~csoundengine.instr.Instr`), which can be
   instantiated at **any order of evaluation**, allowing to implement **processing chains**
@@ -123,7 +130,7 @@ higher level interface, allowing to:
     # again will return the same session
     assert session.engine.session() is session
 
-    # define instruments
+    # Within a Session, instruments can have named parameters and default values
     session.defInstr("synth", r'''
       |ibus, kmidi=60, kamp=0.1, ktransp=0, ifade=0.5|
       ; a simple sawtooth
@@ -190,7 +197,9 @@ higher level interface, allowing to:
 Offline Rendering
 -----------------
 
-Offline rendering is implemented via the :class:`~csoundengine.offline.Renderer` class,
+Offline rendering follows real-time processing closely. Direct access to an offline engine
+is provided by the :class:`~csoundengine.offlineengine.OfflineEngine` class. High-level
+rendering is implemented via the :class:`~csoundengine.offline.OfflineSession` class,
 which has the same interface as a :class:`~csoundengine.session.Session` and
 can be used as a drop-in replacement.
 
@@ -199,7 +208,7 @@ can be used as a drop-in replacement.
     from csoundengine import *
     from pitchtools import *
 
-    renderer = Renderer(sr=44100, nchnls=2)
+    renderer = OfflineSession(sr=44100, nchnls=2)
 
     renderer.defInstr('saw', r'''
       kmidi = p5
@@ -219,10 +228,10 @@ can be used as a drop-in replacement.
     events[2].set(kmidi=80, delay=4)
     renderer.render("out.wav")
 
-A :class:`Renderer` can also be created from an existing :class:`Session`, either via
+A :class:`~csoundengine.offline.OfflineSession` can also be created from an existing :class:`~csoundengine.session.Session`, either via
 :meth:`~csoundengine.session.Session.makeRenderer` or via the context manager
-:meth:`~csoundengine.session.Session.rendering`. In both cases an offline
-:class:`Renderer` is created in which all instruments and
+:meth:`~csoundengine.session.Session.rendering`. In both cases an
+:class:`~csoundengine.offline.OfflineSession` is created in which all instruments and
 data defined in the Session are also available.
 
 Taking the first example, the same can be rendered offline by placing this:

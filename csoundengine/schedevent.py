@@ -167,7 +167,7 @@ class SchedEvent(BaseSchedEvent):
         ~~~~~~~
 
             >>> from csoundengine import *
-            >>> r = Renderer()
+            >>> r = OfflineSession()
             >>> Instr('sine', r'''
             ... |kamp=0.1, kfreq=1000|
             ... outch 1, oscili:ar(kamp, freq)

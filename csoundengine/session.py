@@ -77,7 +77,7 @@ class _RenderingSessionHandler(SessionHandler):
     """
     Adapts a Session for offline rendering
     """
-    def __init__(self, renderer: offline.Renderer):
+    def __init__(self, renderer: offline.OfflineSession):
         self.renderer = renderer
 
     def schedEvent(self, event: Event):
@@ -293,7 +293,7 @@ class Session(AbstractRenderer):
         self._tabnumToTabproxy: dict[int, TableProxy] = {}
         self._pathToTabproxy: dict[str, TableProxy] = {}
         self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
-        self._offlineRenderer: offline.Renderer | None = None
+        self._offlineRenderer: offline.OfflineSession | None = None
         self._inbox: _queue.Queue[Callable] = _queue.Queue()
         self._acceptingMessages = True
         self._dispatchingThread: threading.Thread | None = None
@@ -1099,12 +1099,12 @@ class Session(AbstractRenderer):
                   tail=0.,
                   openWhenDone=False,
                   verbose: bool | None = None
-                  ) -> offline.Renderer:
+                  ) -> offline.OfflineSession:
         """
         A context-manager for offline rendering
 
         All scheduled events are rendered to `outfile` when exiting the
-        context. The :class:`~csoundengine.offline.Renderer` returned by the
+        context. The :class:`~csoundengine.offline.OfflineSession` returned by the
         context manager has the same interface as a :class:`Session` and can
         be used as a drop-in replacement. Any instrument or resource declared
         within this Session is available for offline rendering.
@@ -1130,7 +1130,7 @@ class Session(AbstractRenderer):
                 specified in the config (``config['rec_suppress_output']``)
 
         Returns:
-            a :class:`csoundengine.offline.Renderer`
+            a :class:`csoundengine.offline.OfflineSession`
     
         Example
         ~~~~~~~
@@ -1150,7 +1150,7 @@ class Session(AbstractRenderer):
             >>> # Generate the corresponding csd
             >>> r.writeCsd('out.csd')
 
-        .. seealso:: :class:`~csoundengine.offline.Renderer`
+        .. seealso:: :class:`~csoundengine.offline.OfflineSession`
         """
         renderer = self.makeRenderer(sr=sr or self.engine.sr,
                                      nchnls=nchnls or self.engine.nchnls,
@@ -1158,7 +1158,7 @@ class Session(AbstractRenderer):
         handler = _RenderingSessionHandler(renderer=renderer)
         self.setHandler(handler)
 
-        def atexit(r: offline.Renderer, outfile: str, session: Session) -> None:
+        def atexit(r: offline.OfflineSession, outfile: str, session: Session) -> None:
             r.render(outfile=outfile, endtime=endtime, encoding=encoding,
                      starttime=starttime, openWhenDone=openWhenDone,
                      tail=tail, verbose=verbose)
@@ -1259,11 +1259,11 @@ class Session(AbstractRenderer):
               instrname: str,
               delay=0.,
               dur=-1.,
-              priority: int = 1,
+              *pfields,
               args: Sequence[float|str] | dict[str, float] | None = None,
+              priority: int = 1,
               whenfinished: Callable | None = None,
               relative=True,
-              syncifneeded=True,
               **kwargs
               ) -> Synth:
         """
@@ -1274,18 +1274,19 @@ class Session(AbstractRenderer):
                 **Use "?" to select an instrument interactively**
             delay: time offset of the scheduled instrument
             dur: duration (-1 = forever)
-            priority: the priority (1 to 10)
+            pfields: pfields passed as positional arguments. Pfields can also
+                be given as a list/array passed to the ``args`` argument or
+                as keyword arguments
             args: arguments passed to the instrument, a dict of the
                 form {'argname': value}, where argname can be any px string or the name
                 of the variable (for example, if the instrument has a line
                 'kfreq = p5', then 'kfreq' can be used as key here). Alternatively, a list of
                 positional arguments, starting with p5
+            priority: the priority (1 to 10)
             whenfinished: a function of the form f(synthid) -> None
                 if given, it will be called when this instance stops
             relative: if True, delay is relative to the current time. Otherwise delay
                 is interpreted as an absolute time from the start time of the Engine.
-            syncifneeded: if True, a .sync call is performed if the instrument needs to
-                be synched in order to ensure that compilation has been performed
             kwargs: keyword arguments are interpreted as named parameters. This is needed when
                 passing positional and named arguments at the same time
 
@@ -1317,6 +1318,12 @@ class Session(AbstractRenderer):
 
         :meth:`~csoundengine.synth.Synth.stop`
         """
+        if pfields and args:
+            raise ValueError(f"Either pfields as positional arguments or args can be given, "
+                             f"got both")
+        elif pfields:
+            args = pfields
+
         if self._handler:
             event = Event(instrname=instrname, delay=delay, dur=dur, priority=priority,
                           args=args, whenfinished=whenfinished, relative=relative, kws=kwargs)
@@ -1362,7 +1369,7 @@ class Session(AbstractRenderer):
 
         pfields4 = [p4, *pfields5]
 
-        if needssync and syncifneeded:
+        if needssync:
             self.engine.sync()
         synthid = self.engine.sched(rinstr.instrnum, delay=abstime, dur=dur, args=pfields4,
                                     relative=False, unique=True)
@@ -1960,12 +1967,12 @@ class Session(AbstractRenderer):
 
     def makeRenderer(self, sr=0, nchnls: int | None = None, ksmps=0,
                      addTables=True, addIncludes=True
-                     ) -> offline.Renderer:
+                     ) -> offline.OfflineSession:
         """
-        Create a :class:`~csoundengine.offline.Renderer` (to render offline) with
+        Create an :class:`~csoundengine.offline.OfflineSession` with
         the instruments defined in this Session
 
-        To schedule events, use the :meth:`~csoundengine.offline.Renderer.sched` method
+        To schedule events, use the :meth:`~csoundengine.offline.OfflineSession.sched` method
         of the renderer
 
         Args:
@@ -1976,7 +1983,7 @@ class Session(AbstractRenderer):
                 from the session
             addTables: if True, any soundfile read via readSoundFile will be made
                 available to the renderer. The TableProxy corresponding to that
-                soundfile can be queried via :attr:`csoundengine.offline.Renderer.soundfileRegistry`.
+                soundfile can be queried via :attr:`csoundengine.offline.OfflineSession.soundfileRegistry`.
                 Notice that data tables will not be exported to the renderer
             addIncludes:
                 add any ``#include`` file declared in this session to the created renderer
@@ -1999,12 +2006,12 @@ class Session(AbstractRenderer):
             >>> renderer.render("out.wav")
 
         """
-        renderer = offline.Renderer(sr=sr or config['rec_sr'],
-                                    nchnls=nchnls if nchnls is not None else self.engine.nchnls,
-                                    ksmps=ksmps or config['rec_ksmps'],
-                                    a4=self.engine.a4,
-                                    dynamicArgsPerInstr=self.maxDynamicArgs,
-                                    dynamicArgsSlots=self._dynargsNumSlots)
+        renderer = offline.OfflineSession(sr=sr or config['rec_sr'],
+                                          nchnls=nchnls if nchnls is not None else self.engine.nchnls,
+                                          ksmps=ksmps or config['rec_ksmps'],
+                                          a4=self.engine.a4,
+                                          dynamicArgsPerInstr=self.maxDynamicArgs,
+                                          dynamicArgsSlots=self._dynargsNumSlots)
         for instrname, instrdef in self.instrs.items():
             renderer.registerInstr(instrdef)
         if addIncludes:

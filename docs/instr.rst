@@ -2,7 +2,7 @@ Instr – Instrument Templates
 ============================
 
 An :class:`~csoundengine.instr.Instr` is a template used to schedule a concrete instrument at
-a :class:`~csoundengine.session.Session` or a :class:`~csoundengine.offline.Renderer`. It must
+a :class:`~csoundengine.session.Session` or a :class:`~csoundengine.offlineengine.OfflineEngine`. It must
 be registered to be used (see :meth:`~csoundengine.session.Session.registerInstr`) or created
 via :meth:`~csoundengine.session.Session.defInstr`.
 

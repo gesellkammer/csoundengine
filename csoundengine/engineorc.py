@@ -201,9 +201,9 @@ instr ${automatePargViaPargs}
 
     ; special case: simple line, two pairs
     if ilenpairs == 4 && p10 == 0 && iovertake == 0 then
-        iy0 = p10
-        ix1 = p11
-        iy1 = p12
+        iy0 = p11
+        ix1 = p12
+        iy1 = p13
         ky linseg iy0, ix1, iy1
         goto end 
     endif
@@ -212,7 +212,7 @@ instr ${automatePargViaPargs}
     iXs[] slicearray ipairs, 0, ilenpairs-1, 2
     iYs[] slicearray ipairs, 1, ilenpairs-1, 2
     Sinterpmethod = strget(imode)
-    
+        
     if iovertake == 1 then
         icurrval pread ip1, ipindex, -1
         iYs[0] = icurrval

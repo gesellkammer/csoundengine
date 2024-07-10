@@ -190,8 +190,8 @@ class Engine(_EngineBase):
     """
     Implements a simple interface to run and control a realtime csound process.
 
-    For offline rendering, see :class:`~csoundengine.offline.Renderer` and
-    :class:`~csoundengine.offline.OfflineEngine`
+    For offline rendering, see :class:`~csoundengine.offline.OfflineSession` and
+    :class:`~csoundengine.offlineengine.OfflineEngine`
 
     Args:
         name: the name of the engine
