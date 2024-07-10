@@ -116,6 +116,7 @@ from .offlineengine import OfflineEngine as OfflineEngine
 from .offline import OfflineSession as OfflineSession
 from .synth import SynthGroup as SynthGroup
 from .event import Event
+from . import instr
 from . import tools
 from . import busproxy
 from . import schedevent

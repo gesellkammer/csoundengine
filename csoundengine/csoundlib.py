@@ -118,7 +118,6 @@ def compressionBitrateToQuality(bitrate: int, fmt='ogg') -> float:
         bitrate: the bitrate in kb/s, oneof 64, 80, 96, 128, 160, 192, 224, 256, 320, 500
         fmt: the encoding format (ogg at the moment)
     """
-    compressionQualityToBitrate(quality=0.5, fmt='foo')
     if fmt == 'ogg':
         bitrates = [64, 80, 96, 128, 128, 160, 192, 224, 256, 320, 500]
         idx = emlib.misc.nearest_index(bitrate, bitrates)
