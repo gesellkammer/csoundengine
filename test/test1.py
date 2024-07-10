@@ -12,7 +12,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-o', '--outfile', default='test1.wav')
 args = parser.parse_args()
 
-r = ce.Renderer()
+r = ce.OfflineSession()
+
 r.defInstr("sin", r"""
 imidi = p5
 ifreq = mtof:i(imidi)

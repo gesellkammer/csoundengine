@@ -171,7 +171,7 @@ class Instr:
     .. code-block:: python
 
         from csoundengine import *
-        renderer = Renderer(sr=44100, nchnls=2)
+        session = OfflineSession(sr=44100, nchnls=2)
 
         instrs = [
             Instr('saw', r'''
@@ -187,19 +187,19 @@ class Instr:
         ]
 
         for instr in instrs:
-            instr.register(renderer)
-
+            session.registerInstr(instr)
+       
         score = [('saw', 0,   2, 60),
                  ('sine', 1.5, 4, 67),
                  ('saw', 1.5, 4, 67.1)]
 
-        events = [renderer.sched(ev[0], delay=ev[1], dur=ev[2], pargs=ev[3:])
+        events = [session.sched(ev[0], delay=ev[1], dur=ev[2], pargs=ev[3:])
                   for ev in score]
 
         # Offline events can be modified just like real-time events
-        renderer.automate(events[0], 'kmidi', pairs=[0, 60, 2, 59])
-        renderer.set(events[1], 3, 'kmidi', 67.2)
-        renderer.render("out.wav")
+        session.automate(events[0], 'kmidi', pairs=[0, 60, 2, 59])
+        session.set(events[1], 3, 'kmidi', 67.2)
+        session.render("out.wav")
 
     """
 
