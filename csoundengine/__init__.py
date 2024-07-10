@@ -110,17 +110,17 @@ if not _ok:
     raise RuntimeError("csoundengine: Depencencies not fullfilled")
 
 from .config import config, logger, setLoggingLevel
-from .engine import Engine
-from .session import Session
-from .offlineengine import OfflineEngine
-from .offline import OfflineSession
-from .synth import SynthGroup
+from .engine import Engine as Engine
+from .session import Session as Session
+from .offlineengine import OfflineEngine as OfflineEngine
+from .offline import OfflineSession as OfflineSession
+from .synth import SynthGroup as SynthGroup
+from .event import Event
 from . import tools
 from . import busproxy
 from . import schedevent
 from . import csoundlib
 from .csoundlib import dumpAudioInfo
-from .event import Event
 
 import emlib.envir
 if emlib.envir.inside_ipython():
