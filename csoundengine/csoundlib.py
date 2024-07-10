@@ -118,6 +118,7 @@ def compressionBitrateToQuality(bitrate: int, fmt='ogg') -> float:
         bitrate: the bitrate in kb/s, oneof 64, 80, 96, 128, 160, 192, 224, 256, 320, 500
         fmt: the encoding format (ogg at the moment)
     """
+    compressionQualityToBitrate(quality=0.5, fmt='foo')
     if fmt == 'ogg':
         bitrates = [64, 80, 96, 128, 128, 160, 192, 224, 256, 320, 500]
         idx = emlib.misc.nearest_index(bitrate, bitrates)
@@ -133,6 +134,10 @@ def compressionQualityToBitrate(quality: float, fmt='ogg') -> int:
     Args:
         quality: the compression quality (0-1) as passed to --vbr-quality
         fmt: the encoding format (ogg at the moment)
+
+    Returns:
+        the resulting bit rate
+
 
     =======   =======
     quality   bitrate
@@ -508,7 +513,7 @@ _backendsByPlatform: dict[str, list[AudioBackend]] = {
 def nextpow2(n:int) -> int:
     """ Returns the power of 2 higher or equal than n"""
     return int(2 ** _math.ceil(_math.log(n, 2)))
-    
+
 
 @runonce
 def findCsound() -> str | None:
@@ -612,7 +617,7 @@ def csoundSubproc(args: list[str], piped=True, wait=False) -> _subprocess.Popen:
     if wait:
         proc.wait()
     return proc
-    
+
 
 def getSystemSr(backend: str) -> float | None:
     """
@@ -800,7 +805,7 @@ def runCsd(csdfile:str,
         args.extend(extra)
     args.append(csdfile)
     return csoundSubproc(args, piped=piped)
-    
+
 
 def joinCsd(orc: str, sco='', options: list[str] | None = None) -> str:
     """
@@ -875,7 +880,7 @@ instr 1
     iperiod = 1
     kchn init -1
     ktrig metro 1/iperiod
-    kchn = (kchn + ktrig) % nchnls 
+    kchn = (kchn + ktrig) % nchnls
     anoise pinker
     outch kchn+1, anoise
     {printchan}
@@ -959,7 +964,7 @@ def _opcodesList(opcodedir='') -> list[str]:
             allopcodes.extend(opcodes)
     return allopcodes
 
-   
+
 def saveAsGen23(data: Sequence[float] | np.ndarray,
                 outfile: str,
                 fmt="%.12f",
@@ -1297,7 +1302,7 @@ def _csoundTestJackRunning():
 def audioBackends(available=False, platform='') -> list[AudioBackend]:
     """
     Return a list of audio backends for the given platform
-    
+
     Args:
         available: if True, only available backends are returned. This
             is only possible if querying backends for the current platform
@@ -1306,9 +1311,9 @@ def audioBackends(available=False, platform='') -> list[AudioBackend]:
 
     Returns:
         a list of AudioBackend
-        
-    If available is True, only those backends supported for the current 
-    platform and currently available are returned. For example, jack will 
+
+    If available is True, only those backends supported for the current
+    platform and currently available are returned. For example, jack will
     not be returned in linux if the jack server is not running.
 
     Example
@@ -1596,7 +1601,7 @@ def mincer(sndfile:str,
     sr = info.samplerate
     nchnls = info.channels
     pitchbpf = bpf.asbpf(pitchcurve)
-    
+
     if isinstance(timecurve, (int, float)):
         t0, t1 = 0, info.duration / timecurve
         timebpf = bpf.linear(0, 0, t1, info.duration)
@@ -1605,7 +1610,7 @@ def mincer(sndfile:str,
         timebpf = timecurve
     else:
         raise TypeError("timecurve should be either a scalar or a bpf")
-    
+
     assert isinstance(pitchcurve, (int, float, bpf.core.BpfInterface))
     ts = np.arange(t0, t1+dt, dt)
     fmt = "%.12f"
@@ -1645,7 +1650,7 @@ def mincer(sndfile:str,
         kpitch  tablei k(aidx), gi_pitch, 0, 0, 0
         kat1 = k(at1)
         kgate = (kat1 >= 0 && kat1 <= isndfiledur) ? 1 : 0
-        agate = interp(kgate) 
+        agate = interp(kgate)
         aenv linseg 0, ifade, 1, it1 - (ifade*2), 1, ifade, 0
         aenv *= agate
         if isndchnls == 1 then
@@ -1655,10 +1660,10 @@ def mincer(sndfile:str,
             a0, a1   mincer at1, 1, kpitch, gi_snd, ilock, ifftsize, 8
             outs a0*aenv, a1*aenv
         endif
-        
+
       if (kt >= it1 + ikperiod) then
         event "i", "exit", 0.1, 1
-            turnoff     
+            turnoff
         endif
     endin
 
@@ -1737,14 +1742,14 @@ def recInstr(body: str, events: list, init='', outfile='',
 
     if init:
         csd.addGlobalCode(init)
-    
+
     instrnum = 100
-    
+
     csd.addInstr(instrnum, body)
     for event in events:
         start, dur = event[0], event[1]
         csd.addEvent(instrnum, start, dur, event[2:])
-    
+
     if dur is not None:
         csd.setEndMarker(dur)
 
@@ -1786,7 +1791,7 @@ def _ftsaveReadText(path: str) -> list[np.ndarray]:
             values[i] = float(line)
         tables.append(values)
     return tables
- 
+
 
 def ftsaveRead(path, mode="text") -> list[np.ndarray]:
     """
@@ -2380,7 +2385,7 @@ def instrParseBody(body: str) -> ParsedInstrBody:
         ... '''
         >>> csoundlib.instrParseBody(body)
         ParsedInstrBody(pfieldsIndexToName={4: 'ibus', 5: 'kfreq'},
-                        pfieldLines=['ibus = p4', ['kfreq = p5'], 
+                        pfieldLines=['ibus = p4', ['kfreq = p5'],
                         body='\\na0 = busin(ibus)\\n
                           a1 = oscili:a(0.5, kfreq) * a0\\noutch 1, a1',
                         pfieldsDefaults={1: 0.0, 2: 0.0, 3: 0.0, 4: 1.0, 5: 1000.0},
@@ -2726,7 +2731,7 @@ def soundfontPeak(sfpath: str, preset: tuple[int, int], pitches: tuple[int, int]
     gi_sfhandle sfload "{sfpath}"
     gi_presetindex sfpreset {prog}, {bank}, gi_sfhandle, {presetnum}
     chnset 0, "sfpeak"
-    
+
     instr sfpeak
         ipreset = p4
         ipitch1 = p5

@@ -155,8 +155,10 @@ class ScoreLine:
     def end(self) -> float | None:
         if self.kind == 'i':
             dur = self.pfields[2]
+            assert isinstance(dur, (int, float))
             if dur >= 0:
-                return self.pfields[1] + dur
+                return self.start + dur
+                # return self.pfields[1] + dur
             return float('inf')
         return None
 

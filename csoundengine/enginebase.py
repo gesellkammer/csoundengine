@@ -122,7 +122,18 @@ class _EngineBase(ABC):
     def getTableData(self, idx: int) -> np.ndarray: ...
 
     @abstractmethod
-    def getChannel(self, channel: str) -> float: ...
+    def getControlChannel(self, channel: str) -> float:
+        """
+        Get the value of a control channel
+
+        Args:
+            channel: the name of the channel
+
+        Returns:
+            the value of the channel. Raises KeyError if the channel
+            does not exist.
+        """
+        ...
 
     @abstractmethod
     def setChannel(self, channel: str, value: float | str | np.ndarray, delay=0.): ...

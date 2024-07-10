@@ -875,11 +875,11 @@ class OfflineEngine(_EngineBase):
         else:
             raise TypeError(f"Expected an initial value of type float or string, got {value}")
 
-    def getChannel(self, channel: str) -> float:
+    def getControlChannel(self, channel: str) -> float:
         assert self.csound is not None
         value, err = self.csound.controlChannel(channel)
         if err.value != 0:
-            raise KeyError(f"Control channel {channel} not found, error: {err}, value: {value}")
+            raise KeyError(f"Control channel '{channel}' not found, error: {err}, value: {value}")
         return value
 
     def setChannel(self, channel: str, value: float | str | np.ndarray, delay=0.):
