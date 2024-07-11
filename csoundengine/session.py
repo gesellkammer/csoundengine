@@ -1472,8 +1472,8 @@ class Session(AbstractRenderer):
             event: the event to stop, either a Synth or the p1
             delay: how long to wait before stopping them
         """
-        if self.isRendering():
-            raise RuntimeError("This Session is blocked while in rendering mode. Call .unsched on the renderer instead")
+        #if self.isRendering():
+        #    raise RuntimeError("This Session is blocked while in rendering mode. Call .unsched on the renderer instead")
 
         synthid = event if isinstance(event, (int, float)) else event.p1
         assert isinstance(synthid, (int, float))

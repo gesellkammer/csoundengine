@@ -38,7 +38,7 @@ def defaultSoundfontPath() -> Opt[str]:
         path = next((path for path in paths if os.path.exists(path)), None)
         return path
     else:
-        logger.error("Default path for soundfonts only defined in linux")
+        logger.info("Default path for soundfonts only defined in linux")
     return None
 
 

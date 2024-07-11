@@ -1843,15 +1843,7 @@ class Engine(_EngineBase):
             mode = 4
         else:
             mode = 0
-        self.sched('turnoff', delay, 0, p1, mode)
-        # if isinstance(p1, str):
-        #     p1 = self.queryNamedInstr(p1)
-        # if int(p1) == p1:
-        #     mode = 0   # all instances
-        # else:
-        #     mode = 4   # exact matching
-        # pfields = [self._builtinInstrs['turnoff'], delay, 0, p1, mode]
-        # self._perfThread.scoreEvent(0, "i", pfields)
+        self.sched(self._builtinInstrs['turnoff'], delay, 0, p1, mode)
 
     def unschedFuture(self, p1: float | str) -> None:
         """

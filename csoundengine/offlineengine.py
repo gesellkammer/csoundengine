@@ -460,11 +460,44 @@ class OfflineEngine(_EngineBase):
         return instr
 
     def unsched(self, p1: float | str, delay: float = 0) -> None:
+        """
+        Stop a playing event
+
+        If p1 is a round number, all events with the given number
+        are unscheduled. Otherwise only an exact matching event
+        is unscheduled, if it exists
+
+        Args:
+            p1: the instrument number/name to stop
+            delay: absolute time to turnoff the given event. A value of 0 means to
+                unschedule it at the current time
+
+        Example
+        ~~~~~~~
+
+        >>> from csoundengine import *
+        >>> e = Engine(...)
+        >>> e.compile(r'''
+        ... instr sine
+        ...   a0 oscili 0.1, 1000
+        ...   outch 1, a0
+        ... endin
+        ... ''')
+        >>> # sched an event with indefinite duration
+        >>> eventid = e.sched(10, 0, -1)
+        >>> e.unsched(eventid, 10)
+
+        See Also
+        ~~~~~~~~
+
+        :meth:`~Engine.unschedAll`
+
+        """
         if (isinstance(p1, int) and int(p1) != p1) or (isinstance(p1, str) and "." in p1):
             mode = 4
         else:
             mode = 0
-        self.sched('turnoff', delay, 0, p1, mode)
+        self.sched(self._builtinInstrs['turnoff'], delay, 0, p1, mode)
 
     @contextmanager
     def nohistory(self):
