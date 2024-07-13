@@ -160,6 +160,14 @@ class _EngineBase(ABC):
         """
         pass
 
+    @abstractmethod
+    def makeTable(self,
+                  data: np.ndarray | Sequence[float],
+                  sr: int = 0,
+                  tabnum: int = -1,
+                  delay=0.
+                  ) -> int: ...
+
     def initChannel(self,
                     channel: str,
                     value: float | str | np.ndarray = 0,
@@ -198,14 +206,6 @@ class _EngineBase(ABC):
         >>> e.setChannel("mastergain", 0.5)
         """
         pass
-
-    @abstractmethod
-    def makeTable(self,
-                  data: np.ndarray | Sequence[float],
-                  tabnum: int = -1,
-                  sr: int = 0,
-                  delay=0.
-                  ) -> int: ...
 
     @abstractmethod
     def includeFile(self, include: str) -> None:

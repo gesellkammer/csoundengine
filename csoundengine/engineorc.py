@@ -341,7 +341,8 @@ instr ${playgen1}
     inumsamples = nsamp(itabnum)
     itabsr = ftsr(itabnum)
     if itabsr <= 0 then
-        initerror sprintf("Could not determine sr for table %d", itabnum)
+        prints "Could not determine sr for table %d, ftsr returned: %f, using sr: %d", itabnum, itabsr, sr
+        itabsr = sr
     endif
     istartframe = ioffset * itabsr
     idur = inumsamples / itabsr

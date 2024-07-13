@@ -78,7 +78,7 @@ _('rec_ksmps', 64,
 _('rec_sample_format', 'float',
   choices=(16, 24, 32, 'float'),
   doc="Sample format used when rendering")
-_('rec_suppress_output', False,
+_('rec_suppress_output', True,
   doc='Supress debugging output when rendering offline')
 _('buffersize', 0,
   doc="-b value. 0=determine buffersize depending on ksmps & backend")

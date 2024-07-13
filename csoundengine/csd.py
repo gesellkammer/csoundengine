@@ -224,6 +224,16 @@ _builtinInstrs = {
         itabnum = p4
         ftfree itabnum, 0
         turnoff
+    ''',
+    '_setp': r'''
+      itype = p4   ; 1 if instr is a string
+      if itype == 1 then
+          Sp1 = p5
+          ip1 = namedinstrtofrac(Sp1)
+      else
+          ip1 = p5
+      endif
+      pwrite ip1, p7, p8
     '''
 }
 
@@ -329,7 +339,6 @@ class Csd:
         self._endMarker: float = 0
         self._numReservedTables = reservedTables
         self._maxTableNumber = reservedTables
-
         self.score.append(ScoreLine(kind='C', pfields=[0.], comment='Disable carry'))
 
     @property
@@ -485,6 +494,7 @@ class Csd:
         if tabnum > self._maxTableNumber:
             self._maxTableNumber = tabnum
         self._definedTables.add(tabnum)
+        assert tabnum > 0
         return tabnum
 
     def _addTable(self, pargs: Sequence[float | int | str], comment='') -> int:
@@ -653,7 +663,6 @@ class Csd:
             self._addTable(pargs)
         else:
             self._addProjectFile(datafile)
-        assert tabnum > 0
         return tabnum
 
     def destroyTable(self, tabnum: int, time: float) -> None:
@@ -1068,7 +1077,33 @@ class Csd:
                          encoding=outfileEncoding,
                          process=proc)
 
+    def setPfield(self, p1: int | float | str, pindex: int, value: float, start: float) -> None:
+        """
+        Set the value of a pfield for a scheduled event
 
+        Args:
+            p1: the instr number/name of the event
+            pindex: the index of the pfield, 4=p4, 5=p5, etc
+            value: the new value of the pfield
+            start: when to set the pfield (absolute time)
+        """
+        self._ensureBuiltinInstr('_setp')
+        self.addEvent('_setp', start=start, dur=0, args=[1 if isinstance(p1, str) else 0, p1, pindex, value])
+
+    def automatePfield(self, p1: int | float | str, pindex: int, pairs: Sequence[float], start: float) -> None:
+        """
+        Automate the pfield of a scheduled event
+
+        Args:
+            p1: the instr number/name of the event
+            pindex: the index of the pfield
+            pairs: a flat sequence of breakpoints of the form [time0, value0, time1, value1, ...]
+            start: absolute time to start the automation
+        """
+        raise RuntimeError("Not supported yet")
+        # self._ensureBuiltinInstr('_automatep')
+
+        
 def _cropScore(events: list[ScoreLine], start=0., end=0.) -> list:
     """
     Crop the score so that no event exceeds the given limits

@@ -105,6 +105,28 @@ class _ReadSoundfileEvent(_OfflineComponent):
                        skiptime=self.skiptime, chan=self.chan)
 
 
+@dataclass
+class _SetParamEvent(_OfflineComponent):
+    p1: int | float | str
+    pindex: int
+    value: int | float
+
+    def apply(self, csd: Csd) -> None:
+        csd.setPfield(p1=p1, pinde=pindex, value=value)
+
+
+@dataclass
+class _AutomateEvent(_OfflineComponent):
+    p1: int | float | str
+    pfield: int | str
+    pairs: Sequence[float]
+    delay: float = 0.
+    overtake: bool = False
+
+    def apply(self, csd: Csd) -> None:
+        csd.automatePfield(p1=p1, pfield=pfield, pairs=pairs, delay=delay, overtake=overtake)
+
+
 class OfflineEngine(_EngineBase):
     """
     Non-real-time engine using the csound API
@@ -953,6 +975,51 @@ class OfflineEngine(_EngineBase):
 
     def makeTable(self,
                   data: np.ndarray | Sequence[float],
+                  sr: int = 0,
+                  tabnum: int = -1,
+                  delay=0.
+                  ) -> int:
+        """
+        Create a new table and fill it with data.
+
+        Args:
+            data: the data used to fill the table
+            tabnum: the table number. If -1, a number is assigned by the engine.
+                If 0, a number is assigned by csound (this operation will be blocking
+                if no callback was given)
+            sr: only needed if filling sample data. If given, it is used to fill the
+                table metadata in csound, as if this table had been read via gen01
+            delay: when to allocate the table
+
+        Returns:
+            the index of the new table
+        """
+        if not self.csound:
+            raise RuntimeError("This OfflineEngine does not have an associated csound process")
+
+        if tabnum == -1:
+            tabnum = self._assignTableNumber()
+        if not isinstance(data, np.ndarray):
+            data = np.asarray(data)
+        numchannels = 1 if len(data.shape) == 1 else data.shape[1]
+        flatdata = data if numchannels == 1 else data.flatten()
+        arr = np.zeros((len(flatdata)+4,), dtype=float)
+        if delay > 0 and sr == 0 and numchannels == 1:
+            arr[0:4] = [tabnum, delay, len(flatdata), -2]
+            arr[4:] = flatdata
+            self.csound.scoreEvent("f", arr)
+        else:
+            self.csound.compileOrc(fr'i0_ ftgen {tabnum}, 0, {len(flatdata)}, -2, 0')
+            self.csound.tableCopyIn(tabnum, flatdata)
+            if sr > 0 or numchannels > 0:
+                self.csound.compileOrc(fr'ftsetparams {tabnum}, {sr}, {numchannels}')
+
+        self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(flatdata), numChannels=numchannels)
+        self._addHistory(_TableDataEvent(data=data, delay=delay, tabnum=tabnum, sr=sr))
+        return int(tabnum)
+
+    def _makeTable(self,
+                  data: np.ndarray | Sequence[float],
                   tabnum: int = -1,
                   sr: int = 0,
                   delay=0.
@@ -1056,7 +1123,11 @@ class OfflineEngine(_EngineBase):
             raise ValueError(f"Invalid table number {tabnum}, available tables "
                              f"are {self._tableInfo.keys()}")
         if dur < 0:
-            sampledur = info.size / info.sr
+            if info.sr == 0:
+                sr = self.sr
+            else:
+                sr = self.sr
+            sampledur = info.numFrames / sr
             estimatedDuration = sampledur / speed
             endtime = delay + estimatedDuration
             if self._endtime < endtime:
@@ -1128,6 +1199,8 @@ class OfflineEngine(_EngineBase):
                 raise ValueError(f"Invalid pfield name '{pfield}'. Valid pfields: {instrdef.pfieldNameToIndex.keys()}")
         else:
             pidx = pfield
+
+        self._addHistory(_AutomateEvent(p1, pfield=pfield, pairs=pairs, delay=delay, overtake=overtake))
 
         if len(pairs) <= maxDataSize:
             if isinstance(pairs, np.ndarray):
@@ -1251,7 +1324,7 @@ class OfflineEngine(_EngineBase):
                           args=[path, chan, speed, fade],
                           unique=True)
 
-    def setp(self, p1: float | str, *pairs, delay=0.) -> None:
+    def setp(self, p1: int | float | str, *pairs, delay=0.) -> None:
         """
         Modify a pfield of an active note
 
@@ -1260,8 +1333,12 @@ class OfflineEngine(_EngineBase):
         (see example)
 
         Args:
-            p1: the p1 of the instrument to automate
-            *pairs: each pair consists of a pfield index and a value
+            p1: the p1 of the instrument to automate. A float or a "<name>.<instanceid>" will set
+                the value for a specific instance, an int or a unqualified name will set
+                the value of the given parameter for all instances
+            *pairs: each pair consists of a pfield index and a value. The index is an int,
+                matching the pfield number (4=p4, 5=p5, etc), the value can be a number
+                (string values are not supported)
             delay: when to start the automation
 
         Example
@@ -1282,7 +1359,8 @@ class OfflineEngine(_EngineBase):
         >>> engine.setp(p1, 5, 0.2, delay=0.5)
         """
         numpairs = len(pairs) // 2
-        assert len(pairs) % 2 == 0
+        if len(pairs) % 2 == 1:
+            raise ValueError(f"Pairs needs to be even, got {pairs}")
         if numpairs > 5:
             # split and schedule the parts
             # TODO
@@ -1291,6 +1369,8 @@ class OfflineEngine(_EngineBase):
         args.extend(pairs)
         instr = self._builtinInstrs['pwrite']
         self.sched(instr, delay=delay, dur=0, args=args)
+        for pair in range(numpairs):
+            self._addHistory(_SetParamEvent(p1=p1, pindex=pairs[pair*2], value=pairs[pair*2+1]))
 
     def _getBusIndex(self, bus: int) -> int | None:
         bus = int(bus)

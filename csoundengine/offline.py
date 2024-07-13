@@ -895,7 +895,7 @@ class OfflineSession(AbstractRenderer):
                ksmps: int | None = None,
                tail=0.,
                numthreads=0,
-               csoundoptions: list[str] | None = None
+               csoundoptions: list[str] | None = None,
                ) -> RenderJob:
         """
         Render to a soundfile

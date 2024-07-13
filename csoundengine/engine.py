@@ -1803,6 +1803,13 @@ class Engine(_EngineBase):
         return out
 
     def print(self, msg: str, delay=0.) -> None:
+        """
+        Print a message via csound
+
+        Args:
+            msg: the message to print
+            delay: when to print it
+        """
         instrnum = self._builtinInstrs['print']
         self._perfThread.inputMessage(f'i {instrnum} {delay} 0. "{msg}"')
 
@@ -2019,8 +2026,8 @@ class Engine(_EngineBase):
 
     def makeTable(self,
                   data: Sequence[float] | np.ndarray,
-                  tabnum: int = -1,
                   sr: int = 0,
+                  tabnum: int = -1,
                   block=True,
                   callback=None,
                   ) -> int:
@@ -3195,7 +3202,7 @@ class Engine(_EngineBase):
         self._perfThread.inputMessage(msg)
         return p1
 
-    def setp(self, p1: float, *pairs, delay=0.) -> None:
+    def setp(self, p1: int | float | str, *pairs, delay=0.) -> None:
         """
         Modify a pfield of an active note
 
@@ -3204,8 +3211,12 @@ class Engine(_EngineBase):
         (see example)
 
         Args:
-            p1: the p1 of the instrument to automate
-            *pairs: each pair consists of a pfield index and a value
+            p1: the p1 of the instrument to automate. A float or a "<name>.<instanceid>" will set
+                the value for a specific instance, an int or a unqualified name will set
+                the value of the given parameter for all instances
+            *pairs: each pair consists of a pfield index and a value. The index is an int,
+                matching the pfield number (4=p4, 5=p5, etc), the value can be a number
+                (string values are not supported)
             delay: when to start the automation
 
         Example
