@@ -321,7 +321,7 @@ class Session(AbstractRenderer):
         if config['define_builtin_instrs']:
             self._defBuiltinInstrs()
         mininstr, maxinstr = self._reservedInstrRange()
-        _engine.reserveInstrRange('session', mininstr, maxinstr)
+        _engine._reserveInstrRange('session', mininstr, maxinstr)
         _engine._session = self
 
         # dispatchingThread = threading.Thread(target=self._dispatcher)

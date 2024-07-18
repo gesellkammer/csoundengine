@@ -1234,13 +1234,13 @@ class OfflineEngine(_EngineBase):
 
     def generateCsd(self) -> Csd:
         """
-        Generate a :class:`~csoundengine.Csd` from this OfflineEngine
+        Generate a :class:`~csoundengine.csd.Csd` from this OfflineEngine
 
         This can be used to export a project file and use the csound
         binary to render it. It might also be useful for debugging
 
         Returns:
-            the generated :class:`~csoundengine.Csd`
+            the generated :class:`~csoundengine.csd.Csd`
         """
         from csoundengine.csd import Csd
         csd = Csd(sr=self.sr, ksmps=self.ksmps, nchnls=self.nchnls, a4=self.a4,

@@ -19,6 +19,7 @@ from .renderjob import RenderJob
 from csoundengine.config import config
 import emlib.misc
 import emlib.mathlib
+import emlib.textlib
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -41,6 +42,14 @@ class _InstrDef:
     preComment: str = ''
     postComment: str = ''
     extranames: list[int | str] | None = None
+
+
+@dataclasses.dataclass
+class _OpcodeDef:
+    name: str
+    outargs: str
+    inargs: str
+    body: str
 
 
 @dataclasses.dataclass
@@ -287,6 +296,9 @@ class Csd:
 
         self.instrs: dict[str | int, _InstrDef] = {}
         """The orchestra"""
+
+        self.opcodes: dict[str, _OpcodeDef] = {}
+        """User defined opcodes"""
 
         self.globalcodes: list[str] = []
         """Code to evaluate at the instr0 level"""
@@ -810,6 +822,9 @@ class Csd:
         instrdef = _InstrDef(p1=instr, body=body, samelineComment=instrComment, extranames=extranames)
         self.instrs[instr] = instrdef
 
+    def addOpcode(self, name: str, outargs: str, inargs: str, body: str) -> None:
+        self.opcodes[opcode] = _OpcodeDef(name, outargs=outargs, inargs=inargs, body=body)
+
     def addGlobalCode(self, code: str, acceptDuplicates=True) -> None:
         """
         Add code to the instr 0
@@ -957,6 +972,8 @@ class Csd:
                 write(globalcode)
                 write("\n")
             write("; ----- end global code\n\n")
+
+        for name, opcodedef in self.opcodes.items():
 
         for instr, instrdef in self.instrs.items():
             if instrdef.preComment:

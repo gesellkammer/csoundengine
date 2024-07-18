@@ -263,7 +263,7 @@ loaded, it will return the handle number of the loaded instance.
 ------------------
 
 
-sfPresetIndex
+sfpresetindex
 -------------
 
 Assigns an index to a soundfont program
@@ -275,7 +275,7 @@ This opcode loads the soundfont if not already loaded (like `sfload`) and assign
 
 .. code::
 
-    ipresetIndex sfPresetIndex "/path/to/soundfont.sf2", ibank, ipresetnumber
+    ipresetIndex sfpresetindex "/path/to/soundfont.sf2", ibank, ipresetnumber
 
 **Example**
 
@@ -289,7 +289,7 @@ This opcode loads the soundfont if not already loaded (like `sfload`) and assign
         iamp = ivel/127
         inote = int(ipitch)
         ; assign an index to the program (bank=0, preset=1)
-        ipresetidx sfPresetIndex "/path/to/piano.sf2", 0, 1
+        ipresetidx sfpresetindex "/path/to/piano.sf2", 0, 1
         aL, aR sfplay3 ivel, inote, iamp/16384, mtof:i(ipitch), ipresetidx, 1
         outch 1, aL, 2, aR
       endin
@@ -298,7 +298,7 @@ This opcode loads the soundfont if not already loaded (like `sfload`) and assign
 .. note::
     There will be a delay when playing a note using this opcode if the soundfont
     is read inside a note for the first time. To avoid this delay, load the 
-    soundfont beforehand, via `sfloadonce`. `sfPresetIndex` will detect this
+    soundfont beforehand, via `sfloadonce`. `sfpresetindex` will detect this
     and use the loaded instance (this will not happen with `sfload`).    
 
 **See Also**: :meth:`~csoundengine.engine.Engine.soundfontPreparePreset`, which

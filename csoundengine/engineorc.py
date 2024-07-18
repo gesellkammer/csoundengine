@@ -68,6 +68,7 @@ endop
 
 opcode sfPresetIndex, i, Sii
     Spath, ibank, ipresetnum xin
+    prints "Deprecated, use 'sfpresetindex'\n"
     isf sfloadonce Spath
     Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum
     iidx dict_get gi__soundfontIndexes, Skey, -1
@@ -82,6 +83,33 @@ opcode sfPresetIndex, i, Sii
     endif
     xout iidx
 endop
+
+opcode sfpresetindex, i, Sii
+    Spath, ibank, ipresetnum xin
+    isf sfloadonce Spath
+    Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum
+    iidx dict_get gi__soundfontIndexes, Skey, -1
+    if iidx == -1 then
+        iidx chnget "_soundfontPresetCount"
+        chnset iidx+1, "_soundfontPresetCount"
+        i0 sfpreset ipresetnum, ibank, isf, iidx
+        if iidx != i0 then
+            prints "???: iidx = %d, i0 = %d\n", iidx, i0
+        endif
+        dict_set gi__soundfontIndexes, Skey, i0
+    endif
+    xout iidx
+endop
+
+
+opcode sendsync, 0, i
+    ; send a sync message back, to be used by instruments scheduled
+    ; via schedSync
+    itoken xin
+    tabw_i itab, itoken, gi__responses
+    outvalue "__sync__", itoken
+endop
+            
 
 instr ${notifyDealloc}
     ip1 init p4

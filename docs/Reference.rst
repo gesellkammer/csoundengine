@@ -35,11 +35,11 @@ Reference
 **Offline Rendering**
     Both an :class:`~csoundengine.engine.Engine` and its associated
     :class:`~csoundengine.session.Session` are concieved to run in real-time. For offline rendering
-    **csoundengine** provides for each an offline version, :class:`~csoundengine.offlineengine.OfflineEngine`
+    *csoundengine* provides for each an offline version, :class:`~csoundengine.offlineengine.OfflineEngine`
     and :class:`~csoundengine.offline.OfflineSession`. These have the same interface as their real-time counterparts,
-    but render everything offline to a soundfile (and probably much faster).
-    An :class:`~csoundengine.offline.OfflineSession` can also be used to generate a csound project to be
-    further edited and/or rendered by the csound executable. See :ref:`offlinemod`
+    but render everything offline to a soundfile (and probably much faster). They can also be used to generate a
+    csound project (a .csd file plus needed assets) to be further edited and/or rendered by the csound executable.
+    See :ref:`offlinemod`
 
 ---------------
 

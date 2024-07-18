@@ -45,6 +45,8 @@ class SchedEvent(BaseSchedEvent):
     Represents a scheduled event.
 
     It is used to control / automate / keep track of scheduled events.
+    Used as is to represent offline events, it is the base class
+    for realtime events (:class:`~csoundengine.synth.Synth`)
 
     Args:
         p1: the p1 of the scheduled event
@@ -209,8 +211,20 @@ class SchedEvent(BaseSchedEvent):
         return self.instr.paramNames(aliases=aliases, aliased=aliased)
 
     def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
+        """
+        The set of all dynamic parameters accepted by this Synth
+
+        Args:
+            aliases: if True, include aliases
+            aliased: include the original names of parameters which have an alias. If both
+                aliases and aliased params are included, there are two names to access
+                the same parameter
+
+        Returns:
+            a set of the dynamic (modifiable) parameters accepted by this synth
+        """
         instr = self.instr
-        return instr.dynamicParamNames(aliases=aliases, ) if instr else EMPTYSET
+        return instr.dynamicParamNames(aliases=aliases, aliased=aliased) if instr else EMPTYSET
 
     def automate(self,
                  param: str,

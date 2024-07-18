@@ -30,6 +30,13 @@ __all__ = (
 
 class ISynth(ABC):
 
+    """
+    Minimal interface defining a Synth
+
+    This is not used inside csoundengine at the moment
+    but is used in downstream projects like maelzel
+    """
+
     @abstractmethod
     def playing(self) -> bool:
         """ Is this synth playing? """
@@ -118,7 +125,7 @@ _synthStatusIcon = {
 
 class Synth(SchedEvent, ISynth):
     """
-    A Synth represents a live csound event
+    A Synth represents a realtime csound event
 
     A user never creates a Synth directly, it is created by a Session when
     :meth:`Session.sched <csoundengine.session.Session.sched>` is called
@@ -185,41 +192,20 @@ class Synth(SchedEvent, ISynth):
         elif controlsSlot >= 1 and not instr.dynamicParams():
             logger.warning("A control slot was assigned but this synth does not have any controls")
 
+        self._scheduled: bool = True
+
         self.p1: float = p1
         """Event id for this synth"""
 
-        #
-        # self.args = args
-        # """The args used to schedule this synth"""
-        #
-        # self.priority: int = priority
-        # """Priority of this synth (lower priority is evaluated first)"""
-        #
-        # self._instr: Instr = instr
-        # """The Instr used to create this synth"""
-        #
-        # self.instrname: str = instr.name
-        #
-        # self.controlsSlot: int = controlsSlot
-        # """Holds the slot for dynamic controls, 0 if this synth has no assigned slot"""
-        #
-        # self.controls = controls if controls is not None else EMPTYDICT
-        # """The dynamic controls used to schedule this synth"""
-        #
-        # self.uniqueId: int = uniqueId
-        # """If given/applicable (> 0), a unique integer identifying this synth"""
-
-        self._scheduled: bool = True
         self.session = session
+        """The Session to which this Synth belongs"""
+
         self.autostop = autostop
+        """If True, stop the underlying csound event when this object is freed"""
 
     def __del__(self):
         if self.autostop:
             self.stop()
-
-    # @property
-    # def instr(self) -> Instr:
-    #     return self._instr
 
     def wait(self, pollinterval: float = 0.02, sleepfunc=time.sleep) -> None:
         """
@@ -239,8 +225,8 @@ class Synth(SchedEvent, ISynth):
     def body(self) -> str:
         return self.session.generateInstrBody(self.instr)
 
-    def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
-        return self.instr.controlNames(aliases=aliases, aliased=aliased)
+    #def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
+    #    return self.instr.controlNames(aliases=aliases, aliased=aliased)
 
     def ui(self, **specs: tuple[float, float]) -> None:
         """
@@ -398,24 +384,8 @@ class Synth(SchedEvent, ISynth):
     def finished(self) -> bool:
         return self.playStatus() == 'stopped'
 
-    def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
-        """
-        The set of all dynamic parameters accepted by this Synth
-
-        If the instrument used in this synth uses aliases, these are
-        also included
-
-        Args:
-            aliases: if True, include aliases
-            aliased: include the original names of parameters which have an alias
-
-        Returns:
-            a set of the dynamic (modifiable) parameters accepted by this synth
-        """
-        return self.instr.dynamicParamNames(aliases=aliases, aliased=aliased)
-
-    def pfieldNames(self, aliases=True, aliased=False) -> frozenset[str]:
-        return self.instr.pfieldNames(aliases=aliases, aliased=aliased)
+    #def pfieldNames(self, aliases=True, aliased=False) -> frozenset[str]:
+    #    return self.instr.pfieldNames(aliases=aliases, aliased=aliased)
 
     def _sliceStart(self) -> int:
         return self.controlsSlot * self.session.maxDynamicArgs

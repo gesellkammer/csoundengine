@@ -75,7 +75,7 @@ def matplotlibIsInline() -> bool:
 
 
 def _plotSubsample(samples: np.ndarray, samplerate: int, maxpoints: int,
-                   maxsr: int, show: bool, figsizeFactor=1.
+                   maxsr: int, show: bool, figsizeFactor=1.,
                    ) -> plt.Figure:
     targetsr = samplerate
     numch = internal.arrayNumChannels(samples)
@@ -112,7 +112,7 @@ def plotSamples(samples: np.ndarray,
                 samplerate: int,
                 profile='auto',
                 show=False,
-                saveas=''
+                saveas='',
                 ) -> plt.Figure:
     """
     Plot the samples
@@ -123,6 +123,7 @@ def plotSamples(samples: np.ndarray,
         profile: one of 'low', 'medium', 'high', 'highest', 'auto'
         show: if True, the plot is shown. Otherwise matplotlib.pyplot.show() needs
             to be called explicitely (when not in inline mode inside jupyter)
+        saveas: if a path is given, the plot is saved to this path
 
     Returns:
         the figure used

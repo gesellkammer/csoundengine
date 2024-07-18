@@ -73,7 +73,7 @@ opcode sfloadonce, i, S
   xout iidx
 endop
 
-opcode sfPresetIndex, i, Sii
+opcode sfpresetindex, i, Sii
   Spath, ibank, ipresetnum xin
   isf sfloadonce Spath
   Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum  

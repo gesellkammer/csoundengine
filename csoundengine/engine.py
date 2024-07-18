@@ -2,15 +2,23 @@
 Engine class
 ============
 
-An :class:`Engine` implements a simple interface to run and control a csound process.
+An :class:`Engine` implements a simple interface to run and control a realtime
+csound process.
+
+Example
+-------
 
 .. code::
 
     from csoundengine import Engine
+
     # create an engine with default options for the platform
     engine = Engine()
+
+    # Compile an instrument
     engine.compile(r'''
       instr synth
+        pset 0, 0, 0, 60, 1, 4000   ; assign preset values for parameters
         kmidinote = p4
         kamp = p5
         kcutoff = p6
@@ -22,9 +30,9 @@ An :class:`Engine` implements a simple interface to run and control a csound pro
       endin
     ''')
 
-    # start a synth with indefinite duration. This returns a unique (fractional)
-    # instance number
-    p1 = engine.sched("synth", args=[67, 0.1, 3000])
+    # start an event with indefinite duration. This returns a unique (fractional)
+    # instance number, which can be used to control its parameters
+    p1 = engine.sched("synth", args=[67, 0.1, 3000], unique=True)
 
     # any parameter with k-rate can be modified while running:
     # change midinote
@@ -35,6 +43,11 @@ An :class:`Engine` implements a simple interface to run and control a csound pro
 
     # stop the synth:
     engine.unsched(p1)
+
+    # Parameters can also be set using their assigned names. Defaults
+    # can be set via the pset opcode. In this case the cutoff parameter
+    # will be assigned the default 4000
+    p1 = engine.sched("synth", kmidinote=60, kamp=0.1)
 
 See also :class:`~csoundengine.session.Session` for a higher level interface:
 
@@ -56,6 +69,16 @@ See also :class:`~csoundengine.session.Session` for a higher level interface:
 
     # Change the midinote after 2 seconds
     synth.setp(kmidinote=60, delay=2)
+
+
+Instrument Numbers
+------------------
+
+    An :class:`Engine` defines internal instruments to perform some of its
+    tasks (reading tables, sample playback, etc). To avoid clashes between these
+    internal instruments and user instruments, there are some reserved instrument
+    numbers: all instrument numbers from 1 to 99 are reserved for internal use, so
+    the first available instrument number is 100.
 
 
 Configuration
@@ -129,6 +152,7 @@ from .errors import TableNotFoundError, CsoundError
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
     from typing import Callable, Sequence
     from . import session as _session
     import socket
@@ -231,17 +255,6 @@ class Engine(_EngineBase):
         Any option with a default value of None has a corresponding slot in the
         config. Default values can be configured via `config.edit()`, see
         `Configuration <https://csoundengine.readthedocs.io/en/latest/config.html>`_
-
-
-    Instrument Numbers
-    ------------------
-
-    An :class:`Engine` defines internal instruments to perform some of its
-    tasks (reading tables, sample playback, etc). To avoid clashes between these
-    internal instruments and user instruments, there are some reserved instrument
-    numbers: all instrument numbers from 1 to 99 are reserved for internal use, so
-    the first available instrument number is 100.
-
 
     Example
     -------
@@ -655,7 +668,7 @@ class Engine(_EngineBase):
 
     def reservedInstrRanges(self) -> list[tuple[str, int, int]]:
         """
-        A dict containing reserved instr number ranges
+        A dict containing reserved instrument number ranges
 
         An Engine has some internal instruments for performing tasks like
         automation, bus support, etc. Moreover, if an Engine has an attached
@@ -668,9 +681,7 @@ class Engine(_EngineBase):
         where ``rangename`` is the name of the range, ``minInstrNumber`` and ``maxInstrNumber``
         represent the instr numbers reserved
 
-        Any instr number outside of this range can be used. Bear in mind that when an
-        Engine has an attached Session, compiling an instrument using a name instead of a
-        number might
+        Any instr number outside of this range can be used.
         """
         return self._reservedInstrnumRanges
 
@@ -1954,12 +1965,14 @@ class Engine(_EngineBase):
                             f"({self._session.numPriorities}). The old value will be kept")
         return self._session
 
-    def reserveInstrRange(self, name: str, mininstrnum: int, maxinstrnum: int) -> None:
+    def _reserveInstrRange(self, name: str, mininstrnum: int, maxinstrnum: int) -> None:
         """
         Declares the instrument numbers in the given range as reserved
 
         Instrument numbers within this range will not be allocated when using
-        named instruments.
+        named instruments. This is used internally by a :class:`~csoundengine.session.Session`
+        to reserve instrument numbers to be assigned to the different priorities.
+
 
         Args:
             name: the name of the reserved block
@@ -2255,7 +2268,7 @@ class Engine(_EngineBase):
                                  maxfreq=maxfreq, minfreq=minfreq, overlap=overlap,
                                  show=True)
 
-    def plotTable(self, tabnum: int, sr: int = 0) -> None:
+    def plotTable(self, tabnum: int, sr: int = 0) -> plt.Figure:
         """
         Plot the content of the table via matplotlib.pyplot
 
@@ -2269,6 +2282,7 @@ class Engine(_EngineBase):
             tabnum: the table to plot
             sr: the samplerate of the data. Needed to plot as a waveform if the table was
                 not loaded via GEN1 (or via :meth:`Engine.readSoundfile`).
+            axes: if given, the plot is done to this axes
 
         .. code::
 
@@ -2282,10 +2296,12 @@ class Engine(_EngineBase):
 
         .. code::
 
+            import matplotlib.pyplot as plt
             import sndfileio
+            fig, ax = plt.subplots()
             data, sr = sndfileio.sndread("stereo.wav")
             tabnum2 = e.makeTable(data, sr=sr)
-            e.plotTable(tabnum2)
+            e.plotTable(tabnum2, axes=ax)
 
         .. figure:: assets/tableplot-stereo.png
 
@@ -2317,11 +2333,15 @@ class Engine(_EngineBase):
         if data is None:
             raise ValueError(f"Table {tabnum} is invalid")
         if sr:
-            plotting.plotSamples(data, samplerate=sr, show=True)
+            return plotting.plotSamples(data, samplerate=sr, show=True)
         else:
-            plotting.plt.plot(data)
+            import matplotlib.pyplot as plt
+            fig, axes = plt.subplots()
+            axes.plot(data)
+            f.tight_layout(pad=0.1)
             if not plotting.matplotlibIsInline():
-                plotting.plt.show()
+                plt.show()
+            return fig
 
     def schedSync(self,
                   instr: int | float | str,
@@ -2365,8 +2385,7 @@ class Engine(_EngineBase):
             ...   itoken = p4
             ...   Spath strget p5
             ...   itab ftgen ftgen 0, 0, 0, -1, Spath, 0, 0, 0
-            ...   tabw_i itab, itoken, gi__responses
-            ...   outvalue "__sync__", itoken
+            ...   sendsync(itoken)
             ...   turnoff
             ... endin
             ... ''')
