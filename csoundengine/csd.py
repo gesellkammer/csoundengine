@@ -823,6 +823,27 @@ class Csd:
         self.instrs[instr] = instrdef
 
     def addOpcode(self, name: str, outargs: str, inargs: str, body: str) -> None:
+        """
+        Add an opcode to this csd
+
+        Args:
+            name: the opcode name
+            outargs: the output arguments
+            inargs: the input arguments
+            body: the body of the opcode
+
+        Example
+        ~~~~~~~
+
+        .. code::
+
+            csd.addOpcode("gain", "a", "ak", r'''
+              asig, kgain xin
+              asig *=kgain
+              xout asig
+            ''')
+
+        """
         self.opcodes[opcode] = _OpcodeDef(name, outargs=outargs, inargs=inargs, body=body)
 
     def addGlobalCode(self, code: str, acceptDuplicates=True) -> None:
@@ -974,6 +995,10 @@ class Csd:
             write("; ----- end global code\n\n")
 
         for name, opcodedef in self.opcodes.items():
+            write(f"opcode {name}, {opcodedef.outargs}, {opcodedef.inargs}")
+            body = _textwrap.dedent(opcodedef.body)
+            write(_textwrap.indent(body, tab))
+            write("endop\n")
 
         for instr, instrdef in self.instrs.items():
             if instrdef.preComment:
