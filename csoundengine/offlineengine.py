@@ -21,7 +21,7 @@ from .errors import CsoundError
 from typing import Sequence, TYPE_CHECKING
 if TYPE_CHECKING:
     from csoundengine.csd import Csd
-    
+
 
 __all__ = [
     'OfflineEngine'
@@ -53,9 +53,15 @@ class _ScoreEvent(_OfflineComponent):
     pfields: list[float | str]
     comment: str = ''
 
+    def __post_init__(self):
+        assert self.kind in 'ifCed', f"Invalid event kind, got {self.kind}"
+
     def apply(self, csd: Csd) -> None:
         if self.kind == 'i':
-            csd.addEvent(instr=self.pfields[0], start=self.pfields[1], dur=self.pfields[2],
+            start = self.pfields[1]
+            dur = self.pfields[2]
+            assert isinstance(start, (int, float)) and isinstance(dur, (int, float))
+            csd.addEvent(instr=self.pfields[0], start=start, dur=dur,
                          args=self.pfields[3:], comment=self.comment)
         else:
             pfields = [self.kind]
@@ -110,21 +116,27 @@ class _SetParamEvent(_OfflineComponent):
     p1: int | float | str
     pindex: int
     value: int | float
+    delay: float
 
     def apply(self, csd: Csd) -> None:
-        csd.setPfield(p1=p1, pinde=pindex, value=value)
+        csd.setPfield(p1=self.p1, pindex=self.pindex, value=self.value, start=self.delay)
 
 
 @dataclass
 class _AutomateEvent(_OfflineComponent):
     p1: int | float | str
     pfield: int | str
-    pairs: Sequence[float]
+    pairs: Sequence[float] | np.ndarray
     delay: float = 0.
     overtake: bool = False
 
     def apply(self, csd: Csd) -> None:
-        csd.automatePfield(p1=p1, pfield=pfield, pairs=pairs, delay=delay, overtake=overtake)
+        assert isinstance(self.pfield, int), f"Pfield must be an integer, got {self.pfield}"
+        pairs = self.pairs.tolist() if isinstance(self.pairs, np.ndarray) else self.pairs
+        csd.automatePfield(p1=self.p1,
+                           pindex=self.pfield,
+                           pairs=pairs,
+                           start=self.delay)
 
 
 class OfflineEngine(_EngineBase):
@@ -178,7 +190,7 @@ class OfflineEngine(_EngineBase):
         self.globalcode = globalcode
         self.numAudioBuses = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
         self.numControlBuses = numControlBuses if numControlBuses is not None else config['num_control_buses']
-        self.includes = includes
+        self.includes = includes if includes is not None else []
         self.encoding = encoding or csoundlib.bestSampleEncodingForExtension(os.path.splitext(self.outfile)[1][1:])
         self._renderjob: RenderJob | None = None
 
@@ -265,6 +277,8 @@ class OfflineEngine(_EngineBase):
                                                ctcsound.CSOUND_INPUT_CHANNEL |
                                                ctcsound.CSOUND_OUTPUT_CHANNEL)
             assert chanptr is not None, f"_busTokenCount channel not set: {error}\n{orc}"
+            if not isinstance(chanptr, np.ndarray):
+                raise RuntimeError(f"Could not create channel for bus support, got {chanptr}")
             self._busTokenCountPtr = chanptr
             kbustable = int(csound.evalCode("return gi__bustable"))
             self._kbusTable = csound.table(kbustable)
@@ -311,6 +325,7 @@ class OfflineEngine(_EngineBase):
 
     @cache
     def instrNum(self, name: str) -> int:
+        assert self.csound is not None
         return self.csound.evalCode(f'i0 nstrnum "{name}"\nreturn i0\n')
 
     def assignInstanceNum(self, instr: int | str) -> int:
@@ -430,7 +445,7 @@ class OfflineEngine(_EngineBase):
             delay = self.elapsedTime()
 
         if namedpfields:
-            instrdef = self._parsedInstrs.get(int(instr) if isinstance(instr, float) else instr)
+            instrdef = self._parsedInstrs.get(str(int(instr)) if isinstance(instr, (int, float)) else instr)
             if instrdef:
                 kwargs = csoundlib.normalizeNamedPfields(namedpfields, instrdef.pfieldNameToIndex)
             else:
@@ -754,6 +769,8 @@ class OfflineEngine(_EngineBase):
         kind = parts[0]
         start = parts[2]
         dur = parts[3]
+        assert isinstance(start, (int, float)), f"Invalid start time, got {start}"
+        assert isinstance(dur, (int, float)), f"Invalid duration, got {dur}"
         if dur > 0:
             end = start + dur
             if end > self._endtime:
@@ -882,7 +899,7 @@ class OfflineEngine(_EngineBase):
         self.compile(f'itab ftgen {tabnum}, {delay}, {-size}, -2, 0')
         if sr > 0:
             self.sched(instr=self._builtinInstrs['ftsetparams'], delay=delay, dur=0,
-                       args=(tabnum, sr, numchannels))
+                       args=[tabnum, sr, numchannels])
         return tabnum
 
     def getTableData(self, idx: int) -> np.ndarray:
@@ -950,9 +967,11 @@ class OfflineEngine(_EngineBase):
             if isinstance(value, (int, float)):
                 instrnum = self._builtinInstrs['chnset']
                 self.sched(instrnum, delay, 0, args=[channel, value])
-            else:
+            elif isinstance(value, str):
                 instrnum = self._builtinInstrs['chnsets']
                 self.sched(instrnum, delay, 0, args=[channel, value])
+            else:
+                raise TypeError(f"Expected a number or a str as value, got {value}")
 
     def fillTable(self, tabnum: int, data: np.ndarray | Sequence[float]) -> None:
         """
@@ -970,7 +989,7 @@ class OfflineEngine(_EngineBase):
 
         """
         tablearray = self.getTableData(tabnum)
-        maxidx = min(len(tabarray), len(data))
+        maxidx = min(len(tablearray), len(data))
         tablearray[:maxidx] = data[:maxidx]
 
     def makeTable(self,
@@ -1133,8 +1152,10 @@ class OfflineEngine(_EngineBase):
             if self._endtime < endtime:
                 self._endtime = endtime
         args = [gain, speed, tabnum, chan, fade, starttime, lagtime]
-        return self.sched(self._builtinInstrs['playgen1'], delay=delay, dur=dur,
-                          args=args, unique=True)
+        eventid = self.sched(self._builtinInstrs['playgen1'], delay=delay, dur=dur,
+                             args=args, unique=True)
+        assert isinstance(eventid, (int, float))
+        return eventid
 
     def automatep(self,
                   p1: float | str,
@@ -1191,7 +1212,7 @@ class OfflineEngine(_EngineBase):
                              f" t0, value0, t1, value1, ..., with an even number of "
                              f"total elements. Got {len(pairs)} items: {pairs}")
         if isinstance(pfield, str):
-            instrdef = self._parsedInstrs.get(int(p1) if isinstance(p1, float) else p1.split(".")[0])
+            instrdef = self._parsedInstrs.get(str(int(p1)) if isinstance(p1, (int, float)) else p1.split(".")[0])
             if not instrdef:
                 raise ValueError(f"Could not find definition for instr '{p1}'")
             pidx = instrdef.pfieldNameToIndex.get(pfield)
@@ -1207,10 +1228,12 @@ class OfflineEngine(_EngineBase):
                 pairs = pairs.tolist()
             p1IsString = int(isinstance(p1, str))
             args = [p1, pidx, mode, int(overtake), len(pairs), p1IsString, *pairs]
-            return self.sched(self._builtinInstrs['automatePargViaPargs'],
-                              delay=delay,
-                              dur=pairs[-2] + self.ksmps / self.sr,
-                              args=args)
+            eventid = self.sched(self._builtinInstrs['automatePargViaPargs'],
+                                 delay=delay,
+                                 dur=pairs[-2] + self.ksmps / self.sr,
+                                 args=args)
+            assert isinstance(eventid, (int, float))
+            return eventid
         else:
             if isinstance(pairs, np.ndarray):
                 pairs = list(pairs)
@@ -1312,17 +1335,20 @@ class OfflineEngine(_EngineBase):
         """
         assert self.csound is not None
         if dur < 0:
-            sampledur = info.size / info.sr
+            info = sndfileio.sndinfo(path)
+            sampledur = info.duration
             estimatedDuration = sampledur / speed
             endtime = delay + estimatedDuration
             if self._endtime < endtime:
                 self._endtime = endtime
 
-        return self.sched(instr=self._builtinInstrs['playsndfile'],
-                          delay=delay,
-                          dur=-1,
-                          args=[path, chan, speed, fade],
-                          unique=True)
+        eventid = self.sched(instr=self._builtinInstrs['playsndfile'],
+                             delay=delay,
+                             dur=dur,
+                             args=[path, chan, speed, fade],
+                             unique=True)
+        assert isinstance(eventid, float)
+        return eventid
 
     def setp(self, p1: int | float | str, *pairs, delay=0.) -> None:
         """
@@ -1370,9 +1396,10 @@ class OfflineEngine(_EngineBase):
         instr = self._builtinInstrs['pwrite']
         self.sched(instr, delay=delay, dur=0, args=args)
         for pair in range(numpairs):
-            self._addHistory(_SetParamEvent(p1=p1, pindex=pairs[pair*2], value=pairs[pair*2+1]))
+            self._addHistory(_SetParamEvent(p1=p1, pindex=pairs[pair*2], value=pairs[pair*2+1], delay=delay))
 
     def _getBusIndex(self, bus: int) -> int | None:
+        assert self.csound is not None
         bus = int(bus)
         if (index := self._busIndexes.get(bus)) is not None:
             return index
@@ -1539,7 +1566,7 @@ class OfflineEngine(_EngineBase):
         elif kind != 'control':
             raise ValueError(f"Only control buses can be written to, got {kind}")
 
-        self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.ksmps/self.sr*2, args=(bus, value))
+        self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.ksmps/self.sr*2, args=[bus, value])
 
     def openOutfile(self, app='') -> None:
         """
@@ -1551,12 +1578,3 @@ class OfflineEngine(_EngineBase):
             raise FileNotFoundError(f"The rendered outfile '{self.renderjob.outfile}' "
                                     f"does not exists")
         self.renderjob.openOutfile(app=app)
-
-
-
-
-
-
-
-
-

@@ -5,6 +5,8 @@ Engine class
 An :class:`Engine` implements a simple interface to run and control a realtime
 csound process.
 
+For offline processing, see :class:`~csoundengine.offlineengine.OfflineEngine`
+
 Example
 -------
 
@@ -18,7 +20,9 @@ Example
     # Compile an instrument
     engine.compile(r'''
       instr synth
-        pset 0, 0, 0, 60, 1, 4000   ; assign preset values for parameters
+        ; assign preset values for parameters
+        ;    p1 p2 p3 p4  p5 p6
+        pset 0, 0, 0, 60, 1, 4000   ; the first three values (p1, p2, p3) are not considered
         kmidinote = p4
         kamp = p5
         kcutoff = p6
@@ -32,6 +36,7 @@ Example
 
     # start an event with indefinite duration. This returns a unique (fractional)
     # instance number, which can be used to control its parameters
+    # The `args` parameter expects any arguments starting with p4
     p1 = engine.sched("synth", args=[67, 0.1, 3000], unique=True)
 
     # any parameter with k-rate can be modified while running:
@@ -48,6 +53,9 @@ Example
     # can be set via the pset opcode. In this case the cutoff parameter
     # will be assigned the default 4000
     p1 = engine.sched("synth", kmidinote=60, kamp=0.1)
+
+    # Change the pitch
+    engine.setp(p1, 'kmidinote', 62, delay=2)
 
 See also :class:`~csoundengine.session.Session` for a higher level interface:
 
@@ -74,11 +82,11 @@ See also :class:`~csoundengine.session.Session` for a higher level interface:
 Instrument Numbers
 ------------------
 
-    An :class:`Engine` defines internal instruments to perform some of its
-    tasks (reading tables, sample playback, etc). To avoid clashes between these
-    internal instruments and user instruments, there are some reserved instrument
-    numbers: all instrument numbers from 1 to 99 are reserved for internal use, so
-    the first available instrument number is 100.
+An :class:`Engine` defines internal instruments to perform some of its
+tasks (reading tables, sample playback, etc). To avoid clashes between these
+internal instruments and user instruments, there are some reserved instrument
+numbers: all instrument numbers from 1 to 99 are reserved for internal use, so
+the first available instrument number is 100.
 
 
 Configuration

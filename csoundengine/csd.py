@@ -145,31 +145,31 @@ class ScoreLine:
     @property
     def start(self) -> float:
         if self.kind == 'i' or self.kind == 'f':
-            return self.pfields[1]
+            start = self.pfields[1]
+            assert isinstance(start, (int, float))
+            return start
         elif self.kind == 'e':
-            return self.pfields[0]
+            end = self.pfields[0]
+            assert isinstance(end, (int, float))
+            return end
         elif self.kind == 'C':
             return 0.
         else:
             return 0
 
     @property
-    def dur(self) -> float | None:
+    def dur(self) -> float:
         if self.kind in 'i':
-            return self.pfields[2]
-        else:
-            return None
-
-    @property
-    def end(self) -> float | None:
-        if self.kind == 'i':
             dur = self.pfields[2]
             assert isinstance(dur, (int, float))
-            if dur >= 0:
-                return self.start + dur
-                # return self.pfields[1] + dur
-            return float('inf')
-        return None
+            return dur
+        else:
+            logger.debug(f"Score line of type '{self.kind}' does not have a duration")
+            return 0.
+
+    @property
+    def end(self) -> float:
+        return self.start + self.dur
 
     def asline(self) -> str:
         parts = [self.kind]
@@ -257,7 +257,7 @@ class Csd:
         nchnls: the number of output channels
         nchnls_i: if given, the number of input channels
         a4: the reference frequency
-        options (list[str]): any number of command-line options passed to csound
+        options: any number of command-line options passed to csound
         nodisplay: if True, avoid outputting debug information
         carry: should carry be enabled in the score?
         reservedTables: when creating tables, table numbers are autoassigned from
@@ -282,15 +282,15 @@ class Csd:
 
     def __init__(self,
                  sr: int = 44100,
-                 ksmps=64,
-                 nchnls=2,
-                 a4=442.,
+                 ksmps: int = 64,
+                 nchnls: int = 2,
+                 a4: float = 442.,
                  options: list[str] | None = None,
                  nodisplay=False,
                  carry=False,
                  nchnls_i: int | None = None,
-                 numthreads=0,
-                 reservedTables=0):
+                 numthreads: int = 0,
+                 reservedTables: int = 0):
         self.score: list[ScoreLine] = []
         """The score, a list of ScoreLine"""
 
@@ -445,7 +445,7 @@ class Csd:
                 comment = last.split(';')[-1]
 
         kind = parts[0]
-        assert kind in 'ifCed', f"Invalid score statement: {line}"
+        assert isinstance(kind, str) and kind in 'ifCed', f"Invalid score statement: {line}"
         self.score.append(ScoreLine(kind=kind, pfields=parts[1:], comment=comment))
 
     def addEvent(self,
@@ -463,7 +463,7 @@ class Csd:
             start: the start time
             dur: the duration of the event
             args: pargs beginning at p4
-            numdigits: if given, round floats to this number of digits
+            numdigits: if given, round start and duration to this number of digits
             comment: if given, the text is attached as a comment to the event
                 line in the score
         """
@@ -527,10 +527,10 @@ class Csd:
         else:
             assert tabnum in self._definedTables, f"Table {tabnum} not known, defined tables: {self._definedTables}"
 
-        pfields = [tabnum]
-        pfields.extend(pargs[1:])
+        pfields = [tabnum, *pargs[1:]]
         self.score.append(ScoreLine(kind='f', pfields=pfields, comment=comment))
         return tabnum
+
 
     def addTableFromData(self,
                          data: Sequence[float] | np.ndarray,
@@ -844,7 +844,7 @@ class Csd:
             ''')
 
         """
-        self.opcodes[opcode] = _OpcodeDef(name, outargs=outargs, inargs=inargs, body=body)
+        self.opcodes[name] = _OpcodeDef(name, outargs=outargs, inargs=inargs, body=body)
 
     def addGlobalCode(self, code: str, acceptDuplicates=True) -> None:
         """
@@ -890,12 +890,12 @@ class Csd:
             skip: time to skip from playback (enables playback to crop a fragment at the beginning)
 
         Example
-        =======
+        ~~~~~~~
 
-        >>> csd = Csd()
-        >>> source = csd.addSndfile("stereo.wav")
-        >>> csd.playTable(source, source, start=1, fade=0.1, speed=0.5)
-        >>> csd.write("out.csd")
+            >>> csd = Csd()
+            >>> source = csd.addSndfile("stereo.wav")
+            >>> csd.playTable(source, source, start=1, fade=0.1, speed=0.5)
+            >>> csd.write("out.csd")
         """
         if self.instrs.get('_playgen1') is None:
             self.addInstr('_playgen1', _builtinInstrs['_playgen1'])
@@ -915,11 +915,11 @@ class Csd:
 
 
         Example
-        -------
+        ~~~~~~~
 
-        >>> from csoundengine.csd import Csd
-        >>> csd = Csd(...)
-        >>> csd.write("myscript.csd")
+            >>> from csoundengine.csd import Csd
+            >>> csd = Csd(...)
+            >>> csd.write("myscript.csd")
 
         This will generate a ``myscript.csd`` file and a folder ``myscript.assets`` holding
         any data file needed. If no data files are used, no ``.assets`` folder is created
@@ -1145,7 +1145,7 @@ class Csd:
         raise RuntimeError("Not supported yet")
         # self._ensureBuiltinInstr('_automatep')
 
-        
+
 def _cropScore(events: list[ScoreLine], start=0., end=0.) -> list:
     """
     Crop the score so that no event exceeds the given limits
