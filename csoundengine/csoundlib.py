@@ -431,12 +431,12 @@ class _PortaudioBackend(AudioBackend):
         devices = sd.query_devices()
         defaultoutdev, defaultindev = None, None
         indevs, outdevs = self.audioDevices()
-        if indevs:
+        if indevs and sd.default.device[0] is not None:
             defaultName = devices[sd.default.device[0]]['name']
             defaultindev = next((dev for dev in indevs
                                  if dev.name.split("[")[0].strip() == defaultName), None)
 
-        if outdevs:
+        if outdevs and sd.default.device[1] is not None:
             defaultName = devices[sd.default.device[1]]['name']
             defaultoutdev = next((dev for dev in outdevs
                                   if dev.name.split("[")[0].strip() == defaultName), None)
@@ -866,9 +866,22 @@ def testCsound(dur=8., nchnls=2, backend='', device="dac", sr=0,
                ) -> CsoundProc:
     """
     Test the current csound installation for realtime output
+
+    Args:
+        dur: the duration of the test
+        nchnls: the number of output channels
+        backend: which backend to use.
+        device: which device to use
+        sr: the sample rate. Use 0 to use system sample rate if applicable,
+            or a default sample rate otherwise
+        verbose: if True, make csound display debugging and status information
+
+    Returns:
+        a :class:`CsoundProc`
     """
     backend = backend or getDefaultBackend().name
-    sr = sr or getSamplerateForBackend(backend)
+    if not sr:
+        sr = getSamplerateForBackend(backend) or 44100
     printchan = "printk2 kchn" if verbose else ""
     orc = f"""
 sr = {sr}
@@ -1090,9 +1103,6 @@ def saveMatrixAsMtx(outfile: str,
     if _os.path.splitext(outfile)[1] != ".mtx":
         logger.warning(f"The extension should be .mtx, but asked to save"
                        f"the matrix as {outfile}")
-    if len(data.shape) > 1 and data.shape[1] > 1023:
-        raise ValueError("Only matrices with less than 1024 rows can be saved "
-                         "via this method")
 
     import sndfileio
     header: list[int|float] = [3, data.shape[0], data.shape[1]]
@@ -1156,11 +1166,11 @@ def saveMatrixAsGen23(outfile: str,
     mtx = mtx.round(6)
     with open(outfile, "w") as f:
         if header or extradata:
-            header = [3, numrows, numcols]
-            if extradata:
-                header.extend(extradata)
-            header[0] = len(header)
-            f.write(" ".join(np.array(header).astype(str)))
+            headerrow = [3., numrows, numcols]
+            if extradata is not None:
+                headerrow.extend(extradata)
+            headerrow[0] = len(headerrow)
+            f.write(" ".join(np.array(headerrow).astype(str)))
             f.write("\n")
         for row in mtx:
             rowstr = " ".join(row.astype(str))
@@ -1295,6 +1305,7 @@ def getSamplerateForBackend(backend='') -> int | None:
 
 def _csoundTestJackRunning():
     proc = csoundSubproc(['-+rtaudio=jack', '-odac', '--get-system-sr'], wait=True, piped=True)
+    assert proc.stderr is not None
     return b'could not connect to JACK server' not in proc.stderr.read()
 
 
@@ -1599,7 +1610,7 @@ def mincer(sndfile:str,
     info = sndfileio.sndinfo(sndfile)
     sr = info.samplerate
     nchnls = info.channels
-    pitchbpf = bpf.asbpf(pitchcurve)
+    pitchbpf = bpf.util.asbpf(pitchcurve)
 
     if isinstance(timecurve, (int, float)):
         t0, t1 = 0, info.duration / timecurve
@@ -1735,6 +1746,7 @@ def recInstr(body: str, events: list, init='', outfile='',
                          "the instrument, beginning with p2: [delay, dur, ...]"
                          f"Got {events} instead")
 
+    from .csd import Csd
     csd = Csd(sr=sr, ksmps=ksmps, nchnls=nchnls, a4=a4)
     if not outfile:
         outfile = _tempfile.mktemp(suffix='.wav', prefix='csdengine-rec-')
@@ -1758,6 +1770,7 @@ def recInstr(body: str, events: list, init='', outfile='',
     csd.addOptions(fmtoption)
 
     renderjob = csd.run(output=outfile)
+    assert renderjob.process is not None
     return outfile, renderjob.process
 
 
@@ -2462,9 +2475,8 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                     args = line.strip()[5:].split(",")
                     channels = args[::2]
                     for chans in channels:
-                        chan = emlib.misc.asnumber(chans)
-                        if chan is not None and int(chan) == chan:
-                            outchannels.add(chan)
+                        if chans.isnumeric():
+                            outchannels.add(int(chans))
                 bodyLines.append(line)
 
     for pidx in range(1, 4):
@@ -2712,7 +2724,8 @@ def soundfontKeyrange(sfpath: str, preset: tuple[int, int]) -> tuple[int, int] |
     return None
 
 
-def soundfontPeak(sfpath: str, preset: tuple[int, int], pitches: tuple[int, int] = None, dur=0.05
+def soundfontPeak(sfpath: str, preset: tuple[int, int],
+                  pitches: tuple[int, int] | None = None, dur=0.05
                   ) -> float:
     from csoundengine.offline import OfflineEngine
     e = OfflineEngine(nchnls=0, ksmps=128, numAudioBuses=0, numControlBuses=0)
@@ -2750,6 +2763,7 @@ def soundfontPeak(sfpath: str, preset: tuple[int, int], pitches: tuple[int, int]
 
     e.sched('sfpeak', 0, dur, (presetnum, pitches[0], pitches[1]))
     e.perform(extratime=0.1)
+    assert e.csound is not None
     value, error = e.csound.controlChannel("sfpeak")
     e.stop()
     return float(value)
@@ -2760,7 +2774,7 @@ def splitScoreLine(line: str, quote=False) -> list[float | str]:
     kind = line[0]
     assert kind in 'ife'
     rest = line[1:]
-    allparts = [kind]
+    allparts: list[str | int | float] = [kind]
     # even parts are not quoted strings, odd parts are quoted strings
     for i, part in enumerate(rest.split('"')):
         if i % 2 == 0:
