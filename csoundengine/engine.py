@@ -153,7 +153,6 @@ from . import jacktools as jacktools
 from . import internal
 from . import engineorc
 from . import state as _state
-from . import termui as _termui
 from .engineorc import CONSTS, BUSKIND_CONTROL, BUSKIND_AUDIO
 from .errors import TableNotFoundError, CsoundError
 
@@ -328,7 +327,7 @@ class Engine(_EngineBase):
                  midiin: str | None = None,
                  autosync=False,
                  latency: float | None = None,
-                 sampleAccurate: bool = None,
+                 sampleAccurate: bool = False,
                  numthreads: int = 0):
         if not name:
             name = _generateUniqueEngineName()
@@ -342,9 +341,10 @@ class Engine(_EngineBase):
         if backend is None or backend == 'default':
             backend = cfg[f'{internal.platform}_backend']
         elif backend == '?':
-            backend = internal.selectItem(availableBackends, title="Select Backend")
-            if backend is None:
+            selection = internal.selectItem(availableBackends, title="Select Backend")
+            if not selection:
                 raise ValueError("No backend selected")
+            backend = selection
         elif backend not in availableBackends:
             knownBackends = csoundlib.getAudioBackendNames(available=False)
             if backend not in knownBackends:
@@ -455,8 +455,8 @@ class Engine(_EngineBase):
                 sr = backendsr
             else:
                 sr = 44100
-                logger.error(f"Asked for system sr, but backend '{resolvedBackend}', does not"
-                             f"have a fixed sr. Using sr={sr}")
+                logger.info(f"Asked for system sr, but backend '{resolvedBackend}', does not"
+                            f"have a fixed sr. Using sr={sr}")
 
         if a4 is None:
             a4 = cfg['A4']
@@ -490,6 +490,7 @@ class Engine(_EngineBase):
         "Name of this Engine"
 
         assert sr is not None and sr > 0
+        assert isinstance(ksmps, int) and ksmps > 0
 
         super().__init__(sr=sr,
                          ksmps=ksmps,
@@ -751,20 +752,18 @@ class Engine(_EngineBase):
         self._responsesTable[token] = _UNSET
         return token
 
-    def _waitOnToken(self, token: int, sleepfunc=time.sleep, period=0.001, timeout: float | None = None
-                     ) -> float | None:
-        if timeout is None:
-            timeout = config['timeout']
-        n = timeout // period
-        table = self._responsesTable
-        assert table is not None
-        while n > 0:
-            response = table[token]
-            if response == _UNSET:
-                return response
-            n -= 1
-            sleepfunc(period)
-        return None
+    # def _waitOnToken(self, token: int, sleepfunc=time.sleep, period=0.001, timeout: float | None = None
+    #                  ) -> float | None:
+    #     n = (timeout or config['timeout']) // period
+    #     table = self._responsesTable
+    #     assert table is not None
+    #     while n > 0:
+    #         response = table[token]
+    #         if response == _UNSET:
+    #             return response
+    #         n -= 1
+    #         sleepfunc(period)
+    #     return None
 
     def _releaseToken(self, token: int) -> None:
         """ Release token back to pool when done """
@@ -809,7 +808,7 @@ class Engine(_EngineBase):
     def _makeEventId(self, num: int, instance: int) -> float:
         frac = (instance / (10**self._fracnumdigits)) % 1
         return num + frac
-        
+
     def _startCsound(self) -> None:
         buffersize = self.bufferSize
         optB = buffersize * self.numBuffers
@@ -909,24 +908,27 @@ class Engine(_EngineBase):
         if config['set_sigint_handler']:
             internal.setSigintHandler()
 
-        self._responsesTable = self.csound.table(self._builtinTables['responses'])
+        responsesTable = cs.table(self._builtinTables['responses'])
+        if responsesTable is None:
+            raise RuntimeError("Could not create responses table")
+        self._responsesTable = responsesTable
 
-        chanptr, err = self.csound.channelPtr("_soundfontPresetCount",
-                                              ctcsound.CSOUND_CONTROL_CHANNEL |
-                                              ctcsound.CSOUND_INPUT_CHANNEL |
-                                              ctcsound.CSOUND_OUTPUT_CHANNEL)
-        assert chanptr is not None, f"_soundfontPresetCount channel is not set: {err}"
+        chanptr, err = cs.channelPtr("_soundfontPresetCount",
+                                     ctcsound.CSOUND_CONTROL_CHANNEL |
+                                     ctcsound.CSOUND_INPUT_CHANNEL |
+                                     ctcsound.CSOUND_OUTPUT_CHANNEL)
+        assert isinstance(chanptr, np.ndarray), f"_soundfontPresetCount channel is not set: {err}"
         self._soundfontPresetCountPtr = chanptr
 
         if self.hasBusSupport():
-            chanptr, error = self.csound.channelPtr("_busTokenCount",
-                                                    ctcsound.CSOUND_CONTROL_CHANNEL|
-                                                    ctcsound.CSOUND_INPUT_CHANNEL|
-                                                    ctcsound.CSOUND_OUTPUT_CHANNEL)
-            assert chanptr is not None, f"_busTokenCount channel not set: {error}\n{orc}"
+            chanptr, error = cs.channelPtr("_busTokenCount",
+                                           ctcsound.CSOUND_CONTROL_CHANNEL|
+                                           ctcsound.CSOUND_INPUT_CHANNEL|
+                                           ctcsound.CSOUND_OUTPUT_CHANNEL)
+            assert isinstance(chanptr, np.ndarray), f"_busTokenCount channel not set: {error}\n{orc}"
             self._busTokenCountPtr = chanptr
-            kbustable = int(self.csound.evalCode("return gi__bustable"))
-            self._kbusTable = self.csound.table(kbustable)
+            kbustable = int(cs.evalCode("return gi__bustable"))
+            self._kbusTable = cs.table(kbustable)
         else:
             logger.info("Server started without bus support")
         self._setupCallbacks()
@@ -991,13 +993,14 @@ class Engine(_EngineBase):
         self._modified()
         self.sync()
 
-    def restart(self, wait=1) -> None:
+    def restart(self, wait=0.) -> None:
         """ Restart this engine. All defined instrs / tables are removed"""
         self.stop()
-        if wait:
-            _termui.waitWithAnimation(wait)
+        if wait > 0.5:
+            from . import termui
+            termui.waitWithAnimation(label='Restarting...', waittime=wait)
         self.start()
-        
+
     def _outvalueCallback(self, _, channelName, valptr, chantypeptr):
         func = self._outvalueCallbacks.get(channelName)
         if not func:
@@ -1583,7 +1586,7 @@ class Engine(_EngineBase):
                 Defaults are filled with values defined via ``pset``
 
 
-        Returns: 
+        Returns:
             a fractional p1 of the instr started, which identifies this event.
             If instr is a fractional named instr, like "synth.01", then this
             same instr is returned as eventid (as a string).
@@ -1640,7 +1643,7 @@ class Engine(_EngineBase):
             args = pfields
 
         if namedpfields:
-            instrdef = self._parsedInstrs.get(int(instr) if isinstance(instr, float) else instr)
+            instrdef = self._parsedInstrs.get(instr if isinstance(instr, str) else str(int(instr)))
             if instrdef:
                 kwargs = csoundlib.normalizeNamedPfields(namedpfields, instrdef.pfieldNameToIndex)
             else:
@@ -2346,7 +2349,7 @@ class Engine(_EngineBase):
             import matplotlib.pyplot as plt
             fig, axes = plt.subplots()
             axes.plot(data)
-            f.tight_layout(pad=0.1)
+            fig.tight_layout(pad=0.1)
             if not plotting.matplotlibIsInline():
                 plt.show()
             return fig
@@ -2357,7 +2360,7 @@ class Engine(_EngineBase):
                   dur: float = -1,
                   args: np.ndarray | Sequence[float | str] | None = None,
                   timeout=-1
-                  ) -> tuple[float, float]:
+                  ) -> tuple[float, float | None]:
         """
         Schedule an instr, wait for a sync message
 
@@ -2381,7 +2384,9 @@ class Engine(_EngineBase):
                 at most this time and then raise a TimeoutError
 
         Returns:
-            the fractional p1 of the scheduled note, the sync return value (see example)
+            the fractional p1 of the scheduled note, the sync return value (see example) or
+            None if the instrument does not return any value. Raises TimeoutError
+            if the operation times out
 
         Example
         ~~~~~~~
@@ -2861,11 +2866,11 @@ class Engine(_EngineBase):
 
         Returns:
             a TableInfo with fields `tableNumber`, `sr` (``ftsr``),
-            `numChannels` (``ftchnls``), `numFrames` (``nsamps``), 
-            `size` (``ftlen``). 
-            
+            `numChannels` (``ftchnls``), `numFrames` (``nsamps``),
+            `size` (``ftlen``).
+
         .. note::
-        
+
             Some information, like *sr*, is only available for tables
             allocated via ``GEN01`` (for example, using :meth:`~Engine.readSoundfile`).
             This data can also be set explicitely via :meth:`~Engine.setTableMetadata`
@@ -2995,7 +3000,7 @@ class Engine(_EngineBase):
         return tabnum
 
     def soundfontPlay(self, index: int, pitch: float, amp=0.7, delay=0.,
-                      dur=-1., vel: int | None = None, chan=1
+                      dur=-1., vel: int = 0, chan=1
                       ) -> float:
         """
         Play a note of a previously loaded soundfont
@@ -3004,18 +3009,19 @@ class Engine(_EngineBase):
         via :meth:`Engine.soundfontPreparePreset`
 
         Args:
-            index (int): as returned via :meth:`~Engine.soundfontPrearePreset`
-            pitch (float): the pitch of the played note, as a midinote (can
+            index: as returned via :meth:`~Engine.soundfontPrearePreset`
+            pitch: the pitch of the played note, as a midinote (can
                 be fractional)
-            amp (float): the amplitude. If vel (velocity) is left as None, this
+            amp: the amplitude. If vel (velocity) is left as None, this
                 is used to determine the velocity. Otherwise, set the velocity
                 (this might  be used by the soundfont to play the correct sample)
                 and the amplitude is used to scale the output
-            vel (int): the velocity of the played note, used internally to determine
-                which sample/layer to play
-            chan (int): the first channel to send output to (channels start with 1)
-            delay (float): when to start playback
-            dur (float): the duration of playback. Use -1 to play until the end
+            vel: the velocity of the played note, used internally to determine
+                which sample/layer to play. If not given, a velocity is calculated
+                from the given amplitude
+            chan: the first channel to send output to (channels start with 1)
+            delay: when to start playback
+            dur: the duration of playback. Use -1 to play until the end
                 (the note will be stopped when the soundfont playback detects the
                 end of the sample)
 
@@ -3056,8 +3062,8 @@ class Engine(_EngineBase):
 
         """
         assert index in self._soundfontPresets.values()
-        if vel is None:
-            vel = amp*127
+        if not vel:
+            vel = int(amp * 127)
         args = [pitch, amp, index, vel, chan]
         return self.sched(self._builtinInstrs['soundfontPlay'], delay=delay, dur=dur,
                           args=args)
@@ -3825,7 +3831,8 @@ class Engine(_EngineBase):
         assert self._kbusTable is not None
         return self._kbusTable[busidx]
 
-    def _getBusIndex(self, bus: int, blocking=True, whendone: Callable = None) -> int | None:
+    def _getBusIndex(self, bus: int, blocking=True, whendone: Callable | None = None
+                     ) -> int | None:
         """
         Find the bus index corresponding to `bus` token.
 
@@ -4158,5 +4165,3 @@ def getEngine(name: str) -> Engine | None:
 
     """
     return Engine.activeEngines.get(name)
-
-
