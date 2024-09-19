@@ -357,7 +357,7 @@ class OfflineEngine(_EngineBase):
 
     def sched(self,
               instr: int | float | str,
-              delay: float | None = None,
+              delay=0.,
               dur=-1.,
               *pfields,
               args: np.ndarray | list[float | str] | None = None,
@@ -375,9 +375,7 @@ class OfflineEngine(_EngineBase):
                 by csound if unique is True. Named instruments
                 with a fractional number can also be scheduled (for example,
                 for an instrument named "myinstr" you canuse "myinstr.001")
-            delay: absolute start time. It is called delay to share the same interface with
-                real-time rendering. If None is given, the event is scheduled at the
-                current elapsed time (see :attr:`OfflineEngine.now`)
+            delay: start time, relative to the elapsed time. (see :attr:`OfflineEngine.now`)
             dur: duration of the event
             args: any other args expected by the instrument, starting with p4
                 (as a list of floats/strings, or a numpy array). Any
@@ -441,9 +439,6 @@ class OfflineEngine(_EngineBase):
         elif pfields:
             args = pfields
 
-        if delay is None:
-            delay = self.elapsedTime()
-
         if namedpfields:
             instrdef = self._parsedInstrs.get(str(int(instr)) if isinstance(instr, (int, float)) else instr)
             if instrdef:
@@ -472,10 +467,6 @@ class OfflineEngine(_EngineBase):
         elif delay > self._endtime:
             self._endtime = delay
 
-        if delay < self.elapsedTime():
-            raise ValueError(f"Cannot schedule an event in the past, event start: {delay}, current "
-                             f"time: {self.elapsedTime()}")
-
         if isinstance(args, np.ndarray):
             pfields = np.empty((len(args) + 3,), dtype=float)
             pfields[0] = p1
@@ -489,8 +480,9 @@ class OfflineEngine(_EngineBase):
                     # do not keep track of strsets for scheduling events in the history
                     # since these end up in the score and csound does the string handling for us
                     pfields.extend(float(a) if not isinstance(a, str) else self.strSet(a) for a in args)
-        self.csound.scoreEventAbsolute(type_='i', pFields=pfields, timeOffset=0)
-        self._addHistory(_SchedEvent(instr=instr, delay=delay, dur=dur, args=args,
+        timeOffset = delay + self.elapsedTime()
+        self.csound.scoreEventAbsolute(type_='i', pFields=pfields, timeOffset=timeOffset)
+        self._addHistory(_SchedEvent(instr=instr, delay=timeOffset, dur=dur, args=args,
                                      eventid=p1, comment=comment))
 
         self._shouldPerform = True
@@ -650,7 +642,8 @@ class OfflineEngine(_EngineBase):
         assert self.csound is not None
         endtime = (endtime or self._endtime) + extratime
         if endtime == 0.:
-            raise CsoundError("The render time is 0.")
+            logger.debug("The render time is 0, nothing to perform.")
+            return
 
         if self._shouldPerform:
             if endtime > self._endtime:
@@ -1162,7 +1155,7 @@ class OfflineEngine(_EngineBase):
                   pfield: int | str,
                   pairs: Sequence[float] | np.ndarray,
                   mode='linear',
-                  delay: float | None = None,
+                  delay=0.,
                   overtake=False
                   ) -> float:
         """
@@ -1178,7 +1171,7 @@ class OfflineEngine(_EngineBase):
             mode: one of 'linear', 'cos', 'expon(xx)', 'smooth'. See the csound opcode
                 `interp1d` for more information
                 (https://csound-plugins.github.io/csound-plugins/opcodes/interp1d.html)
-            delay: the time delay to start the automation.
+            delay: the time delay to start the automation, relative to the elapsed time
             overtake: if True, the first value of pairs is replaced with
                 the current value in the running instance
 
@@ -1200,9 +1193,6 @@ class OfflineEngine(_EngineBase):
 
         .. seealso:: :meth:`~Engine.setp`, :meth:`~Engine.automateTable`
         """
-        if delay is None:
-            delay = self.elapsedTime()
-
         if math.isnan(pairs[1]):
             overtake = True
 

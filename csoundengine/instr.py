@@ -188,7 +188,7 @@ class Instr:
 
         for instr in instrs:
             session.registerInstr(instr)
-       
+
         score = [('saw', 0,   2, 60),
                  ('sine', 1.5, 4, 67),
                  ('saw', 1.5, 4, 67.1)]
@@ -282,7 +282,9 @@ class Instr:
 
             if controls:
                 self._controlsNameToIndex = {key: idx for idx, key in enumerate(controls.keys())}
-                self._controlsDefaultValues = list(controls.values())
+                values = list(controls.values())
+                assert all(isinstance(value, (int, float)) for value in values), f"Controls cannot have string defaults, got {values}"
+                self._controlsDefaultValues = values
 
                 if 0 < maxNamedArgs < len(controls):
                     raise ValueError(f"Too many named args, the maximum is {maxNamedArgs}, "
@@ -320,9 +322,9 @@ class Instr:
         self._preprocessedBody: str = textwrap.dedent(body)
         "Body after processing inline args"
 
-        self.pfields: dict[str, float] = pfields
+        self.pfields: dict[str, float | str] = pfields
         """Dict mapping pfield name to default value
-        
+
         pfield index is assigned by order, starting with p5"""
 
         self.init: str = init if init is not None else ''
@@ -346,17 +348,17 @@ class Instr:
         self.pfieldNameToIndex: dict[str, int] = pargsNameToIndex
         "Dict mapping pfield name to its index"
 
-        self.pfieldIndexToValue: dict[int, float] = pargsIndexToValue
+        self.pfieldIndexToValue: dict[int, float | str] = pargsIndexToValue
         "Dict mapping pfield index to its default value"
 
-        self.aliases = aliases or EMPTYDICT
+        self.aliases = aliases if aliases is not None else EMPTYDICT
         """Maps alias argument names to their real argument names
-        
+
         Aliased parameters can be pfields or named controls"""
 
         self._argToAlias = {name: alias for alias, name in aliases.items()} if aliases else EMPTYDICT
         self._preschedCallback = preschedCallback
-        self._defaultPfieldValues = list(self.pfields.values())
+        self._defaultPfieldValues: list[float | str] = list(self.pfields.values())
 
     def register(self, renderer: AbstractRenderer) -> None:
         """
@@ -404,7 +406,7 @@ class Instr:
 
         return f"Instr({', '.join(parts)})"
 
-    def generateBody(self, renderer: AbstractRenderer = None) -> str:
+    def generateBody(self, renderer: AbstractRenderer | None = None) -> str:
         """
         Generate the actual body of this instrument
 
@@ -462,7 +464,6 @@ class Instr:
                     pname = self.pfieldName(idx)
                     if self.aliases and (alias := self._argToAlias.get(pname)):
                         pname = f'{alias}({pname})'
-                    # parg = _(f'p{idx}', fontsize='90%')
                     if pname:
                         if config['instr_repr_show_pfield_pnumber']:
                             pnamehtml = f"<b>{pname}</b>:p{idx}"
@@ -591,7 +592,8 @@ class Instr:
                     if not aliased:
                         pfields.pop(realname, None)
 
-        return pfields
+        # We know that pfields cannot hold any string since we are selecting by 'k' prefix
+        return pfields   # type: ignore
 
     @cache
     def dynamicPfieldNames(self) -> frozenset[str]:
@@ -699,7 +701,7 @@ class Instr:
     def paramDefaultValues(self, aliases=True, aliased=False) -> dict[str, float]:
         """
         A dict mapping named parameters to their default values
-        
+
         Named parameters are any named pfields or controls. Also anonymous
         pfields which have an assigned default value via the 'pset' opcode
         will be included here
@@ -776,14 +778,6 @@ class Instr:
         if alias and self.aliases and (name2 := self._argToAlias.get(name)):
             return name2
         return name
-
-    # def pfieldsRegistry(self) -> dict[int, tuple[str|int, float|str]]:
-    #     """
-    #     dict mapping pfield index to (pfieldname: str, defaultvalue: float | str)
-    #     """
-    #     out = {idx: (self.pfieldName(idx), value) for idx, value in self.pfieldIndexToValue.items()}
-    #     assert all(idx in out for idx in self.pfieldNameToIndex.values())
-    #     return out
 
     @cache
     def numPfields(self) -> int:
@@ -898,6 +892,7 @@ class Instr:
         else:
             if self.aliases:
                 pfield = self.aliases.get(pfield, pfield)
+            assert isinstance(pfield, str)
             idx = self.pfieldNameToIndex.get(pfield)
             if idx is None:
                 raise ValueError(f"Pfield '{pfield}' not known. Named pfields: {self.pfieldNames()}")
@@ -910,9 +905,9 @@ class Instr:
         return self._defaultPfieldValues
 
     def pfieldsTranslate(self,
-                         args: Sequence[float|str] = (),
-                         kws: dict[str | int, float] | None = None
-                         ) -> list[float|str]:
+                         args: Sequence[float | str] = (),
+                         kws: dict[str | int, float | str] | None = None
+                         ) -> list[float | str]:
         """
         Given pfields as values and keyword arguments, generate a list of
         values which can be passed to sched, starting with p5
@@ -966,7 +961,7 @@ class Instr:
             args: list[float] | dict[str, float] | None = None,
             sr: int | None = None,
             ksmps: int | None = None,
-            encoding: str | None = None,
+            encoding='',
             nchnls=2,
             wait=True,
             a4: int | None = None,
@@ -1199,6 +1194,3 @@ def _namedControlsGenerateCode(controls: dict) -> str:
     lines.append("    ; --- end generated code\n")
     out = textlib.stripLines(textlib.joinPreservingIndentation(lines))
     return out
-
-
-

@@ -4,12 +4,12 @@ from abc import abstractmethod, ABC
 
 from typing import TYPE_CHECKING, Sequence, Callable
 if TYPE_CHECKING:
-    from csoundengine import busproxy
-    from csoundengine.schedevent import SchedEvent, SchedEventGroup
+    from . import busproxy
+    from .schedevent import SchedEvent, SchedEventGroup
     import numpy as np
-    from csoundengine.event import Event
-    from csoundeninge import tableproxy
-    from csoundengine import instr
+    from .event import Event
+    from . import tableproxy
+    from . import instr
 
 
 __all__ = (
@@ -41,7 +41,7 @@ class AbstractRenderer(ABC):
               relative=True,
               **kwargs) -> SchedEvent:
         raise NotImplementedError
-    
+
     @abstractmethod
     def unsched(self, event: int | float | SchedEvent, delay: float) -> None:
         raise NotImplementedError
@@ -50,13 +50,13 @@ class AbstractRenderer(ABC):
     def defInstr(self,
                  name: str,
                  body: str,
-                 args: dict[str, float|str] = None,
+                 args: dict[str, float|str] | None = None,
                  init: str = '',
-                 priority: int = None,
+                 priority: int | None = None,
                  doc: str = '',
                  includes: list[str] | None = None,
-                 aliases: dict[str, str] = None,
-                 useDynamicPfields: bool = None,
+                 aliases: dict[str, str] | None = None,
+                 useDynamicPfields: bool | None = None,
                  **kws) -> instr.Instr:
         raise NotImplementedError
 
@@ -132,7 +132,7 @@ class AbstractRenderer(ABC):
                  param: str,
                  pairs: Sequence[float] | np.ndarray,
                  mode="linear",
-                 delay: float = None,
+                 delay: float | None = None,
                  overtake=False
                  ) -> float:
         raise NotImplementedError
@@ -173,7 +173,7 @@ class AbstractRenderer(ABC):
         Schedule the given event
         """
         raise NotImplementedError
-    
+
     def schedEvents(self, events: Sequence[Event]) -> SchedEventGroup:
         # naive implementation
         schedevents = [self.schedEvent(event)
@@ -205,4 +205,3 @@ class AbstractRenderer(ABC):
                       force=False,
                       ) -> tableproxy.TableProxy:
         raise NotImplementedError
-

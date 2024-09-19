@@ -37,7 +37,12 @@ class RenderJob:
     @property
     def args(self) -> list[str]:
         """The args used to render this job, if a process was used"""
-        return self.process.args if self.process else []
+        if not self.process:
+            return []
+        args = self.process.args
+        if isinstance(args, str):
+            return [args]
+        return args
 
     def openOutfile(self, timeout=None, appwait=True, app=''):
         """

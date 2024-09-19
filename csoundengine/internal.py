@@ -23,7 +23,7 @@ from functools import cache
 
 if TYPE_CHECKING:
     from .instr import Instr
-    from typing import *
+    from typing import TypeVar, Sequence, Any, KeysView
     from csoundlib import AudioDevice, MidiDevice
     T = TypeVar('T')
 
@@ -190,7 +190,7 @@ def splitDict(d: dict[str, float],
 
 def resolveInstrArgs(instr: Instr,
                      p4: int,
-                     pargs: list[float] | dict[str | int, float] | None = None,
+                     pargs: list[float] | dict[str | int, float | str] | None = None,
                      pkws: dict[str | int, float] | None = None,
                      ) -> list[float | str]:
     """
@@ -774,4 +774,3 @@ def classify(objs: tuple[str, _T]) -> dict[str, _T]:
     for key, obj in objs:
         groups.setdefault(key, []).append(obj)
     return groups
-

@@ -1020,12 +1020,9 @@ class OfflineSession(AbstractRenderer):
                       suppressdisplay=runSuppressdisplay,
                       nomessages=runSuppressdisplay,
                       piped=runPiped)
-        job.endtime = endtime
-        job.starttime = starttime
+        job.endtime, job.starttime = endtime, starttime
 
         if openWhenDone:
-            if not wait:
-                logger.info("Waiting for the render to finish...")
             job.wait()
             emlib.misc.open_with_app(outfile, wait=True)
         elif wait:
@@ -1038,6 +1035,8 @@ class OfflineSession(AbstractRenderer):
         lastjob = self.lastRenderJob()
         if lastjob:
             lastjob.openOutfile(app=app)
+        else:
+            logger.error("No rendered jobs found")
 
     def lastRenderJob(self) -> RenderJob | None:
         """
@@ -1053,7 +1052,7 @@ class OfflineSession(AbstractRenderer):
 
     def lastRenderedSoundfile(self) -> str | None:
         """
-        Returns the last rendered soundfile, or None if no jobs were rendered
+        Returns the path of the last rendered soundfile, or None if no jobs were rendered
         """
         job = self.lastRenderJob()
         return job.outfile if job else None
@@ -1700,5 +1699,6 @@ def _namedControlsGenerateCodeOffline(controls: dict) -> str:
 
 class Renderer:
     def __new__(cls, *args, **kwargs):
+        import warnings
         warnings.warn("The class 'Renderer' has been renamed to 'OfflineSession'")
         return OfflineSession(*args, **kwargs)

@@ -473,11 +473,26 @@ class Synth(SchedEvent, ISynth):
         else:
             raise TypeError(f"Expected an integer index or a parameter name, got {param}")
 
+    def relativeStart(self) -> float:
+        """
+        The relative start time of this Synth
+
+        The .start attribute of the synth carries the absolute timestamp
+        (since the start of the engine) at which this Synth was scheduled.
+        The relative start time is an offset from the current elapsed
+        time. **If this synth has already started then the returned value
+        will be negative**
+
+        Returns:
+            the relative start time of the synth
+        """
+        return self.start - self.session.engine.elapsedTime()
+
     def automate(self,
                  param: str,
                  pairs: Sequence[float] | np.ndarray | tuple[np.ndarray, np.ndarray],
                  mode='linear',
-                 delay=0.,
+                 delay: float | None = None,
                  overtake=False,
                  ) -> float:
         """
@@ -490,7 +505,8 @@ class Synth(SchedEvent, ISynth):
             pairs: automation data as a flat array with the form [time0, value0, time1, value1, ...] or a
                 tuple of the form (times, values)
             mode: one of 'linear', 'cos'. Determines the curve between values
-            delay: when to start the automation
+            delay: when to start the automation, relative to the current time. If None is given,
+                the delay is set to the start of this synth
             overtake: if True, do not use the first value in pairs but overtake the current value
 
         Returns:
@@ -864,7 +880,7 @@ class SynthGroup(BaseSchedEvent):
             if value is not None:
                 return value
         return None
-            
+
     def _setPfield(self, param: str, value: float, delay=0.) -> None:
         count = 0
         for synth in self:
@@ -895,4 +911,3 @@ class SynthGroup(BaseSchedEvent):
             sleepfunc: the function to call when sleeping, defaults to time.sleep
         """
         internal.waitWhileTrue(self.playing, pollinterval=pollinterval, sleepfunc=sleepfunc)
-

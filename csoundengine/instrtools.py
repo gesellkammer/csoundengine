@@ -353,7 +353,7 @@ def parseDocstring(text: str | list[str]) -> Docstring | None:
                      args=args)
 
 
-def distributeParams(params: dict[str, float],
+def distributeParams(params: dict[str, float | str],
                      pfieldNames: set[str] | frozenset[str],
                      controlNames: set[str] | frozenset[str]
                      ) -> tuple[dict[str | int, float | str], dict[str, float]]:
@@ -382,8 +382,4 @@ def distributeParams(params: dict[str, float],
                     raise KeyError(f"Parameter '{name}' not known. Possible "
                                    f"dynamic arguments: {controlNames}")
                 controls[name] = value
-        # if pfields:
-        #     assert all(pfield in pfieldNames for pfield in pfields)
-        # if controls:
-        #     assert all(control in controlNames for control in controls)
         return pfields, controls

@@ -2,22 +2,20 @@ from .instr import Instr
 
 builtinInstrs = [
     Instr('.sine', body="""
-        |kamp=0.5, kmidi=60, kpos=0.5, ichan=0|
+        |kpitch=60, kamp=0.5, kpos=0.5, ichan=0|
         aenv linsegr 0, 0.04, 1, 0.08, 0
-        a0 oscil interp(kamp), mtof:k(kmidi)
+        a0 oscil interp(kamp), mtof:k(kpitch)
         a0 *= aenv
         aL, aR pan2 a0, kpos
         outch ichan, aL, ichan+1, aR
         """),
     Instr('.testAudio', body=r'''
-        |imode=0, iperiod=1, igain=0.1|
+        |imode=0, iperiod=1, igain=0.1, iverbose=1|
         kchan init -1
         if imode == 0 then
-            prints "\nTestaudio: pink noise mode\n"
             a0 pinker
             a0 *= igain
         elseif imode == 1 then
-            prints "\nTestaudio: sine tone mode\n"
             a0 oscili igain, 1000
         else
             initerror sprintf("testaudio: imode %d unknown", imode)
@@ -25,7 +23,7 @@ builtinInstrs = [
         kswitch metro 1/iperiod
         kchan = (kchan + kswitch) % nchnls
         outch kchan+1, a0
-        if kswitch == 1 then
+        if iverbose * kswitch == 1 then
             println "Channel: %d / %d", kchan+1, nchnls
         endif
     '''),
@@ -43,7 +41,7 @@ builtinInstrs = [
         if isndtab <= 0 || ftexists(isndtab) == 0 then
             initerror sprintf("Table %d does not exist", isndtab)
         endif
-        
+
         iloop = ixfade >= 0 ? 1 : 0
         ionecycle = ksmps/sr
         ifadein = max(ifadein, ionecycle)
@@ -51,22 +49,22 @@ builtinInstrs = [
         inumouts = ftchnls(isndtab)
         inumsamples = nsamp(isndtab)
         isr = ftsr(isndtab)
-        
+
         if isr <= 0 then
             initerror sprintf("Could not determine sr of table %d", isndtab)
         endif
         idur = inumsamples / isr
-        
+
         know init istart
         if inumouts == 0 then
             ; not a gen1 table, fail
             initerror sprintf("Table %d was not generated via gen1", isndtab)
         endif
-        
+
         kidx init 0
         aenv = linsegr:a(0, ifadein, 1, ifadeout, 0)
         aenv *= interp(kgain)
-        
+
         if inumouts == 1 then
             ; a1 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart
             a1 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart
@@ -96,7 +94,7 @@ builtinInstrs = [
                 outch kchan+kidx, aouts[kidx]
                 kchan += 1
             od
-        endif   
+        endif
         know += ionecycle * kspeed
         imaxtime = idur - ifadeout - ionecycle
         if iloop == 0 && know >= imaxtime then
@@ -128,10 +126,10 @@ builtinInstrs = [
             ichans[] genarray ichan, ichan+inumouts-1
             poly0 inumouts, "outch", ichans, aouts
         endif
-        know += ionecycle/kspeed 
+        know += ionecycle/kspeed
         if p3 < 0 && iloop == 0 && know > imaxtime then
             turnoff
-        endif 
+        endif
     ''', aliases={'speed': 'kspeed', 'gain': 'kgain'}),
     Instr('.playbuf', body="""
         |itabnum=0, ioutchan=1, igain=1, iloop=0|
@@ -160,75 +158,75 @@ builtinInstrs = [
         |ifn, iskip=-1, inumrows=0, inumcols=0, kspeed=1, kloop=0, kminfreq=0, kmaxfreq=0, iflags=0, istart=0, istop=0, kfreqscale=1, ichan=1, kbwscale=1., kgain=1., iposition=0., kfreqoffset=0., kminbw=0., kmaxbw=1., kminamp=0.|
         ifade = 0.02
         kplayhead init istart
-        
-        if iskip == -1 then    
+
+        if iskip == -1 then
             iskip      tab_i 0, ifn
             inumrows   tab_i 1, ifn
             inumcols   tab_i 2, ifn
         endif
-        
+
         it0 = tab_i(iskip, ifn)
         it1 = tab_i(iskip+inumcols, ifn)
         idt = it1 - it0
-        inumpartials = (inumcols-1) / 3 
-        
+        inumpartials = (inumcols-1) / 3
+
         imaxrow = inumrows - 2
         it = ksmps / sr
         idur = imaxrow * idt
         istop = istop > 0 ? istop : idur
-        
+
         ; prints "skip: %d, numcols: %d, numrows: %d, idt: %f \n", iskip, inumcols, inumrows, idt
-        
+
         krow = kplayhead / idt
-        
+
         ; each row has the format frametime, freq0, amp0, bandwidth0, freq1, amp1, bandwidth1, ...
         kF[] getrowlin krow, ifn, inumcols, iskip, 1, 0, 3
         kA[] getrowlin krow, ifn, inumcols, iskip, 2, 0, 3
         kB[] getrowlin krow, ifn, inumcols, iskip, 3, 0, 3
         kSel[] init inumcols / 3
-        
+
         if kmaxfreq > 0 || kminfreq > 0 then
           kmaxfreq = kmaxfreq > 0 ? kmaxfreq : sr / 2
           kSel cmp kminfreq, "<=", kF, "<=", kmaxfreq
           kA *= kSel
         endif
-        
+
         if kminbw > 0 || kmaxbw < 1 then
           kSel cmp kminbw, "<=", kB, "<=", kmaxbw
           kA *= kSel
         endif
-        
+
         if kfreqoffset > 0 then
           kF += kfreqoffset
         endif
-        
+
         if kminamp > 0 then
           kSel cmp kA, ">=", kminamp
           kA *= kSel
-        endif 
-        
+        endif
+
         aout beadsynt kF, kA, kB, -1, iflags, kfreqscale, kbwscale
-        
+
         aenv cossegr 0, ifade, 1, ifade, 0
         if kgain != 1 then
             aenv *= kgain
         endif
         aout *= aenv
-        
+
         if iposition == 0  then
             outch ichan, aout
         else
             aL, aR pan2 aout, iposition
             outch ichan, aL, ichan+1, aR
         endif
-        
+
         kplayhead += ksmps/sr * kspeed
         if kplayhead >= istop then
           kplayhead = istart
-          if kloop == 0 && release() == 0 then  
+          if kloop == 0 && release() == 0 then
             turnoff
           endif
-        endif  
+        endif
     '''),
 
     Instr('.dummy', body="")

@@ -370,12 +370,16 @@ class Session(AbstractRenderer):
     def getSynthById(self, token: int) -> Synth | None:
         return self._synths.get(token)
 
+    @property
+    def now(self) -> float:
+        return self.engine.elapsedTime()
+
     def automate(self,
                  event: SchedEvent,
                  param: str,
                  pairs: Sequence[float] | np.ndarray | tuple[np.ndarray, np.ndarray],
                  mode='linear',
-                 delay=0.,
+                 delay: float | None = None,
                  overtake=False,
                  ) -> float:
         """
@@ -388,13 +392,16 @@ class Session(AbstractRenderer):
             param: the name of the parameter to automate
             pairs: automation data as a flat array with the form [time0, value0, time1, value1, ...]
             mode: one of 'linear', 'cos'. Determines the curve between values
-            delay: when to start the automation
+            delay: relatime time from now to start the automation. If None is given, sync the start
+                of the automation to the start of the given event.
             overtake: if True, do not use the first value in pairs but overtake the current value
 
         Returns:
             the eventid of the automation event.
         """
         now = self.engine.elapsedTime()
+        relstart = delay if delay is not None else event.start - now
+
         if isinstance(pairs, np.ndarray):
             # TODO: check (in general) if this converting between numpy/list/numpy
             # can be a bottleneck when automation lines get big
@@ -404,32 +411,26 @@ class Session(AbstractRenderer):
             pairs = _numpytools.interlace(*pairs).tolist()
 
         assert isinstance(pairs, (list, tuple))
-        automStart = now + delay + pairs[0]
-        automEnd = now + delay + pairs[-2]
-        if automEnd <= event.start or automStart >= event.end:
-            # automation line ends before the actual event!!
-            logger.debug(f"Automation times outside of this synth: {param=}, "
-                         f"automation start-end: {automStart} - {automEnd}, "
-                         f"synth: {self}")
-            return 0
 
         if len(pairs) == 2:
-            t0 = pairs[0]
-            event.set(param=param, delay=delay + t0, value=pairs[1])
+            t0 = float(pairs[0])
+            event.set(param=param, delay=relstart + t0, value=float(pairs[1]))
             return 0
 
-        if automStart < event.start or automEnd > event.end:
-            pairs, delay = _tools.cropDelayedPairs(pairs=pairs, delay=delay + now, start=automStart,
-                                                   end=automEnd)
+        absAutomStart = now + relstart + pairs[0]
+        absAutomEnd = now + relstart + pairs[-2]
+        if absAutomStart < event.start or absAutomEnd > event.end:
+            pairs, absdelay = _tools.cropDelayedPairs(pairs=pairs, delay=now + relstart, start=absAutomStart,
+                                                      end=absAutomEnd)
             if not pairs:
                 return 0
-            delay -= now
+            relstart = absdelay - now
 
         if pairs[0] > 0:
-            pairs, delay = _tools.consolidateDelay(pairs, delay)
+            pairs, relstart = _tools.consolidateDelay(pairs, relstart)
 
         if csoundlib.isPfield(param):
-            return self._automatePfield(event=event, param=param, pairs=pairs, mode=mode, delay=delay,
+            return self._automatePfield(event=event, param=param, pairs=pairs, mode=mode, delay=relstart,
                                         overtake=overtake)
 
         param = event.unaliasParam(param, param)
@@ -440,10 +441,10 @@ class Session(AbstractRenderer):
 
         if (controlnames := instr.controlNames(aliases=False)) and param in controlnames:
             return self._automateTable(event=event, param=param, pairs=pairs, mode=mode,
-                                       delay=delay, overtake=overtake)
+                                       delay=relstart, overtake=overtake)
         elif (pargs := instr.pfieldNames(aliases=False)) and param in pargs:
             return self._automatePfield(event=event, param=param, pairs=pairs, mode=mode,
-                                        delay=delay, overtake=overtake)
+                                        delay=relstart, overtake=overtake)
         else:
             raise KeyError(f"Unknown parameter '{param}', supported parameters: {instr.dynamicParamNames()}")
 
@@ -1131,10 +1132,10 @@ class Session(AbstractRenderer):
 
         Returns:
             a :class:`csoundengine.offline.OfflineSession`
-    
+
         Example
         ~~~~~~~
-        
+
             >>> from csoundengine import *
             >>> s = Engine().session()
             >>> s.defInstr('simplesine', r'''
@@ -1143,7 +1144,7 @@ class Session(AbstractRenderer):
             ... asig *= linsegr:a(0, iattack, 1, 0.1, 0)
             ... asing *= kgain
             ... outch 1, asig
-            ... ''') 
+            ... ''')
             >>> with s.rendering('out.wav') as r:
             ...     r.sched('simplesine', 0, dur=2, kfreq=1000)
             ...     r.sched('simplesine', 0.5, dur=1.5, kfreq=1004)
@@ -1702,7 +1703,7 @@ class Session(AbstractRenderer):
         tabnum = table if isinstance(table, int) else table.tabnum
         self.engine.freeTable(tabnum, delay=delay)
 
-    def testAudio(self, dur=20, mode='noise', period=1, gain=0.1):
+    def testAudio(self, dur=20, mode='noise', verbose=True, period=1, gain=0.1):
         """
         Schedule a test synth to test the engine/session
 
@@ -1722,7 +1723,7 @@ class Session(AbstractRenderer):
         if imode is None:
             raise ValueError(f"mode {mode} is invalid. Possible modes are 'noise', 'sine'")
         return self.sched('.testAudio', dur=dur,
-                          args=dict(imode=imode, iperiod=period, igain=gain))
+                          args=dict(imode=imode, iperiod=period, igain=gain, iverbose=int(verbose)))
 
     def playPartials(self,
                      source: int | TableProxy | str | np.ndarray,
@@ -2057,5 +2058,3 @@ def _namedControlsGenerateCode(controls: dict) -> str:
     lines.append("    ; --- end generated code\n")
     out = _textlib.stripLines(_textlib.joinPreservingIndentation(lines))
     return out
-
-

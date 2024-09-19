@@ -32,11 +32,11 @@ chn_k "_soundfontPresetCount", 3
 ; ---------------------------------
 
 opcode _panweights, kk, k
-    kpos xin   
+    kpos xin
     kampL = bpf:k(kpos, 0, 1.4142, 0.5, 1, 1, 0)
     kampR = bpf:k(kpos, 0, 0,      0.5, 1, 1, 1.4142)
     xout kampL, kampR
-endop 
+endop
 
 opcode namedinstrtofrac, i, S
     ; similar to nametoinstrnum but takes the fractional part into account
@@ -106,10 +106,10 @@ opcode sendsync, 0, i
     ; send a sync message back, to be used by instruments scheduled
     ; via schedSync
     itoken xin
-    tabw_i itab, itoken, gi__responses
+    tabw_i 1, itoken, gi__responses
     outvalue "__sync__", itoken
 endop
-            
+
 
 instr ${notifyDealloc}
     ip1 init p4
@@ -185,8 +185,8 @@ endin
 ; can make a table with data or just empty of a given size
 ; data must be smaller than 2000 which is the current limit
 ; for pfields
-instr ${maketable}  
-    ; args: 
+instr ${maketable}
+    ; args:
     ;   itoken: the token used to sync with the engine
     ;   itabnum: the table number (can be 0 to let csound assign a number)
     ;   ilen: the size of the table
@@ -206,7 +206,7 @@ instr ${maketable}
     endif
     if isr > 0 then
         ftsetparams itabnum, isr, inumchannels
-    endif 
+    endif
     ; notify host that token is ready (if asked to)
     if itoken > 0 then
         tabw_i itabnum, itoken, gi__responses
@@ -233,14 +233,14 @@ instr ${automatePargViaPargs}
         ix1 = p12
         iy1 = p13
         ky linseg iy0, ix1, iy1
-        goto end 
+        goto end
     endif
-    
+
     ipairs[] passign 10, 10+ilenpairs
     iXs[] slicearray ipairs, 0, ilenpairs-1, 2
     iYs[] slicearray ipairs, 1, ilenpairs-1, 2
     Sinterpmethod = strget(imode)
-        
+
     if iovertake == 1 then
         icurrval pread ip1, ipindex, -1
         iYs[0] = icurrval
@@ -260,28 +260,28 @@ instr ${automateTableViaPargs}
     imode = p6
     iovertake = p7
     ilenpairs = p8
-    
+
     if ftexists:i(iargtab) == 0 then
         initerror sprintf("Instr table %d does not exist", iargtab)
         goto exit
     endif
-    
+
     ipairs[] passign 9, 9+ilenpairs
     iXs[] slicearray ipairs, 0, ilenpairs-1, 2
     iYs[] slicearray ipairs, 1, ilenpairs-1, 2
     Sinterpmethod = strget(imode)
-    
+
     if iovertake == 1 then
         icurrval = tab_i(iargidx, iargtab)
         iYs[0] = icurrval
     endif
-    
+
     Smode = strget(imode)
-    
+
     kt timeinsts
     kidx bisect kt, iXs
     ky interp1d kidx, iYs, Smode
-    
+
     if ftexists:k(iargtab) == 1 then
         tablew ky, iargidx, iargtab
     else
@@ -377,12 +377,12 @@ instr ${playgen1}
     kplayhead init ioffset
     iperiod = ksmps/sr
     kperiod = iperiod * kspeed
-    kplayhead += kperiod 
-    
+    kplayhead += kperiod
+
     if (release() == 0) && (kplayhead >= (idur-ifade-kperiod)) then
         turnoff
     endif
-    
+
     ; ar[] loscilx xamp, kcps, ifn, iwsize, ibas, istrt
     aouts[] loscilx 1, kspeed, itabnum, 4, 1, istartframe
     inumouts = lenarray(aouts)
@@ -390,13 +390,13 @@ instr ${playgen1}
     again = lag:a(a(kgain), ilagtime)
     aenv *= again
     aouts = aouts * aenv
-    
+
     kchan = 0
     while kchan < inumouts do
         outch kchan+ichan, aouts[kchan]
         kchan += 1
     od
-    
+
 endin
 
 instr ${strset}
@@ -419,7 +419,7 @@ instr ${pwrite}
         ip1 = p5
     endif
     inumpairs = p6
-    
+
     if inumpairs == 1 then
         pwrite ip1, p7, p8
     elseif inumpairs == 2 then
@@ -467,7 +467,7 @@ instr ${testaudio}
     imode = p4
     iperiod = p5
     igain = p6
-    
+
     kchan init -1
     if imode == 0 then
         prints "\nTestaudio: pink noise mode\n"
@@ -525,7 +525,7 @@ instr ${soundfontPlay}
       aL *= aenv
       aR *= aenv
       outch ichan, aL, ichan+1, aR
-    else  
+    else
       turnoff
     endif
 endin
@@ -538,7 +538,7 @@ instr ${dummy_post}
 endin
 
 
-chnset 1, "_soundfontPresetCount"   
+chnset 1, "_soundfontPresetCount"
 
 ; ----------------------
 
@@ -565,7 +565,7 @@ gi__busrefsk ftgen 0, 0, ${numControlBuses}, -2, 0
 
 ; A pool of bus indexes
 gi__buspool pool_gen ${numAudioBuses}
-gi__buspoolk pool_gen ${numControlBuses} 
+gi__buspoolk pool_gen ${numControlBuses}
 
 ; A dict mapping bustoken to bus number, used for both audio and scalar buses
 gi__bustoken2num  dict_new "int:float"
@@ -605,13 +605,13 @@ opcode _bususe, i, ii
             initerror sprintf("Bus kind mismatch, asked for %d but the bus seems to be of kind %d", ikind, ikind2)
         endif
     endif
-    
+
     if ikind == $$_BUSKIND_CONTROL && ibus >= gi__numControlBuses then
         initerror sprintf("Invalid control bus (%d) for token %d", ibus, itoken)
     elseif ikind == $$_BUSKIND_AUDIO && ibus >= gi__numAudioBuses then
         initerror sprintf("Invalid audio bus (%d) for token %d", ibus, itoken)
     endif
-    
+
     itab = ikind == $$_BUSKIND_AUDIO ? gi__busrefs : gi__busrefsk
     tabw_i tab_i(ibus, itab) + 1, ibus, itab
     atstop ${busrelease}, 0, 0, itoken
@@ -642,25 +642,25 @@ endop
 
 opcode busassign, i, So
     /* Create a bus, returns a token pointing to that bus
-    
-    Args: 
+
+    Args:
       Skind: "a" / "k"
       ipersist: if non-zero, adds an extra-reference to this bus in order
         to make it peristent. To release such a bus use busrelease
-      
+
     Returns:
         itoken: the token pointing to the newly assigned bus
-    
+
     */
     Skind, ipersist xin
     ikind = strcmp(Skind, "a") == 0 ? $$_BUSKIND_AUDIO : $$_BUSKIND_CONTROL
     ; generate a new token
     itoken chnget "_busTokenCount"
     chnset itoken+1, "_busTokenCount"
-    
+
     ; assign a bus to the new token
     ibus _busnew itoken, ikind
-    
+
     ; use the bus during the lifetime of this event, add an extra reference
     ; if asked to persist the bus
     itab = ikind == $$_BUSKIND_AUDIO ? gi__busrefs : gi__busrefsk
@@ -724,11 +724,11 @@ opcode busmix, 0, ia
     ga__buses[ibus] = ga__buses[ibus] + asig
 endop
 
-; This instr MUST come before any other instrs using buses for 
+; This instr MUST come before any other instrs using buses for
 ; offline rendering to work
 instr ${busassign}
     ; query the index of a bus / create a bus if not assigned
-    ; args: 
+    ; args:
     ;  isynctoken: the synctoken to return the bus index. if 0, no
     ;    callback is scheduled
     ;  ibustoken: the bus token
@@ -740,22 +740,22 @@ instr ${busassign}
     iaddref    = p7
     ivalue     = p8
     ibus dict_get gi__bustoken2num, ibustoken, -1
-    
+
     if ibus == -1 then
         ibus = _busnew(ibustoken, ikind)
     else
         goto __exit
     endif
-    
+
     if ikind == $$_BUSKIND_CONTROL then
         ; a new control bus, set default value
         tabw_i ivalue, ibus, gi__bustable
     endif
-    
+
     if iaddref == 1 then
         _busaddref(ibus, ikind)
     endif
-    
+
 __exit:
     if isynctoken > 0 then
         tabw_i ibus, isynctoken, gi__responses
@@ -769,23 +769,23 @@ instr ${automateBusViaPargs}
     iinterpmethod = p5
     iovertake     = p6
     ilenpairs     = p7
-    
+
     ipairs[] passign 8, 8+ilenpairs
     iXs[] slicearray ipairs, 0, ilenpairs-1, 2
     iYs[] slicearray ipairs, 1, ilenpairs-1, 2
     Sinterpmethod = strget(iinterpmethod)
-    
+
     ibus = _busget(itoken, $$_BUSKIND_CONTROL)
-    
+
     if iovertake == 1 || qnan:i(iYs[0]) == 1 then
         iYs[0] = tab_i(ibus, gi__bustable)
     endif
-    
+
     kt timeinsts
     kidx bisect kt, iXs
     ky interp1d kidx, iYs, Sinterpmethod
-    
-    tabw ky, ibus, gi__bustable  
+
+    tabw ky, ibus, gi__bustable
 endin
 
 instr ${busaddref}
@@ -805,28 +805,28 @@ instr ${busdump}
     irefstable = ikind == $$_BUSKIND_AUDIO ? gi__busrefs : gi__busrefsk
     irefs tab_i ibus, irefstable
     if ikind == $$_BUSKIND_CONTROL then
-        ivalue = tab_i(ibus, gi__bustable) 
+        ivalue = tab_i(ibus, gi__bustable)
         prints "Bus token=%d, bus=%d, kind=k, value=%f, refs=%d\n", itoken, ibus, ivalue, irefs
     else
         prints "Bus token=%d, bus=%d, kind=a, refs=%d\n", itoken, ibus, irefs
     endif
 endin
-    
+
 instr ${busrelease}  ; release audio bus
     itoken = p4
     ikind dict_get gi__bustoken2kind, itoken, -1
     ibus dict_get gi__bustoken2num, itoken, -1
     if ibus < 0 then
         initerror sprintf("itoken %d has no bus assigned to it", itoken)
-        goto __exit    
+        goto __exit
     endif
-    
+
     if ikind < 0 then
         initerror sprintf("Invalid kind for bus token %d", itoken)
         goto __exit
     endif
-    
-    if ikind == $$_BUSKIND_AUDIO then  
+
+    if ikind == $$_BUSKIND_AUDIO then
         ; ------ audio bus ------
         irefs tab_i ibus, gi__busrefs
         if irefs <= 1 then
@@ -838,11 +838,11 @@ instr ${busrelease}  ; release audio bus
             dict_del gi__bustoken2num, itoken
             dict_del gi__bustoken2kind, itoken
             tabw_i 0, ibus, gi__busrefs
-        else   
+        else
             tabw_i irefs-1, ibus, gi__busrefs
         endif
-    else                 
-        ; ------ control bus ------ 
+    else
+        ; ------ control bus ------
         irefs tab_i ibus, gi__busrefsk
         if irefs <= 1 then
             if pool_isfull:i(gi__buspoolk) == 1 then
@@ -854,7 +854,7 @@ instr ${busrelease}  ; release audio bus
             dict_del gi__bustoken2kind, itoken
             tabw_i 0, ibus, gi__busrefsk
             tabw_i $$_BUSUNSET, ibus, gi__bustable
-        else   
+        else
             tabw_i irefs-1, ibus, gi__busrefsk
         endif
     endif
@@ -917,14 +917,14 @@ def _joinOrc(busSupport=True) -> str:
 
 
 @cache
-def makeOrc(sr: int, 
-            ksmps: int, 
-            nchnls: int, 
+def makeOrc(sr: int,
+            ksmps: int,
+            nchnls: int,
             nchnls_i: int,
-            a4: float, 
-            globalcode: str = "", 
+            a4: float,
+            globalcode: str = "",
             includestr: str = "",
-            numAudioBuses: int = 0, 
+            numAudioBuses: int = 0,
             numControlBuses: int = 0
             ) -> tuple[str, dict[str, int]]:
     """

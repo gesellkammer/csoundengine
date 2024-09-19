@@ -1,13 +1,13 @@
 import fnmatch
-from typing import Optional as Opt
 import sys
 import os
 import tempfile
-import emlib.misc
-from .config import logger
 import platform
 from functools import cache
 from collections import UserString
+import emlib.misc
+import emlib.common
+from .config import logger
 
 
 def makeUniqueFilename(ext: str, prefix='', folder='.') -> str:
@@ -28,18 +28,21 @@ def makeUniqueFilename(ext: str, prefix='', folder='.') -> str:
     return tempfile.mktemp(suffix=ext, dir=folder, prefix=prefix)
 
 
-@emlib.misc.runonce
-def defaultSoundfontPath() -> Opt[str]:
+@emlib.common.runonce
+def defaultSoundfontPath() -> str:
     """
     Returns the path of the fluid sf2 file
+
+    Returns:
+        the path of the default soundfont or an empty path if this does not apply
     """
     if sys.platform == 'linux':
         paths = ["/usr/share/sounds/sf2/FluidR3_GM.sf2"]
-        path = next((path for path in paths if os.path.exists(path)), None)
+        path = next((path for path in paths if os.path.exists(path)), '')
         return path
     else:
         logger.info("Default path for soundfonts only defined in linux")
-    return None
+    return ''
 
 
 def showSoundfontPrograms(sfpath: str, glob="") -> None:
@@ -105,4 +108,3 @@ def _platformArch() -> str:
             return 'x86'
 
     raise RuntimeError(f"Architecture not supported ({machine=}, {bits=}, {linkage=})")
-
