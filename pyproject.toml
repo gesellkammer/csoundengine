@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "csoundengine"
+version = "2.10.6"
+description = "An audio synthesis framework using csound"
+authors = [
+    { name = "Eduardo Moguillansky", email = "eduardo.moguillansky@gmail.com" },
+]
+license = { file = "LICENSE.txt" }
+readme = "README.rst"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+requires-python = ">=3.9"
+
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "cachetools",
+    "JACK-client",
+    "appdirs",
+    "pygments",
+    "sf2utils",
+    "ipywidgets",
+    "progressbar2",
+    "xxhash",
+    "docstring_parser",
+    "typing_extensions",
+
+    "ctcsound7>=0.4.6",
+    "sndfileio>=1.9.4",
+    "emlib>=1.15.0",
+    "configdict>=2.10.0",
+    "bpf4>=1.10.1",
+    "numpyx>=1.3.3",
+    "pitchtools>=1.14.0",
+    "risset>=2.9.1",
+    "sounddevice",
+]
+
+[tool.setuptools]
+packages = ["csoundengine"]
+
+
+[tool.setuptools.package-data]
+csoundengine = ['csoundengine/data']
+
+
+[project.urls]
+"Homepage" = "https://github.com/gesellkammer/csoundengine"
