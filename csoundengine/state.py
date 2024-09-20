@@ -5,7 +5,10 @@ import emlib.dialogs
 import os
 
 
-__all__ = ('state')
+__all__ = (
+    'state',
+)
+
 
 _home = os.path.expanduser("~")
 
@@ -66,5 +69,3 @@ def openSoundfont(filter="Soundfont (*.sf2)", title="Open Soundfont", ensureSele
     if not out and ensureSelection:
         raise ValueError("No soundfont selected")
     return out
-
-
