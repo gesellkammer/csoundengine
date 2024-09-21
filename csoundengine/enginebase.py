@@ -5,7 +5,6 @@ import functools
 from . import internal
 import os
 import emlib.misc
-import sndfileio
 import numpy as np
 import ctcsound7 as ctcsound
 from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL
@@ -286,5 +285,3 @@ class _EngineBase(ABC):
 
         """
         raise NotImplementedError
-
-

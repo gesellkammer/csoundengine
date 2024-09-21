@@ -1187,7 +1187,7 @@ class OfflineSession(AbstractRenderer):
 
     def makeTable(self,
                   data: np.ndarray | list[float] | None = None,
-                  size: int = 0,
+                  size: int | tuple[int, int] = 0,
                   tabnum: int = 0,
                   sr: int = 0,
                   delay: float = 0.,
@@ -1198,7 +1198,9 @@ class OfflineSession(AbstractRenderer):
 
         Args:
             data: the data of the table. Use None if the table should be empty
-            size: if not data is given, sets the size of the empty table created
+            size: if not data is given, sets the size of the empty table created.
+                To create a multichannel table, use a tuple (frames, numchannels),
+                where the actual size is frames * numchannels
             tabnum: 0 to self assign a table number
             sr: the samplerate of the data, if applicable.
             delay: when to create this table
@@ -1219,9 +1221,14 @@ class OfflineSession(AbstractRenderer):
             self._ndarrayHashToTabproxy[arrayhash] = tabproxy
             return tabproxy
         else:
-            assert size > 0
-            tabnum = self.csd.addEmptyTable(size=size, sr=sr, tabnum=tabnum)
-            return TableProxy(tabnum=tabnum, numframes=size, sr=sr)
+            if isinstance(size, tuple):
+                numframes = size[0] * size[1]
+                numchannels = size[1]
+            else:
+                numframes = size
+                numchannels = 1
+            tabnum = self.csd.addEmptyTable(size=numframes, sr=sr, tabnum=tabnum, numchannels=numchannels)
+            return TableProxy(tabnum=tabnum, numframes=numframes, sr=sr, nchnls=numchannels)
 
     def freeTable(self,
                   table: int | TableProxy,

@@ -12,11 +12,6 @@ if TYPE_CHECKING:
     from . import instr
 
 
-__all__ = (
-    'AbstractRenderer'
-)
-
-
 class AbstractRenderer(ABC):
     """
     Base class for rendering (both live and offline)
@@ -63,7 +58,7 @@ class AbstractRenderer(ABC):
     @abstractmethod
     def makeTable(self,
                   data: np.ndarray | list[float] | None = None,
-                  size: int = 0,
+                  size: int | tuple[int, int] = 0,
                   tabnum: int = 0,
                   sr: int = 0,
                   delay: float = 0.,

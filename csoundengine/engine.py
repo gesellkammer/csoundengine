@@ -2376,7 +2376,7 @@ class Engine(_EngineBase):
                 that value will be used as the instance number.
             delay: time to wait before instrument is started
             dur: duration of the event
-            args: any other args expected by the instrument, starting with p4
+            args: any other args expected by the instrument, starting with p5
                 (as a list of floats/strings, or as a numpy float array). Any
                 string arguments will be converted to a string index via strSet. These
                 can be retrieved via strget in the csound instrument

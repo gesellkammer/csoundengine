@@ -14,6 +14,7 @@ from functools import cache
 import textwrap
 import queue as _queue
 import threading
+import sndfileio
 
 import emlib.dialogs as _dialogs
 import emlib.textlib as _textlib
@@ -1579,7 +1580,6 @@ class Session(AbstractRenderer):
         if (table := self._pathToTabproxy.get(path)) is not None and not force:
             return table
         tabnum = self.engine.readSoundfile(path=path, chan=chan, skiptime=skiptime, block=block)
-        import sndfileio
         info = sndfileio.sndinfo(path)
         table = TableProxy(tabnum=tabnum,
                            path=path,
@@ -1921,8 +1921,12 @@ class Session(AbstractRenderer):
 
         if fade is None:
             fadein = fadeout = config['sample_fade_time']
+        elif isinstance(fade, tuple):
+            fadein, fadeout = fade
+        elif isinstance(fade, (int, float)):
+            fadein, fadeout = fade, fade
         else:
-            fadein, fadeout = fade if isinstance(fade, tuple) else fade, fade
+            raise TypeError(f"Expected a fade value in seconds or a tuple (fadein, fadeout), got {fade}")
 
         if loop and dur == 0:
             dur = -1
