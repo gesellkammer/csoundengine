@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Sequence
+
 from .schedevent import SchedAutomation
 
 
@@ -8,6 +9,8 @@ from .schedevent import SchedAutomation
 class Event:
     """
     Groups all parameters to schedule an event
+
+    This represents the setup for a future event
 
     Args:
         instrname: the name of the instrument
@@ -27,7 +30,7 @@ class Event:
         >>> # This is the same as
         >>> synth = session.sched('test', delay=0, dur=2, kfreq=800)
         >>> synth.automate('kfreq', (0, 800, 2, 400))
-        
+
     """
     instrname: str = ''
     """The name of the instrument template (not to be confused with p1)"""
@@ -48,8 +51,8 @@ class Event:
     "A callback to be fired when this event is finished"
 
     p1: float | str = 0.
-    """The event p1, if applicable"""    
-    
+    """The event p1, if applicable"""
+
     relative: bool = True
     "Is the delay expressed in relative time?"
 
@@ -82,4 +85,3 @@ class Event:
         if dur < 0:
             raise ValueError(f"Event has negative duration")
         self.dur = dur
-

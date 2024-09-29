@@ -1344,6 +1344,8 @@ class Engine(_EngineBase):
                 raise ValueError(f"Table {idx} does not exist")
             if not flat:
                 tabinfo = self.tableInfo(idx)
+                if not tabinfo:
+                    raise IndexError(f"Table {idx} not found")
                 if tabinfo.numChannels > 1:
                     if tabinfo.size == tabinfo.numFrames*tabinfo.numChannels+1:
                         arr = arr[:-1]
@@ -2855,7 +2857,7 @@ class Engine(_EngineBase):
         else:
             raise KeyError("Method not supported. Must be pointer or score")
 
-    def tableInfo(self, tabnum: int, cache=True) -> TableInfo:
+    def tableInfo(self, tabnum: int, cache=True) -> TableInfo | None:
         """
         Retrieve information about the given table
 
@@ -2867,7 +2869,7 @@ class Engine(_EngineBase):
         Returns:
             a TableInfo with fields `tableNumber`, `sr` (``ftsr``),
             `numChannels` (``ftchnls``), `numFrames` (``nsamps``),
-            `size` (``ftlen``).
+            `size` (``ftlen``). Returns None if the table was not found
 
         .. note::
 
@@ -2912,7 +2914,7 @@ class Engine(_EngineBase):
             self._releaseToken(tok)
         sr = vals[0]
         if sr <= 0:
-            raise TableNotFoundError(f"Table {tabnum} does not exist!")
+            return None
         return TableInfo(sr=int(vals[0]), numChannels=int(vals[1]),
                          numFrames=int(vals[2]), size=int(vals[3]))
 

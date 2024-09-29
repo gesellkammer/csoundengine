@@ -1596,6 +1596,28 @@ class Session(AbstractRenderer):
         if tabproxy.path:
             self._pathToTabproxy[tabproxy.path] = tabproxy
 
+    def findTable(self, tabnum: int) -> TableProxy | None:
+        """
+        Find a table by number
+
+        Args:
+            tabnum: the table number
+
+        Returns:
+            a TableProxy or None if the given table was not found
+        """
+        tabproxy = self._tabnumToTabproxy.get(tabnum)
+        if tabproxy:
+            return tabproxy
+        tabinfo = self.engine.tableInfo(tabnum)
+        if not tabinfo:
+            return None
+        tabproxy = TableProxy(tabnum=tabnum, path=tabinfo.path,
+                              sr=tabinfo.sr, nchnls=tabinfo.numChannels,
+                              parent=self, numframes=tabinfo.numFrames)
+        self._registerTable(tabproxy)
+        return tabproxy
+
     def makeTable(self,
                   data: np.ndarray | list[float] | None = None,
                   size: int | tuple[int, int] = 0,
@@ -1868,6 +1890,112 @@ class Session(AbstractRenderer):
                                     kfreqoffset=freqoffset,
                                     kminamp=minamp))
 
+    def makeSampleEvent(self,
+                        source: int | TableProxy | str | tuple[np.ndarray, int],
+                        delay=0.,
+                        dur=0.,
+                        chan=1,
+                        gain=1.,
+                        speed=1.,
+                        loop=False,
+                        pan=0.5,
+                        skip=0.,
+                        fade: float | tuple[float, float] | None = None,
+                        crossfade=0.02,
+                        blockread=True
+                        ) -> Event:
+        """
+        Prepares to play a sample, returns an :class:`~csoundengine.event.Event`
+
+        This method prepares any resources needed to play a sample and
+        returns an Event which can be scheduled via :meth:`Session.schedEvent`.
+        This is used internally as part of :meth:`Session.playSample` but
+        is exposed so that other clients can use it. In particular it can
+        be used to break the playback process into a setup and a process
+
+        Args:
+            source: table number, a path to a sample or a TableProxy, or a tuple
+                (numpy array, samplerate).
+            dur: the duration of playback (-1 to play until the end of the sample
+                or indefinitely if loop==True).
+            chan: the channel to play the sample to. In the case of multichannel
+                  samples, this is the first channel
+            pan: a value between 0-1. -1 means default, which is 0 for mono,
+                0.5 for stereo. For multichannel (3+) samples, panning is not
+                taken into account
+            gain: gain factor.
+            speed: speed of playback. Pitch will be changed as well.
+            loop: True/False or -1 to loop as defined in the file itself (not all
+                file formats define loop points)
+            delay: time to wait before playback starts
+            skip: the starting playback time (0=play from beginning)
+            fade: fade in/out in secods. None=default. Either a fade value or a tuple
+                (fadein, fadeout)
+            crossfade: if looping, this indicates the length of the crossfade
+            blockread: block while reading the source (if needed) before playback is scheduled
+
+        Returns:
+            An :class:`csoundengine.event.Event` with the information to play this sample
+            via :meth:`Session.schedEvent`
+
+        .. seealso:: :meth:`~Session.playSample`
+
+        """
+        if self.isRendering():
+            raise RuntimeError("This Session is in rendering mode. Call .playSample on the renderer instead")
+
+        if fade is None:
+            fadein = fadeout = config['sample_fade_time']
+        elif isinstance(fade, tuple):
+            fadein, fadeout = fade
+        elif isinstance(fade, (int, float)):
+            fadein, fadeout = fade, fade
+        else:
+            raise TypeError(f"Expected a fade value in seconds or a tuple (fadein, fadeout), got {fade}")
+
+        if isinstance(source, str):
+            if not loop and dur == 0:
+                info = sndfileio.sndinfo(source)
+                dur = info.duration / speed + fadeout
+            return Event(instrname='.diskin', delay=delay, dur=dur,
+                         kws=dict(Spath=source,
+                                  ifadein=fadein,
+                                  ifadeout=fadeout,
+                                  iloop=int(loop),
+                                  kspeed=speed,
+                                  kpan=pan,
+                                  ichan=chan))
+        elif isinstance(source, int):
+            tabnum = source
+            dur = -1
+
+        elif isinstance(source, TableProxy):
+            tabnum = source.tabnum
+            if dur == 0:
+                dur = source.duration() / speed + fadeout
+        elif isinstance(source, tuple) and isinstance(source[0], np.ndarray) and isinstance(source[1], int):
+            table = self.makeTable(source[0], sr=source[1], unique=False, block=blockread)
+            tabnum = table.tabnum
+            if dur == 0:
+                dur = table.duration() / speed + fadeout
+        else:
+            raise TypeError(f"Expected table number as int, TableProxy, a path to a soundfile as str or a "
+                            f"tuple (samples: np.ndarray, sr: int), got {source}")
+
+        assert isinstance(tabnum, int) and tabnum >= 1
+        if not loop:
+            crossfade = -1
+        return Event(instrname='.playSample', delay=delay, dur=dur,
+                     kws=dict(isndtab=tabnum,
+                              istart=skip,
+                              ifadein=fadein,
+                              ifadeout=fadeout,
+                              kchan=chan,
+                              kspeed=speed,
+                              kpan=pan,
+                              kgain=gain,
+                              ixfade=crossfade))
+
     def playSample(self,
                    source: int | TableProxy | str | tuple[np.ndarray, int],
                    delay=0.,
@@ -1916,59 +2044,9 @@ class Session(AbstractRenderer):
             A Synth with the following mutable parameters: kgain, kspeed, kchan, kpan
 
         """
-        if self.isRendering():
-            raise RuntimeError("This Session is in rendering mode. Call .playSample on the renderer instead")
-
-        if fade is None:
-            fadein = fadeout = config['sample_fade_time']
-        elif isinstance(fade, tuple):
-            fadein, fadeout = fade
-        elif isinstance(fade, (int, float)):
-            fadein, fadeout = fade, fade
-        else:
-            raise TypeError(f"Expected a fade value in seconds or a tuple (fadein, fadeout), got {fade}")
-
-        if loop and dur == 0:
-            dur = -1
-
-        if isinstance(source, str):
-            if not loop and dur == 0:
-                info = sndfileio.sndinfo(source)
-                dur = info.duration / speed + fadeout
-            return self.sched('.diskin',
-                              delay=delay,
-                              dur=dur,
-                              Spath=source,
-                              ifadein=fadein,
-                              ifadeout=fadeout,
-                              iloop=int(loop),
-                              kspeed=speed,
-                              kpan=pan,
-                              ichan=chan)
-        elif isinstance(source, int):
-            tabnum = source
-        elif isinstance(source, TableProxy):
-            tabnum = source.tabnum
-        elif isinstance(source, tuple) and isinstance(source[0], np.ndarray) and isinstance(source[1], int):
-            table = self.makeTable(source[0], sr=source[1], unique=False, block=blockread)
-            tabnum = table.tabnum
-        else:
-            raise TypeError(f"Expected table number as int, TableProxy, a path to a soundfile as str or a "
-                            f"tuple (samples: np.ndarray, sr: int), got {source}")
-
-        assert isinstance(tabnum, int) and tabnum >= 1
-        return self.sched('.playSample',
-                          delay=delay,
-                          dur=dur,
-                          args=dict(isndtab=tabnum,
-                                    istart=skip,
-                                    ifadein=fadein,
-                                    ifadeout=fadeout,
-                                    kchan=chan,
-                                    kspeed=speed,
-                                    kpan=pan,
-                                    kgain=gain,
-                                    ixfade=crossfade))
+        event = self.makeSampleEvent(source=source, delay=delay, dur=dur, chan=chan, gain=gain, speed=speed,
+                                  loop=loop, pan=pan, skip=skip, fade=fade, crossfade=crossfade, blockread=blockread)
+        return self.schedEvent(event=event)
 
     def makeRenderer(self, sr=0, nchnls: int | None = None, ksmps=0,
                      addTables=True, addIncludes=True
@@ -1994,7 +2072,7 @@ class Session(AbstractRenderer):
                 add any ``#include`` file declared in this session to the created renderer
 
         Returns:
-            a Renderer
+            an :class:`csoundengine.offline.OfflineSession`
 
         Example
         -------

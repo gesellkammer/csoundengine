@@ -369,7 +369,8 @@ class Synth(SchedEvent, ISynth):
         """
         if not self._scheduled:
             return "stopped"
-        now = self.session.engine.elapsedTime()
+        tolerance = 0.05
+        now = self.session.engine.realElapsedTime()
         if self.start <= now < self.end:
             return "playing"
         elif self.start > now:

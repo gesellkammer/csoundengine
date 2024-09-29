@@ -2515,6 +2515,8 @@ def bestSampleEncodingForExtension(ext: str) -> str:
     wav        float32
     aif        float32
     flac       pcm24
+    mp3        pcm16
+    ogg        vorbis
     ========== ================
 
     """
@@ -2528,7 +2530,7 @@ def bestSampleEncodingForExtension(ext: str) -> str:
     elif ext == 'ogg':
         return 'vorbis'
     else:
-        raise ValueError(f"Format {ext} not supported")
+        raise ValueError(f"Format {ext} not supported. Formats supported: wav, aiff, flac and ogg")
 
 
 def _parsePresetSflistprograms(line:str) -> tuple[str, int, int] | None:
