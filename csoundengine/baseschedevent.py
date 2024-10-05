@@ -217,6 +217,8 @@ class BaseSchedEvent(ABC):
         if lenpairs == 2:
             # A single value, set it
             delay, value = pairs
+            if isinstance(param, int):
+                param = f'p{param}'
             self.set(param=param, value=value, delay=delay)
             return 0
 
@@ -355,5 +357,3 @@ class BaseSchedEvent(ABC):
     #                 ev = ev.clone(start=xstart, dur=dur)
     #                 cropped.append(ev)
     #     return cropped
-
-

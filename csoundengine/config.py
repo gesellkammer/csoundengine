@@ -86,10 +86,10 @@ _('numbuffers', 0,
   doc="determines the -B value as a multiple of the buffersize. 0=auto")
 _('linux_backend', 'jack, pulse, pa_cb',
   doc="a comma separated list of backends (possible backends: jack, pulse, pa_cb, alsa)",
-  validatefunc=_validateBackend),
+  validatefunc=_validateBackend)
 _('macos_backend', 'pa_cb',
   doc="a comma separated list of backends (possible backends: pa_cb, auhal)",
-  validatefunc=_validateBackend),
+  validatefunc=_validateBackend)
 _('windows_backend', 'pa_cb',
   doc="a comma separated list of backends (possible backends: pa_cb, pa_bl)",
   validatefunc=_validateBackend)
@@ -113,7 +113,7 @@ _('dynamic_pfields', True,
   doc='If True, use pfields for dynamic parameters (named args starting with k). '
       'Otherwise, dynamic controls are implemented via a global table')
 _('fail_if_unmatched_pargs', False,
-  doc='Fail if the number of passed arguments doesnt match the number of defined arguments'),
+  doc='Fail if the number of passed arguments doesnt match the number of defined arguments')
 _('set_sigint_handler', True,
   doc='Set a sigint handler to prevent csound crash with CTRL-C')
 _('disable_signals', True,
@@ -206,4 +206,3 @@ _('spectrogram_maxfreq', 12000,
 _('spectrogram_window', 'hamming', choices={'hamming', 'hanning'})
 
 config.load()
-

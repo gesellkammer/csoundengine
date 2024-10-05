@@ -10,7 +10,7 @@ class InlineArgs:
     delimiters: str
     """The delimiter used"""
 
-    args: dict[str, float]
+    args: dict[str, float | str]
     """The args in the declaration, as a dict {argname: defaultvalue}"""
 
     body: str

@@ -23,7 +23,7 @@ from functools import cache
 
 if TYPE_CHECKING:
     from .instr import Instr
-    from typing import TypeVar, Sequence, Any, KeysView
+    from typing import TypeVar, Sequence, Any, KeysView, Callable
     from csoundlib import AudioDevice, MidiDevice
     T = TypeVar('T')
 
@@ -292,7 +292,7 @@ def normalizePlatform(s: str) -> str:
 
 
 def resolveOption(prioritizedOptions: list[str], availableOptions: list[str]
-                  ) -> Optional[str]:
+                  ) -> str | None:
     for opt in prioritizedOptions:
         if opt in availableOptions:
             return opt
@@ -300,7 +300,7 @@ def resolveOption(prioritizedOptions: list[str], availableOptions: list[str]
 
 
 def selectAudioDevice(devices: list[AudioDevice], title='Select device'
-                      ) -> Optional[AudioDevice]:
+                      ) -> AudioDevice | None:
     if len(devices) == 1:
         return devices[0]
     outnames = [dev.info() for dev in devices]
@@ -313,7 +313,7 @@ def selectAudioDevice(devices: list[AudioDevice], title='Select device'
 
 
 def selectMidiDevice(devices: list[MidiDevice], title='Select MIDI device'
-                     ) -> Optional[MidiDevice]:
+                     ) -> MidiDevice | None:
     """
     Select a midi device from the given devices
 
@@ -337,15 +337,15 @@ def selectMidiDevice(devices: list[MidiDevice], title='Select MIDI device'
         return next(d for d in devices if d.deviceid == devid)
 
 
-def selectItem(items: list[str], title="Select") -> Optional[str]:
+def selectItem(items: list[str], title="Select") -> str | None:
     return emlib.dialogs.selectItem(items=items, title=title)
 
 
-def instrNameFromP1(p1: Union[float, str]) -> Union[int, str]:
+def instrNameFromP1(p1: float | str) -> int | str:
     return int(p1) if isinstance(p1, (int, float)) else p1.split(".")[0]
 
 
-def resolvePfieldIndex(pfield: Union[int, str],
+def resolvePfieldIndex(pfield: int | str,
                        pfieldNameToIndex: dict[str, int] | None = None
                        ) -> int:
     if isinstance(pfield, int):
@@ -571,7 +571,7 @@ def soundfileHtml(sndfile: str,
                           embedThreshold=embedThreshold)
     _soundfileHtmlCache[args] = (html, time.time())
     if len(_soundfileHtmlCache) > cachesize:
-        oldestkey = min(_soundfileHtmlCache.keys(), key=lambda key: _soundfileHtmlCachet[key][1])
+        oldestkey = min(_soundfileHtmlCache.keys(), key=lambda key: _soundfileHtmlCache[key][1])
         del _soundfileHtmlCache[oldestkey]
 
     return html
@@ -681,11 +681,17 @@ def interleave(a: Sequence[T], b: Sequence[T]) -> list[T]:
 
 
 def flattenAutomationData(pairs: Sequence[float] | tuple[Sequence[float], Sequence[float]]
-                          ) -> Sequence[float]:
-    if isinstance(pairs, tuple) and len(pairs) == 2 and isinstance(pairs[0], (list, tuple)):
-        return interleave(*pairs)
-    else:
+                          ) -> list[float]:
+    if isinstance(pairs, tuple):
+        if isinstance(pairs[0], (list, tuple)):
+            assert len(pairs) == 2
+            return interleave(*pairs)
+        else:
+           return list(pairs)
+    elif isinstance(pairs, list):
         return pairs
+    else:
+        raise TypeError(f"Expected a list of values or a tuple (list, list), got {pairs}")
 
 
 @cache
@@ -751,8 +757,17 @@ def waitWhileTrue(func: Callable[[], bool],
     removeSigintHandler()
 
 
-def classify(objs: tuple[str, _T]) -> dict[str, _T]:
+def classify(objs: Sequence[tuple[str, T]]) -> dict[str, list[T]]:
     """
+    Split the given objects into groups by a given key
+
+    Args:
+        objs: the objects to classify, as a list of tuples of the form (key: str, object)
+
+    Returns:
+        a dictionary `{key: str, objects: list}` where objects is a list of objects
+        with the given key
+
     Example
     ~~~~~~~
 
@@ -770,7 +785,10 @@ def classify(objs: tuple[str, _T]) -> dict[str, _T]:
             'Italy': [Person(name="B", country="Italy"]}
 
     """
-    groups = {}
+    groups: dict[str, list[T]] = {}
     for key, obj in objs:
-        groups.setdefault(key, []).append(obj)
+        if key in groups:
+            groups[key].append(obj)
+        else:
+            groups[key] = [obj]
     return groups

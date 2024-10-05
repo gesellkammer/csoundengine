@@ -17,7 +17,7 @@ def _getprocs() -> list[tuple[int, list[str]]]:
     Get a list of all processes running
 
     Returns:
-        a list where each item is a tuple (pid, args: list[str])
+        a list where each item is a tuple ``(pid, args: list[str])``
     """
     procs = []
     for dirname in os.listdir('/proc'):
@@ -33,12 +33,10 @@ def _getprocs() -> list[tuple[int, list[str]]]:
     return procs
 
 
-# @cachetools.cached(cache=cachetools.TTLCache(1, 20))
 def isPipewireRunning() -> bool:
     return internal.isrunning("pipewire")
 
 
-# @cachetools.cached(cache=cachetools.TTLCache(1, 20))
 def isPulseaudioRunning() -> bool:
     """
     Returns True if the pulseaudio server is running
@@ -129,7 +127,8 @@ def pipewireInfo() -> PipewireInfo | None:
         return None
 
     if shutil.which('pw-cli') is None:
-        logger.debug("pipewire seems running but could not find pw-cli")
+        logger.debug("pipewire seems to be running but could not find pw-cli. "
+                     "This is needed in order to query information about pipewire")
         return None
 
     sr = 48000

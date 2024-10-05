@@ -264,6 +264,7 @@ class Instr:
         # args or pfields declared at the csound body
 
         parsedInstr = csoundlib.instrParseBody(body)
+        controls: dict[str, float]
 
         if args:
             if useDynamicPfields:
@@ -271,7 +272,7 @@ class Instr:
                 controls = {}
             else:
                 pfields = {k: v for k, v in args.items() if k.startswith('i')}
-                controls = {k: v for k, v in args.items() if k.startswith('k')}
+                controls = {k: v for k, v in args.items() if k.startswith('k')}  # type: ignore
                 if any(isinstance(value, str) for value in controls.values()):
                     raise ValueError(f"Dynamic controls do not accept string values, got {controls}")
 

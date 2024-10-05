@@ -356,6 +356,7 @@ class Engine(_EngineBase):
 
         cascadingBackends = [b.strip() for b in backend.split(",")]
         resolvedBackend = internal.resolveOption(cascadingBackends, availableBackends)
+        logger.debug(f"Resolved backend: {resolvedBackend}")
         if resolvedBackend is None:
             raise RuntimeError(f"No audio backends available")
 
@@ -377,11 +378,14 @@ class Engine(_EngineBase):
             if not defaultout:
                 raise RuntimeError(f"No output devices for backend {backendDef.name}")
             outdev, outdevName = defaultout.id, defaultout.name
+            logger.debug(f"No output device given for backend {resolvedBackend}, "
+                         f"using default: {outdevName}, id: {outdev}")
             if not nchnls:
                 nchnls = defaultout.numchannels
         elif outdev == '?':
             if len(outdevs) == 0:
                 raise RuntimeError("No output audio devices")
+            logger.debug(f"Selecting output device for backend {resolvedBackend}, devices: {outdevs}")
             selected = internal.selectAudioDevice(outdevs, title="Select output device")
             if selected is None:
                 raise RuntimeError("No output audio device selected")
@@ -3735,7 +3739,8 @@ class Engine(_EngineBase):
 
         Args:
             bus: the bus token as received via :meth:`Engine.assignBus`
-            pairs: the automation data as a flat sequence (t0, value0, t1, value1, ...)
+            pairs: the automation data as a flat sequence (t0, value0, t1, value1, ...) or
+                a tuple (times, values)
                 Times are relative to the start of the automation event
             mode: interpolation mode, one of 'linear', 'expon(xx)', 'cos', 'smooth'.
                 See the csound opcode 'interp1d' for mode information
