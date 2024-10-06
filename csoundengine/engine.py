@@ -171,22 +171,16 @@ elif 'sphinx' in _sys.modules:
 
 
 import ctcsound7 as ctcsound
+logger.debug(f'Csound API Version: {ctcsound.APIVERSION}, csound version: {ctcsound.VERSION}')
 
 
 try:
-    # import ctcsound7 as ctcsound
-    logger.debug(f'Csound API Version: {ctcsound.APIVERSION}, csound version: {ctcsound.VERSION}')
     _MYFLTPTR = _ctypes.POINTER(ctcsound.MYFLT)
 except Exception as e:
     if 'sphinx' in _sys.modules:
         print("Called while building sphinx documentation?")
         print("Using mocked ctcsound, this should only happen when building"
               "the sphinx documentation")
-        #try:
-        #    from sphinx.ext.autodoc.mock import _MockObject
-        #    ctcsound = _MockObject()
-        #except ImportError:
-        #    pass
     else:
         raise e
 
@@ -1185,8 +1179,8 @@ class Engine(_EngineBase):
         The code sent can be any orchestra code
 
         Args:
-            code (str): the code to compile
-            block (bool): if True, this method will block until the code
+            code: the code to compile
+            block: if True, this method will block until the code
                 has been compiled
 
         Raises :class:`CsoundError` if the compilation failed
