@@ -105,7 +105,7 @@ class ISynth(ABC):
         return ui(self, specs=specs)
 
 
-def ui(event, specs: dict[str, tuple[float, float]]):
+def ui(specs: dict[str, tuple[float, float]]):
     from . import interact
     dynparams = event.dynamicParamNames(aliases=True, aliased=False)
     if not dynparams:

@@ -170,8 +170,11 @@ elif 'sphinx' in _sys.modules:
     callback_t = Callable[[str, float], None]
 
 
+import ctcsound7 as ctcsound
+
+
 try:
-    import ctcsound7 as ctcsound
+    # import ctcsound7 as ctcsound
     logger.debug(f'Csound API Version: {ctcsound.APIVERSION}, csound version: {ctcsound.VERSION}')
     _MYFLTPTR = _ctypes.POINTER(ctcsound.MYFLT)
 except Exception as e:
@@ -179,11 +182,11 @@ except Exception as e:
         print("Called while building sphinx documentation?")
         print("Using mocked ctcsound, this should only happen when building"
               "the sphinx documentation")
-        try:
-            from sphinx.ext.autodoc.mock import _MockObject
-            ctcsound = _MockObject()
-        except ImportError:
-            pass
+        #try:
+        #    from sphinx.ext.autodoc.mock import _MockObject
+        #    ctcsound = _MockObject()
+        #except ImportError:
+        #    pass
     else:
         raise e
 

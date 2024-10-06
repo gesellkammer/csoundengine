@@ -301,8 +301,18 @@ def resolveOption(prioritizedOptions: list[str], availableOptions: list[str]
 
 def selectAudioDevice(devices: list[AudioDevice], title='Select device'
                       ) -> AudioDevice | None:
-    if len(devices) == 1:
-        return devices[0]
+    """
+    Select an audio device
+
+    Args:
+        devices: the list of AudioDevices to select from. It cannot be empty
+        title: the title of the dialog
+
+    Returns:
+        the AudioDevice selected, or None if there was no selection
+    """
+    if not devices:
+        raise ValueError(f"No devices given")
     outnames = [dev.info() for dev in devices]
     selected = emlib.dialogs.selectItem(items=outnames, title=title)
     if not selected:
