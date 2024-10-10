@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "csoundengine"
-version = "2.11.2"
+version = "2.11.3"
 description = "An audio synthesis framework using csound"
 authors = [
     { name = "Eduardo Moguillansky", email = "eduardo.moguillansky@gmail.com" },
