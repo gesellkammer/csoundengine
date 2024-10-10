@@ -105,7 +105,7 @@ class ISynth(ABC):
         return ui(self, specs=specs)
 
 
-def ui(specs: dict[str, tuple[float, float]]):
+def ui(event, specs: dict[str, tuple[float, float]]):
     from . import interact
     dynparams = event.dynamicParamNames(aliases=True, aliased=False)
     if not dynparams:
@@ -617,9 +617,14 @@ class SynthGroup(BaseSchedEvent):
     __slots__ = ('synths', 'session', 'autostop', '__weakref__')
 
     def __init__(self, synths: list[Synth], autostop=False) -> None:
-        start = min(synth.start for synth in synths)
-        end = max(synth.end for synth in synths)
-        dur = end - start
+        if not synths:
+            start = 0.
+            end = 0.
+            dur = 0.
+        else:
+            start = min(synth.start for synth in synths)
+            end = max(synth.end for synth in synths)
+            dur = end - start
         BaseSchedEvent.__init__(self, start=start, dur=dur)
         flatsynths: list[Synth] = []
         for synth in synths:
@@ -629,7 +634,7 @@ class SynthGroup(BaseSchedEvent):
                 flatsynths.append(synth)
         self.synths: list[Synth] = flatsynths
         self.autostop = autostop
-        self.session = self.synths[0].session
+        self.session = self.synths[0].session if synths else None
 
     def __del__(self):
         if self.autostop:
@@ -821,10 +826,14 @@ class SynthGroup(BaseSchedEvent):
 
     def _repr_html_(self) -> str:
         assert jupytertools.inside_jupyter()
+        bold = lambda txt: span(txt, bold=True)
+        span = jupytertools.htmlSpan
+
+        if not self.synths:
+            return f'{bold("SynthGroup")}(synths=[])'
+
         if config['jupyter_synth_repr_stopbutton']:
             jupytertools.displayButton("Stop", self.stop)
-        span = jupytertools.htmlSpan
-        bold = lambda txt: span(txt, bold=True)
         now = self[0].session.engine.elapsedTime()
         start = min(max(0., s.start - now) for s in self)
         end = max(s.dur + s.start - now for s in self)
