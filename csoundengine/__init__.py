@@ -103,11 +103,20 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
 import numpy as np
 np.finfo(np.dtype("float32"))
 np.finfo(np.dtype("float64"))
+import sys
 
-from .dependencies import checkDependencies, installDependencies
-_ok = checkDependencies(force=True, fix=True)
-if not _ok:
-    raise RuntimeError("csoundengine: Depencencies not fullfilled")
+
+if 'sphinx' not in sys.modules:
+    from .dependencies import checkDependencies, installDependencies
+    _ok = checkDependencies(force=True, fix=True)
+    if not _ok:
+        raise RuntimeError("csoundengine: Depencencies not fullfilled")
+else:
+    print("Building docs")
+    from unittest.mock import Mock
+    ctcsound = Mock(name='ctcsound')
+    sys.modules['ctcsound7'] = ctcsound
+
 
 from .config import config, logger, setLoggingLevel
 from .engine import Engine as Engine

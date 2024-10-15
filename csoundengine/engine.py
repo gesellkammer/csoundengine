@@ -156,13 +156,12 @@ from . import state as _state
 from .engineorc import CONSTS, BUSKIND_CONTROL, BUSKIND_AUDIO
 from .errors import TableNotFoundError, CsoundError
 
-
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    import socket
     import matplotlib.pyplot as plt
     from typing import Callable, Sequence
     from . import session as _session
-    import socket
     callback_t = Callable[[str, float], None]
 elif 'sphinx' in _sys.modules:
     import socket
@@ -170,18 +169,12 @@ elif 'sphinx' in _sys.modules:
     callback_t = Callable[[str, float], None]
 
 
-import ctcsound7 as ctcsound
-logger.debug(f'Csound API Version: {ctcsound.APIVERSION}, csound version: {ctcsound.VERSION}')
-
-
 try:
+    import ctcsound7 as ctcsound
     _MYFLTPTR = _ctypes.POINTER(ctcsound.MYFLT)
+    logger.debug(f'Csound API Version: {ctcsound.APIVERSION}, csound version: {ctcsound.VERSION}')
 except Exception as e:
-    if 'sphinx' in _sys.modules:
-        print("Called while building sphinx documentation?")
-        print("Using mocked ctcsound, this should only happen when building"
-              "the sphinx documentation")
-    else:
+    if not 'sphinx' in _sys.modules:
         raise e
 
 
@@ -2369,6 +2362,7 @@ class Engine(_EngineBase):
 
         Similar to :meth:`~Engine.sched` but waits until the instrument sends a
         sync message. The instrument should expect a sync token at p4 (see example)
+        and send an answer via 'sendsync' (``sendsync itoken, ivalue=0``)
 
         .. note::
 
@@ -2401,7 +2395,7 @@ class Engine(_EngineBase):
             ...   itoken = p4
             ...   Spath strget p5
             ...   itab ftgen ftgen 0, 0, 0, -1, Spath, 0, 0, 0
-            ...   sendsync(itoken)
+            ...   sendsync(itoken, itab)
             ...   turnoff
             ... endin
             ... ''')

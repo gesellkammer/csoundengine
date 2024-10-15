@@ -102,11 +102,11 @@ opcode sfpresetindex, i, Sii
 endop
 
 
-opcode sendsync, 0, i
+opcode sendsync, 0, io
     ; send a sync message back, to be used by instruments scheduled
     ; via schedSync
-    itoken xin
-    tabw_i 1, itoken, gi__responses
+    itoken, ivalue xin
+    tabw_i ivalue, itoken, gi__responses
     outvalue "__sync__", itoken
 endop
 
