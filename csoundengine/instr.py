@@ -218,6 +218,7 @@ class Instr:
         'originalBody',
         'includes',
         'parsedCode',
+        'minPriority',
         '_controlsDefaultValues',
         '_controlsNameToIndex',
         '_preschedCallback',
@@ -237,7 +238,8 @@ class Instr:
                  includes: list[str] | None = None,
                  aliases: dict[str, str] | None = None,
                  maxNamedArgs=0,
-                 useDynamicPfields: bool | None = None
+                 useDynamicPfields: bool | None = None,
+                 minPriority=1
                  ) -> None:
 
         assert isinstance(name, str)
@@ -357,6 +359,15 @@ class Instr:
 
         Aliased parameters can be pfields or named controls"""
 
+        self.minPriority = minPriority
+        """
+        Minimum priority allowed for this instr.
+
+        This can be used to hint that a specific instr relies on
+        a previous process and needs to be scheduled at a higher
+        priority. A filter instr, or a mixer instr should not
+        be scheduled at the lowest priority, for example.
+        """
         self._argToAlias = {name: alias for alias, name in aliases.items()} if aliases else EMPTYDICT
         self._preschedCallback = preschedCallback
         self._defaultPfieldValues: list[float | str] = list(self.pfields.values())
@@ -487,7 +498,7 @@ class Instr:
                            if orig in self.controls]
                 parts.append(_(f"<br>&nbsp&nbsp&nbsp&nbspAliases: {', '.join(aliases)}", fontsize=headerfontsize))
         if config['jupyter_instr_repr_show_code']:
-            parts.append('<hr style="width:38%;text-align:left;margin-left:0">')
+            parts.append('<hr style="width:38%;text-align:left;margin-left:0;border: 1px dashed; background: transparent;">')
             htmlorc = _(csoundlib.highlightCsoundOrc(self._preprocessedBody), fontsize=headerfontsize)
             parts.append(htmlorc)
         return "\n".join(parts)

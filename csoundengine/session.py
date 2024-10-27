@@ -807,31 +807,18 @@ class Session(AbstractRenderer):
         :meth:`~Session.defInstr`
         """
         if instrname == "?":
-            instrname = _dialogs.selectItem(list(self.instrs.keys()))
-            if instrname is None:
+            if (selection := _dialogs.selectItem(list(self.instrs.keys()))):
+                instrname = selection
+            else:
                 return None
         return self.instrs.get(instrname)
 
     def _getReifiedInstr(self, name: str, priority: int) -> _ReifiedInstr | None:
+        assert 1 <= priority <= self.numPriorities
         registry = self._reifiedInstrDefs.get(name)
         if not registry:
             return None
         return registry.get(priority)
-
-    def _isInstrPrepared(self, instrname: str, priority: int = 1) -> bool:
-        """
-        Is an instrument with the given name prepared for the given priorty=
-
-        Args:
-            instrname: the name of the instrument
-            priority: the priority to use
-
-        Returns:
-            True if the instrument is prepared
-        """
-        if registry := self._reifiedInstrDefs.get(instrname):
-            return priority in registry
-        return False
 
     def prepareSched(self,
                      instr: str | Instr,
@@ -848,19 +835,20 @@ class Session(AbstractRenderer):
 
         Args:
             instr: the name of the instrument to send to the csound engine or the Instr itself
-            priority: the priority of the instr
+            priority: the priority of the instr. Can be negative
             block: if True, this method will block until csound is ready to
                 schedule the given instr at the given priority
 
         Returns:
             a tuple (_ReifiedInstr, needssync: bool)
         """
-        rinstr = self._getReifiedInstr(instr if isinstance(instr, str) else instr.name, priority)
+        if priority < 0:
+            priority = self.numPriorities + 1 - priority
         needssync = False
-        if isinstance(instr, Instr):
-            instr = instr.name
+        instrname = instr if isinstance(instr, str) else instr.name
+        rinstr = self._getReifiedInstr(instrname, priority)
         if rinstr is None:
-            rinstr = self._makeReifiedInstr(instr, priority, block=block)
+            rinstr = self._makeReifiedInstr(instrname, priority, block=block)
             if block:
                 self.engine.sync()
             else:
@@ -1263,7 +1251,7 @@ class Session(AbstractRenderer):
               dur=-1.,
               *pfields,
               args: Sequence[float|str] | dict[str, float] | None = None,
-              priority: int = 1,
+              priority=1,
               whenfinished: Callable | None = None,
               relative=True,
               **kwargs
@@ -1284,7 +1272,9 @@ class Session(AbstractRenderer):
                 of the variable (for example, if the instrument has a line
                 'kfreq = p5', then 'kfreq' can be used as key here). Alternatively, a list of
                 positional arguments, starting with p5
-            priority: the priority (1 to 10)
+            priority: the priority (1 to 10, depending on the number of priorities defined
+                when creating the session). Can be negative: using a priority of -1 will
+                set the priority to its maximum value.
             whenfinished: a function of the form f(synthid) -> None
                 if given, it will be called when this instance stops
             relative: if True, delay is relative to the current time. Otherwise delay
@@ -1300,7 +1290,7 @@ class Session(AbstractRenderer):
         ~~~~~~~
 
         >>> from csoundengine import *
-        >>> s = Engine().session()
+        >>> s = Session()
         >>> s.defInstr('simplesine', r'''
         ... pset 0, 0, 0, 440, 0.1, 0.05
         ... ifreq = p5
@@ -1349,6 +1339,10 @@ class Session(AbstractRenderer):
         if instr is None:
             raise ValueError(f"Instrument '{instrname}' not defined. "
                              f"Known instruments: {', '.join(self.instrs.keys())}")
+        if priority < instr.minPriority:
+            raise ValueError(f"Instrument '{instrname}' defines a min. priority of "
+                             f"{instr.minPriority}, but this instance was scheduled with "
+                             f"a priority of {priority}.")
 
         rinstr, needssync = self.prepareSched(instrname, priority, block=True)
         pfields5, dynargs = instr.parseSchedArgs(args=args, kws=kwargs)
@@ -1711,6 +1705,25 @@ class Session(AbstractRenderer):
         tabnum = table if isinstance(table, int) else table.tabnum
         assert self.engine.csound is not None
         return self.engine.csound.table(tabnum)
+
+    def dumpInstrs(self, pattern='*', forcetext=False, excludehidden=True) -> None:
+        instrs = self.instrs.values()
+        if pattern != '*':
+            import fnmatch
+            instrs = [instr for instr in instrs if fnmatch.fnmatch(instr.name, pattern)]
+        if excludehidden:
+            instrs = [instr for instr in instrs if not instr.name.startswith('.')]
+        if jupytertools.inside_jupyter() and not forcetext:
+            from IPython.display import display, HTML
+            htmlparts = []
+            for instr in instrs:
+                html = instr._repr_html_()
+                htmlparts.append(html)
+                htmlparts.append('<hr style="width:67%;text-align:left;margin-left:0;border: none;height: 2px;">')
+            display(HTML("\n".join(htmlparts)))
+        else:
+            for instr in instrs:
+                instr.dump()
 
     def freeTable(self,
                   table: int | TableProxy,
