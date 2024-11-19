@@ -9,12 +9,11 @@ from functools import cache
 from dataclasses import dataclass
 import textwrap
 import tempfile
-import ctcsound7 as ctcsound
 
 from .errors import RenderError, CsoundError
 from .config import config, logger
 from .instr import Instr
-from .schedevent import SchedEvent, SchedEventGroup
+from .schedevent import SchedEvent
 from .event import Event
 from .abstractrenderer import AbstractRenderer
 from . import csoundlib
@@ -46,7 +45,7 @@ if TYPE_CHECKING or "sphinx" in sys.modules:
 
 __all__ = (
     "OfflineSession",
-    "OfflineEngine"
+    "OfflineEngine",
     "RenderJob",
 )
 
@@ -133,6 +132,8 @@ class OfflineSession(AbstractRenderer):
                  dynamicArgsPerInstr: int = 16,
                  dynamicArgsSlots: int | None = None):
 
+        super().__init__()
+
         if priorities is None:
             priorities = config['session_priorities']
 
@@ -175,7 +176,6 @@ class OfflineSession(AbstractRenderer):
         self._idCounter = 0
         self._nameAndPriorityToInstrnum: dict[tuple[str, int], int] = {}
         self._instrnumToNameAndPriority: dict[int, tuple[str, int]] = {}
-        self._numbuckets: int = priorities
         self._bucketCounters = [0] * priorities
         self._startUserInstrs = 50
         self._instanceCounters: dict[int, int] = {}
@@ -229,7 +229,7 @@ class OfflineSession(AbstractRenderer):
             self._builtinInstrs.update(instrIndex)
             self.csd.addGlobalCode(busorc)
 
-        for instr in sessioninstrs.builtinInstrs:
+        for instr in sessioninstrs.builtinInstrs():
             self.registerInstr(instr)
 
         self._dynargsTabnum = self.makeTable(size=self.controlArgsPerInstr * self._dynargsNumSlices).tabnum
@@ -321,7 +321,7 @@ class OfflineSession(AbstractRenderer):
             The instr number (as in "instr xx ... endin" in a csound orc)
 
         """
-        assert 1 <= priority <= self._numbuckets
+        assert 1 <= priority <= self.numPriorities
         instrnum = self._nameAndPriorityToInstrnum.get((instrname, priority))
         if instrnum is not None:
             return instrnum
@@ -329,6 +329,9 @@ class OfflineSession(AbstractRenderer):
         instrdef = self.instrs.get(instrname)
         if not instrdef:
             raise KeyError(f"instrument {instrname} is not defined")
+
+        self._initInstr(instrdef)
+
         priority0 = priority - 1
         count = self._bucketCounters[priority0]
         if count > self._bucketSizes[priority0]:
@@ -567,6 +570,7 @@ class OfflineSession(AbstractRenderer):
               priority=1,
               whenfinished: Callable | None = None,
               relative=True,
+              name='',
               **kwargs
               ) -> SchedEvent:
         """
@@ -574,7 +578,10 @@ class OfflineSession(AbstractRenderer):
 
         Args:
             instrname: the name of the already registered instrument
-            priority: determines the order of execution
+            priority: determines the order of execution. 1 to the number of priorities
+                defined at creation time. Priority can be negative: a priority of
+                -1 equals to setting the priority to the highest priority, -2
+                would be the second highest, etc.
             delay: time offset
             dur: duration of this event. -1: endless
             args: pfields **beginning with p5**
@@ -619,9 +626,16 @@ class OfflineSession(AbstractRenderer):
             raise KeyError(f"Instrument '{instrname}' is not defined. Known instruments: "
                            f"{self.instrs.keys()}")
 
+        if priority < 0:
+            priority = self.numPriorities + 1 + priority
+
+        if not (1 <= priority <= self.numPriorities):
+            raise ValueError(f"Invalid priority {priority}. A priority must be an int "
+                             f"between 1 and {self.numPriorities} (including both ends)")
+
         pfields5, dynargs = instr.parseSchedArgs(args=args, kws=kwargs)
-        event = self.makeEvent(start=float(delay), dur=float(dur), pfields5=pfields5,
-                               instr=instr, priority=priority)
+        event = self._makeEvent(start=float(delay), dur=float(dur), pfields5=pfields5,
+                                instr=instr, priority=priority)
         self.csd.addEvent(event.p1, start=event.start, dur=event.dur, args=event.args)
         self.scheduledEvents[event.uniqueId] = event
 
@@ -630,15 +644,20 @@ class OfflineSession(AbstractRenderer):
             self.csd.addEvent(instr='_initDynamicControls',
                               start=max(delay - self.ksmps / self.sr, 0.), dur=0,
                               args=[event.controlsSlot, len(controlvalues), *controlvalues])
+        if name:
+            if oldevent := self.namedEvents.get(name):
+                logger.info(
+                    f"An event with name '{name} already exists. It will remain active. ")
+            self.namedEvents[name] = event
         return event
 
-    def makeEvent(self,
-                  start: float,
-                  dur: float,
-                  pfields5: list[float|str],
-                  instr: str | Instr,
-                  priority: int = 1,
-                  ) -> SchedEvent:
+    def _makeEvent(self,
+                   start: float,
+                   dur: float,
+                   pfields5: list[float|str],
+                   instr: Instr,
+                   priority=1,
+                   ) -> SchedEvent:
         """
         Create a SchedEvent for this session
 
@@ -651,39 +670,21 @@ class OfflineSession(AbstractRenderer):
             pfields5: pfields, starting at p5
             instr: the name of the instr or the actual Instr instance
             priority: the priority
+
+        Returns:
+            the :class:`SchedEvent` created
         """
-        _instr = instr if isinstance(instr, Instr) else self.getInstr(instr)
-        if _instr is None:
-            raise ValueError(f"instrument '{instr}' not known")
-        controlsSlot = self._dynargsAssignToken() if _instr.hasControls() else -1
-        instrnum = self.commitInstrument(_instr.name, priority)
+        controlsSlot = self._dynargsAssignToken() if instr.hasControls() else -1
+        instrnum = self.commitInstrument(instr.name, priority)
         p1 = self._getUniqueP1(instrnum)
         pfields4 = [controlsSlot, *pfields5]
         return SchedEvent(p1=p1, uniqueId=self._generateEventId(), start=start,
-                          dur=dur, args=pfields4, instrname=_instr.name,
+                          dur=dur, args=pfields4, instrname=instr.name,
                           parent=self, priority=priority, controlsSlot=controlsSlot)
 
     def _dynargsAssignToken(self) -> int:
         self._dynargsTokenCounter = (self._dynargsTokenCounter + 1) % 2**32
         return self._dynargsTokenCounter
-
-    def _schedEvent_old(self,
-                        p1: float | int,
-                        start: float,
-                        dur: float,
-                        args: list[float | str],
-                        instrname: str = '',
-                        priority=0,
-                        controlsSlot=0
-                        ) -> SchedEvent:
-        self.csd.addEvent(p1, start=start, dur=dur, args=args)
-        eventid = self._generateEventId()
-        event = SchedEvent(p1=p1, start=start, dur=dur, args=args,
-                           uniqueId=eventid, parent=self,
-                           priority=priority, instrname=instrname,
-                           controlsSlot=controlsSlot)
-        self.scheduledEvents[eventid] = event
-        return event
 
     def unsched(self, event: int | float | SchedEvent, delay: float) -> None:
         """

@@ -21,18 +21,19 @@ import emlib.textlib as _textlib
 import emlib.numpytools as _numpytools
 import bpf4
 
+
 from .abstractrenderer import AbstractRenderer
 from .event import Event
 from .schedevent import SchedEvent
 from .errors import CsoundError
-from .engine import Engine, getEngine
-from . import engineorc
+from .engine import Engine
 from .instr import Instr
 from .synth import Synth, SynthGroup
 from .tableproxy import TableProxy
 from .config import config, logger
-from . import internal as _tools
-from .sessioninstrs import builtinInstrs
+from . import engineorc
+from . import internal as _internal
+from . import sessioninstrs
 from . import state as _state
 from . import jupytertools
 from . import instrtools
@@ -236,6 +237,8 @@ class Session(AbstractRenderer):
             >>> engine = Engine(nchnls=4, nchnls_i=2)
             >>> session = Session(engine=engine)
         """
+        super().__init__()
+
         if not engine:
             _engine = Engine(**enginekws)
             logger.debug(f"Creating an Engine with default arguments: {engine}")
@@ -246,6 +249,8 @@ class Session(AbstractRenderer):
             if _engine._session is not None:
                 raise ValueError(f"The given engine already has an active session: {_engine._session}")
         elif isinstance(engine, Engine):
+            if engine._session is not None:
+                raise ValueError(f"The given engine already has an active session: {engine._session}")
             _engine = engine
         else:
             raise TypeError(f"Expected an Engine or an engine name, got {engine}")
@@ -288,7 +293,7 @@ class Session(AbstractRenderer):
         self._reifiedInstrDefs: dict[str, dict[int, _ReifiedInstr]] = {}
         "A dict of the form {instrname: {priority: reifiedInstr }}"
 
-        self._synths: dict[float, Synth] = {}
+        self._synths: dict[float | str, Synth] = {}
         self._whenfinished: dict[float, Callable] = {}
         self._initCodes: list[str] = []
         self._tabnumToTabproxy: dict[int, TableProxy] = {}
@@ -304,6 +309,9 @@ class Session(AbstractRenderer):
         self._includes: set[str] = set()
         self._lockedLatency: float | None = None
         self._handler: SessionHandler | None = None
+
+        self._instrInitCallbackRegistry: set[str] = set()
+        """A set holding which instrs have already called their init callback"""
 
         self.maxDynamicArgs = maxControlsPerInstr or config['max_dynamic_args_per_instr']
         """The max. number of dynamic parameters per instr"""
@@ -371,6 +379,31 @@ class Session(AbstractRenderer):
     def getSynthById(self, token: int) -> Synth | None:
         return self._synths.get(token)
 
+    def instanceToNumber(self, instr: str | Instr, priority: int) -> int:
+        """
+        Returns the actual p1 number assigned to the instr at the given priority
+
+        Args:
+            instr: the instrument to query
+            priority: the priority for a given instance
+
+        Returns:
+            the integer p1
+
+        Example
+        ~~~~~~~
+
+            >>> s = Session()
+            >>> s.defInstr('foo', ...)
+            >>> s.instanceToNumber('foo', 1)
+            501
+            >>> s.instanceToNumber('foo', 2)
+            1001
+        """
+        name = instr if isinstance(instr, str) else instr.name
+        instrnum = self._registerInstrAtPriority(name, priority)
+        return instrnum
+
     @property
     def now(self) -> float:
         return self.engine.elapsedTime()
@@ -409,7 +442,8 @@ class Session(AbstractRenderer):
             pairs = pairs.tolist()
         elif isinstance(pairs, tuple) and isinstance(pairs[0], np.ndarray):
             assert len(pairs) == 2
-            pairs = _numpytools.interlace(*pairs).tolist()
+            times, values = pairs
+            pairs = _numpytools.interlace(times, values).tolist()
 
         assert isinstance(pairs, (list, tuple))
 
@@ -421,14 +455,14 @@ class Session(AbstractRenderer):
         absAutomStart = now + relstart + pairs[0]
         absAutomEnd = now + relstart + pairs[-2]
         if absAutomStart < event.start or absAutomEnd > event.end:
-            pairs, absdelay = _tools.cropDelayedPairs(pairs=pairs, delay=now + relstart, start=absAutomStart,
+            pairs, absdelay = _internal.cropDelayedPairs(pairs=pairs, delay=now + relstart, start=absAutomStart,
                                                       end=absAutomEnd)
             if not pairs:
                 return 0
             relstart = absdelay - now
 
         if pairs[0] > 0:
-            pairs, relstart = _tools.consolidateDelay(pairs, relstart)
+            pairs, relstart = _internal.consolidateDelay(pairs, relstart)
 
         if csoundlib.isPfield(param):
             return self._automatePfield(event=event, param=param, pairs=pairs, mode=mode, delay=relstart,
@@ -542,9 +576,9 @@ class Session(AbstractRenderer):
             synthid: the id (p1) of the synth
         """
         if delay > 0:
-            def callback(session=self, synthid=synthid):
+            def _callback(session=self, synthid=synthid):
                 session._deallocSynthResources(synthid=synthid)
-            self.engine.callLater(delay, callback=callback)
+            self.engine.callLater(delay, callback=_callback)
 
         synth = self._synths.pop(synthid, None)
         if synth is None:
@@ -567,8 +601,9 @@ class Session(AbstractRenderer):
 
         Args:
             instrname: the name of the instr as given to defInstr
-            priority: the priority, an int from 1 to 10. Instruments with
-                low priority are executed before instruments with high priority
+            priority: the priority, an int from 1 to the max. priority defined for
+                this session. Instruments with low priority are executed before
+                instruments with high priority
 
         Returns:
             the instrument number (an integer)
@@ -604,13 +639,14 @@ class Session(AbstractRenderer):
     def defInstr(self,
                  name: str,
                  body: str,
-                 args: dict[str, float|str] | None = None,
+                 args: dict[str, float|str] = None,
                  init='',
-                 priority: int | None = None,
+                 priority: int = None,
                  doc='',
-                 includes: list[str] | None = None,
-                 aliases: dict[str, str] | None = None,
-                 useDynamicPfields: bool | None = None,
+                 includes: list[str] = None,
+                 aliases: dict[str, str] = None,
+                 useDynamicPfields: bool = None,
+                 initCallback: Callable[[AbstractRenderer], None] = None,
                  **kws) -> Instr:
         """
         Create an :class:`~csoundengine.instr.Instr` and register it at this session
@@ -634,6 +670,8 @@ class Session(AbstractRenderer):
             useDynamicPfields: if True, use pfields to implement dynamic arguments (arguments
                 given as k-variables). Otherwise dynamic args are implemented as named controls,
                 using a big global table
+            initCallback: a function of the form ``(session) -> None``, called the first
+                time this instrument is actually scheduled or prepared to be scheduled
             kws: any keywords are passed on to the Instr constructor.
                 See the documentation of Instr for more information.
 
@@ -690,6 +728,7 @@ class Session(AbstractRenderer):
                       doc=doc, includes=includes, aliases=aliases,
                       maxNamedArgs=self.maxDynamicArgs,
                       useDynamicPfields=useDynamicPfields,
+                      initCallback=initCallback,
                       **kws)
         if oldinstr is not None and oldinstr == instr:
             return oldinstr
@@ -775,13 +814,15 @@ class Session(AbstractRenderer):
         """
         A ReifiedInstr is a version of an instrument with a given priority
         """
-        assert isinstance(priority, int) and 1 <= priority <= 10
+        assert isinstance(priority, int) and 1 <= priority <= self.numPriorities
         instr = self.instrs.get(name)
         if instr is None:
             raise ValueError(f"instrument {name} not registered")
+
+        self._initInstr(instr)
         instrnum = self._registerInstrAtPriority(name, priority)
         body = self.generateInstrBody(instr=instr)
-        instrtxt = _tools.instrWrapBody(body=body,
+        instrtxt = _internal.instrWrapBody(body=body,
                                         instrid=instrnum)
         try:
             self.engine._compileInstr(instrnum, instrtxt, block=block)
@@ -831,7 +872,8 @@ class Session(AbstractRenderer):
         The only use case to call this method explicitely is when the user
         is certain to need the given instrument at the specified priority and
         wants to avoid the delay needed for the first time an instr
-        is called, since this first call implies compiling the code in csound.
+        is called (this first call implies compiling the code in csound and
+        trigger any init code)
 
         Args:
             instr: the name of the instrument to send to the csound engine or the Instr itself
@@ -843,7 +885,9 @@ class Session(AbstractRenderer):
             a tuple (_ReifiedInstr, needssync: bool)
         """
         if priority < 0:
-            priority = self.numPriorities + 1 - priority
+            priority = self.numPriorities + 1 + priority
+        assert 1 <= priority <= self.numPriorities
+
         needssync = False
         instrname = instr if isinstance(instr, str) else instr.name
         rinstr = self._getReifiedInstr(instrname, priority)
@@ -880,7 +924,7 @@ class Session(AbstractRenderer):
 
         :meth:`~Session.defInstr`
         """
-        assert isinstance(priority, int) and 1 <= priority <= 10
+        assert isinstance(priority, int) and 1 <= priority <= self.numPriorities
         assert instrname in self.instrs
         rinstr, needssync = self.prepareSched(instrname, priority)
         return rinstr.instrnum
@@ -1254,6 +1298,7 @@ class Session(AbstractRenderer):
               priority=1,
               whenfinished: Callable | None = None,
               relative=True,
+              name='',
               **kwargs
               ) -> Synth:
         """
@@ -1272,13 +1317,16 @@ class Session(AbstractRenderer):
                 of the variable (for example, if the instrument has a line
                 'kfreq = p5', then 'kfreq' can be used as key here). Alternatively, a list of
                 positional arguments, starting with p5
-            priority: the priority (1 to 10, depending on the number of priorities defined
-                when creating the session). Can be negative: using a priority of -1 will
+            priority: the priority, 1 to the number of priorities defined in this session (10
+                by default). Can be negative: using a priority of -1 will
                 set the priority to its maximum value.
             whenfinished: a function of the form f(synthid) -> None
                 if given, it will be called when this instance stops
             relative: if True, delay is relative to the current time. Otherwise delay
                 is interpreted as an absolute time from the start time of the Engine.
+            name: if given, this session keeps a reference to the scheduled synth under this
+                name in session.namedSynths. The use case for named synths is for global synths
+                acting as mixers, filters, etc.
             kwargs: keyword arguments are interpreted as named parameters. This is needed when
                 passing positional and named arguments at the same time
 
@@ -1324,7 +1372,13 @@ class Session(AbstractRenderer):
         if self.isRendering():
             raise RuntimeError("Session blocked during rendering")
 
-        assert isinstance(priority, int) and 1 <= priority <= self.numPriorities
+        if priority < 0:
+            priority = self.numPriorities + 1 + priority
+
+        if not (1 <= priority <= self.numPriorities):
+            raise ValueError(f"Invalid priority {priority}. A priority must be an int "
+                             f"between 1 and {self.numPriorities} (including both ends)")
+
         assert self._dynargsArray is not None
         abstime = delay if not relative else self.engine.elapsedTime() + delay + self.engine.extraLatency
 
@@ -1377,11 +1431,21 @@ class Session(AbstractRenderer):
                       args=pfields5,
                       controlsSlot=slicenum,
                       priority=priority,
-                      controls=dynargs)
+                      controls=dynargs,
+                      name=name)
 
         if whenfinished is not None:
             self._whenfinished[synthid] = whenfinished
         self._synths[synthid] = synth
+        if name:
+            if oldsynth := self.namedEvents.get(name):
+                if oldsynth.playStatus() != 'stopped':
+                    logger.info(
+                        f"An event with name {name} and status {oldsynth.playStatus()} "
+                        "already existed. It will remain active. To prevent this, stop "
+                        "it manually by checking session.namedEvents: "
+                        "``if event := session.namedEvents.get(name): event.stop``")
+            self.namedEvents[name] = synth
         return synth
 
     def _getNamedControl(self, slicenum: int, paramslot: int) -> float | None:
@@ -1453,7 +1517,7 @@ class Session(AbstractRenderer):
         """
         return list(self._synths.values())
 
-    def unsched(self, event: int | float | SchedEvent, delay=0.) -> None:
+    def unsched(self, event: int | float | SchedEvent | str, delay=0.) -> None:
         """
         Stop a scheduled instance.
 
@@ -1465,36 +1529,47 @@ class Session(AbstractRenderer):
         :meth:`~csoundengine.synth.Synth.stop` is called.
 
         Args:
-            event: the event to stop, either a Synth or the p1
+            event: the event to stop, either a Synth or the p1. If it is an integer,
+                all events matching the given p1 will be stopped. If a string is given,
+                any synths scheduled with the given instrument name will be stopped
             delay: how long to wait before stopping them
         """
-        #if self.isRendering():
-        #    raise RuntimeError("This Session is blocked while in rendering mode. Call .unsched on the renderer instead")
-
-        synthid = event if isinstance(event, (int, float)) else event.p1
-        assert isinstance(synthid, (int, float))
-        synth = self._synths.get(synthid)
-        if not synth:
-            logger.error(f"Event {event} not found, cannot unschedule")
-            return
-        elif synth.finished():
-            logger.debug(f"Event {event} already finished, cannot unschedule")
-            return
-        elif synth.playing():
-            self.engine.unsched(synthid, delay=delay)
-            # Normally the outvalue callback calls the dealloc sequence itself
-            # But it seems that when the event is turned off (via the turnoff
-            # opcode) the outvalue callback is not triggered.
-            # TODO: this needs to be investigated further.
-            # self._deallocSynthResources(synthid, delay)
-        elif synth.start > self.engine.elapsedTime():
-            if delay == 0:
-                self.engine.unschedFuture(synth.p1)
-                self._deallocSynthResources(synthid, delay)
+        if isinstance(event, str):
+            if event in self.instrs:
+                for synth in self._synths.values():
+                    if synth.instrname == event:
+                        synth.stop()
             else:
-                self.engine.unsched(synthid, delay=delay)
+                logger.warning(f"No instruments with the name {event} are defined")
+        elif isinstance(event, int):
+            for p1, synth in self._synths.items():
+                if int(p1) == event:
+                    synth.stop()
         else:
-            self._deallocSynthResources(synthid, delay)
+            synthid = event if isinstance(event, float) else event.p1
+            assert isinstance(synthid, float)
+            synth = self._synths.get(synthid)
+            if not synth:
+                logger.error(f"Event {event} not found, cannot unschedule")
+                return
+            status = synth.playStatus()
+            if status == 'stopped':
+                logger.debug(f"Event {event} already finished, cannot unschedule")
+                return
+            elif status == 'playing':
+                self.engine.unsched(synthid, delay=delay)
+                # Normally the outvalue callback calls the dealloc sequence itself
+                # But it seems that when the event is turned off (via the turnoff
+                # opcode) the outvalue callback is not triggered.
+                # TODO: this needs to be investigated further.
+                # self._deallocSynthResources(synthid, delay)
+            else:
+                assert status == 'future'
+                if delay == 0:
+                    self.engine.unschedFuture(synth.p1)
+                    self._deallocSynthResources(synthid, delay)
+                else:
+                    self.engine.unsched(synthid, delay=delay)
 
     def unschedAll(self, future=False) -> None:
         """
@@ -1683,9 +1758,9 @@ class Session(AbstractRenderer):
                 data = np.asarray(data, dtype=float)
             else:
                 assert isinstance(data, np.ndarray)
-                nchnls = _tools.arrayNumChannels(data)
+                nchnls = _internal.arrayNumChannels(data)
             if not unique:
-                datahash = _tools.ndarrayhash(data)
+                datahash = _internal.ndarrayhash(data)
                 if (tabproxy := self._ndarrayHashToTabproxy.get(datahash)) is not None:
                     return tabproxy
             else:
@@ -1862,8 +1937,8 @@ class Session(AbstractRenderer):
                     tracks, matrix = lt.util.partials_save_matrix(partials=partials, maxtracks=maxpolyphony)
                     tabnum = self.makeTable(matrix).tabnum
                 except ImportError:
-                    raise ImportError("loristrck is needed in order to play a .sdif file"
-                                      ". Install it via `pip install loristrck`")
+                    raise ImportError("loristrck is needed in order to play a .sdif file. "
+                                      "Install it via `pip install loristrck`")
             else:
                 raise ValueError(f"Expected a .mtx file or .sdif file, got {source}")
 
@@ -2118,9 +2193,8 @@ class Session(AbstractRenderer):
                 renderer.readSoundfile(path)
         return renderer
 
-
     def _defBuiltinInstrs(self):
-        for csoundInstr in builtinInstrs:
+        for csoundInstr in sessioninstrs.builtinInstrs():
             self.registerInstr(csoundInstr)
 
 

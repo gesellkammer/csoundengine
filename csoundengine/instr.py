@@ -12,9 +12,10 @@ from . import csoundlib
 from . import jupytertools
 from . import instrtools
 from ._common import EMPTYDICT, EMPTYSET
-from typing import Sequence, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from typing import Sequence, Callable
     from .abstractrenderer import AbstractRenderer
 
 
@@ -41,10 +42,6 @@ class Instr:
         args: if given, a dictionary defining default values for arguments. Can be
             init-time ('i' prefix) or performance time (with 'k' prefix).
         init: code to be initialized at the instr0 level
-        preschedCallback: a function ``f(synthid, args) -> args``, called before
-            a note is scheduled with
-            this instrument. Can be used to allocate a table or a dict and pass
-            the resulting index to the instrument as parg
         doc: some documentation describing what this instr does
         includes: a list of files which need to be included in order for this instr to work
         aliases: if given, a dict mapping arg names to real argument names. It enables
@@ -221,10 +218,10 @@ class Instr:
         'minPriority',
         '_controlsDefaultValues',
         '_controlsNameToIndex',
-        '_preschedCallback',
         '_argToAlias',
         '_preprocessedBody',
-        '_defaultPfieldValues'
+        '_defaultPfieldValues',
+        '_initCallback'
     )
 
     def __init__(self,
@@ -233,13 +230,13 @@ class Instr:
                  args: dict[str, float | str] | None = None,
                  init='',
                  numchans=1,
-                 preschedCallback=None,
                  doc='',
                  includes: list[str] | None = None,
                  aliases: dict[str, str] | None = None,
                  maxNamedArgs=0,
                  useDynamicPfields: bool | None = None,
-                 minPriority=1
+                 minPriority=1,
+                 initCallback: Callable[[AbstractRenderer], None] | None = None,
                  ) -> None:
 
         assert isinstance(name, str)
@@ -368,9 +365,10 @@ class Instr:
         priority. A filter instr, or a mixer instr should not
         be scheduled at the lowest priority, for example.
         """
+
         self._argToAlias = {name: alias for alias, name in aliases.items()} if aliases else EMPTYDICT
-        self._preschedCallback = preschedCallback
         self._defaultPfieldValues: list[float | str] = list(self.pfields.values())
+        self._initCallback = initCallback
 
     def register(self, renderer: AbstractRenderer) -> None:
         """

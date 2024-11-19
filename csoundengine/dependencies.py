@@ -12,16 +12,13 @@ import shutil
 import logging
 from datetime import datetime
 import json
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import *
 
 
 logger = logging.getLogger("csoundengine.dependencies")
 logger.setLevel("INFO")
 
 
-def _asVersionTriplet(tagname: str) -> Tuple[int, int, int]:
+def _asVersionTriplet(tagname: str) -> tuple[int, int, int]:
     assert isinstance(tagname, str)
     match = re.search(r"(\d+)\.(\d+)(.(\d+))?", tagname)
     if not match:
@@ -35,7 +32,7 @@ def _asVersionTriplet(tagname: str) -> Tuple[int, int, int]:
     return (major, minor, patch)
 
 
-def getPluginsLatestRelease() -> Dict[str, str]:
+def getPluginsLatestRelease() -> dict[str, str]:
     """
     Returns a dict with the urls of the plugins latest release
 
@@ -137,7 +134,7 @@ def _zipExtract(zippedfile: Path) -> Path:
     return Path(destFolder)
 
 
-def _copyFiles(files: List[str], dest: str, verbose=False) -> None:
+def _copyFiles(files: list[str], dest: str, verbose=False) -> None:
     assert os.path.isdir(dest)
     for f in files:
         if verbose:
@@ -147,7 +144,7 @@ def _copyFiles(files: List[str], dest: str, verbose=False) -> None:
 
 def pluginsInstalled(cached=True) -> bool:
     """Returns True if the needed plugins are already installed"""
-    opcodes = set(csoundlib.opcodesList(cached=cached))
+    installedOpcodes = csoundlib.installedOpcodes(cached=cached)
     neededOpcodes = {
         "atstop", "pwrite", "pread", "initerror",
         "dict_new", "dict_set", "dict_get",
@@ -155,7 +152,7 @@ def pluginsInstalled(cached=True) -> bool:
         'interp1d', 'bisect', 'ftsetparams', 'zeroarray',
         'panstereo', 'poly0'
     }
-    return neededOpcodes.intersection(opcodes) == neededOpcodes
+    return neededOpcodes.issubset(installedOpcodes)
 
 
 def _getDownloadsFolder() -> Path:
@@ -258,7 +255,7 @@ def installPlugins(majorversion=6, risset=True) -> bool:
                 if not pluginsok:
                     logger.error("Tried to load the plugins but the provided opcodes are not"
                                  " listed by csound")
-                    opcodes = csoundlib.opcodesList(cached=False)
+                    opcodes = csoundlib.installedOpcodes(cached=False)
                     opcodestr = ', '.join(opcodes)
                     logger.error(f"List of opcodes loaded by csound: {opcodestr}")
         except Exception as e:
@@ -278,7 +275,7 @@ def installPlugins(majorversion=6, risset=True) -> bool:
     return True
 
 
-def _checkDependencies(fix=False, quiet=False) -> Optional[str]:
+def _checkDependencies(fix=False, quiet=False) -> str | None:
     """
     Either returns None or an error message
     """

@@ -1,8 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Callable, Sequence
-
 from .schedevent import SchedAutomation
+
+from typing import Callable, Sequence
 
 
 @dataclass

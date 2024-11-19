@@ -9,13 +9,21 @@ if TYPE_CHECKING:
     import numpy as np
     from .event import Event
     from . import tableproxy
-    from . import instr
+    from . import instr as _instr
 
 
 class AbstractRenderer(ABC):
     """
     Base class for rendering (both live and offline)
     """
+    def __init__(self):
+        self._instrInitCallbackRegistry: set[str] = set()
+        self.namedEvents: dict[str, SchedEvent] = {}
+
+    def _initInstr(self, instr: _instr.Instr):
+        if instr._initCallback is not None and instr.name not in self._instrInitCallbackRegistry:
+            instr._initCallback(self)
+            self._instrInitCallbackRegistry.add(instr.name)
 
     @abstractmethod
     def renderMode(self) -> str:
@@ -52,7 +60,8 @@ class AbstractRenderer(ABC):
                  includes: list[str] | None = None,
                  aliases: dict[str, str] | None = None,
                  useDynamicPfields: bool | None = None,
-                 **kws) -> instr.Instr:
+                 initCallback: Callable[[AbstractRenderer], None] = None,
+                 **kws) -> _instr.Instr:
         raise NotImplementedError
 
     @abstractmethod
@@ -78,16 +87,16 @@ class AbstractRenderer(ABC):
 
     @abstractmethod
     def generateInstrBody(self,
-                          instr: instr.Instr
+                          instr: _instr.Instr
                           ) -> str:
         raise NotImplementedError
 
     @abstractmethod
-    def registerInstr(self, instr: instr.Instr) -> bool:
+    def registerInstr(self, instr: _instr.Instr) -> bool:
         raise NotImplementedError
 
     @abstractmethod
-    def registeredInstrs(self) -> dict[str, instr.Instr]:
+    def registeredInstrs(self) -> dict[str, _instr.Instr]:
         """
         Returns a dict (instrname: Instr) with all registered Instrs
         """
@@ -115,7 +124,7 @@ class AbstractRenderer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def getInstr(self, instrname: str) -> instr.Instr | None:
+    def getInstr(self, instrname: str) -> _instr.Instr | None:
         """
         Returns the Instr instance corresponding to instrname, or None if no such instr
         """

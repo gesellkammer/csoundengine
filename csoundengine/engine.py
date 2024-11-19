@@ -2181,7 +2181,7 @@ class Engine(_EngineBase):
             will be the returned value
         """
         q: _queue.Queue[float] = _queue.Queue()
-        self._responseCallbacks[token] = lambda token, q=q, table=self._responsesTable: q.put(table[token])
+        self._responseCallbacks[token] = lambda token, q=q, table=self._responsesTable: q.put(float(table[token]))
         return q
 
     def callLater(self, delay: float, callback: Callable) -> None:
@@ -2613,8 +2613,8 @@ class Engine(_EngineBase):
             ptr, err = self.csound.channelPtr(channel, kindint | _channelMode(mode))
             if err:
                 raise RuntimeError(f"Error while trying to retrieve/create a channel pointer: {err}")
+            assert isinstance(ptr, np.ndarray)
             self._channelPointers[channel] = ptr
-        assert ptr is not None
         return ptr
 
     def setChannel(self, channel: str, value: float | str | np.ndarray,
@@ -2897,9 +2897,8 @@ class Engine(_EngineBase):
         pargs.extend(toks)
         q: _queue.Queue[list[float]] = _queue.Queue()
 
-        # noinspection PyDefaultArgument
         def callback(tok0, _q=q, t=self._responsesTable, _toks=toks):
-            values = [t[_tok] for _tok in _toks]
+            values = [float(t[_tok]) for _tok in _toks]
             _q.put(values)
 
         self._responseCallbacks[toks[0]] = callback
@@ -3586,6 +3585,7 @@ class Engine(_EngineBase):
         if not self.udpPort:
             logger.warning("This csound instance was started without udp")
             return
+        assert self._sendAddr is not None
         msg = code.encode("ascii")
         logger.debug(f"_udpSend: {code}")
         self._udpSocket.sendto(msg, self._sendAddr)
@@ -3606,6 +3606,9 @@ class Engine(_EngineBase):
             :meth:`~Engine.udpSetChannel`
 
         """
+        if self.udpPort is None:
+            raise RuntimeError("This engine has no udp port assigned")
+        assert self._sendAddr is not None
         msg = code.encode("ascii")
         if len(msg) < 60000:
             self._udpSocket.sendto(msg, self._sendAddr)

@@ -531,8 +531,7 @@ def _getVersionViaApi() -> tuple[int, int, int]:
     """
     if (version := _cache.get('versionTriplet')) is not None:
         return version
-    info = _csoundGetInfoViaAPI()
-    return info['versionTriplet']
+    return _csoundGetInfoViaAPI()['versionTriplet']
 
 
 def getVersion(useApi=True) -> tuple[int, int, int | str]:
@@ -909,7 +908,7 @@ endin
                       nchnls=nchnls, csdstr=csd)
 
 
-def opcodesList(cached=True, opcodedir: str = '') -> list[str]:
+def installedOpcodes(cached=True, opcodedir: str = '') -> set[str]:
     """
     Return a list of the opcodes present
 
@@ -935,10 +934,7 @@ def _csoundGetInfoViaAPI(opcodedir='') -> dict:
     cs = ctcsound.Csound()
     cs.setOption("-d")
     cs.setOption("--nosound")
-    cs.setOption("--messagelevel=0")
-    cs.setOption("--m-amps=0")
-    cs.setOption("--m-range=0")
-
+    cs.createMessageBuffer(echo=False)
     if opcodedir:
         cs.setOption(f'--opcode-dir={opcodedir}')
     version = cs.version()
@@ -947,16 +943,20 @@ def _csoundGetInfoViaAPI(opcodedir='') -> dict:
     minor = int(vs[-3:-1])
     major = int(vs[:-3])
     versionTriplet = (major, minor, patch)
+    opcodes = cs.getOpcodes()
+    opcodenames = set(opc.name for opc in opcodes)
     _cache['versionTriplet'] = versionTriplet
-
-    opcodes, n = cs.newOpcodeList()
-    assert opcodes is not None
-    opcodeNames = [opc.opname.decode('utf-8') for opc in opcodes]
-    cs.disposeOpcodeList(opcodes)
-    opcodes = list(set(opcodeNames))
-    _cache['opcodes'] = opcodes
-    cs.stop()
-    return {'opcodes': opcodes,
+    _cache['opcodes'] = opcodenames
+    _cache['opcodedefs'] = opcodes
+    # opcodes, n = cs.newOpcodeList()
+    # assert opcodes is not None
+    # opcodeNames = [opc.opname.decode('utf-8') for opc in opcodes]
+    # cs.disposeOpcodeList(opcodes)
+    # opcodes = list(set(opcodeNames))
+    # _cache['opcodes'] = opcodes
+    # cs.stop()
+    return {'opcodedefs': opcodes,
+            'opcodes': opcodenames,
             'versionTriplet': versionTriplet}
 
 

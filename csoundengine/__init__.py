@@ -137,4 +137,6 @@ if emlib.envir.inside_ipython():
     from . import magic
     if config['ipython_load_magics_at_startup']:
         from IPython.core.getipython import get_ipython
-        get_ipython().extension_manager.load_extension('csoundengine.magic')
+        ipython = get_ipython()
+        if ipython is not None and ipython.extension_manager is not None:
+            ipython.extension_manager.load_extension('csoundengine.magic')

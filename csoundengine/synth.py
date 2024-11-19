@@ -180,11 +180,12 @@ class Synth(SchedEvent, ISynth):
                  priority: int = 1,
                  controls: dict[str, float] | None = None,
                  controlsSlot: int = -1,
-                 uniqueId=0
+                 uniqueId=0,
+                 name=''
                  ) -> None:
         SchedEvent.__init__(self, instrname=instr.name, start=start, dur=dur, args=args,
                             p1=p1, uniqueId=uniqueId, parent=session, priority=priority,
-                            controlsSlot=controlsSlot, controls=controls)
+                            controlsSlot=controlsSlot, controls=controls, username=name)
         # AbstrSynth.__init__(self, start=start, dur=dur, session=session, autostop=autostop)
 
         if controlsSlot < 0 and instr.dynamicParams():
@@ -202,6 +203,9 @@ class Synth(SchedEvent, ISynth):
 
         self.autostop = autostop
         """If True, stop the underlying csound event when this object is freed"""
+
+        if name and autostop:
+            logger.warning(f"Autostop is disabled for named synths")
 
     def __del__(self):
         if self.autostop:
@@ -323,6 +327,7 @@ class Synth(SchedEvent, ISynth):
         parts = [f'{playstr} {self.instr.name}={self.p1} start={self.start:.3f} dur={self.dur:.3f}']
 
         if self.instr.hasControls():
+            parts.append(f'slot={self.controlsSlot}')
             ctrlparts = []
             for k, v in self.instr.controls.items():
                 if self.controls is not None and k in self.controls:
@@ -337,7 +342,7 @@ class Synth(SchedEvent, ISynth):
                        default=maxi)
             argsstrs = []
             pargs = self.args[0:]
-            for i, parg in enumerate(pargs, start=0):
+            for i, parg in enumerate(pargs):
                 if i > maxi:
                     argsstrs.append("…")
                     break
@@ -350,7 +355,8 @@ class Synth(SchedEvent, ISynth):
                     else:
                         s = f"{name}={parg}"
                 else:
-                    s = f"p{i+4}={parg}"
+                    # pargs start at 5
+                    s = f"p{i+5}={parg}"
                 argsstrs.append(s)
             argsstr = " ".join(argsstrs)
             parts.append(argsstr)
@@ -574,10 +580,11 @@ def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int | None = None, tabl
                 colname = name if name else str(pidx)
             colnames.append(colname)
         for row, synth in zip(rows, synths):
-            row.extend(f"{parg:.5g}" if not isinstance(parg, str) else parg
-                       for parg in synth.args[:maxi])
-            if len(synth.args) > maxi:
-                row.append("...")
+            if synth.args:
+                row.extend(f"{parg:.5g}" if not isinstance(parg, str) else parg
+                        for parg in synth.args[:maxi])
+                if len(synth.args) > maxi:
+                    row.append("...")
 
     if limitSynths:
         rows.append(["..."])

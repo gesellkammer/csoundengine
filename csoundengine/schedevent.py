@@ -2,12 +2,14 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass
 from functools import cache
+import numpy as np
+
+import emlib.numpytools as nptools
+
 from .baseschedevent import BaseSchedEvent
-from .config import logger
 from . import instr
 from ._common import EMPTYSET
-import numpy as np
-import emlib.numpytools
+from .config import logger
 
 
 from typing import TYPE_CHECKING, Sequence
@@ -33,9 +35,9 @@ class SchedAutomation:
 
     overtake: bool = False
     """
-    If True, use the current value of the parameter as initial value, 
+    If True, use the current value of the parameter as initial value,
     diregarding the value in the automation line
-    
+
     This is also done if the first value in the automation line is NAN
     """
 
@@ -59,10 +61,11 @@ class SchedEvent(BaseSchedEvent):
         instrname: the instr name of this event (if applies)
         priority: the priority at which this event was scheduled (if applies)
         controlsSlot: the slot/token assigned for dynamic controls
+        username: a name given by the user to identify this event. Normally not set
     """
 
     __slots__ = ('uniqueId', 'parent', 'instrname', 'priority',
-                 'args', 'p1', 'controlsSlot', 'automations', 'controls')
+                 'args', 'p1', 'controlsSlot', 'automations', 'controls', 'username')
 
     def __init__(self,
                  instrname: str = '',
@@ -74,7 +77,8 @@ class SchedEvent(BaseSchedEvent):
                  parent: AbstractRenderer = None,
                  priority: int = 0,
                  controls: dict[str, float] | None = None,
-                 controlsSlot: int = -1):
+                 controlsSlot: int = -1,
+                 username=''):
 
         if parent and instrname:
             assert instrname in parent.registeredInstrs()
@@ -107,6 +111,9 @@ class SchedEvent(BaseSchedEvent):
 
         self.automations: list[SchedAutomation] | None = None
 
+        self.username = username
+        """A user given name to identify this event, normally not set"""
+
     def __hash__(self) -> int:
         return hash(('SchedEvent', self.uniqueId))
         # return hash((self.p1, self.uniqueId, self.instrname, self.priority, hash(tuple(self.args))))
@@ -119,6 +126,8 @@ class SchedEvent(BaseSchedEvent):
             parts.append(f'instrname={self.instrname}')
         if self.priority:
             parts.append(f'priority={self.priority}')
+        if self.username:
+            parts.append(f'username={self.username}')
         partsstr = ', '.join(parts)
         return f"{type(self).__name__}({partsstr})"
 
@@ -133,7 +142,7 @@ class SchedEvent(BaseSchedEvent):
             or 'future' if it has not started. For offline events always returns 'offline'
 
         """
-        return 'offline'
+        raise 'offline'
 
     def clone(self, **kws) -> SchedEvent:
         event = copy.copy(self)
@@ -190,6 +199,9 @@ class SchedEvent(BaseSchedEvent):
             logger.error(f"This SchedEvent does not have an instrument assigned ({self=})")
             return {}
         instr = self.parent.getInstr(self.instrname)
+        if instr is None:
+            raise RuntimeError(f"The instr '{self.instrname}' does not exist for this "
+                               f"event's renverer (event={self}, renderer={self.parent}")
         return instr.aliases
 
     @property
@@ -238,7 +250,7 @@ class SchedEvent(BaseSchedEvent):
             if param not in (params := self.instr.dynamicParams(aliased=True)):
                 raise KeyError(f"Unknown parameter '{param}' for {self}. Possible parameters: {params}")
             if isinstance(pairs, tuple) and len(pairs) == 0 and isinstance(pairs[0], np.ndarray):
-                pairs = numpytools.interlace(*pairs)
+                pairs = nptools.interlace(*pairs)
             automation = SchedAutomation(param=param, pairs=pairs, interpolation=mode, delay=delay)
             if self.automations is None:
                 self.automations = [automation]
@@ -426,5 +438,3 @@ class SchedEventGroup(BaseSchedEvent):
             raise KeyError(f"Param '{param}' not known by any events in this group. "
                            f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
         return 0.
-
-
