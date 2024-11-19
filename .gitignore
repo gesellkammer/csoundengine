@@ -16,3 +16,4 @@ __pycache__
 Untitled*.ipynb
 *~~
 notebooks/test/tmp
+uv.lock
