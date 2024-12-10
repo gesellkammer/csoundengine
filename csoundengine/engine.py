@@ -160,6 +160,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import socket
     import matplotlib.pyplot as plt
+    from matplotlib.figure import Figure
     from typing import Callable, Sequence
     from . import session as _session
     callback_t = Callable[[str, float], None]
@@ -907,18 +908,15 @@ class Engine(_EngineBase):
             raise RuntimeError("Could not create responses table")
         self._responsesTable = responsesTable
 
-        chanptr, err = cs.channelPtr("_soundfontPresetCount",
-                                     ctcsound.CSOUND_CONTROL_CHANNEL |
-                                     ctcsound.CSOUND_INPUT_CHANNEL |
-                                     ctcsound.CSOUND_OUTPUT_CHANNEL)
+        # Bidirectional channel to keep track of soundfont presets
+        chanptr, err = cs.channelPtr("_soundfontPresetCount", kind='control',
+                                     output=True, input=True)
+
         assert isinstance(chanptr, np.ndarray), f"_soundfontPresetCount channel is not set: {err}"
         self._soundfontPresetCountPtr = chanptr
 
         if self.hasBusSupport():
-            chanptr, error = cs.channelPtr("_busTokenCount",
-                                           ctcsound.CSOUND_CONTROL_CHANNEL|
-                                           ctcsound.CSOUND_INPUT_CHANNEL|
-                                           ctcsound.CSOUND_OUTPUT_CHANNEL)
+            chanptr, error = cs.channelPtr("_busTokenCount", kind='control', output=True, input=True)
             assert isinstance(chanptr, np.ndarray), f"_busTokenCount channel not set: {error}\n{orc}"
             self._busTokenCountPtr = chanptr
             kbustable = int(cs.evalCode("return gi__bustable"))
@@ -1132,14 +1130,11 @@ class Engine(_EngineBase):
             else:
                 logger.debug("Compiling csound code (async):")
                 logger.debug(code)
-                if self._compileViaPerfthread:
-                    self._perfThread.compile(code)
-                else:
-                    err = self.csound.compileOrcAsync(code)
-                    if err:
-                        logger.error("compileOrcAsync error: ")
-                        logger.error(internal.addLineNumbers(code))
-                        raise CsoundError("Could not compile async")
+                err = self.csound.compileOrcAsync(code)
+                if err:
+                    logger.error("compileOrcAsync error: ")
+                    logger.error(internal.addLineNumbers(code))
+                    raise CsoundError("Could not compile async")
         self._modified()
 
     def _modified(self, status=True) -> None:
@@ -1330,9 +1325,9 @@ class Engine(_EngineBase):
             if the table was not found
 
         """
-        assert self.csound is not None
         arr: np.ndarray | None = self._tableCache.get(idx)
         if arr is None:
+            assert self.csound is not None
             arr = self.csound.table(idx)
             if arr is None:
                 raise ValueError(f"Table {idx} does not exist")
@@ -1535,7 +1530,7 @@ class Engine(_EngineBase):
         """
         return self
 
-    def _presched(self, delay: float, relative: bool) -> tuple[float, float]:
+    def _presched(self, delay: float, relative: bool) -> tuple[int, float]:
         if relative:
             if (delay > self.onecycle * self._minCyclesForAbsoluteMode) or self._lockedElapsedTime:
                 t0 = self.elapsedTime()
@@ -2093,7 +2088,8 @@ class Engine(_EngineBase):
             tabnum = self._assignTableNumber()
         elif tabnum == 0 and not callback:
             block = True
-        if block or callback or len(data) >= 1900:
+        # if block or callback or len(data) >= 1900:
+        if block or callback:
             if not block and not callback:
                 # User didn't ask for blocking operation, but there is no way
                 # to do this totally async, since we need to first create the
@@ -2269,13 +2265,14 @@ class Engine(_EngineBase):
         if internal.arrayNumChannels(data) > 1:
             data = data[:, chan]
         tabinfo = self.tableInfo(tabnum)
+        assert tabinfo is not None
         if tabinfo.sr > 0:
             sr = tabinfo.sr
         plotting.plotSpectrogram(data, sr, fftsize=fftsize, mindb=mindb,
                                  maxfreq=maxfreq, minfreq=minfreq, overlap=overlap,
                                  show=True)
 
-    def plotTable(self, tabnum: int, sr: int = 0) -> plt.Figure:
+    def plotTable(self, tabnum: int, sr: int = 0) -> Figure:
         """
         Plot the content of the table via matplotlib.pyplot
 
@@ -2333,8 +2330,7 @@ class Engine(_EngineBase):
         assert isinstance(tabnum, int) and tabnum > 0
         data = self.getTableData(tabnum, flat=False)
         tabinfo = self.tableInfo(tabnum)
-
-        if not sr and tabinfo.sr > 0:
+        if not sr and tabinfo is not None and tabinfo.sr > 0:
             sr = tabinfo.sr
 
         if data is None:
@@ -2583,7 +2579,7 @@ class Engine(_EngineBase):
                     if response is None:
                         raise RuntimeError(f"Failed to make table with args: {pargs}")
                     tabnum = int(response)
-                    self.fillTable(tabnum, data=data, method='pointer', block=False)
+                    self.fillTable(tabnum, data=data, block=False)
                     self._tableInfo[tabnum] = TableInfo(sr=sr, size=numitems,
                                                         numChannels=numchannels)
                 else:
@@ -2788,19 +2784,20 @@ class Engine(_EngineBase):
         """
         assert self.csound is not None
         value, errorCode = self.csound.controlChannel(channel)
-        if errorCode.value != 0:
+        if errorCode != 0:
             raise KeyError(f"control channel {channel} not found, error: {errorCode}, value: {value}")
         return value
 
-    def fillTable(self, tabnum: int, data, method='pointer', block=False) -> None:
+    def fillTable(self, tabnum: int, data: Sequence[float] | np.ndarray, block=True) -> None:
         """
         Fill an existing table with data
+
+        This is a blocking operation
 
         Args:
             tabnum: the table number
             data: the data to put into the table
-            method: the method used, one of 'pointer' or 'api'.
-            block: this is only used for the api method
+            block: if True, block while performing the operation
 
         Example
         -------
@@ -2824,17 +2821,24 @@ class Engine(_EngineBase):
         :meth:`~Engine.readSoundfile`
         """
         assert self.csound is not None
-        if len(data.shape) == 2:
-            data = data.flatten()
-        elif len(data.shape) > 2:
-            raise ValueError(f"data should be a 1D or 2D array, got shape {data.shape}")
+        arr = data if isinstance(data, np.ndarray) else np.asarray(data)
+        if len(arr.shape) == 2:
+            arr = arr.flatten()
+        elif len(arr.shape) > 2:
+            raise ValueError(f"data should be a 1D or 2D array, got shape {arr.shape}")
 
-        assert isinstance(tabnum, int) and tabnum > 0, \
-            f"source should be an int > 0, got {tabnum}"
+        if not isinstance(tabnum, int) or tabnum <= 0:
+            raise ValueError(f"source should be an int > 0, got {tabnum}")
 
-        if method == 'pointer':
-            # this is always blocking
-            numpyptr: np.ndarray = self.csound.table(tabnum)
+        if ctcsound.VERSION >= 7000:
+            logger.warn("Non-blocking access to a table pointer is not available in csound 7")
+            block = False
+        elif tabnum in self._tableCache:
+            block = False
+
+        if block:
+            numpyptr = self.getTableData(tabnum)
+            # numpyptr = self.csound.table(tabnum)
             if numpyptr is None:
                 raise IndexError(f"Table {tabnum} does not exist")
             size = len(numpyptr)
@@ -2842,15 +2846,9 @@ class Engine(_EngineBase):
                 numpyptr[:] = data[:size]
             else:
                 numpyptr[:] = data
-        elif method == 'api':
-            if block:
-                self.csound.tableCopyIn(tabnum, data)
-                self._modified(False)
-            else:
-                self.csound.tableCopyInAsync(tabnum, data)
-                self._modified()
         else:
-            raise KeyError("Method not supported. Must be pointer or score")
+            assert hasattr(self.csound, 'tableCopyInAsync'):
+            self.csound.tableCopyInAsync(tabnum, arr)
 
     def tableInfo(self, tabnum: int, cache=True) -> TableInfo | None:
         """
