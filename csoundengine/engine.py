@@ -850,11 +850,12 @@ class Engine(_EngineBase):
 
         # options.append(f"--opcode-dir={csoundlib.userPluginsFolder()}")
         if config['disable_signals']:
-            ctcsound.csoundInitialize(ctcsound.CSOUNDINIT_NO_ATEXIT | ctcsound.CSOUNDINIT_NO_SIGNAL_HANDLER)
+            ctcsound.csoundInitialize(atExitHandler=False, signalHandler=False)
+            # ctcsound.csoundInitialize(ctcsound.CSOUNDINIT_NO_ATEXIT | ctcsound.CSOUNDINIT_NO_SIGNAL_HANDLER)
         cs = ctcsound.Csound()
-        if cs.version() < 6160:
+        if cs.version() < 6180:
             ver = cs.version() / 1000
-            raise RuntimeError(f"Csound's version should be >= 6.16, got {ver:.2f}")
+            raise RuntimeError(f"Csound's version should be >= 6.18, got {ver:.2f}")
         options = list(iterlib.unique(options))
         for opt in options:
             cs.setOption(opt)
