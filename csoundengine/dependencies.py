@@ -288,12 +288,8 @@ def _checkDependencies(fix=False, quiet=False) -> str | None:
         return f"Csound version ({version}) is too old, should be >= 6.16"
 
     if version[0] >= 7:
-        print(f"WARNING: Csound 7 is not fully supported. Proceed at yout own risk")
+        logger.warning("WARNING: Csound 7 support is experimental. Proceed at yout own risk")
 
-    # binversion = csoundlib.getVersion(useApi=False)
-    # if version[:2] != binversion[:2]:
-    #     print(f"WARNING: the csound library found reported a version {version}, different"
-    #           f" from the version reported by the csound binary {binversion}")
     if not pluginsInstalled():
         if fix:
             print("** csoundengine: Csound external plugins are not installed or are too old."

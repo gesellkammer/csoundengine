@@ -317,14 +317,15 @@ class Session(AbstractRenderer):
         """The max. number of dynamic parameters per instr"""
 
         self._dynargsNumSlots = numControlSlots or config['dynamic_args_num_slots']
-        self._dynargsTabnum = _engine.makeEmptyTable(size=self.maxDynamicArgs * self._dynargsNumSlots)
-        _engine.sync()
+        self._dynargsTabnum = _engine.makeEmptyTable(size=self.maxDynamicArgs * self._dynargsNumSlots, block=True)
+        # _engine.sync()
         _engine.setChannel(".dynargsTabnum", self._dynargsTabnum)
         self._dynargsArray = _engine.getTableData(self._dynargsTabnum)
 
         # We don't use slice 0. We use a deque as pool instead of a list, this helps
         # debugging
         self._dynargsSlotPool: deque[int] = deque(range(1, self._dynargsNumSlots))
+
 
         _engine.registerOutvalueCallback("__dealloc__", self._deallocCallback)
         if config['define_builtin_instrs']:

@@ -49,14 +49,14 @@ if TYPE_CHECKING:
 
 
 try:
-    import ctcsound7 as ctcsound
+    import libcsound
 except Exception as e:
     if 'sphinx' in sys.modules:
         print("Called while building sphinx documentation?")
         from sphinx.ext.autodoc.mock import _MockObject
-        ctcsound = _MockObject()
+        libcsound = _MockObject()
     else:
-        print("ctcsound (ctcsound7) not found! Install it via 'pip install ctcsound7'")
+        print("libcsound not found! Install it via 'pip install libcsound'")
         raise e
 
 logger = _logging.getLogger("csoundengine")
@@ -93,7 +93,7 @@ def midiDevices(backend='portmidi') -> tuple[list[MidiDevice], list[MidiDevice]]
     windows    portmidi
     ========   ===========================
     """
-    csound = ctcsound.Csound()
+    csound = libcsound.Csound()
     csound.setOption(f"-+rtmidi={backend}")
     csound.setOption("-odac")
     csound.start()
@@ -226,7 +226,7 @@ class AudioBackend:
         if not self.hasSystemSr:
             logger.debug(f"Backend {self.name} does not have a system sr, returning default")
             return 44100
-        cs = ctcsound.Csound()
+        cs = libcsound.Csound()
         cs.setOption("-odac")
         cs.setOption(f"-+rtaudio={self.name}")
         ok = cs.start()
@@ -266,23 +266,23 @@ class AudioBackend:
             a tuple (inputDevices: list[AudioDevice], outputDevices: list[AudioDevice])
         """
         logger.info(f"Querying csound's audio devices for backend {self.name}")
-        cs = ctcsound.Csound()
+        cs = libcsound.Csound()
         for opt in ['-+rtaudio='+self.name, "-m16", "-odac"]:
             cs.setOption(opt)
         cs.start()
         csoutdevs = cs.audioDevList(True)
         csindevs = cs.audioDevList(False)
-        outdevs = [AudioDevice(id=d['device_id'],
-                               name=d['device_name'],
+        outdevs = [AudioDevice(id=d.deviceId,
+                               name=d.deviceName,
                                kind='output',
                                index=i,
-                               numchannels=d['max_nchnls'])
+                               numchannels=d.maxNchnls)
                    for i, d in enumerate(csoutdevs)]
-        indevs = [AudioDevice(id=d['device_id'],
-                              name=d['device_name'],
+        indevs = [AudioDevice(id=d.deviceId,
+                              name=d.deviceName,
                               kind='input',
                               index=i,
-                              numchannels=d['max_nchnls'])
+                              numchannels=d.maxNchnls)
                   for i, d in enumerate(csindevs)]
         cs.stop()
         return indevs, outdevs
@@ -654,7 +654,7 @@ def _getJackSrViaClient() -> float:
 def _getCsoundSystemSr(backend:str) -> float:
     if backend not in {'jack', 'auhal'}:
         raise ValueError(f"backend {backend} does not support system sr")
-    csound = ctcsound.Csound()
+    csound = libcsound.Csound()
     csound.setOption(f"-+rtaudio={backend}")
     csound.setOption("-odac")
     csound.setOption("--use-system-sr")
@@ -931,7 +931,7 @@ def installedOpcodes(cached=True, opcodedir: str = '') -> set[str]:
 def _csoundGetInfoViaAPI(opcodedir='') -> dict:
     global _cache
 
-    cs = ctcsound.Csound()
+    cs = libcsound.Csound()
     cs.setOption("-d")
     cs.setOption("--nosound")
     cs.createMessageBuffer(echo=False)

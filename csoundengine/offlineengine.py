@@ -16,7 +16,7 @@ from . import engineorc
 from .engineorc import CONSTS, BUSKIND_CONTROL, BUSKIND_AUDIO
 from . import internal
 from .renderjob import RenderJob
-import ctcsound7 as ctcsound
+import libcsound
 from .errors import CsoundError
 from typing import Sequence, TYPE_CHECKING
 if TYPE_CHECKING:
@@ -204,6 +204,7 @@ class OfflineEngine(_EngineBase):
         self._instanceCounters: dict[int, int] = {}
         self._fracnumdigits = 4  # number of fractional digits used for unique instances
         self._strLastIndex = 20
+        self._stopped = False
         self._history: list[_OfflineComponent] = []
         self._trackHistory = True
         self._usesBuses = False  # does any instr uses the bus system?
@@ -227,7 +228,7 @@ class OfflineEngine(_EngineBase):
             self.options.append('--sample-accurate')
         if commandlineOptions:
             self.options.extend(commandlineOptions)
-        self.csound = self._start()
+        self.csound: libcsound.Csound = self._start()
         for s in ["cos", "linear", "smooth", "smoother"]:
             self.strSet(s)
 
@@ -241,8 +242,8 @@ class OfflineEngine(_EngineBase):
         includelines = [f'#include "{include}"' for include in self.includes]
         return "\n".join(includelines)
 
-    def _start(self) -> ctcsound.Csound:
-        csound = ctcsound.Csound()
+    def _start(self) -> libcsound.Csound:
+        csound = libcsound.Csound()
         for option in self.options:
             csound.setOption(option)
         if not self.nosound:
@@ -272,10 +273,7 @@ class OfflineEngine(_EngineBase):
             raise CsoundError(f"Error compiling base ochestra, error: {err}")
         csound.start()
         if self.hasBusSupport():
-            chanptr, error = csound.channelPtr("_busTokenCount",
-                                               ctcsound.CSOUND_CONTROL_CHANNEL |
-                                               ctcsound.CSOUND_INPUT_CHANNEL |
-                                               ctcsound.CSOUND_OUTPUT_CHANNEL)
+            chanptr, error = csound.channelPtr("_busTokenCount", kind="control", mode="rw")
             assert chanptr is not None, f"_busTokenCount channel not set: {error}\n{orc}"
             if not isinstance(chanptr, np.ndarray):
                 raise RuntimeError(f"Could not create channel for bus support, got {chanptr}")
@@ -325,8 +323,8 @@ class OfflineEngine(_EngineBase):
 
     @cache
     def instrNum(self, name: str) -> int:
-        assert self.csound is not None
-        return self.csound.evalCode(f'i0 nstrnum "{name}"\nreturn i0\n')
+        assert not self._stopped
+        return int(self.csound.evalCode(f'i0 nstrnum "{name}"\nreturn i0\n'))
 
     def assignInstanceNum(self, instr: int | str) -> int:
         if isinstance(instr, str):
@@ -481,7 +479,8 @@ class OfflineEngine(_EngineBase):
                     # since these end up in the score and csound does the string handling for us
                     pfields.extend(float(a) if not isinstance(a, str) else self.strSet(a) for a in args)
         timeOffset = delay + self.elapsedTime()
-        self.csound.scoreEventAbsolute(type_='i', pFields=pfields, timeOffset=timeOffset)
+        self.csound.scoreEvent("i", pfields=pfields)
+        # self.csound.scoreEventAbsolute(type_='i', pFields=pfields, timeOffset=timeOffset)
         self._addHistory(_SchedEvent(instr=instr, delay=timeOffset, dur=dur, args=args,
                                      eventid=p1, comment=comment))
 
@@ -639,7 +638,7 @@ class OfflineEngine(_EngineBase):
             e.stop()
 
         """
-        assert self.csound is not None
+        assert not self._stopped
         endtime = (endtime or self._endtime) + extratime
         if endtime == 0.:
             logger.debug("The render time is 0, nothing to perform.")
@@ -673,7 +672,9 @@ class OfflineEngine(_EngineBase):
         Args:
             remove: if True, remove the generated outfile
         """
-        assert self.csound is not None
+        if self._stopped:
+            logger.info("This engine is already stopped")
+            return
         self.csound.stop()
         self.csound.cleanup()
         if remove and os.path.exists(self.outfile):
@@ -694,13 +695,13 @@ class OfflineEngine(_EngineBase):
             a RenderJob containing information about the rendered file, or None
             if no render took place.
         """
-        if self.csound is None:
+        if self._stopped:
             return None
         if self._shouldPerform and render:
             self.perform(extratime=extratime)
         self.csound.stop()
         self.csound.cleanup()
-        self.csound = None
+        self._stopped = True
         if not os.path.exists(self.outfile):
             raise RuntimeError(f"Did not find rendered file '{self.outfile}'")
 
@@ -802,12 +803,10 @@ class OfflineEngine(_EngineBase):
             via :meth:`OfflineEngine.tableInfo`
 
         """
+        assert not self._stopped
         if not unique and tabnum == 0:
             if existingtab := self._soundfilesLoaded.get((path, chan, skiptime)):
                 return existingtab
-
-        assert self.csound is not None
-
         if not tabnum:
             tabnum = self._assignTableNumber()
         self._tableInfo[tabnum] = tabinfo = TableInfo.get(path)
@@ -836,7 +835,7 @@ class OfflineEngine(_EngineBase):
             314.0
 
         """
-        assert self.csound is not None
+        assert not self._stopped
         return self.csound.evalCode(fr'return {variable}\n')
 
     def call(self, func: str) -> float:
@@ -860,18 +859,18 @@ class OfflineEngine(_EngineBase):
             100
 
         """
-        assert self.csound is not None
-        return self.csound.evalCode(fr'i0 = {func}\nreturn i0\n')
+        assert not self._stopped
+        return self.csound.evalCode(fr'return {func}')
 
     def tableInfo(self, tabnum: int, cache=True) -> TableInfo:
         info = self._tableInfo.get(tabnum)
         if info and cache:
             return info
-        assert self.csound is not None
-        sr = self.csound.evalCode(fr'i0 = ftsr({tabnum})\nreturn i0\n')
-        numchannels = self.csound.evalCode(fr'i0 = ftchnls({tabnum})\return i0\n')
-        tablen = self.csound.evalCode(fr'i0 = ftlen({tabnum}\nreturn i0\n')
-        return TableInfo(sr=sr, size=tablen, numChannels=numchannels)
+        assert not self._stopped
+        sr = self.csound.evalCode(f'return ftsr({tabnum})')
+        numchannels = self.csound.evalCode(f'return ftchnls({tabnum})')
+        tablen = self.csound.evalCode(f'return ftlen({tabnum}')
+        return TableInfo(sr=int(sr), size=int(tablen), numChannels=int(numchannels))
 
     def makeEmptyTable(self, size: int, numchannels=1, sr=0, delay=0.) -> int:
         """
@@ -896,7 +895,7 @@ class OfflineEngine(_EngineBase):
         return tabnum
 
     def getTableData(self, idx: int) -> np.ndarray:
-        assert self.csound is not None
+        assert not self._stopped
         arr = self.csound.table(idx)
         if arr is None:
             raise ValueError(f"Table {idx} does not exist")
@@ -906,9 +905,8 @@ class OfflineEngine(_EngineBase):
         if kind != 'control' and kind != 'audio':
             raise NotImplementedError("Only kind 'control' and 'audio' are implemented "
                                       "at the moment")
-        assert self.csound is not None
-        kindint = ctcsound.CSOUND_CONTROL_CHANNEL if kind == 'control' else ctcsound.CSOUND_AUDIO_CHANNEL
-        ptr, err = self.csound.channelPtr(channel, kindint | _channelMode(mode))
+        assert not self._stopped
+        ptr, err = self.csound.channelPtr(channel, kind, mode)
         if err:
             raise RuntimeError(f"Error while trying to retrieve/create a channel pointer: {err}")
         assert isinstance(ptr, np.ndarray)
@@ -941,14 +939,14 @@ class OfflineEngine(_EngineBase):
             raise TypeError(f"Expected an initial value of type float or string, got {value}")
 
     def getControlChannel(self, channel: str) -> float:
-        assert self.csound is not None
+        assert not self._stopped
         value, err = self.csound.controlChannel(channel)
-        if err.value != 0:
+        if err != 0:
             raise KeyError(f"Control channel '{channel}' not found, error: {err}, value: {value}")
         return value
 
     def setChannel(self, channel: str, value: float | str | np.ndarray, delay=0.):
-        assert self.csound is not None
+        assert not self._stopped
         if delay == 0.:
             if isinstance(value, (int, float)):
                 self.csound.setControlChannel(channel, value)
@@ -1016,13 +1014,24 @@ class OfflineEngine(_EngineBase):
         numchannels = 1 if len(data.shape) == 1 else data.shape[1]
         flatdata = data if numchannels == 1 else data.flatten()
         arr = np.zeros((len(flatdata)+4,), dtype=float)
+        if delay > 0 and tabnum == 0:
+            raise ValueError("Cannot schedule a table in the future without assigning a "
+                             "table number. Set tabnum=-1 to autoassign a number")
         if delay > 0 and sr == 0 and numchannels == 1:
             arr[0:4] = [tabnum, delay, len(flatdata), -2]
             arr[4:] = flatdata
             self.csound.scoreEvent("f", arr)
         else:
-            self.csound.compileOrc(fr'i0_ ftgen {tabnum}, 0, {len(flatdata)}, -2, 0')
-            self.csound.tableCopyIn(tabnum, flatdata)
+            if delay > 0:
+                logger.warning("delay will be ignored")
+
+            if tabnum == 0:
+                tabnum = int(self.csound.evalCode(fr'return ftgen(0, 0, {len(flatdata)}, -2, 0)'))
+            else:
+                self.csound.compileOrc(fr'i0_ ftgen {tabnum}, 0, {len(flatdata)}, -2, 0')
+            tabptr = self.csound.table(tabnum)
+            assert tabptr is not None
+            tabptr[:] = flatdata
             if sr > 0 or numchannels > 0:
                 self.csound.compileOrc(fr'ftsetparams {tabnum}, {sr}, {numchannels}')
 
@@ -1030,43 +1039,43 @@ class OfflineEngine(_EngineBase):
         self._addHistory(_TableDataEvent(data=data, delay=delay, tabnum=tabnum, sr=sr))
         return int(tabnum)
 
-    def _makeTable(self,
-                  data: np.ndarray | Sequence[float],
-                  tabnum: int = -1,
-                  sr: int = 0,
-                  delay=0.
-                  ) -> int:
-        """
-        Create a new table and fill it with data.
+    # def _makeTable(self,
+    #               data: np.ndarray | Sequence[float],
+    #               tabnum: int = -1,
+    #               sr: int = 0,
+    #               delay=0.
+    #               ) -> int:
+    #     """
+    #     Create a new table and fill it with data.
 
-        Args:
-            data: the data used to fill the table
-            tabnum: the table number. If -1, a number is assigned by the engine.
-                If 0, a number is assigned by csound (this operation will be blocking
-                if no callback was given)
-            sr: only needed if filling sample data. If given, it is used to fill the
-                table metadata in csound, as if this table had been read via gen01
-            delay: when to allocate the table
+    #     Args:
+    #         data: the data used to fill the table
+    #         tabnum: the table number. If -1, a number is assigned by the engine.
+    #             If 0, a number is assigned by csound (this operation will be blocking
+    #             if no callback was given)
+    #         sr: only needed if filling sample data. If given, it is used to fill the
+    #             table metadata in csound, as if this table had been read via gen01
+    #         delay: when to allocate the table
 
-        Returns:
-            the index of the new table
-        """
-        if not self.csound:
-            raise RuntimeError("This OfflineEngine does not have an associated csound process")
+    #     Returns:
+    #         the index of the new table
+    #     """
+    #     if not self.csound:
+    #         raise RuntimeError("This OfflineEngine does not have an associated csound process")
 
-        if tabnum == -1:
-            tabnum = self._assignTableNumber()
-        if not isinstance(data, np.ndarray):
-            data = np.asarray(data)
-        numchannels = 1 if len(data.shape) == 1 else data.shape[1]
-        flatdata = data if numchannels == 1 else data.flatten()
-        arr = np.zeros((len(flatdata)+4,), dtype=float)
-        arr[0:4] = [tabnum, 0, len(flatdata), -2]
-        arr[4:] = flatdata
-        self.csound.scoreEvent("f", arr)
-        self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(flatdata), numChannels=numchannels)
-        self._addHistory(_TableDataEvent(data=data, delay=delay, tabnum=tabnum))
-        return int(tabnum)
+    #     if tabnum == -1:
+    #         tabnum = self._assignTableNumber()
+    #     if not isinstance(data, np.ndarray):
+    #         data = np.asarray(data)
+    #     numchannels = 1 if len(data.shape) == 1 else data.shape[1]
+    #     flatdata = data if numchannels == 1 else data.flatten()
+    #     arr = np.zeros((len(flatdata)+4,), dtype=float)
+    #     arr[0:4] = [tabnum, 0, len(flatdata), -2]
+    #     arr[4:] = flatdata
+    #     self.csound.scoreEvent("f", arr)
+    #     self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(flatdata), numChannels=numchannels)
+    #     self._addHistory(_TableDataEvent(data=data, delay=delay, tabnum=tabnum))
+    #     return int(tabnum)
 
     def freeTable(self, tableindex: int, delay=0.) -> None:
         self.sched(self._builtinInstrs['freetable'], delay, 0., tableindex)
@@ -1084,7 +1093,6 @@ class OfflineEngine(_EngineBase):
         """
         Reports the logical elapsed time of this engine
         """
-        assert self.csound is not None
         return self.csound.currentTimeSamples() / self.sr
 
     def playSample(self, tabnum: int, delay=0., chan=1, speed=1., gain=1., fade=0.,
@@ -1240,7 +1248,6 @@ class OfflineEngine(_EngineBase):
         """
         Unschedule future events and set the time pointer to the given offset
         """
-        assert self.csound is not None
         if offset > 0:
             self.csound.setScoreOffsetSeconds(offset)
         self.csound.rewindScore()
@@ -1323,7 +1330,7 @@ class OfflineEngine(_EngineBase):
         * :meth:`~OfflineEngine.playSample`
 
         """
-        assert self.csound is not None
+        assert not self._stopped
         if dur < 0:
             info = sndfileio.sndinfo(path)
             sampledur = info.duration
@@ -1389,11 +1396,10 @@ class OfflineEngine(_EngineBase):
             self._addHistory(_SetParamEvent(p1=p1, pindex=pairs[pair*2], value=pairs[pair*2+1], delay=delay))
 
     def _getBusIndex(self, bus: int) -> int | None:
-        assert self.csound is not None
         bus = int(bus)
         if (index := self._busIndexes.get(bus)) is not None:
             return index
-        busindex = self.csound.evalCode(f'i0 dict_get gi__bustoken2num, {bus}, -1\nreturn i0')
+        busindex = int(self.csound.evalCode(f'return dict_get:i(gi__bustoken2num, {bus})'))
         if busindex < 0:
             return None
         self._busIndexes[bus] = busindex

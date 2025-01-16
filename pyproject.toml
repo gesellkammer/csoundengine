@@ -34,7 +34,7 @@ dependencies = [
     "docstring_parser",
     "typing_extensions",
 
-    "ctcsound7>=0.7.0",
+    "libcsound>=0.10.1",
     "sndfileio>=1.9.4",
     "emlib>=1.16",
     "configdict>=2.10.0",

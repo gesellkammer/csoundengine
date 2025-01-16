@@ -338,10 +338,14 @@ instr ${playsndfile}
     aenv linsegr 0, ifade, 1, ifade, 0
     aenv *= interp(kgain)
     aouts = aouts * aenv
-    poly0 inumouts, "outch", ichans, aouts
-    know += 1/kspeed
-    if know >= idur then
-        turnoff
+    kchan = 0
+    while kchan < inumouts do
+      outch ichan + kchan, aouts[kchan]
+      kchan += 1
+    od
+    know += ksmps/sr * kspeed
+    if know >= idur && release() == 0 then
+      turnoff
     endif
 endin
 
@@ -632,9 +636,12 @@ opcode _busget, i, ii
     if ibus < 0 then
         initerror sprintf("Bus not found (token: %d)", itoken)
     endif
-    if ikind == $$_BUSKIND_CONTROL && ibus >= gi__numControlBuses then
-        initerror sprintf("Invalid control bus (%d) for token %d", ibus, itoken)
-    elseif ikind == $$_BUSKIND_AUDIO && ibus >= gi__numAudioBuses then
+    if ikind == $$_BUSKIND_CONTROL then
+        if ibus >= gi__numControlBuses then
+            initerror sprintf("Invalid control bus (%d) for token %d", ibus, itoken)
+        endif
+    ; it is an audio bus
+    elseif ibus >= gi__numAudioBuses then
         initerror sprintf("Invalid audio bus (%d) for token %d", ibus, itoken)
     endif
     xout ibus
@@ -825,7 +832,7 @@ instr ${busrelease}  ; release audio bus
         initerror sprintf("Invalid kind for bus token %d", itoken)
         goto __exit
     endif
-
+    ;; --- TODO
     if ikind == $$_BUSKIND_AUDIO then
         ; ------ audio bus ------
         irefs tab_i ibus, gi__busrefs
@@ -849,6 +856,7 @@ instr ${busrelease}  ; release audio bus
                 initerror "Control bus pool is full!"
                 goto __exit
             endif
+
             pool_push gi__buspoolk, ibus
             dict_del gi__bustoken2num, itoken
             dict_del gi__bustoken2kind, itoken
@@ -909,11 +917,9 @@ BUILTIN_TABLES = {name:i for i, name in enumerate(_tableNames, start=1)}
 
 
 def _joinOrc(busSupport=True) -> str:
-    parts = [_orc]
     if busSupport:
-        parts.append(_busOrc)
-    orc = "\n".join(parts)
-    return orc
+        return "\n".join((_orc, _busOrc))
+    return _orc
 
 
 @cache

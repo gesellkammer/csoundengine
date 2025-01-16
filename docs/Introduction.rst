@@ -1,8 +1,8 @@
-Introduction 
+Introduction
 ============
 
 **csoundengine** is a library to run and control a csound process using
-its API (via `ctcsound <https://csound.com/docs/ctcsound/>`__).
+its API (via `libcsound <https://github.com/csound-plugins/libcsound>`__).
 
 Engine
 ------
@@ -115,7 +115,7 @@ higher level interface to an existing :class:`Engine`, allowing to:
 
 
 .. code-block:: python
-    
+
     from csoundengine import *
 
     # When a session is created, the underlying Engine is created as well. The engine
@@ -167,28 +167,28 @@ higher level interface to an existing :class:`Engine`, allowing to:
         bus = session.assignBus()
 
         delay = i
-        
+
         # Schedule a synth
         synth = session.sched("synth", delay=delay, dur=5, kmidi=midinote, ibus=bus)
-        
+
         # Automate pitch transposition so that it descends 2 semitones over the
         # duration of the event
         synth.automatep('ktransp', [0, 0, dur, -2], delay=delay)
-        
+
         # Schedule the filter for this synth, with a priority higher than the
         # synth, so that it is evaluated later in the chain
-        filt = session.sched("filter", 
+        filt = session.sched("filter",
                              delay=delay,
-                             dur=synth.dur, 
+                             dur=synth.dur,
                              priority=synth.priority+1,
-                             kcutoff=2000, 
-                             kresonance=0.92, 
-                             ibus=bus, 
+                             kcutoff=2000,
+                             kresonance=0.92,
+                             ibus=bus,
                              imasterbus=masterbus)
-        
+
         # Automate the cutoff freq. of the filter, so that it starts at 2000 Hz,
         # it drops to 500 Hz by 80% of the note and goes up to 6000 Hz at the end
-        filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start) 
+        filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
 
 
 
@@ -277,15 +277,14 @@ inside the ``rendering`` context manager:
 ----------------------------
 
 
-csoundengine vs ctcsound
-------------------------
+csoundengine vs libcsound / ctcsound
+------------------------------------
 
-**csoundengine** uses `ctcsound <https://github.com/csound/csound/blob/master/interfaces/ctcsound.py>`__
-to interact with csound. **ctcsound** follows the csound API very closely and requires good knowledge
-of it in order to avoid crashes and provide good performance. **csoundengine** bundles
-this knowledge into a wrapper which is flexible for advanced use cases but enables a casual
-user to start and control a csound process very easily. See below for a detailed description of
-*csoundengine* ´s features
+**csoundengine** uses `libcsound <https://github.com/csound-plugins/libcsound>`__
+to interact with csound. **libcsound** (the same applies to ctcsound) follows the csound API
+very closely and requires good knowledge of it in order to avoid crashes and provide good
+performance. **csoundengine** bundles this knowledge into a wrapper which is flexible for
+advanced use cases but enables a casual user to start and control a csound process very easily.
 
 
 Features
@@ -299,8 +298,8 @@ Features
   fills the values of any parameter which is not explicitely given with the default
   value. Any parg can also be modulated in real-time. See :meth:`Engine.setp() <csoundengine.engine.Engine.setp>`
   and :meth:`Engine.getp() <csoundengine.engine.Engine.getp>`
-* **Event ids / Modulation** - in *csoundengine* every event is assigned a unique id, allowing the user
-  to control it during performance, from python or from csound directly.
+* **Event ids / Modulation** - in *csoundengine* every event can have a unique id assigned,
+  allowing the user to control it during performance, from python or from csound directly.
 * **Informed use of the Csound API** - *csoundengine* uses the most convenient part of the
   API for each task (create a table, communicate with a running event, load a soundfile),
   in order to minimize latency and/or increase performance.
@@ -322,6 +321,3 @@ Features
   point within a processing chain, making instrument definitions more modular and reusable
 * **Built-in functions** - Any Engine / Session has built-in functionality for soundfile/sample
   playback, loading sf2/sf3 soundfonts, jsfx effects, audio analysis, etc.
-
-
-

@@ -114,8 +114,8 @@ if 'sphinx' not in sys.modules:
 else:
     print("Building docs")
     from unittest.mock import Mock
-    ctcsound = Mock(name='ctcsound')
-    sys.modules['ctcsound7'] = ctcsound
+    libcsound = Mock(name='libcsound')
+    sys.modules['libcsound'] = libcsound
 
 
 from .config import config, logger, setLoggingLevel

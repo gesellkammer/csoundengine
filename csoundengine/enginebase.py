@@ -6,7 +6,7 @@ from . import internal
 import os
 import emlib.misc
 import numpy as np
-import ctcsound7 as ctcsound
+import libcsound
 from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL
 from abc import ABC, abstractmethod
 from typing import Sequence
@@ -18,17 +18,28 @@ class TableInfo:
     Information about a csound table
     """
     sr: int
+    "Sample rate of the audio, if applicable"
+
     size: int
+    "Total number of items (independent of numChannels)"
+
     numChannels: int = 1
-    numFrames: int = -1
+    "Number of channels"
+
     path: str = ''
+    "Path to the source soundfile"
+
     hasGuard: bool | None = None
+    "Has this table a guard point"
 
     def __post_init__(self):
         if self.hasGuard is None:
             self.hasGuard = self.size == self.numFrames * self.numChannels + 1
-        if self.numFrames == -1:
-            self.numFrames = self.size // self.numChannels
+
+    @property
+    def numFrames(self):
+        """Number of frames (size // numchannels)"""
+        return self.size // self.numChannels
 
     @property
     def duration(self) -> float:
@@ -48,19 +59,18 @@ class TableInfo:
         import sndfileio
         sndinfo = sndfileio.sndinfo(path)
         return TableInfo(sr=sndinfo.samplerate,
-                         numChannels=sndinfo.channels,
-                         numFrames=sndinfo.nframes,
                          size=sndinfo.channels * sndinfo.nframes,
+                         numChannels=sndinfo.channels,
                          path=path)
 
 
 def _channelMode(kind: str) -> int:
     if kind == 'r':
-        return ctcsound.CSOUND_INPUT_CHANNEL
+        return libcsound.CSOUND_INPUT_CHANNEL
     elif kind == 'w':
-        return ctcsound.CSOUND_INPUT_CHANNEL
+        return libcsound.CSOUND_INPUT_CHANNEL
     elif kind == 'rw':
-        return ctcsound.CSOUND_INPUT_CHANNEL | ctcsound.CSOUND_OUTPUT_CHANNEL
+        return libcsound.CSOUND_INPUT_CHANNEL | libcsound.CSOUND_OUTPUT_CHANNEL
     else:
         raise ValueError(f"Expected r, w or rw, got {kind}")
 

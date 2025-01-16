@@ -28,6 +28,9 @@ gi__responses   ftgen  0, 0, 1000, -2, 0
 
 chn_k "_soundfontPresetCount", 3
 
+instr 3000
+endin
+
 opcode _assignControlSlot, i, i
     itoken xin
     iprevslot dict_get gi__tokenToDynargsSlot, itoken, -1
@@ -533,7 +536,7 @@ instr 25  /* busoutk */
     turnoff
 endin
 
-instr 2449  /* clearbuses_post */
+instr 2446  /* clearbuses_post */
     ; Use masked version of zeroarray
     zeroarray ga__buses, gi__busrefs
     ; zeroarray ga__buses
@@ -561,7 +564,7 @@ endin
 
 C 0.0     ; Disable carry
 f 1 0 -160000 -2 0
-i 2449 0 -1
+; i 2447 0 -1
 i 50.0001 0.0 4.0 -1 60.0
 i 50.0002 1.0 3.5 -1 60.5
 
