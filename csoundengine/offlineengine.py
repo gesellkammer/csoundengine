@@ -324,7 +324,7 @@ class OfflineEngine(_EngineBase):
     @cache
     def instrNum(self, name: str) -> int:
         assert not self._stopped
-        return int(self.csound.evalCode(f'i0 nstrnum "{name}"\nreturn i0\n'))
+        return int(self.csound.evalCode(f'return nstrnum("{name}")'))
 
     def assignInstanceNum(self, instr: int | str) -> int:
         if isinstance(instr, str):
@@ -700,7 +700,7 @@ class OfflineEngine(_EngineBase):
         if self._shouldPerform and render:
             self.perform(extratime=extratime)
         self.csound.stop()
-        self.csound.cleanup()
+        self.csound.reset()
         self._stopped = True
         if not os.path.exists(self.outfile):
             raise RuntimeError(f"Did not find rendered file '{self.outfile}'")

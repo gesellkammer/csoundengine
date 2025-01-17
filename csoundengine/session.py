@@ -318,7 +318,6 @@ class Session(AbstractRenderer):
 
         self._dynargsNumSlots = numControlSlots or config['dynamic_args_num_slots']
         self._dynargsTabnum = _engine.makeEmptyTable(size=self.maxDynamicArgs * self._dynargsNumSlots, block=True)
-        # _engine.sync()
         _engine.setChannel(".dynargsTabnum", self._dynargsTabnum)
         self._dynargsArray = _engine.getTableData(self._dynargsTabnum)
 

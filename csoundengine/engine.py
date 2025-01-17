@@ -324,7 +324,7 @@ class Engine(_EngineBase):
                  latency: float | None = None,
                  sampleAccurate: bool = False,
                  numthreads: int = 0,
-                 useProcessQueue=True
+                 useProcessQueue=False,
     ):
         if not name:
             name = _generateUniqueEngineName()
@@ -627,8 +627,8 @@ class Engine(_EngineBase):
         # global code added to this engine
         self._globalCode: dict[str, str] = {}
 
-        # this will be a numpy array pointing to a csound table of
-        # NUMTOKENS size. When an instrument wants to return a value to the
+        # This will be a numpy array pointing to a csound table of
+        # numTokens size. When an instrument wants to return a value to the
         # host, the host sends a token, the instr sets table[token] = value
         # and calls 'outvale "__sync__", token' to signal that an answer is
         # ready
@@ -637,7 +637,7 @@ class Engine(_EngineBase):
         # tokens start at 1, leave token 0 to signal that no sync is needed
         # tokens are used as indices to _responsesTable, which is an alias of
         # gi__responses
-        self._tokens = list(range(1, CONSTS['numtokens']))
+        self._tokens = list(range(1, CONSTS['numTokens']))
 
         # a pool of reserved table numbers
         reservedTablesStart = CONSTS['reservedTablesStart']
@@ -823,7 +823,6 @@ class Engine(_EngineBase):
                    f"-b{buffersize}",
                    f"-B{optB}",
                    ]
-
         if self.numthreads > 1:
             options.append(f'-j {self.numthreads}')
 
@@ -1099,15 +1098,18 @@ class Engine(_EngineBase):
         if not force and not self.needsSync():
             return False
 
-        if self.version >= 7000:
+        if lcs.VERSION >= 7000:
             self._perfThread.flushMessageQueue()
         elif self._perfThread._processQueue:
             self._perfThread.flushProcessQueue()
         else:
-            token = self._getSyncToken()
-            self._eventWait(token, [self._builtinInstrs['pingback'], 0, 0, token], timeout=timeout)
+            self.pingback(timeout=timeout)
         self._lastModification = 0
         return True
+
+    def pingback(self, timeout: float = None):
+        token = self._getSyncToken()
+        self._eventWait(token, [self._builtinInstrs['pingback'], 0, 0, token], timeout=timeout)
 
     def _compileCode(self, code: str, block=False) -> None:
         if not block and self.udpPort and config['prefer_udp']:
@@ -1328,8 +1330,8 @@ class Engine(_EngineBase):
             return arr
         if self.version >= 7000:
             q = _queue.SimpleQueue()
-            self._perfThread.requestCallback(lambda pt, q=q, idx=idx: q.put(pt.csound.table(idx)))
-            tabarr = q.get()
+            self._perfThread.requestCallback(lambda cs, q=q, idx=idx: q.put(cs.table(idx)))
+            arr = q.get()
         elif self._perfThread._processQueue is None:
             arr = self.csound.table(idx)
         else:
@@ -1794,8 +1796,8 @@ class Engine(_EngineBase):
         as `callback(name: str, instrnum: int)`
         """
         if self.version >= 7000:
-            def func7(pt, f=callback, name=name):
-                num = int(pt.csound.evalCode(f'''return nametoinstrnum "{name}"'''))
+            def func7(cs, f=callback, name=name):
+                num = int(cs.evalCode(f'''return nametoinstrnum "{name}"'''))
                 self._instrNumCache[name] = num
                 if f:
                     f(name, num)
@@ -2060,15 +2062,21 @@ class Engine(_EngineBase):
             :meth:`~Engine.automateTable`
 
         """
-        tabnum = self._assignTableNumber()
-        self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         if block and delay > 0:
             raise ValueError(f"Either block=True or delay > 0, got {block=}, {delay=}")
+        tabnum = self._assignTableNumber()
+        self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
         if block or self.version >= 7000:
-            self._compileCode(fr'''
-                i__tabnum__ ftgen {tabnum}, 0, {size}, -2, 0
-                ftsetparams {tabnum}, {sr}, {numchannels}
-                ''', block=block)
+            if sr == 0 and numchannels == 1:
+                self._perfThread.scoreEvent(False, "f", [tabnum, delay, -size, -2, 0])
+                if block:
+                    self._perfThread.flushMessageQueue()
+            else:
+                self._compileCode(fr'''
+                    i__tabnum__ ftgen {tabnum}, 0, {size}, -2, 0
+                    prints "makeemptytable!!!\n"
+                    ftsetparams {tabnum}, {sr}, {numchannels}
+                    ''', block=block)
         else:
             if sr == 0:
                 self._perfThread.scoreEvent(False, "f", [tabnum, delay, -size, -2, 0])
@@ -2121,14 +2129,15 @@ class Engine(_EngineBase):
         """
         if tabnum == -1:
             tabnum = self._assignTableNumber()
-        elif tabnum == 0 and not callback:
-            block = True
-
+        elif tabnum == 0:
+            if not callback:
+                block = True
+        else:
+            self._tableCache.pop(int(tabnum), None)
         dataarr = np.asarray(data)
         nchnls = internal.arrayNumChannels(dataarr)
         numitems = len(dataarr) * nchnls
         flatdata = dataarr.flat
-        self._tableCache.pop(int(tabnum), None)
         if lcs.VERSION < 7000 and not self._perfThread._processQueue:
             if callback:
                 self._makeTableNotify(data=data, sr=sr, tabnum=tabnum, callback=callback)
@@ -2164,6 +2173,7 @@ class Engine(_EngineBase):
                 ev.wait()
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(data), numChannels=nchnls)
         self._modified()
+        assert tabnum > 0
         return tabnum
 
     def _makeTableAsync(self, tabnum: int, data: np.ndarray, sr=0, numchannels=1, delay=0.):
@@ -3492,17 +3502,20 @@ class Engine(_EngineBase):
                       for subdelay, subgroup in internal.splitAutomation(pairs, maxDataSize // 2)]
             return events[0]
 
-    def strSet(self, s: str, sync=False) -> int:
+    def strSet(self, s: str) -> int:
         stridx = self._strToIndex.get(s)
         if stridx:
             return stridx
         stridx = self._getStrIndex()
         self._strToIndex[s] = stridx
         self._indexToStr[stridx] = s
-        # self.csound.compileOrc(f'strset {stridx}, "{s}"')
-        self._perfThread.compile(f'strset {stridx}, "{s}"')
-        if sync:
-            self._perfThread.sync()
+        if lcs.VERSION >= 7000:
+            self._perfThread.compileOrc(f'strset {stridx}, "{s}"')
+        elif self._useProcessQueue:
+            self._perfThread.processQueueTask(lambda cs: cs.compileOrc(f'strset {stridx}, "{s}"'))
+        else:
+            self.csound.compileOrc(f'strset {stridx}, "{s}"')
+        self._modified()
         return stridx
 
     def _strSet(self, s: str, sync=False) -> int:

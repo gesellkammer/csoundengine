@@ -339,7 +339,17 @@ class _JackAudioBackend(AudioBackend):
 
     def bufferSizeAndNum(self) -> tuple[int, int]:
         info = jacktools.getInfo()
-        return (info.blocksize, 2) if info else (0, 0)
+        if not info:
+            return 0, 0
+        blocksize = info.blocksize
+        if not emlib.mathlib.ispowerof2(blocksize):
+            logger.warning(f"Jack's blocksize is not a power of 2: {blocksize}")
+            return 256, _math.ceil(blocksize / 256)
+        else:
+            # jack buf: 512 -> -B 1024 -b 256
+            periodsize = blocksize // 2
+            numbuffers = 4
+            return periodsize, numbuffers
 
     def isAvailable(self) -> bool:
         return jacktools.isJackRunning()

@@ -51,12 +51,10 @@ def ndarrayhash(a: np.ndarray) -> str:
 @cachetools.cached(cache=cachetools.TTLCache(1, 20))
 def isrunning(prog: str) -> bool:
     """True if prog is running"""
-    if sys.platform == 'linux':
-        failed = subprocess.call(['pgrep', '-f', prog],
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return not failed
-    else:
+    if sys.platform != 'linux':
         raise RuntimeError(f"This function is not supported for platform '{sys.platform}'")
+    failed = subprocess.call(['pgrep', '-f', prog], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return not failed
 
 
 def m2f(midinote: float, a4: float) -> float:

@@ -19,7 +19,7 @@ A4     = ${a4}
 
 ${includes}
 
-gi__responses       ftgen  ${responses}, 0, ${numtokens}, -2, 0
+gi__responses       ftgen  ${responses}, 0, ${numTokens}, -2, 0
 gi__tokenToInstrnum ftgen ${tokenToInstrnum}, 0, ${maxNumInstrs}, -2, 0
 gi__soundfontIndexes dict_new "str:float"
 gi__soundfontIndexCounter init 1000
@@ -891,15 +891,14 @@ ftset gi__bustable, $$_BUSUNSET
 
 # Constants
 CONSTS = {
-    'numtokens': 1000,
+    'numTokens': 2000,  # Number of tokens to be allocated for responses
     'eventMaxSize': 1999,
-    'highestInstrnum': 11500,
-    'postProcInstrnum': 11000,
-    'reservedTablesStart': 300,
+    'postProcInstrnum': 11000,   # Post processing instrument number
+    'reservedTablesStart': 300,  # Tables managed by csoundengine start here. ftgen tables start at 100
     'reservedInstrsStart': 1,
     'userInstrsStart': 100,
     'sessionInstrsStart': 500,
-    'numReservedTables': 100,
+    'numReservedTables': 2000,   # Size of a pool of table numbers
     'maxNumInstrs': 10000,
     'BUSUNSET': -999999999,
 
