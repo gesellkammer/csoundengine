@@ -2101,8 +2101,6 @@ class Engine(_EngineBase):
         Args:
             data: the data used to fill the table
             tabnum: the table number. If -1, a number is assigned by the engine.
-                If 0, a number is assigned by csound (this operation will be blocking
-                if no callback was given)
             block: wait until the table is actually created
             callback: call this function when ready - f(token, tablenumber) -> None
             sr: only needed if filling sample data. If given, it is used to fill the
@@ -2127,17 +2125,20 @@ class Engine(_EngineBase):
 
         .. seealso:: :meth:`~csoundengine.engine.Engine.readSoundfile`, :meth:`~csoundengine.engine.Engine.fillTable`
         """
-        if tabnum == -1:
-            tabnum = self._assignTableNumber()
-        elif tabnum == 0:
-            if not callback:
-                block = True
-        else:
-            self._tableCache.pop(int(tabnum), None)
         dataarr = np.asarray(data)
         nchnls = internal.arrayNumChannels(dataarr)
         numitems = len(dataarr) * nchnls
         flatdata = dataarr.flat
+
+        if tabnum == -1:
+            tabnum = self._assignTableNumber()
+        elif tabnum == 0:
+            tabnum = self._makeTableNotify(data=data, tabnum=0, sr=sr, numchannels=nchnls)
+            self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(data), numChannels=nchnls)
+            self._modified()
+            return tabnum
+
+        self._tableCache.pop(int(tabnum), None)
         if lcs.VERSION < 7000 and not self._perfThread._processQueue:
             if callback:
                 self._makeTableNotify(data=data, sr=sr, tabnum=tabnum, callback=callback)

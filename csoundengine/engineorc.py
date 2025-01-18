@@ -199,10 +199,10 @@ instr ${maketable}
     isr = p8
     inumchannels = p9
     if (iempty == 1) then
-        itabnum ftgen itabnum, 0, ilen, -2, 0
+        itabnum ftgen itabnum, 0, -ilen, -2, 0
     else
         iValues[] passign 10, 10+ilen
-        itabnum ftgen itabnum, 0, ilen, -2, iValues
+        itabnum ftgen itabnum, 0, -ilen, -2, iValues
     endif
     if isr > 0 then
         ftsetparams itabnum, isr, inumchannels

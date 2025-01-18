@@ -10,7 +10,7 @@ description = "An audio synthesis framework using csound"
 authors = [
     { name = "Eduardo Moguillansky", email = "eduardo.moguillansky@gmail.com" },
 ]
-license = { file = "LICENSE.txt" }
+license = "GPL-3.0-or-later"
 readme = "README.rst"
 classifiers = [
     "Programming Language :: Python :: 3",
