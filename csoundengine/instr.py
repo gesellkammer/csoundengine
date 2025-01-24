@@ -824,8 +824,8 @@ class Instr:
         elif default is not None:
             return default
 
-        errormsg = (f"pfield '{name}' not known for instr '{self.name}'."
-                    f"Defined named pargs: {self.pfieldNameToIndex.keys()}")
+        errormsg = (f"Argument '{name}' not known for instr '{self.name}'. "
+                    f"Defined pfields: {', '.join(self.pfieldNameToIndex.keys())}")
         if self.aliases:
             errormsg += f" Aliases: {self.aliases}"
         raise KeyError(errormsg)

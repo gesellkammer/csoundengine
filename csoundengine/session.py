@@ -302,13 +302,16 @@ class Session(AbstractRenderer):
         self._offlineRenderer: offline.OfflineSession | None = None
         self._inbox: _queue.Queue[Callable] = _queue.Queue()
         self._acceptingMessages = True
-        self._dispatchingThread: threading.Thread | None = None
-
         self._notificationUseOsc = False
         self._notificationOscPort = 0
         self._includes: set[str] = set()
         self._lockedLatency: float | None = None
         self._handler: SessionHandler | None = None
+
+        self._dispatcherQueue = _queue.SimpleQueue()
+        self._dispatching = True
+        self._dispatcherThread = threading.Thread(target=self._dispatcher)
+        self._dispatcherThread.start()
 
         self._instrInitCallbackRegistry: set[str] = set()
         """A set holding which instrs have already called their init callback"""
@@ -319,13 +322,12 @@ class Session(AbstractRenderer):
         self._dynargsNumSlots = numControlSlots or config['dynamic_args_num_slots']
         self._dynargsTabnum = _engine.makeEmptyTable(size=self.maxDynamicArgs * self._dynargsNumSlots, block=True)
         _engine.setChannel(".dynargsTabnum", self._dynargsTabnum)
+        _engine.pingback()
         self._dynargsArray = _engine.getTableData(self._dynargsTabnum)
 
         # We don't use slice 0. We use a deque as pool instead of a list, this helps
         # debugging
         self._dynargsSlotPool: deque[int] = deque(range(1, self._dynargsNumSlots))
-
-
         _engine.registerOutvalueCallback("__dealloc__", self._deallocCallback)
         if config['define_builtin_instrs']:
             self._defBuiltinInstrs()
@@ -333,17 +335,19 @@ class Session(AbstractRenderer):
         _engine._reserveInstrRange('session', mininstr, maxinstr)
         _engine._session = self
 
-        # dispatchingThread = threading.Thread(target=self._dispatcher)
-        # dispatchingThread.start()
-        # self._dispatchingThread = dispatchingThread
-
     def __del__(self):
-        if self._dispatchingThread:
-            self._acceptingMessages = False
-            self._dispatchingThread.join(timeout=1)
+        self._dispatching = False
+        self._dispatcherThread.join()
 
     def __hash__(self):
         return id(self)
+
+    def _dispatcher(self):
+        logger.debug("Starting dispatch...")
+        while self._dispatching:
+            task = self._dispatcherQueue.get()
+            task()
+        logger.debug("Exited dispatch loop")
 
     def isRendering(self) -> bool:
         """Is an offline renderer attached to this session?"""
@@ -361,16 +365,6 @@ class Session(AbstractRenderer):
         """Stop this session and the underlying engine"""
         self.engine.stop()
         self.engine._session = None
-
-    def _dispatcher(self):
-        while self._acceptingMessages:
-            task = self._inbox.get()
-            if callable(task):
-                task()
-            elif isinstance(task, str):
-                print(f"Message: '{task}'")
-            else:
-                print("error", task)
 
     def hasBusSupport(self) -> bool:
         """Does the underlying engine have bus support?"""
@@ -413,7 +407,7 @@ class Session(AbstractRenderer):
                  param: str,
                  pairs: Sequence[float] | np.ndarray | tuple[np.ndarray, np.ndarray],
                  mode='linear',
-                 delay: float | None = None,
+                 delay: float | None = 0.,
                  overtake=False,
                  ) -> float:
         """
@@ -426,8 +420,9 @@ class Session(AbstractRenderer):
             param: the name of the parameter to automate
             pairs: automation data as a flat array with the form [time0, value0, time1, value1, ...]
             mode: one of 'linear', 'cos'. Determines the curve between values
-            delay: relatime time from now to start the automation. If None is given, sync the start
-                of the automation to the start of the given event.
+            delay: relative time from now to start the automation. If None is given, sync the start
+                of the automation to the start of the given event. To set an absolute start time, use
+                ``abstime - engine.elapsedTime()`` as delay
             overtake: if True, do not use the first value in pairs but overtake the current value
 
         Returns:
@@ -435,17 +430,12 @@ class Session(AbstractRenderer):
         """
         now = self.engine.elapsedTime()
         relstart = delay if delay is not None else event.start - now
-
-        if isinstance(pairs, np.ndarray):
-            # TODO: check (in general) if this converting between numpy/list/numpy
-            # can be a bottleneck when automation lines get big
-            pairs = pairs.tolist()
-        elif isinstance(pairs, tuple) and isinstance(pairs[0], np.ndarray):
-            assert len(pairs) == 2
-            times, values = pairs
-            pairs = _numpytools.interlace(times, values).tolist()
+        pairs = _internal.flattenAutomationData(pairs)
 
         assert isinstance(pairs, (list, tuple))
+        if len(pairs) % 2 == 1:
+            # Uneven, assume of the form (value0, time1, value1, time2, value2, ...)
+            pairs = [0.] + pairs if isinstance(pairs, list) else (0,) + pairs
 
         if len(pairs) == 2:
             t0 = float(pairs[0])
@@ -579,6 +569,7 @@ class Session(AbstractRenderer):
             def _callback(session=self, synthid=synthid):
                 session._deallocSynthResources(synthid=synthid)
             self.engine.callLater(delay, callback=_callback)
+            return
 
         synth = self._synths.pop(synthid, None)
         if synth is None:
@@ -591,9 +582,18 @@ class Session(AbstractRenderer):
         if (callback := self._whenfinished.pop(synthid, None)) is not None:
             callback(synthid)
 
-    def _deallocCallback(self, _, synthid):
-        """ This is called by csound when a synth is deallocated """
-        self._deallocSynthResources(synthid)
+    def _deallocCallback(self, _, synthid: float):
+        """ This is called by csound when a synth is deallocated.
+
+        It is called on the perf thread!!
+        """
+        if synthid in self._synths:
+            if self._dispatcherQueue:
+                self._dispatcherQueue.put(lambda: self._deallocSynthResources(synthid))
+            else:
+                self._deallocSynthResources(synthid)
+        else:
+            logger.debug(f"Dealloc for synth {synthid}, but it is not present, synths: {self._synths.keys()}")
 
     def _registerInstrAtPriority(self, instrname: str, priority=1) -> int:
         """
@@ -1277,7 +1277,7 @@ class Session(AbstractRenderer):
         if not self._notificationUseOsc:
             # Use outvalue for deallocation
             deallocInstr = self.engine._builtinInstrs['notifyDealloc']
-            parts.append(f'atstop {deallocInstr}, 0.01, 0, p1')
+            parts.append(f'atstop {deallocInstr}, 0.01, 0.01, p1')
         else:
             # Use osc
             assert self._notificationOscPort > 0
@@ -1325,7 +1325,7 @@ class Session(AbstractRenderer):
             relative: if True, delay is relative to the current time. Otherwise delay
                 is interpreted as an absolute time from the start time of the Engine.
             name: if given, this session keeps a reference to the scheduled synth under this
-                name in session.namedSynths. The use case for named synths is for global synths
+                name in session.namedEvents. The use case for named synths is for global synths
                 acting as mixers, filters, etc.
             kwargs: keyword arguments are interpreted as named parameters. This is needed when
                 passing positional and named arguments at the same time
@@ -1380,7 +1380,7 @@ class Session(AbstractRenderer):
                              f"between 1 and {self.numPriorities} (including both ends)")
 
         assert self._dynargsArray is not None
-        abstime = delay if not relative else self.engine.elapsedTime() + delay + self.engine.extraLatency
+        abstime = delay if not relative else (self.engine.elapsedTime() + delay + self.engine.extraLatency)
 
         if instrname == "?":
             selected = _dialogs.selectItem(list(self.instrs.keys()),
@@ -1444,7 +1444,7 @@ class Session(AbstractRenderer):
                         f"An event with name {name} and status {oldsynth.playStatus()} "
                         "already existed. It will remain active. To prevent this, stop "
                         "it manually by checking session.namedEvents: "
-                        "``if event := session.namedEvents.get(name): event.stop``")
+                        "``if event := session.namedEvents.get(name): event.stop()``")
             self.namedEvents[name] = synth
         return synth
 
@@ -1547,10 +1547,9 @@ class Session(AbstractRenderer):
                     synth.stop()
         else:
             synthid = event if isinstance(event, float) else event.p1
-            assert isinstance(synthid, float)
             synth = self._synths.get(synthid)
             if not synth:
-                logger.error(f"Event {event} not found, cannot unschedule")
+                logger.debug(f"Event {event} not found, cannot unschedule")
                 return
             status = synth.playStatus()
             if status == 'stopped':
@@ -1562,11 +1561,11 @@ class Session(AbstractRenderer):
                 # But it seems that when the event is turned off (via the turnoff
                 # opcode) the outvalue callback is not triggered.
                 # TODO: this needs to be investigated further.
-                # self._deallocSynthResources(synthid, delay)
+                self._deallocSynthResources(synthid, delay=delay)
             else:
                 assert status == 'future'
                 if delay == 0:
-                    self.engine.unschedFuture(synth.p1)
+                    self.engine.unsched(synth.p1, future=True)
                     self._deallocSynthResources(synthid, delay)
                 else:
                     self.engine.unsched(synthid, delay=delay)
@@ -1857,7 +1856,8 @@ class Session(AbstractRenderer):
                      freqoffset=0.,
                      minbw=0.,
                      maxbw=1.,
-                     minamp=0.
+                     minamp=0.,
+                     whenfinished: Callable = None
                      ) -> Synth:
         """
         Play a packed spectrum
@@ -1957,6 +1957,7 @@ class Session(AbstractRenderer):
         return self.sched('.playPartials',
                           delay=delay,
                           dur=dur,
+                          whenfinished=whenfinished,
                           args=dict(ifn=tabnum,
                                     iskip=iskip,
                                     inumrows=inumrows,
@@ -1990,7 +1991,8 @@ class Session(AbstractRenderer):
                         skip=0.,
                         fade: float | tuple[float, float] | None = None,
                         crossfade=0.02,
-                        blockread=True
+                        blockread=True,
+                        whenfinished: Callable = None
                         ) -> Event:
         """
         Prepares to play a sample, returns an :class:`~csoundengine.event.Event`
@@ -2045,7 +2047,7 @@ class Session(AbstractRenderer):
             if not loop and dur == 0:
                 info = sndfileio.sndinfo(source)
                 dur = info.duration / speed + fadeout
-            return Event(instrname='.diskin', delay=delay, dur=dur,
+            return Event(instrname='.diskin', delay=delay, dur=dur, whenfinished=whenfinished,
                          kws=dict(Spath=source,
                                   ifadein=fadein,
                                   ifadeout=fadeout,
@@ -2073,7 +2075,7 @@ class Session(AbstractRenderer):
         assert isinstance(tabnum, int) and tabnum >= 1
         if not loop:
             crossfade = -1
-        return Event(instrname='.playSample', delay=delay, dur=dur,
+        return Event(instrname='.playSample', delay=delay, dur=dur, whenfinished=whenfinished,
                      kws=dict(isndtab=tabnum,
                               istart=skip,
                               ifadein=fadein,
@@ -2096,7 +2098,8 @@ class Session(AbstractRenderer):
                    skip=0.,
                    fade: float | tuple[float, float] | None = None,
                    crossfade=0.02,
-                   blockread=True
+                   blockread=True,
+                   whenfinished: Callable = None
                    ) -> Synth:
 
         """
@@ -2127,13 +2130,15 @@ class Session(AbstractRenderer):
                 (fadein, fadeout)
             crossfade: if looping, this indicates the length of the crossfade
             blockread: block while reading the source (if needed) before playback is scheduled
+            whenfinished: a function to call when playback is finished
 
         Returns:
             A Synth with the following mutable parameters: kgain, kspeed, kchan, kpan
 
         """
         event = self.makeSampleEvent(source=source, delay=delay, dur=dur, chan=chan, gain=gain, speed=speed,
-                                  loop=loop, pan=pan, skip=skip, fade=fade, crossfade=crossfade, blockread=blockread)
+                                     loop=loop, pan=pan, skip=skip, fade=fade, crossfade=crossfade, blockread=blockread,
+                                     whenfinished=whenfinished)
         return self.schedEvent(event=event)
 
     def makeRenderer(self, sr=0, nchnls: int | None = None, ksmps=0,

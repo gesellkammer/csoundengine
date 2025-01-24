@@ -274,11 +274,13 @@ class Synth(SchedEvent, ISynth):
         """
         return ui(event=self, specs=specs)
 
-    def _html(self) -> str:
+    def _html(self, playstatus: str = '') -> str:
         argsfontsize = config['html_args_fontsize']
         maxi = config['synth_repr_max_args']
         style = jupytertools.defaultPalette
-        playstr = _synthStatusIcon[self.playStatus()]
+        if not playstatus:
+            playstatus = self.playStatus()
+        playstr = _synthStatusIcon[playstatus]
         parts = [
             f'{playstr} <strong style="color:{style["name.color"]}">'
             f'{self.instr.name}</strong>:{self.p1:.4f}',
@@ -314,13 +316,11 @@ class Synth(SchedEvent, ISynth):
         return '<span style="font-size:12px;">Synth('+', '.join(parts)+')</span>'
 
     def _repr_html_(self) -> str:
-        if jupytertools.inside_jupyter():
-            if self.playStatus() in ('playing', 'future'):
-                if config['jupyter_synth_repr_stopbutton']:
-                    jupytertools.displayButton("Stop", self.stop)
-                if config['jupyter_synth_repr_interact'] and self.args:
-                    pass
-        return f"<p>{self._html()}</p>"
+        status = self.playStatus()
+        if status != 'stopped' and jupytertools.inside_jupyter():
+            if config['jupyter_synth_repr_stopbutton']:
+                jupytertools.displayButton("Stop", self.stop)
+        return f"<p>{self._html(playstatus=status)}</p>"
 
     def __repr__(self):
         playstr = _synthStatusIcon[self.playStatus()]
@@ -373,16 +373,10 @@ class Synth(SchedEvent, ISynth):
             or 'future' if it has not started
 
         """
-        if not self._scheduled:
+        if not self._scheduled or self.p1 not in self.session._synths:
             return "stopped"
-        tolerance = 0.05
         now = self.session.engine.realElapsedTime()
-        if self.start <= now < self.end:
-            return "playing"
-        elif self.start > now:
-            return "future"
-        else:
-            return "stopped"
+        return "playing" if now >= self.start else "future"
 
     def playing(self) -> bool:
         """ Is this Synth playing """
@@ -499,7 +493,7 @@ class Synth(SchedEvent, ISynth):
                  param: str,
                  pairs: Sequence[float] | np.ndarray | tuple[np.ndarray, np.ndarray],
                  mode='linear',
-                 delay: float | None = None,
+                 delay: float | None = 0.,
                  overtake=False,
                  ) -> float:
         """
@@ -513,7 +507,8 @@ class Synth(SchedEvent, ISynth):
                 tuple of the form (times, values)
             mode: one of 'linear', 'cos'. Determines the curve between values
             delay: when to start the automation, relative to the current time. If None is given,
-                the delay is set to the start of this synth
+                the delay is set to the start of this synth. To set an absolute start time, use
+                ``abstime - engine.elapsedTime()`` as delay
             overtake: if True, do not use the first value in pairs but overtake the current value
 
         Returns:
@@ -523,8 +518,6 @@ class Synth(SchedEvent, ISynth):
                                      delay=delay, overtake=overtake)
 
     def stop(self, delay=0.) -> None:
-        if self.finished():
-            return
         self.session.unsched(self.p1, delay=delay)
 
 

@@ -93,6 +93,7 @@ class JackClient:
     regex: str
     isPhysical: bool = False
     ports: list[jack.Port] = dataclasses.field(default_factory=list)
+    firstIndex: int = -1
 
 
 def _splitlast(s:str, sep:str) -> tuple[str, str]:
@@ -107,7 +108,7 @@ def _buildClients(ports: list[jack.Port]) -> list[JackClient]:
     assert all(p.is_output for p in ports) or all(p.is_input for p in ports)
     d = {}
     regexes = {}
-    for p in ports:
+    for i, p in enumerate(ports):
         prefix = _splitlast(p.name, ":")[0]
         # special case system monitor
         if prefix == 'system':
@@ -117,16 +118,22 @@ def _buildClients(ports: list[jack.Port]) -> list[JackClient]:
         else:
             regex = prefix + ':'
         if prefix not in d:
-            d[prefix] = [p]
+            d[prefix] = []
             regexes[prefix] = regex
-        else:
-            d[prefix].append(p)
-    return [JackClient(name,
-                       regex=regexes[name],
-                       kind='output' if ports[0].is_output else 'input',
-                       isPhysical=ports[0].is_physical,
-                       ports=ports)
-            for name, ports in d.items()]
+        d[prefix].append(i)
+
+    clients = []
+    for name, portindexes in d.items():
+        portindexes.sort()
+        port0 = ports[portindexes[0]]
+        client = JackClient(name,
+                            regex=regexes[name],
+                            kind='output' if port0.is_output else 'input',
+                            isPhysical=port0.is_physical,
+                            ports=[ports[i] for i in portindexes],
+                            firstIndex=portindexes[0])
+        clients.append(client)
+    return clients
 
 
 def getClients() -> list[JackClient]:

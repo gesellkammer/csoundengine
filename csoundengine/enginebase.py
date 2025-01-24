@@ -86,6 +86,10 @@ class _EngineBase(ABC):
                  sampleAccurate=False,
                  a4: int = 442
                  ):
+        assert sr > 0
+        assert ksmps > 0
+        assert a4 > 0
+
         self.sr = sr
         "Sample rate"
 

@@ -35,7 +35,7 @@ opcode _panweights, kk, k
     kpos xin
     kampL = bpf:k(kpos, 0, 1.4142, 0.5, 1, 1, 0)
     kampR = bpf:k(kpos, 0, 0,      0.5, 1, 1, 1.4142)
-    xout kampL, kampR
+    xout kampL, kampR; inum nstrnum Sname
 endop
 
 opcode namedinstrtofrac, i, S
@@ -66,7 +66,7 @@ opcode sfloadonce, i, S
     xout iidx
 endop
 
-opcode sfPresetIndex, i, Sii
+opcode sfpresetindex, i, Sii
     Spath, ibank, ipresetnum xin
     prints "Deprecated, use 'sfpresetindex'\n"
     isf sfloadonce Spath
@@ -84,21 +84,11 @@ opcode sfPresetIndex, i, Sii
     xout iidx
 endop
 
-opcode sfpresetindex, i, Sii
+opcode sfPresetIndex, i, Sii
     Spath, ibank, ipresetnum xin
-    isf sfloadonce Spath
-    Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum
-    iidx dict_get gi__soundfontIndexes, Skey, -1
-    if iidx == -1 then
-        iidx chnget "_soundfontPresetCount"
-        chnset iidx+1, "_soundfontPresetCount"
-        i0 sfpreset ipresetnum, ibank, isf, iidx
-        if iidx != i0 then
-            prints "???: iidx = %d, i0 = %d\n", iidx, i0
-        endif
-        dict_set gi__soundfontIndexes, Skey, i0
-    endif
-    xout iidx
+    prints "This opcode is deprecated, use sfpresetindex\n"
+    iindex = sfpresetindex(Spath, ibank, ipresetnum)
+    xout iindex
 endop
 
 
@@ -112,37 +102,38 @@ endop
 
 
 instr ${notifyDealloc}
-    ip1 init p4
-    outvalue "__dealloc__", ip1
+    outvalue "__dealloc__", p4
+    turnoff
 endin
 
 instr ${notifyDeallocOsc}
-    ip1 = p4
-    iport = p5
-    OSCsend 1, "127.0.0.1", iport, "/dealloc", "d", ip1
+    ; p4=p1, p5=port
+    OSCsend 1, "127.0.0.1", p5, "/dealloc", "d", p4
     turnoff
 endin
 
 instr ${pingback}
-    itoken = p4
-    outvalue "__sync__", itoken
+    ; p4=token
+    outvalue "__sync__", p4
 endin
 
 instr ${turnoff}
     iwhich = p4
-    imode = p5
+    imode = p5   ; -1: turnoff future, otherwise it is the mode passed to turnoff2
     if qnan:i(iwhich) == 0 then
-        turnoff2_i iwhich, imode, 1
+        if imode < 0 then
+            turnoff3 iwhich
+        else
+            turnoff2_i iwhich, imode, 1
+        endif
     else
         Swhich = p4
-        turnoff2_i iwhich, imode, 1
+        if imode < 0 then
+            turnoff3 Swhich
+        else
+            turnoff2_i Swhich, imode, 1
+        endif
     endif
-endin
-
-instr ${turnoff_future}
-    iwhich = p4
-    turnoff3 iwhich
-    turnoff
 endin
 
 instr ${print}
@@ -153,7 +144,6 @@ endin
 instr ${nstrnum}
     itoken = p4
     Sname = p5
-    ; inum nstrnum Sname
     inum nametoinstrnum Sname
     tabw_i inum, itoken, gi__responses
     outvalue "__sync__", itoken
@@ -226,6 +216,7 @@ instr ${automatePargViaPargs}
         Sp1 = p4
         ip1 = namedinstrtofrac(Sp1)
     endif
+    prints "automating p1: %f, index: %d, iovertake: %d, lenpairs: %d, dur: %f\n", ip1, ipindex, iovertake, ilenpairs, p3
 
     ; special case: simple line, two pairs
     if ilenpairs == 4 && p10 == 0 && iovertake == 0 then
@@ -291,6 +282,18 @@ instr ${automateTableViaPargs}
 exit:
 endin
 
+instr ${pread}
+    itoken = p4
+    ip1 = p5
+    ipnum = p6
+    inotify = p7
+    ival pread ip1, ipnum
+    tabw_i ival, itoken, gi__responses
+    if inotify == 1 then
+        outvalue "__sync__", itoken
+    endif
+endin
+
 instr ${uniqinstance}
     itoken = p4
     ip1    = p5
@@ -299,27 +302,8 @@ instr ${uniqinstance}
     outvalue "__sync__", itoken
 endin
 
-instr ${scheduniq}
-    itoken = p4
-    ip1 = p5
-    idelay = p6
-    idur = p7
-    inumargs = p8
-    ipargs[] passign 9, 9+inumargs
-    iuniq uniqinstance ip1
-    iargs[] init 3+inumargs
-    iargs[0] = iuniq
-    iargs[1] = idelay
-    iargs[2] = idur
-    setslice iargs, ipargs, 3
-    schedule iargs
-    tabw_i iuniq, itoken, gi__responses
-    outvalue "__sync__", itoken
-endin
-
 instr ${freetable}
     ifn = p4
-    idelay = p5
     ftfree ifn, 0
 endin
 
@@ -403,12 +387,6 @@ instr ${playgen1}
 
 endin
 
-instr ${strset}
-    Sstr = p4
-    idx  = p5
-    strset idx, Sstr
-endin
-
 instr ${ftsetparams}
     itabnum, isr, inumchannels passign 4
     ftsetparams itabnum, isr, inumchannels
@@ -439,46 +417,25 @@ instr ${pwrite}
     endif
 endin
 
-instr ${pread}
-    itoken = p4
-    ip1 = p5
-    ipindex = p6
-    inotify = p7
-    ival pread ip1, ipindex
-    tabw_i ival, itoken, gi__responses
-    if inotify == 1 then
-        outvalue "__sync__", itoken
-    endif
-endin
-
-instr ${preadmany}
-    ; reads multiple pfields, puts them in a table
-    itoken, ip1, iouttab, ioffset, inumpfields passign 4
-    ipfields[] passign 9, inumpfields
-    ivalues[] pread ip1, ipfields
-    i0 = 0
-    while i0 < inumpfields do
-        tabw_i ivalues[i0], ioffset+i0, iouttab
-        i0 += 1
-    od
-    if itoken > 0 then
-        outvalue "__sync__", itoken
-    endif
-endin
 
 instr ${testaudio}
-    pset 0, 0, 0, 0, 1, 1
+    pset 0, 0, 0, 0, 1, 1, 1
     imode = p4
     iperiod = p5
     igain = p6
+    iecho = p7
 
     kchan init -1
     if imode == 0 then
-        prints "\nTestaudio: pink noise mode\n"
+        if iecho == 1 then
+            prints "\nTestaudio: pink noise mode\n"
+        endif
         a0 pinker
         a0 *= igain
     elseif imode == 1 then
-        prints "\nTestaudio: sine tone mode\n"
+        if iecho == 1 then
+            prints "\nTestaudio: sine tone mode\n"
+        endif
         a0 oscili igain, 1000
     else
         initerror sprintf("testaudio: imode %d unknown", imode)
@@ -486,7 +443,7 @@ instr ${testaudio}
     kswitch metro 1/iperiod
     kchan = (kchan + kswitch) % nchnls
     outch kchan+1, a0
-    if kswitch == 1 then
+    if iecho * kswitch == 1 then
         println "Channel: %d / %d", kchan+1, nchnls
     endif
 endin
@@ -950,6 +907,7 @@ def makeOrc(sr: int,
                             for name, num in instrs.items()}
     subs.update(BUILTIN_TABLES)
     subs.update(CONSTS)
+    assert a4 >= 220
     orc = template.substitute(
             sr=sr,
             ksmps=ksmps,

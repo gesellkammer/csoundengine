@@ -378,7 +378,7 @@ class Engine(_EngineBase):
             logger.debug(f"No output device given for backend {resolvedBackend}, "
                          f"using default: {outdevName}, id: {outdev}")
             if not nchnls:
-                nchnls = defaultout.numchannels
+                nchnls = defaultout.numChannels
         elif outdev == '?':
             if len(outdevs) == 0:
                 raise RuntimeError("No output audio devices")
@@ -388,7 +388,7 @@ class Engine(_EngineBase):
                 raise RuntimeError("No output audio device selected")
             outdev, outdevName = selected.id, selected.name
             if not nchnls:
-                nchnls = selected.numchannels
+                nchnls = selected.numChannels
         elif isinstance(outdev, int) or _re.search(r"\bdac[0-9]+\b", outdev):
             # dac1, dac8
             if backendDef.name == 'jack':
@@ -413,7 +413,7 @@ class Engine(_EngineBase):
                 raise RuntimeError(f"No default device for backend {backend}")
             indev, indevName = defaultin.id, defaultin.name
             if not nchnls_i:
-                nchnls_i = defaultin.numchannels
+                nchnls_i = defaultin.numChannels
         elif indev == '?':
             if len(indevs) == 0:
                 raise RuntimeError("No input audio devices")
@@ -459,21 +459,24 @@ class Engine(_EngineBase):
                 logger.info(f"Asked for system sr, but backend '{resolvedBackend}', does not"
                             f"have a fixed sr. Using sr={sr}")
 
-        if a4 is None:
+        if not a4:
             a4 = cfg['A4']
         if numthreads == 0:
             numthreads = config['numthreads']
-        if ksmps is None:
+        if not ksmps:
             ksmps = cfg['ksmps']
         if nchnls_i is None:
             nchnls_i = cfg['nchnls_i']
         if nchnls is None:
             nchnls = cfg['nchnls']
-        if nchnls == 0 or nchnls_i == 0:
-            inchnls, outchnls = csoundlib.getNchnls(resolvedBackend,
-                                                    outpattern=outdev, inpattern=indev)
-            nchnls = nchnls or outchnls
-            nchnls_i = nchnls_i or inchnls
+
+        inchnls, outchnls = csoundlib.getNchnls(resolvedBackend,
+                                                outpattern=outdev, inpattern=indev)
+        if nchnls == -1:
+            nchnls = outchnls
+        if nchnls_i == -1:
+            nchnls_i = inchnls
+
         assert nchnls is not None and nchnls > 0
         assert nchnls_i is not None and nchnls_i >= 0
 
@@ -750,7 +753,6 @@ class Engine(_EngineBase):
         """
         Get a unique token, to pass to csound for a sync response
         """
-        assert self._responsesTable is not None
         token = self._tokens.pop()
         self._responsesTable[token] = _UNSET
         return token
@@ -817,12 +819,19 @@ class Engine(_EngineBase):
                                f"(numBuffers: {self.numBuffers}, "
                                f"jack's blocksize: {jackinfo.blocksize})")
         options = ["-d",   # suppress all displays
-                   f"-+rtaudio={self.backend}",
-                   f'-o"{self.outdev}"',
-                   f'-i"{self.indev}"',
-                   f"-b{buffersize}",
-                   f"-B{optB}",
-                   ]
+                    f"-+rtaudio={self.backend}",
+                    f"-b{buffersize}",
+                    f"-B{optB}"]
+        options.append(f'-o"{self.outdev}"')
+        options.append(f'-i"{self.indev}"')
+        # if lcs.VERSION >= 7000:
+        #     # csound 7 accepts quotes to encompass spaces within an option
+        #     options.append(f'-o"{self.outdev}"')
+        #     options.append(f'-i"{self.indev}"')
+        # else:
+        #     options.append(f'-o{self.outdev}')
+        #     options.append(f'-i{self.indev}')
+
         if self.numthreads > 1:
             options.append(f'-j {self.numthreads}')
 
@@ -1260,21 +1269,21 @@ class Engine(_EngineBase):
 
             >>> e = Engine()
             >>> e.compile(r'''
-            ... instr myinstr
-            ...   prints "myinstr!"
-            ...   turnoff
-            ... ''')
-            >>> e.compile(r'''
-            ... opcode getinstrnum, i, S
-            ...   Sinstr xin
-            ...   inum nstrnum
-            ...   xout inum
-            ... endop''')
-            >>> e.evalCode('return getinstrnum("myinstr")')
+            ... instr foo
+            ...   outch 1, oscili(0.1, p4)
+            ... endin''')
+            >>> e.evalCode('return nstrnum("foo")')
 
         """
         assert self.started and self.csound is not None
-        out = self._perfThread.evalCode(code)
+        if self.version >= 7000:
+            out = self._perfThread.evalCode(code)
+        elif self._useProcessQueue:
+            q = _queue.SimpleQueue()
+            self._perfThread.processQueueTask(lambda cs, q=q: q.put(cs.evalCode(code)))
+            out = q.get()
+        else:
+            out = self.csound.evalCode(code)
         self._modified(False)
         return out
 
@@ -1366,17 +1375,17 @@ class Engine(_EngineBase):
 
         .. seealso:: :meth:`Engine.elapsedTime`
         """
-        assert self.csound is not None
-        return self.csound.currentTimeSamples() / self.sr
+        # assert self.csound is not None
+        # return self.csound.currentTimeSamples() / self.sr
 
-        # reportedTime, lastTime = self._realElapsedTime
-        # now = time.time()
-        # if now - lastTime > threshold:
-        #     reportedTime = self.csound.currentTimeSamples() / self.sr
-        #     self._realElapsedTime = (reportedTime, now)
-        # else:
-        #     reportedTime += now - lastTime
-        # return reportedTime
+        reportedTime, lastTime = self._realElapsedTime
+        now = time.time()
+        if now - lastTime > threshold:
+            reportedTime = self.csound.currentTimeSamples() / self.sr
+            self._realElapsedTime = (reportedTime, now)
+        else:
+            reportedTime += now - lastTime
+        return reportedTime
 
     def elapsedTime(self) -> float:
         """
@@ -1643,7 +1652,7 @@ class Engine(_EngineBase):
 
         isabsolute, delay = self._presched(delay=delay, relative=relative)
 
-        if self.autosync:
+        if self.autosync and self.needsSync():
             self.sync()
 
         if pfields and args:
@@ -1661,13 +1670,13 @@ class Engine(_EngineBase):
                 kwargs = {int(key[1:]):value for key, value in namedpfields.items()}
             args = csoundlib.fillPfields(args, kwargs, defaults=instrdef.pfieldIndexToValue if instrdef else None)
 
-        if isinstance(instr, float):
+        if isinstance(instr, int):
+            instrfrac = self._assignEventId(instr) if unique else instr
+        elif isinstance(instr, float):
             if unique and int(instr) == instr:
                 instrfrac = self._assignEventId(int(instr))
             else:
                 instrfrac = instr
-        elif isinstance(instr, int):
-            instrfrac = self._assignEventId(instr) if unique else instr
         elif isinstance(instr, str):
             if not unique and "." not in instr:
                 instrnum = self._instrNumCache.get(instr)
@@ -1678,7 +1687,6 @@ class Engine(_EngineBase):
                     self._perfThread.inputMessage(msg)
                     return 0
                 instrfrac = instrnum
-
             if "." in instr:
                 name, fractionstr = instr.split(".")
                 instrnum = self._instrNumCache.get(name)
@@ -1707,11 +1715,10 @@ class Engine(_EngineBase):
             pargs = [instrfrac, delay, dur]
             self._perfThread.scoreEvent(isabsolute, "i", pargs)
         elif isinstance(args, (list, tuple)):
-            needsSync = any(isinstance(a, str) and a not in self._strToIndex for a in args)
             pargs = [instrfrac, delay, dur]
             pargs.extend(float(a) if not isinstance(a, str) else self.strSet(a) for a in args)
-            if needsSync:
-                self.sync()
+            #if any(isinstance(a, str) and a not in self._strToIndex for a in args):
+            #    self.sync()
             self._perfThread.scoreEvent(isabsolute, "i", pargs)
         else:
             raise TypeError(f"Expected a sequence or array, got {args}")
@@ -1862,7 +1869,7 @@ class Engine(_EngineBase):
         instrnum = self._builtinInstrs['print']
         self._perfThread.inputMessage(f'i {instrnum} {delay} 0. "{msg}"')
 
-    def unsched(self, p1: float | str, delay: float = 0) -> None:
+    def unsched(self, p1: float | str, delay: float = 0, future=False) -> None:
         """
         Stop a playing event
 
@@ -1873,6 +1880,7 @@ class Engine(_EngineBase):
         Args:
             p1: the instrument number/name to stop
             delay: if 0, remove the instance as soon as possible
+            future: if True, unsched an event in the future
 
         Example
         ~~~~~~~
@@ -1895,30 +1903,13 @@ class Engine(_EngineBase):
         :meth:`~Engine.unschedAll`
 
         """
-        if (isinstance(p1, int) and int(p1) != p1) or (isinstance(p1, str) and "." in p1):
+        if future:
+            mode = -1
+        elif (isinstance(p1, float) and int(p1) != p1) or (isinstance(p1, str) and "." in p1):
             mode = 4
         else:
             mode = 0
-        self.sched(self._builtinInstrs['turnoff'], delay, 0, p1, mode)
-
-    def unschedFuture(self, p1: float | str) -> None:
-        """
-        Stop a future event
-
-        Args:
-            p1: the instrument number/name to stop
-
-        See Also
-        ~~~~~~~~
-
-        :meth:`~csoundengine.engine.Engine.unschedAll`,
-        :meth:`~csoundengine.engine.Engine.unsched`
-
-        """
-        if isinstance(p1, str):
-            p1 = self.queryNamedInstr(p1)
-        dur = self.ksmps/self.sr * 2
-        pfields = [self._builtinInstrs['turnoff_future'], 0.01, dur, p1]
+        pfields = [self._builtinInstrs['turnoff'], delay, 0, p1, mode]
         self._perfThread.scoreEvent(False, "i", pfields)
 
     def unschedAll(self) -> None:
@@ -2074,7 +2065,6 @@ class Engine(_EngineBase):
             else:
                 self._compileCode(fr'''
                     i__tabnum__ ftgen {tabnum}, 0, {size}, -2, 0
-                    prints "makeemptytable!!!\n"
                     ftsetparams {tabnum}, {sr}, {numchannels}
                     ''', block=block)
         else:
@@ -3321,7 +3311,6 @@ class Engine(_EngineBase):
         See Also
         ~~~~~~~~
 
-        * :meth:`~Engine.getp`
         * :meth:`~Engine.automatep`
         """
         if isinstance(p1, str):
@@ -3333,7 +3322,7 @@ class Engine(_EngineBase):
         args.extend(pairs)
         self.sched(self._builtinInstrs['pwrite'], delay=delay, dur=0, args=args)
 
-    def getp(self, eventid: float, idx: int) -> float | None:
+    def _getp(self, eventid: float, idx: int) -> float | None:
         """
         Get the current pfield value of an active note.
 
@@ -3360,10 +3349,13 @@ class Engine(_EngineBase):
 
             :meth:`~Engine.setp`
         """
-        token = self._getSyncToken()
-        notify = 1
-        pargs = [self._builtinInstrs['pread'], 0, 0, token, eventid, idx, notify]
-        value = self._eventWait(token, pargs)
+        if self.version >= 7000:
+            value = self.csound.evalCode(f'return pread({eventid}, {idx})')
+        else:
+            token = self._getSyncToken()
+            notify = 1
+            pargs = [self._builtinInstrs['pread'], 0, 0, token, eventid, idx, notify]
+            value = self._eventWait(token, pargs)
         return value
 
     def automateTable(self,
@@ -3626,7 +3618,7 @@ class Engine(_EngineBase):
         self._perfThread.scoreEvent(False, "i", pargs)
 
     def testAudio(self, dur=4., delay=0., period=1., mode='pink',
-                  gaindb=-6.) -> float:
+                  gaindb=-6., echo=True) -> float:
         """
         Test this engine's output
 
@@ -3636,6 +3628,7 @@ class Engine(_EngineBase):
             period: the duration of sound output on each channel
             mode: the test mode, one of 'pink', 'sine'
             gaindb: the gain of the output, in dB
+            echo: if True, csound prints the channel to which it is outputting audio
 
         Returns:
             the p1 of the scheduled event
@@ -3650,7 +3643,7 @@ class Engine(_EngineBase):
             raise ValueError(f"mode must be one of 'pink', 'sine', got {mode}")
 
         return self.sched(self._builtinInstrs['testaudio'], dur=dur, delay=delay,
-                          args=[modeid, period, pt.db2amp(gaindb)])
+                          args=[modeid, period, pt.db2amp(gaindb), int(echo)])
 
     def _udpSend(self, code: str) -> None:
         if not self.udpPort:

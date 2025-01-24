@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import emlib.dialogs
 import emlib.iterlib
 import emlib.misc
+import emlib.numpytools
 import subprocess
 import bisect
 import time
@@ -690,14 +691,21 @@ def interleave(a: Sequence[T], b: Sequence[T]) -> list[T]:
 
 def flattenAutomationData(pairs: Sequence[float] | tuple[Sequence[float], Sequence[float]]
                           ) -> list[float]:
-    if isinstance(pairs, tuple):
-        if isinstance(pairs[0], (list, tuple)):
-            assert len(pairs) == 2
-            return interleave(*pairs)
-        else:
-           return list(pairs)
-    elif isinstance(pairs, list):
+    if isinstance(pairs, list):
         return pairs
+    elif isinstance(pairs, tuple):
+        if len(pairs) == 2 and not isinstance(pairs[0], (int, float)):
+            xs, ys = pairs
+            if isinstance(xs, (list, tuple)):
+                assert isinstance(ys, (list, tuple))
+                return interleave(xs, ys)
+            elif isinstance(xs, np.ndarray):
+                assert isinstance(ys, np.ndarray)
+                return emlib.numpytools.interlace(xs, ys).tolist()
+            else:
+                raise TypeError(f"Expected a tuple (xs, ys), got {pairs}")
+        else:
+            return list(pairs)
     else:
         raise TypeError(f"Expected a list of values or a tuple (list, list), got {pairs}")
 
@@ -800,3 +808,23 @@ def classify(objs: Sequence[tuple[str, T]]) -> dict[str, list[T]]:
         else:
             groups[key] = [obj]
     return groups
+
+
+def stripTrailingEmptyLines(lines: list[str]) -> list[str]:
+    """
+    Remove empty lines from the top and bottom
+
+    Args:
+        lines: lines already split
+
+    Returns:
+        a list of lines without any empty lines at the beginning and at the end
+    """
+    startidx, endidx = 0, 0
+    for startidx, line in enumerate(lines):
+        if line and not line.isspace():
+            break
+    for endidx, line in enumerate(reversed(lines)):
+        if line and not line.isspace():
+            break
+    return lines[startidx:len(lines)-endidx]

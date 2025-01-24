@@ -779,12 +779,13 @@ class OfflineSession(AbstractRenderer):
     def _automateBus(self, bus: busproxy.Bus, pairs: Sequence[float],
                      mode='linear', delay=0., overtake=False):
         maxDataSize = config['max_pfields'] - 10
+        if isinstance(pairs, np.ndarray):
+            assert len(pairs.shape) == 1, f"Invalid pairs: {pairs}"
         if len(pairs) <= maxDataSize:
             args = [int(bus), self.strSet(mode), int(overtake), len(pairs), *pairs]
+            dur = float(pairs[-2]) + self.ksmps / self.sr
             self.csd.addEvent(self._builtinInstrs['automateBusViaPargs'],
-                              start=delay,
-                              dur=pairs[-2] + self.ksmps/self.sr,
-                              args=args)
+                              start=delay, dur=dur, args=args)
         else:
             for groupdelay, subgroup in internal.splitAutomation(pairs, maxDataSize//2):
                 self._automateBus(bus=bus, pairs=subgroup, delay=groupdelay+delay,

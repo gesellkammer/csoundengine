@@ -1173,25 +1173,25 @@ def _cropScore(events: list[ScoreLine], start=0., end=0.) -> list:
         elif kind != 'i':
             cropped.append(ev)
             continue
-
-        assert kind == 'i'
-        evstart = ev.start
-        evdur = ev.dur
-        evend = evstart + evdur if evdur >= 0 else float('inf')
-        if evend < start or evstart > end:
-            continue
-
-        if start <= evstart and evend <= end:
-            cropped.append(ev)
         else:
-            xstart, xend = emlib.mathlib.intersection(start, end, evstart, evend)
-            if xstart is not None:
-                if xend == float('inf'):
-                    dur = -1
-                else:
-                    dur = xend - xstart
-                ev2 = ev.copy()
-                ev2.pfields[1] = xstart
-                ev2.pfields[2] = dur
-                cropped.append(ev2)
+            assert kind == 'i', f"Invalid kind: {kind=}, {ev=}"
+            evstart = ev.start
+            evdur = ev.dur
+            evend = evstart + evdur if evdur >= 0 else float('inf')
+            if evend < start or evstart > end:
+                continue
+
+            if start <= evstart and evend <= end:
+                cropped.append(ev)
+            else:
+                xstart, xend = emlib.mathlib.intersection(start, end, evstart, evend)
+                if xstart is not None:
+                    if xend == float('inf'):
+                        dur = -1
+                    else:
+                        dur = xend - xstart
+                    ev2 = ev.copy()
+                    ev2.pfields[1] = xstart
+                    ev2.pfields[2] = dur
+                    cropped.append(ev2)
     return cropped
