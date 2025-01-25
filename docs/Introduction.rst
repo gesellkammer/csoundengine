@@ -46,9 +46,10 @@ A csound process is launched by creating a new :class:`~csoundengine.engine.Engi
 **csoundengine** will query the system regarding audio backend, audio device, number
 of channels, samplerate, etc., for any option that is not explicitly given.
 For example, in linux **csoundengine** will first check if jack is running (either as
-jack itself or within pipewire) and, if so, use that as backend, or fallback to using
-portaudio otherwise. If not specified otherwise, **csoundengine** will use the default
-audio devices for the backend and query the number of channels and samplerate to match them.
+jack itself or within *pipewire*) and, if so, use that as backend, or fallback to using
+portaudio otherwise. By default **csoundengine** will use the default audio devices for
+the backend and query the number of channels and samplerate to match them, choosing
+an appropriate buffer size to match the selected device.
 
 An :class:`~csoundengine.engine.Engine` uses the csound API to communicate with
 csound. **All audio processing is run in a thread with realtime priority to avoid

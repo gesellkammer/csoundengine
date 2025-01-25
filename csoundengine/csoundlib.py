@@ -1214,7 +1214,7 @@ class AudioDevice:
         name: the name of the device
         index: the index of this audio device, as passed to adcXX or dacXX
         kind: 'output' or 'input'
-        numchannels: the number of channels
+        numChannels: the number of channels
         isPhysical: True if this is a physical (hardware) device. Used for jack
     """
     id: str
@@ -1241,13 +1241,14 @@ def getDefaultAudioDevices(backend='') -> tuple[AudioDevice | None, AudioDevice 
     """
     Returns the default audio devices for a given backend
 
-    .. note:: Results are cached for a period of time
-
     Args:
         backend: the backend to use (None to get the default backend)
 
     Returns:
         a tuple (input devices, output devices)
+
+    .. note:: Results are cached for a period of time
+
     """
     backendDef = getAudioBackend(backend)
     if backendDef is None:

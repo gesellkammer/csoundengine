@@ -113,8 +113,10 @@ if 'sphinx' not in sys.modules:
         raise RuntimeError("csoundengine: Depencencies not fullfilled")
 else:
     print("Building docs")
-    from unittest.mock import Mock
-    libcsound = Mock(name='libcsound')
+    from sphinx.ext.autodoc.mock import _MockObject
+    libcsound = _MockObject()
+    # from unittest.mock import Mock
+    # libcsound = Mock(name='libcsound')
     sys.modules['libcsound'] = libcsound
 
 
