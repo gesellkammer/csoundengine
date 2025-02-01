@@ -64,7 +64,7 @@ jobs:
           cd test
           python test1.py -o test1-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.install-method }}.wav
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           path: test/*.wav
 
