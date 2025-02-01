@@ -84,14 +84,6 @@ opcode sfpresetindex, i, Sii
     xout iidx
 endop
 
-opcode sfPresetIndex, i, Sii
-    Spath, ibank, ipresetnum xin
-    prints "This opcode is deprecated, use sfpresetindex\n"
-    iindex = sfpresetindex(Spath, ibank, ipresetnum)
-    xout iindex
-endop
-
-
 opcode sendsync, 0, io
     ; send a sync message back, to be used by instruments scheduled
     ; via schedSync
