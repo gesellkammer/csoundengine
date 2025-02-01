@@ -68,7 +68,6 @@ endop
 
 opcode sfpresetindex, i, Sii
     Spath, ibank, ipresetnum xin
-    prints "Deprecated, use 'sfpresetindex'\n"
     isf sfloadonce Spath
     Skey sprintf "SFIDX:%d:%d:%d", isf, ibank, ipresetnum
     iidx dict_get gi__soundfontIndexes, Skey, -1
