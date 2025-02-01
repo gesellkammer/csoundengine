@@ -555,7 +555,7 @@ class Session(AbstractRenderer):
         name = jupytertools.htmlName(self.name)
         return f"Session({name}, synths={active})"
 
-    def _deallocSynthResources(self, synthid: int | float, delay=0.) -> None:
+    def _deallocSynthResources(self, synthid: int | float | str, delay=0.) -> None:
         """
         Deallocates resources associated with synth
 
@@ -1534,41 +1534,35 @@ class Session(AbstractRenderer):
                 any synths scheduled with the given instrument name will be stopped
             delay: how long to wait before stopping them
         """
-        if isinstance(event, str):
-            if event in self.instrs:
-                for synth in self._synths.values():
-                    if synth.instrname == event:
-                        synth.stop()
-            else:
-                logger.warning(f"No instruments with the name {event} are defined")
-        elif isinstance(event, int):
-            for p1, synth in self._synths.items():
-                if int(p1) == event:
-                    synth.stop()
-        else:
-            synthid = event if isinstance(event, float) else event.p1
-            synth = self._synths.get(synthid)
-            if not synth:
-                logger.debug(f"Event {event} not found, cannot unschedule")
-                return
-            status = synth.playStatus()
+        print("unsched", event)
+        def dealloc(p1, delay: float, status: str):
             if status == 'stopped':
                 logger.debug(f"Event {event} already finished, cannot unschedule")
                 return
-            elif status == 'playing':
-                self.engine.unsched(synthid, delay=delay)
-                # Normally the outvalue callback calls the dealloc sequence itself
-                # But it seems that when the event is turned off (via the turnoff
-                # opcode) the outvalue callback is not triggered.
-                # TODO: this needs to be investigated further.
-                self._deallocSynthResources(synthid, delay=delay)
-            else:
-                assert status == 'future'
-                if delay == 0:
-                    self.engine.unsched(synth.p1, future=True)
-                    self._deallocSynthResources(synthid, delay)
-                else:
-                    self.engine.unsched(synthid, delay=delay)
+            future = status == 'future'
+            self.engine.unsched(p1, delay=delay, future=future)
+            self._deallocSynthResources(p1, delay)
+
+        if isinstance(event, float):
+            synth = self._synths.get(event)
+            if not synth:
+                logger.debug(f"Event {event} not found, cannot unschedule")
+                return
+            dealloc(synth.p1, delay, synth.playStatus())
+        elif isinstance(event, int):
+            for p1, synth in self._synths.items():
+                if int(p1) == event:
+                    dealloc(p1, delay, status=synth.playStatus())
+        elif isinstance(event, str):
+            if event not in self.instrs:
+                logger.warning(f"No instruments with the name {event} are defined")
+                return
+
+            for p1, synth in self._synths.items():
+                if synth.instrname == event:
+                    dealloc(p1, delay, status=synth.playStatus())
+        else:
+            dealloc(event.p1, delay=delay, status=event.playStatus())
 
     def unschedAll(self, future=False) -> None:
         """
