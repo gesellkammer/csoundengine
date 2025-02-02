@@ -149,7 +149,6 @@ jobs:
           csound.exe --version
 
       - name: install from repo
-        if: ${{ matrix.install-method == 'git' }}
         run: |
           pip install .
 
