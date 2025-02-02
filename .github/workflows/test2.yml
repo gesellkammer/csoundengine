@@ -1,7 +1,7 @@
 on: [push]
 
 jobs:
-  alltest:
+  csound6:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -66,6 +66,99 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: artifact-${{ matrix.os }}-${{ matrix.python-version }}-${{ strategy.job-index }}
+          name: artifact-csound6-${{ matrix.os }}-${{ matrix.python-version }}-${{ strategy.job-index }}
           path: test/*.wav
 
+  csound7:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: ["windows-latest", "ubuntu-latest", "macos-latest"]
+        python-version: ["3.10", "3.12"]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v3
+      
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # via https://learn.microsoft.com/en-us/vcpkg/consume/binary-caching-github-actions-cache
+      - name: Export GitHub Actions cache environment variables
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: linux setup csound 7
+        if: runner.os == 'linux'
+        run: |
+          git clone -b develop https://github.com/csound/csound --depth 1
+          cd csound
+          sudo apt-get update && sudo apt-get install cmake libsndfile1-dev libasound2-dev libjack-dev portaudio19-dev libportmidi-dev libpulse-dev default-jdk liblo-dev libpng-dev libgmm++-dev bison flex libportsmf-dev libeigen3-dev libcunit1-dev
+          mkdir build && cd build
+          cmake .. -DUSE_MP3=OFF -DBUILD_OSC_OPCODES=OFF -DBUILD_TESTS=OFF -DBUILD_JAVA_INTERFACE=OFF
+          cmake --build . --parallel
+          sudo make install
+          # sudo cmake --install .
+          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+          echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+          sudo ldconfig
+          csound --version
+          strace -f -t -e trace=file csound -+rtaudio=dummy --devices=out | grep "\.so" || echo ok
+
+      - name: macos setup csound 7
+        if: runner.os == 'macOS'
+        run: |
+          git clone -b develop https://github.com/csound/csound --depth 1
+          cd csound
+          brew install bison flex libmicrohttpd libogg flac lame libvorbis mpg123 opus libsndfile portaudio fluid-synth libaec libsamplerate aften liblo openblas portmidi
+          cmake -B build -DBUILD_TESTS=0 -DCUSTOM_CMAKE="../cmake/csound-custom-macos.cmake"
+          cmake --build build --config Release
+          sudo cmake --install build
+          csound --version
+  
+      - name: windows setup csound 7
+        if: runner.os == 'windows' 
+        env:
+          VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+        run: |
+          git clone -b develop https://github.com/csound/csound --depth 1
+          cd csound
+          git submodule update --init --recursive
+
+          choco install -y winflexbison3 innosetup
+          .\vcpkg\bootstrap-vcpkg.bat
+          cmake -B build -S . -DBUILD_TESTS=0 -DUSE_VCPKG=1 -DCUSTOM_CMAKE="./platform/windows/Custom-vs.cmake" -DBUILD_JAVA_INTERFACE=OFF -DBUILD_TESTS=OFF
+          cmake --build build --config Release
+          # ls -r .
+          New-Item -Type Directory -Force "C:/Program Files/csound"
+          cp build/Release/*.exe "C:/Program Files/csound"
+          cp build/Release/*.dll "C:/Program Files/csound"
+          cp build/Release/*.lib "C:/Program Files/csound"
+
+          $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
+
+          # [System.Environment]::SetEnvironmentVariable("PATH", $Env:PATH + ";C:/Program Files/csound", [EnvironmentVariableTarget]::Machine)
+          [System.Environment]::SetEnvironmentVariable("PATH", $machinePath + ";C:/Program Files/csound", [EnvironmentVariableTarget]::Machine)
+          $Env:Path = $Env:Path + ";C:/Program Files/csound"
+
+          # Write-Output $Env:PATH
+          csound.exe --version
+
+      - name: install from repo
+        if: ${{ matrix.install-method == 'git' }}
+        run: |
+          pip install .
+
+      - name: test offline
+        run: |
+          cd test
+          python test1.py -o test1-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.install-method }}.wav
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-csound7-${{ matrix.os }}-${{ matrix.python-version }}-${{ strategy.job-index }}
+          path: test/*.wav
