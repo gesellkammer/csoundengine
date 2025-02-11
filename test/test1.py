@@ -1,3 +1,9 @@
+import sys, os
+
+# github actions in windows: This should match the installation path of csound
+if sys.platform.lower().startswith('win'):
+    os.environ['PATH'] += ';C:/Program Files/csound'
+
 import csoundengine as ce
 import argparse
 import logging
