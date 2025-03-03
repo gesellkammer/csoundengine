@@ -1,27 +1,27 @@
 from __future__ import annotations
-import dataclasses
 
+import dataclasses
+import io as _io
+import logging as _logging
 import os as _os
-import sys
-import subprocess as _subprocess
 import re as _re
 import shutil as _shutil
-import logging as _logging
-import textwrap as _textwrap
-import io as _io
-from pathlib import Path as _Path
 import tempfile as _tempfile
+import textwrap as _textwrap
+from pathlib import Path as _Path
+from typing import TYPE_CHECKING
+
+import emlib.mathlib
+import emlib.misc
+import emlib.textlib
 import numpy as np
 
-from ._common import *
-from . import csoundlib
-from .renderjob import RenderJob
 from csoundengine.config import config
-import emlib.misc
-import emlib.mathlib
-import emlib.textlib
 
-from typing import TYPE_CHECKING
+from . import csoundlib
+from ._common import *
+from .renderjob import RenderJob
+
 if TYPE_CHECKING:
     from typing import Sequence, Set
 

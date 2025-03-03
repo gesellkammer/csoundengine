@@ -1,6 +1,7 @@
 import logging
-from configdict import ConfigDict
 from functools import lru_cache
+
+from configdict import ConfigDict
 
 modulename = 'csoundengine.engine'
 

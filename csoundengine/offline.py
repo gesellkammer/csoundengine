@@ -2,45 +2,45 @@ from __future__ import annotations
 
 import os
 import sys
-import sndfileio
-import bpf4
-import numpy as np
-from functools import cache
-from dataclasses import dataclass
-import textwrap
 import tempfile
+import textwrap
+from dataclasses import dataclass
+from functools import cache
+from typing import TYPE_CHECKING
 
-from .errors import RenderError, CsoundError
-from .config import config, logger
-from .instr import Instr
-from .schedevent import SchedEvent
-from .event import Event
-from .abstractrenderer import AbstractRenderer
-from . import csoundlib
+import bpf4
+import emlib.filetools
+import emlib.iterlib
+import emlib.mathlib
+import emlib.misc
+import emlib.textlib
+import numpy as np
+import sndfileio
+
+from . import (
+    busproxy,
+    csoundlib,
+    engineorc,
+    instrtools,
+    internal,
+    offlineorc,
+    sessioninstrs,
+)
 from . import csd as _csd
-from . import internal
-from . import sessioninstrs
 from . import state as _state
-from . import offlineorc
-from . import instrtools
-from . import busproxy
-from . import engineorc
+from .abstractrenderer import AbstractRenderer
+from .config import config, logger
+from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL
+from .errors import RenderError
+from .event import Event
+from .instr import Instr
 from .offlineengine import OfflineEngine
 from .renderjob import RenderJob
-from .enginebase import TableInfo
-from .engineorc import BUSKIND_CONTROL, BUSKIND_AUDIO
+from .schedevent import SchedEvent
 from .tableproxy import TableProxy
 
-import emlib.misc
-import emlib.filetools
-import emlib.mathlib
-import emlib.iterlib
-import emlib.textlib
-
-from typing import TYPE_CHECKING
 if TYPE_CHECKING or "sphinx" in sys.modules:
-    from typing import Callable, Sequence, Iterator, Any
-    import subprocess
+    from typing import Any, Callable, Iterator, Sequence
 
 
 __all__ = (
@@ -266,7 +266,7 @@ class OfflineSession(AbstractRenderer):
             raise ValueError(f"Invalid mode '{mode}', it should be one of 'r', 'w', 'rw'")
 
         if not value and not kind:
-            raise ValueError(f"Either a value or a kind must be given")
+            raise ValueError("Either a value or a kind must be given")
 
         if value is not None:
             valuetype = csoundlib.channelTypeFromValue(value)
@@ -616,8 +616,8 @@ class OfflineSession(AbstractRenderer):
 
         """
         if pfields and args:
-            raise ValueError(f"Either pfields as positional arguments or args can be given, "
-                             f"got both")
+            raise ValueError("Either pfields as positional arguments or args can be given, "
+                             "got both")
         elif pfields:
             args = pfields
 
@@ -645,7 +645,7 @@ class OfflineSession(AbstractRenderer):
                               start=max(delay - self.ksmps / self.sr, 0.), dur=0,
                               args=[event.controlsSlot, len(controlvalues), *controlvalues])
         if name:
-            if oldevent := self.namedEvents.get(name):
+            if name in self.namedEvents:
                 logger.info(
                     f"An event with name '{name} already exists. It will remain active. ")
             self.namedEvents[name] = event
@@ -758,7 +758,7 @@ class OfflineSession(AbstractRenderer):
 
         if kind:
             if value is not None and kind == 'audio':
-                raise ValueError(f"An audio bus cannot have a scalar value")
+                raise ValueError("An audio bus cannot have a scalar value")
         else:
             kind = 'audio' if value is None else 'control'
 

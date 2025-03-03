@@ -12,38 +12,34 @@ This functionality includes:
 """
 from __future__ import annotations
 
+import dataclasses
+import functools as _functools
+import logging as _logging
 import math as _math
 import os as _os
-import sys
-import subprocess as _subprocess
 import re as _re
 import shutil as _shutil
-import logging as _logging
-import textwrap as _textwrap
-import functools as _functools
-import io as _io
-from pathlib import Path as _Path
+import subprocess as _subprocess
+import sys
 import tempfile as _tempfile
-import dataclasses
-import cachetools as _cachetools
-import numpy as np
+import textwrap as _textwrap
+from typing import TYPE_CHECKING
 
-from ._common import *
-from .renderjob import RenderJob
-from csoundengine import jacktools
-from csoundengine import linuxaudio
-from csoundengine import state as _state
-from csoundengine.config import config
-from csoundengine import internal
-import emlib.misc
-import emlib.textlib
+import cachetools as _cachetools
 import emlib.dialogs
 import emlib.mathlib
+import emlib.misc
+import emlib.textlib
+import numpy as np
 from emlib.common import runonce
 
-from typing import TYPE_CHECKING
+from csoundengine import internal, jacktools, linuxaudio
+from csoundengine import state as _state
+
+from ._common import EMPTYDICT
+
 if TYPE_CHECKING:
-    from typing import Callable, Sequence, Iterator, Any, Set
+    from typing import Any, Callable, Sequence
     Curve = Callable[[float], float]
     from sf2utils.sf2parse import Sf2File
 
@@ -374,7 +370,6 @@ class _JackAudioBackend(AudioBackend):
 
     def defaultAudioDevices(self) -> tuple[AudioDevice|None, AudioDevice|None]:
         indevs, outdevs = self.audioDevices()
-        defaultins = [dev for dev in indevs if dev.isPhysical]
         defaultin = next((dev for dev in indevs if dev.isPhysical), None)
         defaultout = next((dev for dev in outdevs if dev.isPhysical), None)
         return defaultin, defaultout
@@ -1629,13 +1624,13 @@ def mincer(sndfile: str,
     if isinstance(timecurve, (int, float)):
         t0, t1 = 0, info.duration / timecurve
         timebpf = bpf.linear(0, 0, t1, info.duration)
-    elif isinstance(timecurve, bpf.core.BpfInterface):
+    elif isinstance(timecurve, bpf.BpfInterface):
         t0, t1 = timecurve.bounds()
         timebpf = timecurve
     else:
         raise TypeError("timecurve should be either a scalar or a bpf")
 
-    assert isinstance(pitchcurve, (int, float, bpf.core.BpfInterface))
+    assert isinstance(pitchcurve, (int, float, bpf.BpfInterface))
     ts = np.arange(t0, t1+dt, dt)
     fmt = "%.12f"
     _, time_gen23 = _tempfile.mkstemp(prefix='time-', suffix='.gen23')
@@ -2316,9 +2311,9 @@ def lastAssignmentToVariable(varname: str, lines: list[str]) -> int | None:
         _re.compile(rf'^\s*({varname})\s+[A-Za-z]\w*'),
         _re.compile(rf'^\s*(?:\w*,\s*)+\b({varname})\b')
     ]
-    for i, l in enumerate(reversed(lines)):
+    for i, line in enumerate(reversed(lines)):
         for rgx in rgxs:
-            if rgx.search(l):
+            if rgx.search(line):
                 return len(lines) - 1 - i
     return None
 

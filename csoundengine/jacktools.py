@@ -1,9 +1,11 @@
 # depends on JACK-client: https://pypi.python.org/pypi/JACK-Client
 from __future__ import annotations
+
 import dataclasses
-from . import linuxaudio
 import time
 from typing import Any
+
+from . import linuxaudio
 
 try:
     import jack

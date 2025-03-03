@@ -1,22 +1,20 @@
 from __future__ import annotations
+
 import time
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
 from functools import cache
-import numpy as np
+from typing import TYPE_CHECKING, Sequence
 
 import emlib.iterlib as _iterlib
 import emlib.misc as _misc
+import numpy as np
 
-from . import internal
-from . import jupytertools
-from .config import logger, config
+from . import internal, jupytertools
 from .baseschedevent import BaseSchedEvent
+from .config import config, logger
 from .schedevent import SchedEvent
-from ._common import EMPTYSET, EMPTYDICT
 
-from typing import TYPE_CHECKING, Sequence
 if TYPE_CHECKING:
-    from .engine import Engine
     from .instr import Instr
     from .session import Session
 
@@ -205,7 +203,7 @@ class Synth(SchedEvent, ISynth):
         """If True, stop the underlying csound event when this object is freed"""
 
         if name and autostop:
-            logger.warning(f"Autostop is disabled for named synths")
+            logger.warning("Autostop is disabled for named synths")
 
     def __del__(self):
         if self.autostop:
@@ -826,7 +824,8 @@ class SynthGroup(BaseSchedEvent):
 
     def _repr_html_(self) -> str:
         assert jupytertools.inside_jupyter()
-        bold = lambda txt: span(txt, bold=True)
+        def bold(txt):
+            return span(txt, bold=True)
         span = jupytertools.htmlSpan
 
         if not self.synths:
@@ -834,12 +833,6 @@ class SynthGroup(BaseSchedEvent):
 
         if config['jupyter_synth_repr_stopbutton']:
             jupytertools.displayButton("Stop", self.stop)
-        now = self[0].session.engine.elapsedTime()
-        start = min(max(0., s.start - now) for s in self)
-        end = max(s.dur + s.start - now for s in self)
-        if any(s.dur < 0 for s in self):
-            end = float('inf')
-        dur = end - start
         header = f'{bold("SynthGroup")}(synths={span(len(self), tag="code")})'
         lines = [f'<small>{header}</small>']
         numrows = config['synthgroup_repr_max_rows']

@@ -120,50 +120,41 @@ IPython Magic
 """
 from __future__ import annotations
 
-import dataclasses
-from logging import PercentStyle
-import os.path
-import tempfile
-import sys as _sys
-import threading as _threading
-
-import ctypes as _ctypes
 import atexit as _atexit
-import queue as _queue
+import ctypes as _ctypes
 import fnmatch as _fnmatch
-import re as _re
-import textwrap as _textwrap
-
 import math
+import os.path
+import queue as _queue
+import re as _re
+import sys as _sys
+import tempfile
+import textwrap as _textwrap
+import threading as _threading
 import time
+from typing import TYPE_CHECKING
 
-import emlib.textlib
 import emlib.net
-
-from emlib import iterlib
-
+import emlib.textlib
 import numpy as np
 import pitchtools as pt
-
+from emlib import iterlib
 from emlib.containers import IntPool
 
-from .renderjob import RenderJob
-from .enginebase import TableInfo, _EngineBase, _channelMode
-from .config import config, logger
-from . import csoundlib
+from . import csoundlib, engineorc, internal
 from . import jacktools as jacktools
-from . import internal
-from . import engineorc
 from . import state as _state
-from .engineorc import CONSTS, BUSKIND_CONTROL, BUSKIND_AUDIO
-from .errors import TableNotFoundError, CsoundError
+from .config import config, logger
+from .enginebase import TableInfo, _EngineBase
+from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL, CONSTS
+from .errors import CsoundError, TableNotFoundError
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import socket
-    import matplotlib.pyplot as plt
-    from matplotlib.figure import Figure
     from typing import Callable, Sequence
+
+    from matplotlib.figure import Figure
+
     from . import session as _session
     callback_t = Callable[[str, float], None]
 elif 'sphinx' in _sys.modules:
@@ -177,7 +168,7 @@ try:
     _MYFLTPTR = _ctypes.POINTER(lcs.MYFLT)
     logger.debug(f'Csound version: {lcs.VERSION}')
 except Exception as e:
-    if not 'sphinx' in _sys.modules:
+    if 'sphinx' not in _sys.modules:
         raise e
 
 
@@ -355,7 +346,7 @@ class Engine(_EngineBase):
         resolvedBackend = internal.resolveOption(cascadingBackends, availableBackends)
         logger.debug(f"Resolved backend: {resolvedBackend}")
         if resolvedBackend is None:
-            raise RuntimeError(f"No audio backends available")
+            raise RuntimeError("No audio backends available")
 
         backendDef = csoundlib.getAudioBackend(resolvedBackend)
 
@@ -592,7 +583,8 @@ class Engine(_EngineBase):
         self.midiin: csoundlib.MidiDevice | None = midiindev
         "Midi input device"
 
-        if udpserver is None: udpserver = config['start_udp_server']
+        if udpserver is None:
+            udpserver = config['start_udp_server']
         self._uddocket: None | socket.socket = None
         self._sendAddr: None | tuple[str, int] = None
 
@@ -1656,8 +1648,8 @@ class Engine(_EngineBase):
             self.sync()
 
         if pfields and args:
-            raise ValueError(f"Either pfields as positional arguments or args can be given, "
-                             f"got both")
+            raise ValueError("Either pfields as positional arguments or args can be given, "
+                             "got both")
         elif pfields:
             args = pfields
 
@@ -2133,7 +2125,7 @@ class Engine(_EngineBase):
             if callback:
                 self._makeTableNotify(data=data, sr=sr, tabnum=tabnum, callback=callback)
             elif not block:
-                self._makeTableAsync(tabnum=tabnum, data=data.flat, sr=sr, numchannels=nchnls)
+                self._makeTableAsync(tabnum=tabnum, data=flatdata, sr=sr, numchannels=nchnls)
             else:
                 # block
                 q = _queue.SimpleQueue()
@@ -2639,7 +2631,7 @@ class Engine(_EngineBase):
                                                         numChannels=numchannels)
                 else:
                     def callback2(tabnum, self=self, data=data, callback=callback):
-                        self.fillTable(tabnum, data=data, method='pointer', block=False)
+                        self.fillTable(tabnum, data=data)
                         callback()
                     self._eventWithCallback(token, pargs, callback2)
                 return tabnum
@@ -3314,7 +3306,7 @@ class Engine(_EngineBase):
         * :meth:`~Engine.automatep`
         """
         if isinstance(p1, str):
-            raise TypeError(f"named instrs not supported yet")
+            raise TypeError("named instrs not supported yet")
         numpairs = len(pairs) // 2
         assert len(pairs) % 2 == 0 and numpairs <= 5
         # this limit is just the limit of the pwrite instr, not of the opcode
@@ -3658,9 +3650,6 @@ class Engine(_EngineBase):
         """
         Send orchestra code via UDP.
 
-        The code string can be of any size (if the code is too long for a UDP
-        package, it is split into multiple packages)
-
         Args:
             code (str): the code to send
 
@@ -3677,7 +3666,7 @@ class Engine(_EngineBase):
         if len(msg) < 60000:
             self._udpSocket.sendto(msg, self._sendAddr)
             return
-        msgs = emlib.textlib.splitInChunks(msg, 60000)
+        msgs = internal.splitBytes(msg, 60000)
         self._udpSocket.sendto(b"{{ " + msgs[0], self._sendAddr)
         for msg in msgs[1:-1]:
             self._udpSocket.sendto(msg, self._sendAddr)
@@ -4179,7 +4168,7 @@ class Engine(_EngineBase):
             idx = internal.resolvePfieldIndex(pfield, pfieldsNameToIndex)
             if not idx:
                 raise KeyError(f"pfield {pfield} not understood")
-            value = self.getp(eventid, idx)
+            value = self._getp(eventid, idx)
             specs[idx] = interact.ParamSpec(pfield,
                                             minvalue=minval, maxvalue=maxval,
                                             startvalue=value if value is not None else 0.,

@@ -1,31 +1,34 @@
 from __future__ import annotations
 
-import os
-import cachetools
-import numpy as np
-import sys
-import re
-from . import jacktools
-import signal
+import bisect
 import math
+import os
+import re
+import signal
+import subprocess
+import sys
 import textwrap
-import sndfileio
+import time
+from functools import cache
 from typing import TYPE_CHECKING
+
+import cachetools
 import emlib.dialogs
 import emlib.iterlib
 import emlib.misc
 import emlib.numpytools
-import subprocess
-import bisect
-import time
+import numpy as np
+import sndfileio
 import xxhash
-from functools import cache
 
+from . import jacktools
 
 if TYPE_CHECKING:
-    from .instr import Instr
-    from typing import TypeVar, Sequence, Any, KeysView, Callable
+    from typing import Any, Callable, KeysView, Sequence, TypeVar
+
     from csoundlib import AudioDevice, MidiDevice
+
+    from .instr import Instr
     T = TypeVar('T')
 
 
@@ -311,7 +314,7 @@ def selectAudioDevice(devices: list[AudioDevice], title='Select device'
         the AudioDevice selected, or None if there was no selection
     """
     if not devices:
-        raise ValueError(f"No devices given")
+        raise ValueError("No devices given")
     outnames = [dev.info() for dev in devices]
     selected = emlib.dialogs.selectItem(items=outnames, title=title)
     if not selected:
@@ -616,10 +619,10 @@ def _soundfileHtml(sndfile: str,
         the HTML repr as str
 
     """
-    import IPython.display
+    import tempfile  # noqa: I001
     import emlib.img
+    import IPython.display
     from . import plotting
-    import tempfile
     pngfile = tempfile.mktemp(suffix=".png", prefix="plot-")
     samples, info = sndfileio.sndget(sndfile)
     if info.duration < 20:
@@ -828,3 +831,26 @@ def stripTrailingEmptyLines(lines: list[str]) -> list[str]:
         if line and not line.isspace():
             break
     return lines[startidx:len(lines)-endidx]
+
+
+def splitBytes(s: bytes, maxlen: int) -> list[bytes]:
+    """
+    Split `s` into strings of max. size `maxlen`
+
+    Args:
+        s: the str/bytes to split
+        maxlen: the max. length of each substring
+
+    Returns:
+        a list of substrings, where each substring has a max. length
+        of *maxlen*
+    """
+    out = []
+    idx = 0
+    L = len(s)
+    while idx < L:
+        n = min(L-idx, maxlen)
+        subs = s[idx:idx+n]
+        out.append(subs)
+        idx += n
+    return out

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Callable, Sequence
 
-from typing import TYPE_CHECKING, Sequence, Callable
 if TYPE_CHECKING:
-    from . import busproxy
-    from .schedevent import SchedEvent, SchedEventGroup
     import numpy as np
-    from .event import Event
-    from . import tableproxy
+
+    from . import busproxy, tableproxy
     from . import instr as _instr
+    from .event import Event
+    from .schedevent import SchedEvent, SchedEventGroup
 
 
 class AbstractRenderer(ABC):

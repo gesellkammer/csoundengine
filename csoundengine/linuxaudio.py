@@ -1,13 +1,15 @@
 from __future__ import annotations
-import cachetools
-import os
-from . import internal
-from dataclasses import dataclass
-import subprocess
-import shutil
-import re
-import logging
 
+import logging
+import os
+import re
+import shutil
+import subprocess
+from dataclasses import dataclass
+
+import cachetools
+
+from . import internal
 
 logger = logging.getLogger('csoundengine')
 

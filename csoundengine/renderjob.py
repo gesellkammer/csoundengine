@@ -1,10 +1,13 @@
 from __future__ import annotations
-import emlib.misc
-from . import internal
+
 import dataclasses
 import functools
-import subprocess
 import os
+import subprocess
+
+import emlib.misc
+
+from . import internal
 
 
 @dataclasses.dataclass

@@ -1,8 +1,9 @@
 from __future__ import annotations
-from dataclasses import dataclass
+
 import re
+from dataclasses import dataclass
+
 from . import csoundlib
-from ._common import EMPTYDICT
 
 
 @dataclass

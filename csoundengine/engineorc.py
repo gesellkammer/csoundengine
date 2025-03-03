@@ -207,7 +207,7 @@ instr ${automatePargViaPargs}
         Sp1 = p4
         ip1 = namedinstrtofrac(Sp1)
     endif
-    prints "automating p1: %f, index: %d, iovertake: %d, lenpairs: %d, dur: %f\n", ip1, ipindex, iovertake, ilenpairs, p3
+    ; prints "automating p1: %f, index: %d, iovertake: %d, lenpairs: %d, dur: %f\n", ip1, ipindex, iovertake, ilenpairs, p3
 
     ; special case: simple line, two pairs
     if ilenpairs == 4 && p10 == 0 && iovertake == 0 then
@@ -244,7 +244,7 @@ instr ${automateTableViaPargs}
     ilenpairs = p8
 
     if ftexists:i(iargtab) == 0 then
-        initerror sprintf("Instr table %d does not exist", iargtab)
+        initerror sprintf("automateTableViaPargs: table %d does not exist", iargtab)
         goto exit
     endif
 

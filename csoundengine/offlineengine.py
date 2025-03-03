@@ -1,24 +1,25 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-import tempfile
 import math
-import numpy as np
 import os
-from contextlib import contextmanager
-from functools import cache
+import tempfile
 import textwrap
-import sndfileio
-from .config import config, logger
-from .enginebase import TableInfo, _EngineBase, _channelMode
-from . import csoundlib
-from . import engineorc
-from .engineorc import CONSTS, BUSKIND_CONTROL, BUSKIND_AUDIO
-from . import internal
-from .renderjob import RenderJob
+from contextlib import contextmanager
+from dataclasses import dataclass
+from functools import cache
+from typing import TYPE_CHECKING, Sequence
+
 import libcsound
+import numpy as np
+import sndfileio
+
+from . import csoundlib, engineorc, internal
+from .config import config, logger
+from .enginebase import TableInfo, _EngineBase
+from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL
 from .errors import CsoundError
-from typing import Sequence, TYPE_CHECKING
+from .renderjob import RenderJob
+
 if TYPE_CHECKING:
     from csoundengine.csd import Csd
 
@@ -432,8 +433,8 @@ class OfflineEngine(_EngineBase):
             raise RuntimeError("This OfflineEngine has no associated csound process")
 
         if pfields and args:
-            raise ValueError(f"Either pfields as positional arguments or args can be given, "
-                             f"got both")
+            raise ValueError("Either pfields as positional arguments or args can be given, "
+                             "got both")
         elif pfields:
             args = pfields
 
@@ -809,7 +810,7 @@ class OfflineEngine(_EngineBase):
                 return existingtab
         if not tabnum:
             tabnum = self._assignTableNumber()
-        self._tableInfo[tabnum] = tabinfo = TableInfo.get(path)
+        self._tableInfo[tabnum] = TableInfo.get(path)
         self._soundfilesLoaded[(path, chan, skiptime)] = tabnum
 
         self.csound.compileOrc(fr'itab ftgen {tabnum}, {delay}, 0, -1, "{path}", {skiptime}, 0, {chan}')

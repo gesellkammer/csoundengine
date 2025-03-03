@@ -1,18 +1,19 @@
 from __future__ import annotations
-import os
-import sys
-import urllib.request, urllib.error
-import re
-from . import csoundlib
-from . import tools
-from .state import state
-from pathlib import Path
-import tempfile
-import shutil
-import logging
-from datetime import datetime
-import json
 
+import json
+import logging
+import os
+import re
+import shutil
+import sys
+import tempfile
+import urllib.error
+import urllib.request
+from datetime import datetime
+from pathlib import Path
+
+from . import csoundlib, tools
+from .state import state
 
 logger = logging.getLogger("csoundengine.dependencies")
 logger.setLevel("INFO")

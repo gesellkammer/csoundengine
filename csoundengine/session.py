@@ -5,45 +5,43 @@ csound process. A :class:`Session` is associated with an
 """
 
 from __future__ import annotations
-import weakref
+
 import os
-from dataclasses import dataclass
-from collections import deque
-import numpy as np
-from functools import cache
-import textwrap
 import queue as _queue
+import textwrap
 import threading
-import sndfileio
-
-import emlib.dialogs as _dialogs
-import emlib.textlib as _textlib
-import emlib.numpytools as _numpytools
-import bpf4
-
-
-from .abstractrenderer import AbstractRenderer
-from .event import Event
-from .schedevent import SchedEvent
-from .errors import CsoundError
-from .engine import Engine
-from .instr import Instr
-from .synth import Synth, SynthGroup
-from .tableproxy import TableProxy
-from .config import config, logger
-from . import engineorc
-from . import internal as _internal
-from . import sessioninstrs
-from . import state as _state
-from . import jupytertools
-from . import instrtools
-from . import csoundlib
-from . import offline
-from . import busproxy
-from .sessionhandler import SessionHandler
-
+from collections import deque
+from dataclasses import dataclass
+from functools import cache
 from typing import Callable, Sequence
 
+import bpf4
+import emlib.dialogs as _dialogs
+import emlib.textlib as _textlib
+import numpy as np
+import sndfileio
+
+from . import (
+    busproxy,
+    csoundlib,
+    engineorc,
+    instrtools,
+    jupytertools,
+    offline,
+    sessioninstrs,
+)
+from . import internal as _internal
+from . import state as _state
+from .abstractrenderer import AbstractRenderer
+from .config import config, logger
+from .engine import Engine
+from .errors import CsoundError
+from .event import Event
+from .instr import Instr
+from .schedevent import SchedEvent
+from .sessionhandler import SessionHandler
+from .synth import Synth, SynthGroup
+from .tableproxy import TableProxy
 
 __all__ = [
     'Session',
@@ -294,7 +292,7 @@ class Session(AbstractRenderer):
         "A dict of the form {instrname: {priority: reifiedInstr }}"
 
         self._synths: dict[float | str, Synth] = {}
-        self._whenfinished: dict[float, Callable] = {}
+        self._whenfinished: dict[float|int|str, Callable] = {}
         self._initCodes: list[str] = []
         self._tabnumToTabproxy: dict[int, TableProxy] = {}
         self._pathToTabproxy: dict[str, TableProxy] = {}
@@ -1782,7 +1780,7 @@ class Session(AbstractRenderer):
         if excludehidden:
             instrs = [instr for instr in instrs if not instr.name.startswith('.')]
         if jupytertools.inside_jupyter() and not forcetext:
-            from IPython.display import display, HTML
+            from IPython.display import HTML, display
             htmlparts = []
             for instr in instrs:
                 html = instr._repr_html_()
