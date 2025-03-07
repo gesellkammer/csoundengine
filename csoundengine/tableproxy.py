@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 import os
-import numpy as np
-from . import session
 from typing import TYPE_CHECKING
+
+import numpy as np
 
 if TYPE_CHECKING:
     from .abstractrenderer import AbstractRenderer

@@ -1,18 +1,18 @@
 from __future__ import annotations
+
 import copy
 from dataclasses import dataclass
 from functools import cache
-import numpy as np
+from typing import TYPE_CHECKING, Sequence
 
 import emlib.numpytools as nptools
+import numpy as np
 
-from .baseschedevent import BaseSchedEvent
 from . import instr
 from ._common import EMPTYSET
+from .baseschedevent import BaseSchedEvent
 from .config import logger
 
-
-from typing import TYPE_CHECKING, Sequence
 if TYPE_CHECKING:
     from .abstractrenderer import AbstractRenderer
 

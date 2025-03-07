@@ -1,21 +1,16 @@
 from __future__ import annotations
-from string import Template
-from functools import cache
-from typing import Any
-from . import internal
 
+from functools import cache
+from string import Template
+from typing import Any
+
+from . import internal
 
 # In all templates we make the difference between substitutions which
 # are constant (with the form ${subst} and substitutions which respond
 # to the configuration of a specific engine / offline renderer ({subst})
 
 _orc = r'''
-sr     = ${sr}
-ksmps  = ${ksmps}
-nchnls = ${nchnls}
-nchnls_i = ${nchnls_i}
-0dbfs  = 1
-A4     = ${a4}
 
 ${includes}
 
@@ -870,12 +865,23 @@ def _joinOrc(busSupport=True) -> str:
 
 
 @cache
-def makeOrc(sr: int,
-            ksmps: int,
-            nchnls: int,
-            nchnls_i: int,
-            a4: float,
-            globalcode: str = "",
+def makeOrcHeader(sr: int,
+                  ksmps: int,
+                  nchnls: int,
+                  nchnls_i: int,
+                  a4: float,
+                  zerodbfs: float = 1.) -> str:
+    return f"""
+sr = {sr}
+ksmps = {ksmps}
+nchnls = {nchnls}
+nchnls_i = {nchnls_i}
+a4 = {a4}
+0dbfs = {zerodbfs}
+"""
+
+@cache
+def makeOrc(globalcode: str = "",
             includestr: str = "",
             numAudioBuses: int = 0,
             numControlBuses: int = 0
@@ -898,13 +904,7 @@ def makeOrc(sr: int,
                             for name, num in instrs.items()}
     subs.update(BUILTIN_TABLES)
     subs.update(CONSTS)
-    assert a4 >= 220
     orc = template.substitute(
-            sr=sr,
-            ksmps=ksmps,
-            nchnls=nchnls,
-            nchnls_i=nchnls_i,
-            a4=a4,
             globalcode=globalcode,
             includes=includestr,
             numAudioBuses=numAudioBuses,

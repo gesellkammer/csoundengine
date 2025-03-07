@@ -191,8 +191,6 @@ class Synth(SchedEvent, ISynth):
         elif controlsSlot >= 1 and not instr.dynamicParams():
             logger.warning("A control slot was assigned but this synth does not have any controls")
 
-        self._scheduled: bool = True
-
         self.p1: float = p1
         """Event id for this synth"""
 
@@ -371,7 +369,7 @@ class Synth(SchedEvent, ISynth):
             or 'future' if it has not started
 
         """
-        if not self._scheduled or self.p1 not in self.session._synths:
+        if self.p1 not in self.session._synths:
             return "stopped"
         now = self.session.engine.realElapsedTime()
         return "playing" if now >= self.start else "future"

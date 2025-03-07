@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 import textwrap
 from dataclasses import dataclass
 from functools import cache
@@ -28,6 +27,7 @@ from . import (
 )
 from . import csd as _csd
 from . import state as _state
+from . import tableproxy
 from .abstractrenderer import AbstractRenderer
 from .config import config, logger
 from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL
@@ -37,7 +37,6 @@ from .instr import Instr
 from .offlineengine import OfflineEngine
 from .renderjob import RenderJob
 from .schedevent import SchedEvent
-from .tableproxy import TableProxy
 
 if TYPE_CHECKING or "sphinx" in sys.modules:
     from typing import Any, Callable, Iterator, Sequence
@@ -170,7 +169,7 @@ class OfflineSession(AbstractRenderer):
         self.numPriorities: int = priorities
         """Number of priorities in this session"""
 
-        self.soundfileRegistry: dict[str, TableProxy] = {}
+        self.soundfileRegistry: dict[str, tableproxy.TableProxy] = {}
         """A dict mapping soundfile paths to their corresponding TableProxy"""
 
         self._idCounter = 0
@@ -182,7 +181,7 @@ class OfflineSession(AbstractRenderer):
         self._numInstancesPerInstr = 10000
         self._numAudioBuses = numAudioBuses
         self._numControlBuses = numControlBuses
-        self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
+        self._ndarrayHashToTabproxy: dict[str, tableproxy.TableProxy] = {}
 
         self._channelRegistry: dict[str, ChannelDef] = {}
         """Dict mapping channel name to tuple (valuetype, channeltype)
@@ -1194,7 +1193,7 @@ class OfflineSession(AbstractRenderer):
                   sr: int = 0,
                   delay: float = 0.,
                   unique=True
-                  ) -> TableProxy:
+                  ) -> tableproxy.TableProxy:
         """
         Create a table with given data or an empty table of the given size
 
@@ -1219,7 +1218,7 @@ class OfflineSession(AbstractRenderer):
             if not unique and (tabproxy := self._ndarrayHashToTabproxy.get(arrayhash)) is not None:
                 return tabproxy
             tabnum = self.csd.addTableFromData(data=data, tabnum=tabnum, start=delay, sr=sr)
-            tabproxy = TableProxy(tabnum=tabnum, numframes=len(data), sr=sr)
+            tabproxy = tableproxy.TableProxy(tabnum=tabnum, numframes=len(data), sr=sr)
             self._ndarrayHashToTabproxy[arrayhash] = tabproxy
             return tabproxy
         else:
@@ -1230,10 +1229,10 @@ class OfflineSession(AbstractRenderer):
                 numframes = size
                 numchannels = 1
             tabnum = self.csd.addEmptyTable(size=numframes, sr=sr, tabnum=tabnum, numchannels=numchannels)
-            return TableProxy(tabnum=tabnum, numframes=numframes, sr=sr, nchnls=numchannels)
+            return tableproxy.TableProxy(tabnum=tabnum, numframes=numframes, sr=sr, nchnls=numchannels)
 
     def freeTable(self,
-                  table: int | TableProxy,
+                  table: int | tableproxy.TableProxy,
                   delay: float = 0.) -> None:
         tabnum = table if isinstance(table, int) else table.tabnum
         self.csd.freeTable(tabnum, time=delay)
@@ -1244,7 +1243,7 @@ class OfflineSession(AbstractRenderer):
                       skiptime: float = 0.,
                       delay: float = 0.,
                       force=False
-                      ) -> TableProxy:
+                      ) -> tableproxy.TableProxy:
         """
         Add code to this offline renderer to load a soundfile
 
@@ -1274,14 +1273,15 @@ class OfflineSession(AbstractRenderer):
                                      skiptime=skiptime,
                                      chan=chan)
         info = sndfileio.sndinfo(path)
-        tabproxy = TableProxy(tabnum=tabnum, parent=self, numframes=info.nframes,
-                              sr=info.samplerate, nchnls=info.channels, path=path,
-                              skiptime=skiptime)
+        tabproxy = tableproxy.TableProxy(
+            tabnum=tabnum, parent=self, numframes=info.nframes,
+            sr=info.samplerate, nchnls=info.channels, path=path,
+            skiptime=skiptime)
         self.soundfileRegistry[path] = tabproxy
         return tabproxy
 
     def playSample(self,
-                   source: int | str | TableProxy | tuple[np.ndarray, int],
+                   source: int | str | tableproxy.TableProxy | tuple[np.ndarray, int],
                    delay=0.,
                    dur=0.,
                    chan=1,
@@ -1357,7 +1357,7 @@ class OfflineSession(AbstractRenderer):
             tabnum = tabproxy.tabnum
             if dur == 0:
                 dur = (len(data)/sr) / speed
-        elif isinstance(source, TableProxy):
+        elif isinstance(source, tableproxy.TableProxy):
             tabnum = source.tabnum
         elif isinstance(source, int):
             tabnum = source
@@ -1452,7 +1452,7 @@ class OfflineSession(AbstractRenderer):
                            f"pfields: {instr.pfieldNames()}")
         return 0.
 
-    def _getTableData(self, table: int | TableProxy) -> np.ndarray | None:
+    def _getTableData(self, table: int | tableproxy.TableProxy) -> np.ndarray | None:
         logger.error("An offline renderer cannot access table data")
         return None
 
@@ -1536,7 +1536,7 @@ class OfflineSession(AbstractRenderer):
             return f'<strong>Renderer</strong>({info})'
 
     def playPartials(self,
-                     source: int | str | TableProxy | np.ndarray,
+                     source: int | str | tableproxy.TableProxy | np.ndarray,
                      delay=0.,
                      dur=-1,
                      speed=1.,
@@ -1610,7 +1610,7 @@ class OfflineSession(AbstractRenderer):
 
         if isinstance(source, int):
             tabnum = source
-        elif isinstance(source, TableProxy):
+        elif isinstance(source, tableproxy.TableProxy):
             tabnum = source.tabnum
         elif isinstance(source, str):
             # a .mtx file

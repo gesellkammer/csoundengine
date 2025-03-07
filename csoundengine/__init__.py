@@ -101,9 +101,41 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
 """
 # This disables warning about denormals
 import numpy as np
+
 np.finfo(np.dtype("float32"))
 np.finfo(np.dtype("float64"))
+
 import sys
+
+import emlib.envir
+
+from . import busproxy, csoundlib, instr, tools
+from .config import config, logger, setLoggingLevel
+from .csoundlib import dumpAudioInfo
+from .engine import Engine as Engine
+from .event import Event
+from .offline import OfflineSession as OfflineSession
+from .offlineengine import OfflineEngine as OfflineEngine
+from .session import Session as Session
+from .synth import SynthGroup as SynthGroup
+
+__all__ = [
+    'config',
+    'logger',
+    'setLoggingLevel',
+    'Engine',
+    'Session',
+    'OfflineEngine',
+    'OfflineSession',
+    'SynthGroup',
+    'Event',
+    'instr',
+    'tools',
+    'busproxy',
+    'csoundlib',
+    'dumpAudioInfo',
+    'installDependencies',
+]
 
 
 if 'sphinx' not in sys.modules:
@@ -115,30 +147,11 @@ else:
     print("Building docs")
     from sphinx.ext.autodoc.mock import _MockObject
     libcsound = _MockObject()
-    # from unittest.mock import Mock
-    # libcsound = Mock(name='libcsound')
     sys.modules['libcsound'] = libcsound
 
 
-from .config import config, logger, setLoggingLevel
-from .engine import Engine as Engine
-from .session import Session as Session
-from .offlineengine import OfflineEngine as OfflineEngine
-from .offline import OfflineSession as OfflineSession
-from .synth import SynthGroup as SynthGroup
-from .event import Event
-from . import instr
-from . import tools
-from . import busproxy
-from . import schedevent
-from . import csoundlib
-from .csoundlib import dumpAudioInfo
-
-import emlib.envir
-if emlib.envir.inside_ipython():
-    from . import magic
-    if config['ipython_load_magics_at_startup']:
-        from IPython.core.getipython import get_ipython
-        ipython = get_ipython()
-        if ipython is not None and ipython.extension_manager is not None:
-            ipython.extension_manager.load_extension('csoundengine.magic')
+if emlib.envir.inside_ipython() and config['ipython_load_magics_at_startup']:
+    from IPython.core.getipython import get_ipython
+    ipython = get_ipython()
+    if ipython is not None and ipython.extension_manager is not None:
+        ipython.extension_manager.load_extension('csoundengine.magic')

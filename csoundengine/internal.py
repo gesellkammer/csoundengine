@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 import cachetools
 import emlib.dialogs
 import emlib.iterlib
-import emlib.misc
 import emlib.numpytools
 import numpy as np
 import sndfileio
@@ -621,6 +620,7 @@ def _soundfileHtml(sndfile: str,
     """
     import tempfile  # noqa: I001
     import emlib.img
+    import emlib.misc
     import IPython.display
     from . import plotting
     pngfile = tempfile.mktemp(suffix=".png", prefix="plot-")

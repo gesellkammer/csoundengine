@@ -17,16 +17,13 @@ Syntax::
 Compile the code in this cell
 """
 from __future__ import annotations
-from IPython.core.getipython import get_ipython
-from IPython.core.magic import Magics, magics_class, cell_magic, line_cell_magic
-from IPython.display import display, HTML
-from . import engine as _engine
-from .config import logger, config
-from . import csoundlib
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import *
+from IPython.core.magic import Magics, cell_magic, line_cell_magic, magics_class
+from IPython.display import HTML, display
+
+from . import csoundlib
+from . import engine as _engine
+from .config import config, logger
 
 
 def _splitonce(s: str):
@@ -39,12 +36,12 @@ class EngineMagics(Magics):
     """Implement magic commands for Csound."""
     def __init__(self, shell):
         super().__init__(shell)
-        self.currentEngine: Optional[_engine.Engine] = None
+        self.currentEngine: _engine.Engine | None = None
         self._lineCommands = {
             'setengine': self._cmd_setengine
         }
 
-    def _resolveEngine(self, line: str) -> Optional[_engine.Engine]:
+    def _resolveEngine(self, line: str) -> _engine.Engine | None:
         if line:
             engineName = line.strip()
             engine = _engine.getEngine(engineName)

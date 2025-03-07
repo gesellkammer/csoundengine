@@ -553,7 +553,7 @@ class Session(AbstractRenderer):
         name = jupytertools.htmlName(self.name)
         return f"Session({name}, synths={active})"
 
-    def _deallocSynthResources(self, synthid: int | float | str, delay=0.) -> None:
+    def _deallocSynthResources(self, synthid: int | float | str) -> None:
         """
         Deallocates resources associated with synth
 
@@ -563,16 +563,10 @@ class Session(AbstractRenderer):
         Args:
             synthid: the id (p1) of the synth
         """
-        if delay > 0:
-            def _callback(session=self, synthid=synthid):
-                session._deallocSynthResources(synthid=synthid)
-            self.engine.callLater(delay, callback=_callback)
-            return
-
         synth = self._synths.pop(synthid, None)
         if synth is None:
             return
-        synth._scheduled = False
+
         if synth.controlsSlot:
             assert synth.args and synth.controlsSlot * self.maxDynamicArgs == synth.args[0]
             self._dynargsReleaseSlot(int(synth.controlsSlot))
@@ -583,12 +577,13 @@ class Session(AbstractRenderer):
     def _deallocCallback(self, _, synthid: float):
         """ This is called by csound when a synth is deallocated.
 
-        It is called on the perf thread!!
+        It is called on the perf thread, so it should not block.
         """
         if synthid in self._synths:
-            if self._dispatcherQueue:
+            if self._dispatching:
                 self._dispatcherQueue.put(lambda: self._deallocSynthResources(synthid))
             else:
+                logger.debug("Deallocating resources in the wrong thread...")
                 self._deallocSynthResources(synthid)
         else:
             logger.debug(f"Dealloc for synth {synthid}, but it is not present, synths: {self._synths.keys()}")
@@ -649,6 +644,10 @@ class Session(AbstractRenderer):
         """
         Create an :class:`~csoundengine.instr.Instr` and register it at this session
 
+        An ``Instr`` is a template for an instrument. It can be instantiated at different priorities.
+        Only when an ``Instr`` is scheduled at a specific priority an actual ``instr`` is compiled
+        by csound.
+
         Any init code given is compiled and executed at this point
 
         Args:
@@ -679,13 +678,17 @@ class Session(AbstractRenderer):
 
         .. note::
 
-            An instr is not compiled at the moment of definition: only
-            when an instr is actually scheduled to be run at a given
-            priority the code is compiled. There might be a small delay
-            the first time an instr is scheduled at a given
-            priority. To prevent this a user can give a default priority
-            when calling :meth:`Session.defInstr`, or call
-            :meth:`Session.prepareSched` to explicitely compile the instr
+            Since the instr is only compiled when scheduled for the first time
+            at a given priority, there might be a small delay of at least one
+            cycle before the instr can be actually scheduled. To prevent this a
+            user can give a default priority when calling :meth:`Session.defInstr`,
+            or call :meth:`Session.prepareSched` to explicitely compile the instr
+
+        .. note::
+
+            To create a traditional csound ``instr`` use the underlying :class:`~csoundengine.engine.Engine`
+            via its :meth:`~csoundengine.engine.Engine.compile` method. Bear in mind that you
+            there are instrument numbers that are reserved (see )
 
 
         Example
@@ -715,6 +718,27 @@ class Session(AbstractRenderer):
             >>> filt = session.sched('filter', 0, dur=synth.dur, priority=synth.priority+1,
             ...                      args={'kbus': bus, 'kcutoff': 1000})
             >>> filt.automate('kcutoff', [3, 1000, 6, 200, 10, 4000])
+
+        Here we show how to create and interact with *normal* csound instruments from
+        within a :class:`Session`.
+
+        .. code-block:: python
+
+            >>> session = Session()
+            >>> session.defInstr('synth', r'''
+            ... |kpitch|
+            ... outch 1, oscili:a(0.1, mtof(kpitch))
+            ... atstop "printstop", 0, 0, p1
+            ... ''')
+            >>> session.engine.compile(r'''
+            ... instr printstop
+            ...   prints "instr %.3f stopped at time %.3f\n", p4, p2
+            ... endin
+            ... ''')
+            >>> bus = session.engine.assignBus()
+            >>> session.sched('synth'), dur=1, kpitch=67)
+
+        This will call the instr "printstop" when the synth is stopped.
 
         See Also
         ~~~~~~~~
@@ -1532,25 +1556,25 @@ class Session(AbstractRenderer):
                 any synths scheduled with the given instrument name will be stopped
             delay: how long to wait before stopping them
         """
-        print("unsched", event)
-        def dealloc(p1, delay: float, status: str):
+        def dealloc(s: Session, p1: int | float | str, delay: float, status: str):
             if status == 'stopped':
                 logger.debug(f"Event {event} already finished, cannot unschedule")
                 return
-            future = status == 'future'
-            self.engine.unsched(p1, delay=delay, future=future)
-            self._deallocSynthResources(p1, delay)
+            self.engine.unsched(p1, delay=delay, future=status=='future')
+            # No need to deallocate resources here, as they will be automatically
+            # released when the synth is stopped
+            # self._deallocSynthResources(p1)
 
         if isinstance(event, float):
             synth = self._synths.get(event)
             if not synth:
                 logger.debug(f"Event {event} not found, cannot unschedule")
                 return
-            dealloc(synth.p1, delay, synth.playStatus())
+            dealloc(self, synth.p1, delay, synth.playStatus())
         elif isinstance(event, int):
             for p1, synth in self._synths.items():
                 if int(p1) == event:
-                    dealloc(p1, delay, status=synth.playStatus())
+                    dealloc(self, p1, delay, status=synth.playStatus())
         elif isinstance(event, str):
             if event not in self.instrs:
                 logger.warning(f"No instruments with the name {event} are defined")
@@ -1558,9 +1582,9 @@ class Session(AbstractRenderer):
 
             for p1, synth in self._synths.items():
                 if synth.instrname == event:
-                    dealloc(p1, delay, status=synth.playStatus())
+                    dealloc(self, p1, delay, status=synth.playStatus())
         else:
-            dealloc(event.p1, delay=delay, status=event.playStatus())
+            dealloc(self, event.p1, delay=delay, status=event.playStatus())
 
     def unschedAll(self, future=False) -> None:
         """

@@ -1288,7 +1288,7 @@ def getAudioDevices(backend) -> tuple[list[AudioDevice], list[AudioDevice]]:
     """
     backendDef = getAudioBackend(backend)
     if backendDef is None:
-        raise ValueError(f"Backend '{backend}' not supported")
+        raise ValueError(f"Backend '{backend}' not supported, known backends: {list(_allAudioBackends.keys())}")
     return backendDef.audioDevices()
 
 
@@ -1521,6 +1521,8 @@ def csoundOptionsForOutputFormat(fmt='wav',
 
     .. seealso:: :func:`csoundOptionForSampleEncoding`
     """
+    if fmt.startswith("."):
+        fmt = fmt[1:]
     assert fmt in _defaultEncodingForFormat, f"Unknown format: {fmt}, possible formats are: " \
                                              f"{_defaultEncodingForFormat.keys()}"
     if not encoding:
@@ -1613,34 +1615,42 @@ def mincer(sndfile: str,
         >>> timecurve = bpf4.linear(0, 0, snddur*2, snddur)
         >>> mincer(sndfile, "mono2.wav", timecurve=timecurve, pitchcurve=1)
     """
-    import bpf4 as bpf
+    import bpf4
+    import bpf4.util
     import sndfileio
 
     info = sndfileio.sndinfo(sndfile)
     sr = info.samplerate
     nchnls = info.channels
-    pitchbpf = bpf.util.asbpf(pitchcurve)
+    pitchbpf = bpf4.util.asbpf(pitchcurve)
 
     if isinstance(timecurve, (int, float)):
         t0, t1 = 0, info.duration / timecurve
-        timebpf = bpf.linear(0, 0, t1, info.duration)
-    elif isinstance(timecurve, bpf.BpfInterface):
+        timebpf = bpf4.linear(0, 0, t1, info.duration)
+    elif isinstance(timecurve, bpf4.BpfInterface):
         t0, t1 = timecurve.bounds()
         timebpf = timecurve
     else:
         raise TypeError("timecurve should be either a scalar or a bpf")
 
-    assert isinstance(pitchcurve, (int, float, bpf.BpfInterface))
+    assert isinstance(pitchcurve, (int, float, bpf4.BpfInterface))
     ts = np.arange(t0, t1+dt, dt)
     fmt = "%.12f"
     _, time_gen23 = _tempfile.mkstemp(prefix='time-', suffix='.gen23')
     np.savetxt(time_gen23, timebpf.map(ts), fmt=fmt, header=str(dt), comments='')
     _, pitch_gen23 = _tempfile.mkstemp(prefix='pitch-', suffix='.gen23')
     np.savetxt(pitch_gen23, pitchbpf.map(ts), fmt=fmt, header=str(dt), comments='')
+    ext = _os.path.splitext(outfile)[1][1:]
+    extraoptions = []
+    extraoptions.extend(csoundOptionsForOutputFormat(fmt=ext))
+
     csd = f"""
     <CsoundSynthesizer>
     <CsOptions>
     -o {outfile}
+
+    {'\n'.join(extraoptions)}
+
     </CsOptions>
     <CsInstruments>
 
@@ -2856,6 +2866,7 @@ def highlightCsoundOrc(code: str, theme='') -> str:
         theme = config['html_theme']
 
     import pygments
+    import pygments.formatters
     if theme == 'light':
         htmlfmt = pygments.formatters.HtmlFormatter(noclasses=True, wrapcode=True)
     else:
@@ -2886,9 +2897,10 @@ def isPfield(name: str) -> bool:
     return _re.match(r'\bp[1-9][0-9]*\b', name) is not None
 
 
-def fillPfields(args: list[float | str],
+def fillPfields(args: Sequence[float | str],
                 namedpargs: dict[int, float],
                 defaults: dict[int, float] | None) -> list[float | str]:
+    out: list[float | str]
     if not defaults:
         if namedpargs and not args:
             maxp = max(namedpargs.keys())
@@ -2905,7 +2917,7 @@ def fillPfields(args: list[float | str],
                 out[idx-4] = value
             return out
         elif args:
-            return args
+            return args if isinstance(args, list) else list(args)
         else:
             # no args at all
             raise ValueError("No args or namedargs given and no default values defined")

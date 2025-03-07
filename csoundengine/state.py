@@ -1,9 +1,10 @@
 from __future__ import annotations
-from configdict import ConfigDict
-from datetime import datetime
-import emlib.dialogs
-import os
 
+import os
+from datetime import datetime
+
+import emlib.dialogs
+from configdict import ConfigDict
 
 __all__ = (
     'state',

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from typing import Any
 
 __all__ = (
@@ -9,5 +10,3 @@ __all__ = (
 
 EMPTYSET: frozenset[str] = frozenset()
 EMPTYDICT: dict[str, Any] = {}
-
-

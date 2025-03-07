@@ -61,7 +61,7 @@ class ParamTable:
 
     def __repr__(self):
         return f"ParamTable(tableIndex={self.tableIndex}, " \
-               f"groupName={self.engine.name})"
+               f"engine={self.engine.name if self.engine else None})"
 
     def __len__(self) -> int:
         return len(self.array)

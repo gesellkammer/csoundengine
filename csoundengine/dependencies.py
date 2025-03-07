@@ -52,7 +52,7 @@ def getPluginsLatestRelease() -> dict[str, str]:
          'darwin': 'https://github.com/.../csound-plugins-macos.zip',
          'win32': 'https://github.com/.../csound-plugins-win64.zip'}
     """
-    url = f"https://api.github.com/repos/csound-plugins/csound-plugins/releases/latest"
+    url = "https://api.github.com/repos/csound-plugins/csound-plugins/releases/latest"
     try:
         tmpfile, _ = urllib.request.urlretrieve(url)
     except urllib.error.URLError as e:

@@ -1,8 +1,9 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from .schedevent import SchedAutomation
 
+from dataclasses import dataclass
 from typing import Callable, Sequence
+
+from .schedevent import SchedAutomation
 
 
 @dataclass
@@ -83,5 +84,5 @@ class Event:
     def stop(self, delay=0.):
         dur = delay - self.delay
         if dur < 0:
-            raise ValueError(f"Event has negative duration")
+            raise ValueError("Event has negative duration")
         self.dur = dur

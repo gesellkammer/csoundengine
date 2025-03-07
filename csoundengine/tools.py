@@ -1,12 +1,14 @@
 import fnmatch
-import sys
 import os
-import tempfile
 import platform
-from functools import cache
+import sys
+import tempfile
 from collections import UserString
-import emlib.misc
+from functools import cache
+
 import emlib.common
+import emlib.misc
+
 from .config import logger
 
 

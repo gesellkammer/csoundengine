@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from abc import abstractmethod, ABC
-import numpy as np
-from . import jupytertools
-from . import csoundlib
-from ._common import EMPTYSET, EMPTYDICT
-
+from abc import ABC, abstractmethod
 from typing import Sequence
-from typing_extensions import Self
+
+import numpy as np
+
+from . import csoundlib, jupytertools
+from ._common import EMPTYDICT, EMPTYSET
 
 
 class BaseSchedEvent(ABC):
@@ -323,37 +322,3 @@ class BaseSchedEvent(ABC):
             display(self)
         else:
             print(repr(self))
-
-    # @classmethod
-    # def cropEvents(cls, events: list[Self], start=0., end=0.) -> list[Self]:
-    #     """
-    #     Crop the events so that no event exceeds the given limits
-    #
-    #     Args:
-    #         events: a list of SchedEvents
-    #         start: the min. start time for any event
-    #         end: the max. end time for any event
-    #
-    #     Returns:
-    #         a list with the cropped events
-    #     """
-    #     scoreend = max(ev.end for ev in events)
-    #     if end == 0:
-    #         end = scoreend
-    #     cropped = []
-    #     for ev in events:
-    #         if ev.end < start or ev.start > end:
-    #             continue
-    #
-    #         if start <= ev.start <= ev.end:
-    #             cropped.append(ev)
-    #         else:
-    #             xstart, xend = emlib.mathlib.intersection(start, end, ev.start, ev.end)
-    #             if xstart is not None:
-    #                 if xend == float('inf'):
-    #                     dur = -1
-    #                 else:
-    #                     dur = xend - xstart
-    #                 ev = ev.clone(start=xstart, dur=dur)
-    #                 cropped.append(ev)
-    #     return cropped

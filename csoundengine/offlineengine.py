@@ -250,12 +250,10 @@ class OfflineEngine(_EngineBase):
         if not self.nosound:
             csound.setOption(f'-o{self.outfile}')
 
-        orc, instrmap = engineorc.makeOrc(sr=self.sr,
-                                          ksmps=self.ksmps,
-                                          nchnls=self.nchnls,
-                                          nchnls_i=0,
-                                          a4=self.a4,
-                                          globalcode=self.globalcode,
+
+        header = engineorc.makeOrcHeader(sr=self.sr, ksmps=self.ksmps, nchnls=self.nchnls, nchnls_i=0, a4=self.a4)
+        csound.compileOrc(header)
+        orc, instrmap = engineorc.makeOrc(globalcode=self.globalcode,
                                           includestr=self._makeIncludeBlock(),
                                           numAudioBuses=self.numAudioBuses,
                                           numControlBuses=self.numControlBuses)
@@ -266,7 +264,9 @@ class OfflineEngine(_EngineBase):
         err = csound.compileOrc(orc)
         if err:
             tmporc = tempfile.mktemp(prefix="csoundengine-", suffix=".orc")
-            open(tmporc, "w").write(orc)
+            with open(tmporc, "w") as f:
+                f.write(header)
+                f.write(orc)
             logger.error(f"Error compiling base orchestra. A copy of the orchestra"
                          f" has been saved to {tmporc}")
 
@@ -1267,12 +1267,7 @@ class OfflineEngine(_EngineBase):
         csd = Csd(sr=self.sr, ksmps=self.ksmps, nchnls=self.nchnls, a4=self.a4,
                             options=self.options, nchnls_i=0)
         csd.setSampleEncoding(self.encoding)
-        orc, instrmap = engineorc.makeOrc(sr=self.sr,
-                                          ksmps=self.ksmps,
-                                          nchnls=self.nchnls,
-                                          nchnls_i=0,
-                                          a4=self.a4,
-                                          globalcode=self.globalcode,
+        orc, instrmap = engineorc.makeOrc(globalcode=self.globalcode,
                                           includestr=self._makeIncludeBlock(),
                                           numAudioBuses=self.numAudioBuses if self._usesBuses else 0,
                                           numControlBuses=self.numControlBuses if self._usesBuses else 0)

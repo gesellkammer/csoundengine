@@ -865,12 +865,8 @@ class Engine(_EngineBase):
             includestr = ""
 
         assert self.sr > 0
-        orc, instrmap = engineorc.makeOrc(sr=self.sr,
-                                          ksmps=self.ksmps,
-                                          nchnls=self.nchnls,
-                                          nchnls_i=self.nchnls_i,
-                                          a4=self.a4,
-                                          globalcode=self.globalCode,
+        orcheader = engineorc.makeOrcHeader(sr=self.sr, ksmps=self.ksmps, nchnls=self.nchnls, nchnls_i=self.nchnls_i, a4=self.a4)
+        orc, instrmap = engineorc.makeOrc(globalcode=self.globalCode,
                                           includestr=includestr,
                                           numAudioBuses=self.numAudioBuses,
                                           numControlBuses=self.numControlBuses)
@@ -881,10 +877,13 @@ class Engine(_EngineBase):
                      f"     Csound Options: {options}")
         logger.debug(orc)
         logger.debug("--------------------------------------------------------------")
+        cs.compileOrc(orcheader)
         err = cs.compileOrc(orc)
         if err:
             tmporc = tempfile.mktemp(prefix="csoundengine-", suffix=".orc")
-            open(tmporc, "w").write(orc)
+            with open(tmporc, "w") as f:
+                f.write(orcheader)
+                f.write(orc)
             logger.error(f"Error compiling base orchestra. A copy of the orchestra"
                          f" has been saved to {tmporc}")
 
@@ -1167,7 +1166,7 @@ class Engine(_EngineBase):
                 self.sync()
             self._queryNamedInstrs([instrname], timeout=0.1 if block else 0)
 
-    def compile(self, code: str, block=False) -> None:
+    def compile(self, code: str, block=False, parse=True) -> None:
         """
         Send orchestra code to the running csound instance.
 
@@ -1206,28 +1205,28 @@ class Engine(_EngineBase):
                     logger.warning(f"Include path not found '{includepath}'")
                 self.includes.append(includepath)
             elif codeblock.kind == 'instr':
-                parsedbody = csoundlib.instrParseBody(csoundlib.instrGetBody(codeblock.text))
-                self._parsedInstrs[codeblock.name] = parsedbody
-                if codeblock.name[0].isdigit():
-                    instrnum = int(codeblock.name)
-                    for rangename, mininstr, maxinstr in self._reservedInstrnumRanges:
-                        if mininstr <= instrnum < maxinstr:
-                            logger.error(f"Instrument number {instrnum} is reserved. Code:")
-                            logger.error("\n" + _textwrap.indent(codeblock.text, "    "))
-                            raise ValueError(f"Cannot use instrument number {instrnum}, "
-                                             f"the range {mininstr} - {maxinstr} is reserved for '{rangename}'")
+                if parse:
+                    parsedbody = csoundlib.instrParseBody(csoundlib.instrGetBody(codeblock.text))
+                    self._parsedInstrs[codeblock.name] = parsedbody
+                    if codeblock.name[0].isdigit():
+                        instrnum = int(codeblock.name)
+                        for rangename, mininstr, maxinstr in self._reservedInstrnumRanges:
+                            if mininstr <= instrnum < maxinstr:
+                                logger.error(f"Instrument number {instrnum} is reserved. Code:")
+                                logger.error("\n" + _textwrap.indent(codeblock.text, "    "))
+                                raise ValueError(f"Cannot use instrument number {instrnum}, "
+                                                f"the range {mininstr} - {maxinstr} is reserved for '{rangename}'")
 
-                    if instrnum in self._reservedInstrnums:
-                        raise ValueError("Cannot compile instrument with number "
-                                         f"{instrnum}: this is a reserved instr and "
-                                         f"cannot be redefined. Reserved instrs: "
-                                         f"{sorted(self._reservedInstrnums)}")
+                        if instrnum in self._reservedInstrnums:
+                            raise ValueError("Cannot compile instrument with number "
+                                            f"{instrnum}: this is a reserved instr and "
+                                            f"cannot be redefined. Reserved instrs: "
+                                            f"{sorted(self._reservedInstrnums)}")
 
         instrs = [b for b in codeblocks if b.kind == 'instr']
 
         for instr in instrs:
-            body = "\n".join(emlib.textlib.splitAndStripLines(instr.text)[1:-1])
-            self._instrRegistry[instr.name] = body
+            self._instrRegistry[instr.name] = instr.text
 
         self._compileCode(code)
 
@@ -1741,51 +1740,28 @@ class Engine(_EngineBase):
                     self._queryNamedInstrAsync(name, delay=delay)
             else:
                 results: dict[str, int] = {}
-
                 def mycallback(name, instrnum, n=len(names), results=results, callback=callback):
                     results[name] = instrnum
                     if len(results) == n:
                         callback(results)
                 for name in names:
                     self._queryNamedInstrAsync(name, delay=delay, callback=mycallback)
-            return
-        # blocking
-        for name in names:
-            num = int(self._perfThread.evalCode(f'return nametoinstrnum "{name}"'))
-            if num > 0:
-                self._instrNumCache[name] = num
-                if (body := self._instrRegistry.get(name)) is not None:
-                    self._instrRegistry[num] = body
-
-        if False:
-            # Old procedure
-            tokens = [self._getSyncToken() for _ in range(len(names))]
-            instr = self._builtinInstrs['nstrnum']
-            for name, token in zip(names, tokens):
-                msg = f'i {instr} {delay} 0 {token} "{name}"'
-                self._perfThread.inputMessage(msg)
-            self.sync()
-            token2name = dict(zip(tokens, names))
-            # Active polling
-            polltime = min(0.005, timeout*0.5)
-            numtries = int(timeout / polltime)
-            if delay:
-                time.sleep(delay)
-            for _ in range(numtries):
-                if not token2name:
-                    break
-                pairs = list(token2name.items())
-                for token, name in pairs:
-                    instrnum = self._responsesTable[token]
-                    if not math.isinf(instrnum):
-                        instrnum = int(self._responsesTable[token])
-                        self._instrNumCache[name] = instrnum
-                        if (body := self._instrRegistry.get(name)) is not None:
-                            self._instrRegistry[instrnum] = body
-                        del token2name[token]
-                time.sleep(polltime)
-            else:
-                raise TimeoutError(f"operation timed out ater {timeout} secs")
+        else:
+            # blocking
+            q = _queue.SimpleQueue()
+            def _func(csound, names=names, q=q):
+                nums = []
+                for name in names:
+                    num = csound.evalCode(f'return nametoinstrnum "{name}"')
+                    nums.append(num)
+                q.put(nums)
+            self._perfThread.requestCallback(_func)
+            nums = q.get()
+            for num, name in zip(nums, names):
+                if num > 0:
+                    self._instrNumCache[name] = int(num)
+                    if (body := self._instrRegistry.get(name)) is not None:
+                        self._instrRegistry[num] = body
 
     def _queryNamedInstrAsync(self, name: str, delay=0., callback=None) -> None:
         """
@@ -2110,8 +2086,7 @@ class Engine(_EngineBase):
         dataarr = np.asarray(data)
         nchnls = internal.arrayNumChannels(dataarr)
         numitems = len(dataarr) * nchnls
-        flatdata = dataarr.flat
-
+        flatdata = dataarr if nchnls == 1 else dataarr.flatten()
         if tabnum == -1:
             tabnum = self._assignTableNumber()
         elif tabnum == 0:
@@ -2626,7 +2601,7 @@ class Engine(_EngineBase):
                     if response is None:
                         raise RuntimeError(f"Failed to make table with args: {pargs}")
                     tabnum = int(response)
-                    self.fillTable(tabnum, data=data, block=False)
+                    self.fillTable(tabnum, data=data)
                     self._tableInfo[tabnum] = TableInfo(sr=sr, size=numitems,
                                                         numChannels=numchannels)
                 else:
@@ -3494,12 +3469,15 @@ class Engine(_EngineBase):
         stridx = self._getStrIndex()
         self._strToIndex[s] = stridx
         self._indexToStr[stridx] = s
+        cmd = f'strset {stridx}, "{s}"'
         if lcs.VERSION >= 7000:
-            self._perfThread.compileOrc(f'strset {stridx}, "{s}"')
+            self._perfThread.compileOrc(cmd)
         elif self._useProcessQueue:
-            self._perfThread.processQueueTask(lambda cs: cs.compileOrc(f'strset {stridx}, "{s}"'))
+            def task(cs):
+                cs.compileOrc(cmd)
+            self._perfThread.processQueueTask(task)
         else:
-            self.csound.compileOrc(f'strset {stridx}, "{s}"')
+            self.csound.compileOrc(cmd)
         self._modified()
         return stridx
 

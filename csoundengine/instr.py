@@ -1,21 +1,22 @@
 from __future__ import annotations
-from functools import cache
-from emlib import textlib, iterlib
-import numpy as np
-import re
-import os
-import textwrap
 
-from .config import config, logger
-from .errors import CsoundError
-from . import csoundlib
-from . import jupytertools
-from . import instrtools
-from ._common import EMPTYDICT, EMPTYSET
+import os
+import re
+import textwrap
+from functools import cache
 from typing import TYPE_CHECKING
 
+import numpy as np
+from emlib import iterlib, textlib
+
+from . import csoundlib, instrtools, jupytertools
+from ._common import EMPTYDICT, EMPTYSET
+from .config import config, logger
+from .errors import CsoundError
+
 if TYPE_CHECKING:
-    from typing import Sequence, Callable
+    from typing import Callable, Sequence
+
     from .abstractrenderer import AbstractRenderer
 
 
@@ -1187,7 +1188,7 @@ def _namedControlsGenerateCode(controls: dict) -> str:
         the generated code
     """
 
-    lines = [fr'''
+    lines = [r'''
     ; --- start generated code for dynamic args
     i__slicestart__ = p4
     i__tabnum__ chnget ".dynargsTabnum"

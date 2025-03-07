@@ -1,9 +1,12 @@
 from __future__ import annotations
+
 import dataclasses
+from typing import TYPE_CHECKING, Callable
+
 from emlib.envir import inside_jupyter
+
 from . import synth as _synth
 
-from typing import TYPE_CHECKING, Callable, Optional
 if TYPE_CHECKING:
     from . import engine
 
@@ -165,7 +168,7 @@ def guessParamSpecs(params: dict[str, float | int | str | None],
             continue
         elif value is None:
             value = 0.
-        if paramname in ranges:
+        if ranges and paramname in ranges:
             minval, maxval = ranges[paramname]
         else:
             minval, maxval = _guessRange(value, paramname)
@@ -202,8 +205,8 @@ def _interactSynthJupyter(synth: _synth.Synth | _synth.SynthGroup,
                           stopbutton=True,
                           width='80%'
                           ) -> None:
-    from IPython.display import display
     import ipywidgets as ipy
+    from IPython.display import display
     widgets = []
     if stopbutton:
         button = ipy.Button(description="Stop")
@@ -230,7 +233,7 @@ def _interactSynthJupyter(synth: _synth.Synth | _synth.SynthGroup,
     display(*widgets)
 
 
-def interactPargs(engine: engine.Engine, 
+def interactPargs(engine: engine.Engine,
                   p1: float | str,
                   specs: dict[int|str, ParamSpec] = {},
                   **namedSpecs: ParamSpec):
@@ -307,8 +310,8 @@ def _jupyInteractPargs(engine: engine.Engine,
         event = e.sched(100, args=[0.1, 67])
         e.interact(event, p4=ParamSpec('kamp', 0, 1){4: ParamSpec('kamp', 0, 1)})
     """
-    from IPython.display import display
     import ipywidgets as ipy
+    from IPython.display import display
     widgets = []
     if stopbutton:
         button = ipy.Button(description="Stop")
@@ -331,4 +334,3 @@ def _jupyInteractPargs(engine: engine.Engine,
             raise ValueError(f"Widget hint not understood: {spec.widgetHint}")
         widgets.append(w)
     display(*widgets)
-

@@ -1,15 +1,11 @@
 from __future__ import annotations
+
 import dataclasses
-import subprocess
-import functools
-from . import internal
-import os
-import emlib.misc
-import numpy as np
-import libcsound
-from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL
 from abc import ABC, abstractmethod
 from typing import Sequence
+
+import libcsound
+import numpy as np
 
 
 @dataclasses.dataclass
@@ -50,7 +46,7 @@ class TableInfo:
         assigned. If the table does not have a samplerate, 0 is returned
         """
         if self.sr != 0:
-            return self.size / self.sr
+            return self.numFrames / self.sr
         else:
             return 0.
 

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "csoundengine"
 version = "2.15.3"
-license = {file = "LICENSE.txt"}
+license = { file = "LICENSE.txt" }
 description = "An audio synthesis framework using csound"
 authors = [
     { name = "Eduardo Moguillansky", email = "eduardo.moguillansky@gmail.com" },
@@ -56,3 +56,9 @@ csoundengine = ['csoundengine/data']
 
 [project.urls]
 "Homepage" = "https://github.com/gesellkammer/csoundengine"
+
+
+[tool.ruff.lint]
+
+# 2. Avoid enforcing line-length violations (`E501`)
+ignore = ["E501", "I001", "E402"]

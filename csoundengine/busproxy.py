@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from typing import Sequence
+
+from . import internal
 from .abstractrenderer import AbstractRenderer
 from .config import logger
-from . import internal
 
 
 class Bus:
