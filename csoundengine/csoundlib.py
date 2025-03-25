@@ -2390,7 +2390,8 @@ def instrGetBody(textOrLines: str | list[str]) -> str:
     if isinstance(textOrLines, str):
         lines = textOrLines.splitlines()
     lines = internal.stripTrailingEmptyLines(lines)
-    assert lines[0].startswith('instr') and lines[-1].startswith('endin')
+    if not lines[0].lstrip().startswith('instr') or not lines[-1].rstrip().endswith('endin'):
+        raise ValueError(f'Invalid instrument body: {textOrLines}')
     lines = lines[1:-1]
     return '\n'.join(lines)
 

@@ -239,7 +239,6 @@ class Session(AbstractRenderer):
 
         if not engine:
             _engine = Engine(**enginekws)
-            logger.debug(f"Creating an Engine with default arguments: {engine}")
         elif isinstance(engine, str):
             _engine = Engine.activeEngines.get(engine)
             if _engine is None:
@@ -416,7 +415,8 @@ class Session(AbstractRenderer):
         Args:
             event: the event to automate
             param: the name of the parameter to automate
-            pairs: automation data as a flat array with the form [time0, value0, time1, value1, ...]
+            pairs: automation data as a flat list/array with the form [time0, value0, time1, value1, ...]
+                or a tuple (times, values)
             mode: one of 'linear', 'cos'. Determines the curve between values
             delay: relative time from now to start the automation. If None is given, sync the start
                 of the automation to the start of the given event. To set an absolute start time, use

@@ -315,6 +315,8 @@ class Engine(_EngineBase):
                  latency: float | None = None,
                  sampleAccurate: bool = False,
                  numthreads: int = 0,
+                 withBusSupport: bool | None = None,
+                 nosound=False,
                  useProcessQueue=False,
     ):
         if not name:
@@ -362,7 +364,9 @@ class Engine(_EngineBase):
         indevs, outdevs = backendDef.audioDevices()
         defaultin, defaultout = backendDef.defaultAudioDevices()
         indevName, outdevName = "adc", "dac"
-        if not outdev:
+        if nosound:
+            outdev, outdevName = '', ''
+        elif not outdev:
             if not defaultout:
                 raise RuntimeError(f"No output devices for backend {backendDef.name}")
             outdev, outdevName = defaultout.id, defaultout.name
@@ -471,6 +475,10 @@ class Engine(_EngineBase):
         assert nchnls is not None and nchnls > 0
         assert nchnls_i is not None and nchnls_i >= 0
 
+        if nosound and '--nosound' not in commandlineOptions:
+            commandlineOptions.append('--nosound')
+
+
         if quiet is None:
             quiet = cfg['suppress_output']
 
@@ -486,6 +494,20 @@ class Engine(_EngineBase):
 
         assert sr is not None and sr > 0
         assert isinstance(ksmps, int) and ksmps > 0
+
+        if numAudioBuses is None:
+            numAudioBuses = config['num_audio_buses']
+        if numControlBuses is None:
+            numControlBuses = config['num_control_buses']
+        if withBusSupport is None:
+            withBusSupport = config['bus_support']
+
+        if withBusSupport:
+            if not numAudioBuses and not numControlBuses:
+                raise ValueError("At least one audio or control bus must be enabled")
+        else:
+            numAudioBuses = 0
+            numControlBuses = 0
 
         super().__init__(sr=sr,
                          ksmps=ksmps,

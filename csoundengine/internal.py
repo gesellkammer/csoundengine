@@ -24,6 +24,7 @@ from . import jacktools
 
 if TYPE_CHECKING:
     from typing import Any, Callable, KeysView, Sequence, TypeVar
+    import numpy.typing as npt
 
     from csoundlib import AudioDevice, MidiDevice
 
@@ -692,8 +693,15 @@ def interleave(a: Sequence[T], b: Sequence[T]) -> list[T]:
     return out
 
 
-def flattenAutomationData(pairs: Sequence[float] | tuple[Sequence[float], Sequence[float]]
+def flattenAutomationData(pairs: npt.ArrayLike | tuple[npt.ArrayLike, npt.ArrayLike]
                           ) -> list[float]:
+    if isinstance(pairs, np.ndarray):
+        if len(pairs.shape) == 1:
+            return pairs.tolist()  # type: ignore
+        elif len(pairs.shape) == 2:
+            return pairs.flatten().tolist()
+        else:
+            raise ValueError(f"Expected a 1D or 2D array, got {pairs}")
     if isinstance(pairs, list):
         return pairs
     elif isinstance(pairs, tuple):
@@ -704,7 +712,7 @@ def flattenAutomationData(pairs: Sequence[float] | tuple[Sequence[float], Sequen
                 return interleave(xs, ys)
             elif isinstance(xs, np.ndarray):
                 assert isinstance(ys, np.ndarray)
-                return emlib.numpytools.interlace(xs, ys).tolist()
+                return emlib.numpytools.interlace(xs, ys).tolist()  # type: ignore
             else:
                 raise TypeError(f"Expected a tuple (xs, ys), got {pairs}")
         else:

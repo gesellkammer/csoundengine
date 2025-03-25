@@ -175,11 +175,18 @@ class OfflineEngine(_EngineBase):
                  globalcode='',
                  numAudioBuses: int | None = None,
                  numControlBuses: int | None = None,
+                 withBusSupport: bool | None = None,
                  quiet=True,
                  includes: list[str] | None = None,
                  sampleAccurate=False,
                  encoding='',
+                 nosound=False,
                  commandlineOptions: list[str] | None = None):
+        if withBusSupport is None:
+            withBusSupport = config['bus_support']
+        if not withBusSupport:
+            numAudioBuses = 0
+            numControlBuses = 0
         super().__init__(sr=sr,
                          ksmps=ksmps,
                          a4=a4 or config['A4'],
@@ -187,7 +194,7 @@ class OfflineEngine(_EngineBase):
                          numAudioBuses=numAudioBuses if numAudioBuses is not None else config['num_audio_buses'],
                          numControlBuses=numControlBuses if numControlBuses is not None else config['num_control_buses'],
                          sampleAccurate=sampleAccurate)
-        self.outfile = outfile or tempfile.mktemp(prefix='csoundengine-', suffix='.wav')
+        self.outfile = outfile or tempfile.mktemp(prefix='csoundengine-', suffix='.wav') if not nosound else ''
         self.globalcode = globalcode
         self.numAudioBuses = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
         self.numControlBuses = numControlBuses if numControlBuses is not None else config['num_control_buses']
@@ -216,20 +223,24 @@ class OfflineEngine(_EngineBase):
 
         self._shouldPerform = False
         self._endtime = 0.
-        self._tableCounter = engineorc.CONSTS['numReservedTables']
-        self.nosound = False
+        self._tableCounter = engineorc.CONSTS['reservedTablesStart']
+        self.nosound = nosound
         self.options = ["-d"]
         if quiet:
             self.options.extend(["--messagelevel=0", "--m-amps=0", "--m-range=0"])
 
-        if nchnls == 0:
+        if nchnls == 0 or nosound:
             self.options.append('--nosound')
             self.nosound = True
+
         if sampleAccurate:
             self.options.append('--sample-accurate')
+
         if commandlineOptions:
             self.options.extend(commandlineOptions)
+
         self.csound: libcsound.Csound = self._start()
+
         for s in ["cos", "linear", "smooth", "smoother"]:
             self.strSet(s)
 

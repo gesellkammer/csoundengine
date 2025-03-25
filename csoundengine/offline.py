@@ -79,6 +79,11 @@ class OfflineSession(AbstractRenderer):
     :class:`~csoundengine.session.Session` when rendering offline
     (see :meth:`~csoundengine.session.Session.makeRenderer`).
 
+    An OfflineSession only launches a csound process at render time. This
+    means that it is not possible to use it interactively to have access to
+    tables, channels or any other resources. Any output from csound needs to be
+    as audio output or any other artifact.
+
     Instruments with higher priority are assured to be evaluated later
     in the chain. Instruments within a given priority are evaluated in
     the order they are defined (first defined is evaluated first)
@@ -128,6 +133,7 @@ class OfflineSession(AbstractRenderer):
                  priorities: int | None = None,
                  numAudioBuses=1000,
                  numControlBuses=10000,
+                 withBusSupport=True,
                  dynamicArgsPerInstr: int = 16,
                  dynamicArgsSlots: int | None = None):
 
@@ -171,6 +177,9 @@ class OfflineSession(AbstractRenderer):
 
         self.soundfileRegistry: dict[str, tableproxy.TableProxy] = {}
         """A dict mapping soundfile paths to their corresponding TableProxy"""
+
+        if not withBusSupport:
+            numAudioBuses = numControlBuses = 0
 
         self._idCounter = 0
         self._nameAndPriorityToInstrnum: dict[tuple[str, int], int] = {}

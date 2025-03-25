@@ -138,6 +138,8 @@ _('num_audio_buses', 64,
 _('num_control_buses', 512,
   doc="Num. of control buses in an Engine/Session. This sets the upper limit to the "
       "number of simultaneous control buses in use")
+_('bus_support', False,
+  doc="If True, an Engine/OfflineEngine will have bus support")
 _('html_theme', 'light',
   choices={'dark', 'light'},
   doc="Style to use when displaying syntax highlighting in jupyter")
