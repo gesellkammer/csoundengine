@@ -1628,13 +1628,13 @@ def mincer(sndfile: str,
     ext = _os.path.splitext(outfile)[1][1:]
     extraoptions = []
     extraoptions.extend(csoundOptionsForOutputFormat(fmt=ext))
-
+    optionsstr = '\n'.join(extraoptions)
     csd = f"""
     <CsoundSynthesizer>
     <CsOptions>
     -o {outfile}
 
-    {'\n'.join(extraoptions)}
+    {optionsstr}
 
     </CsOptions>
     <CsInstruments>
