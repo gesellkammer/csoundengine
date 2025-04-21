@@ -273,7 +273,7 @@ class AudioBackend:
                               index=i,
                               numChannels=d.maxNchnls)
                   for i, d in enumerate(csindevs)]
-        cs.stop()ü
+        cs.stop()
         cs.destroyMessageBuffer()
         return indevs, outdevs
 
