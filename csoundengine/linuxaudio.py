@@ -6,10 +6,10 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
-
 import cachetools
 
 from . import internal
+
 
 logger = logging.getLogger('csoundengine')
 
@@ -66,7 +66,7 @@ class PulseaudioInfo:
     onPipewire: bool = False
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 5))
+@cachetools.cached(cache=cachetools.TTLCache(1, 20))
 def _pactlinfo() -> PulseaudioInfo | None:
     if not shutil.which("pactl"):
         return None
@@ -88,7 +88,7 @@ def _pactlinfo() -> PulseaudioInfo | None:
     return PulseaudioInfo(sr=sr, numchannels=numchannels, onPipewire=onPipewire)
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 5))
+@cachetools.cached(cache=cachetools.TTLCache(1, 20))
 def pulseaudioInfo() -> PulseaudioInfo | None:
     """
     Returns info about the pulseaudio server, or None if not running

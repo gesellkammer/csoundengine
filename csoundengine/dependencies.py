@@ -16,7 +16,6 @@ from . import csoundlib, tools
 from .state import state
 
 logger = logging.getLogger("csoundengine.dependencies")
-logger.setLevel("INFO")
 
 
 def _asVersionTriplet(tagname: str) -> tuple[int, int, int]:

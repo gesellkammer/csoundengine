@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import fnmatch
 import os
 import platform
@@ -10,6 +12,11 @@ import emlib.common
 import emlib.misc
 
 from .config import logger
+
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import sndfileio
 
 
 def makeUniqueFilename(ext: str, prefix='', folder='.') -> str:
@@ -110,3 +117,8 @@ def _platformArch() -> str:
             return 'x86'
 
     raise RuntimeError(f"Architecture not supported ({machine=}, {bits=}, {linkage=})")
+
+
+def sndfileInfo(path: str) -> sndfileio.SndInfo:
+    import sndfileio
+    return sndfileio.sndinfo(path)

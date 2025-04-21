@@ -14,7 +14,6 @@ import emlib.mathlib
 import emlib.misc
 import emlib.textlib
 import numpy as np
-import sndfileio
 
 from . import (
     busproxy,
@@ -32,20 +31,19 @@ from .abstractrenderer import AbstractRenderer
 from .config import config, logger
 from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL
 from .errors import RenderError
-from .event import Event
 from .instr import Instr
 from .offlineengine import OfflineEngine
-from .renderjob import RenderJob
 from .schedevent import SchedEvent
 
 if TYPE_CHECKING or "sphinx" in sys.modules:
     from typing import Any, Callable, Iterator, Sequence
+    from .renderjob import RenderJob
+    from .event import Event
 
 
 __all__ = (
     "OfflineSession",
     "OfflineEngine",
-    "RenderJob",
 )
 
 
@@ -1281,6 +1279,7 @@ class OfflineSession(AbstractRenderer):
                                      start=delay,
                                      skiptime=skiptime,
                                      chan=chan)
+        import sndfileio
         info = sndfileio.sndinfo(path)
         tabproxy = tableproxy.TableProxy(
             tabnum=tabnum, parent=self, numframes=info.nframes,
@@ -1355,6 +1354,7 @@ class OfflineSession(AbstractRenderer):
                 ichan=chan
             )
             if not loop and dur == 0:
+                import sndfileio
                 info = sndfileio.sndinfo(source)
                 dur = info.duration / speed + fadeout
             return self.sched('.diskin', delay=delay, dur=dur, args=args)

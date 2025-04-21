@@ -8,15 +8,6 @@ modulename = 'csoundengine.engine'
 logger = logging.getLogger('csoundengine')
 
 
-def setLoggingLevel(level: str) -> None:
-    """
-    Utility to set the logging level of csoundengine
-    """
-    level = level.upper()
-    logging.basicConfig(level=level)
-    logger.setLevel(level)
-
-
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 #                  CONFIG                   #
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #

@@ -19,7 +19,6 @@ import numpy as np
 from csoundengine.config import config
 
 from . import csoundlib
-from ._common import *
 from .renderjob import RenderJob
 
 if TYPE_CHECKING:
@@ -529,7 +528,7 @@ class Csd:
 
         pfields = [tabnum, *pargs[1:]]
         self.score.append(ScoreLine(kind='f', pfields=pfields, comment=comment))
-        return tabnum
+        return int(tabnum)
 
 
     def addTableFromData(self,

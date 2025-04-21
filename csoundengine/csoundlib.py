@@ -23,25 +23,26 @@ import subprocess as _subprocess
 import sys
 import tempfile as _tempfile
 import textwrap as _textwrap
-from typing import TYPE_CHECKING
+
 
 import cachetools as _cachetools
-import emlib.dialogs
 import emlib.mathlib
 import emlib.misc
 import emlib.textlib
 import numpy as np
 from emlib.common import runonce
 
-from csoundengine import internal, jacktools, linuxaudio
+from csoundengine import internal
 from csoundengine import state as _state
 
 from ._common import EMPTYDICT
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Any, Callable, Sequence
     Curve = Callable[[float], float]
     from sf2utils.sf2parse import Sf2File
+    from . import jacktools
 
 
 try:
@@ -236,21 +237,6 @@ class AudioBackend:
         cs.stop()
         return int(sr) if sr > 0 else None
 
-    # def _getSystemSr(self) -> int | None:
-    #     """Get the system samplerate for this backend, if available"""
-    #     if not self.hasSystemSr:
-    #         return 44100
-    #     proc = csoundSubproc(["-odac", f"-+rtaudio={self.name}", "--get-system-sr"], wait=True)
-    #     if not proc.stdout:
-    #         return None
-    #     for line in proc.stdout.readlines():
-    #         if line.startswith(b"system sr:"):
-    #             uline = line.decode('utf-8')
-    #             sr = int(float(uline.split(":")[1].strip()))
-    #             return sr if sr > 0 else None
-    #     logger.error(f"Failed to get sr with backend {self.name}")
-    #     return None
-
     def bufferSizeAndNum(self) -> tuple[int, int]:
         """
         The buffer size and number of buffers needed for this backend
@@ -287,37 +273,9 @@ class AudioBackend:
                               index=i,
                               numChannels=d.maxNchnls)
                   for i, d in enumerate(csindevs)]
-        cs.stop()
+        cs.stop()ü
         cs.destroyMessageBuffer()
         return indevs, outdevs
-
-    # def _audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
-    #     """
-    #     Returns a tuple (input devices, output devices)
-    #     """
-    #     indevices: list[AudioDevice] = []
-    #     outdevices: list[AudioDevice] = []
-    #     proc = csoundSubproc(['-+rtaudio=%s' % self.name, '--devices'])
-    #     proc.wait()
-    #     assert proc.stderr is not None
-    #     lines = proc.stderr.readlines()
-    #     for line in lines:
-    #         line = line.decode("utf-8")
-    #         match = _re.search(self.audioDeviceRegex, line)
-    #         if not match:
-    #             continue
-    #         groups = match.groups()
-    #         if len(groups) == 3:
-    #             idxstr, devid, devname = groups
-    #             numchannels = None
-    #         else:
-    #             idxstr, devid, devname, numchannels_ = groups
-    #             numchannels = int(numchannels_) if numchannels_ is not None else 2
-    #         kind = 'input' if devid.startswith("adc") else 'output'
-    #         dev = AudioDevice(index=int(idxstr), id=devid.strip(), name=devname,
-    #                           kind=kind, numchannels=numchannels)
-    #         (indevices if kind == 'input' else outdevices).append(dev)
-    #     return indevices, outdevices
 
     def defaultAudioDevices(self) -> tuple[AudioDevice | None, AudioDevice | None]:
         """
@@ -330,6 +288,15 @@ class AudioBackend:
         return indevs[0] if indevs else None, outdevs[0] if outdevs else None
 
 
+@_cachetools.cached(cache=_cachetools.TTLCache(1, 20))
+def _jackdata() -> tuple[jacktools.JackInfo, list[jacktools.JackClient]] | None:
+    from . import jacktools
+    info = jacktools.getInfo()
+    if info is None:
+        return None
+    return info, jacktools.getClients()
+
+
 class _JackAudioBackend(AudioBackend):
     def __init__(self):
         super().__init__(name='jack',
@@ -338,28 +305,30 @@ class _JackAudioBackend(AudioBackend):
                          hasSystemSr=True)
 
     def getSystemSr(self) -> int:
-        info = jacktools.getInfo()
-        return info.samplerate if info else 0
+        if (data := _jackdata()) is not None:
+            return data[0].samplerate
+        raise RuntimeError("Jack is not available")
 
     def bufferSizeAndNum(self) -> tuple[int, int]:
-        info = jacktools.getInfo()
-        if not info:
-            return 0, 0
-        blocksize = info.blocksize
+        data = _jackdata()
+        if not data:
+            raise RuntimeError("Jack is not available")
+        blocksize = data[0].blocksize
         if not emlib.mathlib.ispowerof2(blocksize):
-            logger.warning(f"Jack's blocksize is not a power of 2: {blocksize}")
-            return 256, _math.ceil(blocksize / 256)
-        else:
-            # jack buf: 512 -> -B 1024 -b 256
-            periodsize = blocksize // 2
-            numbuffers = 4
-            return periodsize, numbuffers
+            logger.warning(f"Jack's blocksize is not a power of 2: {blocksize}!")
+        # jack buf: 512 -> -B 1024 -b 256
+        periodsize = blocksize // 2
+        numbuffers = 4
+        return periodsize, numbuffers
 
     def isAvailable(self) -> bool:
-        return jacktools.isJackRunning()
+        return _jackdata() is not None
 
     def audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
-        clients = jacktools.getClients()
+        data = _jackdata()
+        if data is None:
+            raise RuntimeError("Jack is not available")
+        info, clients = data
         indevs = [AudioDevice(id=f'adc:{c.regex}', name=c.name, kind='input',
                               numChannels=len(c.ports), index=c.firstIndex, isPhysical=c.isPhysical)
                   for c in clients if c.kind == 'output']
@@ -384,18 +353,18 @@ class _PulseAudioBackend(AudioBackend):
                          defaultNumBuffers=2)
 
     def getSystemSr(self) -> int:
+        from . import linuxaudio
         info = linuxaudio.pulseaudioInfo()
         return info.sr if info else 0
 
     def isAvailable(self) -> bool:
-        if linuxaudio.isPulseaudioRunning():
-            return True
-        pwinfo = linuxaudio.pipewireInfo()
-        return pwinfo is not None and pwinfo.isPulseServer
+        return self.getSystemSr() > 0
 
     def audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
+        from . import linuxaudio
         pulseinfo = linuxaudio.pulseaudioInfo()
-        assert pulseinfo is not None
+        if pulseinfo is None:
+            raise RuntimeError("PulseAudio not available")
         indevs = [AudioDevice(id="adc", name="adc", kind='input', index=0,
                               numChannels=pulseinfo.numchannels)]
         outdevs = [AudioDevice(id="dac", name="dac", kind='output', index=0,
@@ -407,8 +376,9 @@ class _PortaudioBackend(AudioBackend):
     def __init__(self, kind='callback'):
         shortname = "pa_cb" if kind == 'callback' else 'pa_bl'
         longname = f"portaudio-{kind}"
-        if sys.platform == 'linux' and linuxaudio.isPipewireRunning():
-            hasSystemSr = True
+        if sys.platform == 'linux':
+            from . import linuxaudio
+            hasSystemSr = linuxaudio.isPipewireRunning()
         else:
             hasSystemSr = False
         super().__init__(name=shortname,
@@ -417,10 +387,10 @@ class _PortaudioBackend(AudioBackend):
                          hasSystemSr=hasSystemSr)
 
     def getSystemSr(self) -> int | None:
-        if sys.platform == 'linux' and linuxaudio.isPipewireRunning():
+        if sys.platform == 'linux' and self.hasSystemSr:
+            from . import linuxaudio
             info = linuxaudio.pipewireInfo()
-            assert info is not None
-            return info.sr
+            return info.sr if info is not None else 44100
         return super().getSystemSr()
 
     @_functools.cache
@@ -474,44 +444,50 @@ class _AlsaBackend(AudioBackend):
                          acceptsDeviceIndex=False)
 
     def getSystemSr(self) -> int | None:
-        if (jackinfo := jacktools.getInfo()) is not None:
-            return jackinfo.samplerate
-        if linuxaudio.isPipewireRunning():
-            info = linuxaudio.pipewireInfo()
-            return info.sr if info else None
-        return 44100
+        if (jackdata := _jackdata()) is not None:
+            return jackdata[0].samplerate
+        elif sys.platform == 'linux':
+            from . import linuxaudio
+            if linuxaudio.isPipewireRunning():
+                info = linuxaudio.pipewireInfo()
+                return info.sr if info else None
+            else:
+                return 44100
+        else:
+            return 44100
 
-_backendJack = _JackAudioBackend()
-_backendPulseaudio = _PulseAudioBackend()
+
 _backendPortaudioBlocking = _PortaudioBackend('blocking')
 _backendPortaudioCallback = _PortaudioBackend('callback')
-_backendAlsa = _AlsaBackend()
-_backendCoreaudio = AudioBackend('auhal',
-                                 alwaysAvailable=True,
-                                 hasSystemSr=True,
-                                 needsRealtime=False,
-                                 longname="coreaudio",
-                                 platforms=('darwin',))
 
 
 _allAudioBackends: dict[str, AudioBackend] = {
-    'jack': _backendJack,
-    'auhal': _backendCoreaudio,
-    'coreaudio': _backendCoreaudio,
     'portaudio': _backendPortaudioCallback,
     'pa_cb': _backendPortaudioCallback,
     'pa_bl': _backendPortaudioBlocking,
-    'pulse': _backendPulseaudio,
-    'pulseaudio': _backendPulseaudio,
-    'alsa': _backendAlsa
 }
 
 
+if _jackdata() is not None:
+    _allAudioBackends['jack'] = _JackAudioBackend()
+
+
+if sys.platform == 'linux':
+    _allAudioBackends['alsa'] = _AlsaBackend()
+    _allAudioBackends['pulseaudio'] = _PulseAudioBackend()
+elif sys.platform == 'darwin':
+    _allAudioBackends['coreaudio'] = AudioBackend('auhal', alwaysAvailable=True,
+                                                  hasSystemSr=True,
+                                                  needsRealtime=False,
+                                                  longname="coreaudio",
+                                                  platforms=('darwin',))
+    _allAudioBackends['auhal'] = _allAudioBackends['coreaudio']
+
+
 _backendsByPlatform: dict[str, list[AudioBackend]] = {
-    'linux': [_backendJack, _backendPortaudioCallback, _backendAlsa,
-              _backendPortaudioBlocking, _backendPulseaudio],
-    'darwin': [_backendJack, _backendCoreaudio, _backendPortaudioCallback],
-    'win32': [_backendPortaudioCallback, _backendPortaudioBlocking]
+    platform: [backend for backend in _allAudioBackends.values()
+               if platform in backend.platforms]
+    for platform in ('linux', 'darwin', 'win32')
 }
 
 
@@ -1375,10 +1351,19 @@ def dumpAudioBackends() -> None:
 
 
 def getAudioBackend(name='') -> AudioBackend | None:
-    """ Given the name of the backend, return the AudioBackend structure
+    """
+    Given the name of the backend, return the AudioBackend structure
+
+    Only available backends are considered. Some backends listed
+    for a given platform might not be running and thus will
+    not be listed
 
     Args:
         name: the name of the backend
+
+    Returns:
+        the AudioBackend structure, or None if the audio backend
+        is not available or unknown
 
     ========== =================== ======= ========= =======
     Name       Description         Linux   Windows   MacOS
@@ -2712,6 +2697,7 @@ def soundfontSelectPreset(sfpath: str
     """
     presets = soundfontPresets(sfpath)
     items = [f'{bank:03d}:{pnum:03d}:{name}' for bank, pnum, name in presets]
+    import emlib.dialogs
     item = emlib.dialogs.selectItem(items, ensureSelection=True)
     if item is None:
         return None

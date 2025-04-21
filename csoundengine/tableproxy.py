@@ -107,8 +107,8 @@ class TableProxy:
     def __float__(self):
         return float(self.tabnum)
 
-    def online(self):
-        return self.parent.renderMode() == 'online'
+    def online(self) -> bool:
+        return self.parent is not None and self.parent.renderMode() == 'online'
 
     def data(self) -> np.ndarray:
         """
@@ -129,6 +129,8 @@ class TableProxy:
             out = samples
         else:
             out = self.parent._getTableData(self)
+            if out is None:
+                raise RuntimeError("Could not access table data")
         self._array = out
         return out
 

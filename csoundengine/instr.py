@@ -4,7 +4,6 @@ import os
 import re
 import textwrap
 from functools import cache
-from typing import TYPE_CHECKING
 
 import numpy as np
 from emlib import iterlib, textlib
@@ -14,9 +13,9 @@ from ._common import EMPTYDICT, EMPTYSET
 from .config import config, logger
 from .errors import CsoundError
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Callable, Sequence
-
     from .abstractrenderer import AbstractRenderer
 
 

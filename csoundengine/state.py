@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
-import emlib.dialogs
 from configdict import ConfigDict
 
 __all__ = (
@@ -30,6 +29,7 @@ state = ConfigDict("csoundengine.state", _defaultState, persistent=True)
 
 
 def openFile(key, filter="All (*.*)", title="Open File"):
+    import emlib.dialogs
     folder = state[key]
     f = emlib.dialogs.selectFile(directory=folder, filter=filter, title=title)
     if f:
@@ -39,6 +39,7 @@ def openFile(key, filter="All (*.*)", title="Open File"):
 
 
 def saveFile(key, filter="All (*.*)", title="Save File"):
+    import emlib.dialogs
     folder = state[key]
     f = emlib.dialogs.saveDialog(directory=folder, filter=filter, title=title)
     if f:

@@ -9,9 +9,7 @@ from .schedevent import SchedAutomation
 @dataclass
 class Event:
     """
-    Groups all parameters to schedule an event
-
-    This represents the setup for a future event
+    Represents a future event, groups all its parameters and automations
 
     Args:
         instrname: the name of the instrument

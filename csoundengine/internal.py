@@ -13,14 +13,11 @@ from functools import cache
 from typing import TYPE_CHECKING
 
 import cachetools
-import emlib.dialogs
 import emlib.iterlib
 import emlib.numpytools
 import numpy as np
-import sndfileio
-import xxhash
+# import xxhash
 
-from . import jacktools
 
 if TYPE_CHECKING:
     from typing import Any, Callable, KeysView, Sequence, TypeVar
@@ -47,6 +44,7 @@ def aslist(seq: Sequence[T] | np.ndarray) -> list[T]:
 def ndarrayhash(a: np.ndarray) -> str:
     """Calculates a str hash for the data in the array"""
     if a.flags.contiguous:
+        import xxhash
         return xxhash.xxh128_hexdigest(a)
     else:
         return str(id(a))
@@ -155,6 +153,7 @@ def determineNumbuffers(backend: str, buffersize: int) -> int:
         the number of buffers
     """
     if backend == 'jack':
+        from . import jacktools
         info = jacktools.getInfo()
         if info is None:
             raise RuntimeError("Jack does not seem to be running")
@@ -316,6 +315,7 @@ def selectAudioDevice(devices: list[AudioDevice], title='Select device'
     if not devices:
         raise ValueError("No devices given")
     outnames = [dev.info() for dev in devices]
+    import emlib.dialogs
     selected = emlib.dialogs.selectItem(items=outnames, title=title)
     if not selected:
         return None
@@ -341,6 +341,7 @@ def selectMidiDevice(devices: list[MidiDevice], title='Select MIDI device'
     if len(devices) == 1:
         return devices[0]
     names = [f"{dev.name} [{dev.deviceid}]" for dev in devices]
+    import emlib.dialogs
     selected = emlib.dialogs.selectItem(items=names, title=title)
     if not selected:
         return None
@@ -350,6 +351,7 @@ def selectMidiDevice(devices: list[MidiDevice], title='Select MIDI device'
 
 
 def selectItem(items: list[str], title="Select") -> str | None:
+    import emlib.dialogs
     return emlib.dialogs.selectItem(items=items, title=title)
 
 
@@ -550,6 +552,7 @@ def hashSoundfile(path: str) -> int:
     Returns:
         a hash in the form of an integer
     """
+    import sndfileio
     info = sndfileio.sndinfo(path)
     mtime = os.path.getmtime(path)
     return hash((mtime, info.nframes, info.encoding, info.channels, info.samplerate))
@@ -625,6 +628,7 @@ def _soundfileHtml(sndfile: str,
     import IPython.display
     from . import plotting
     pngfile = tempfile.mktemp(suffix=".png", prefix="plot-")
+    import sndfileio
     samples, info = sndfileio.sndget(sndfile)
     if info.duration < 20:
         profile = 'highest'

@@ -110,19 +110,19 @@ import sys
 import emlib.envir
 
 from . import busproxy, csoundlib, instr, tools
-from .config import config, logger, setLoggingLevel
+from .config import config, logger
 from .csoundlib import dumpAudioInfo
-from .engine import Engine as Engine
+from .engine import Engine
 from .event import Event
-from .offline import OfflineSession as OfflineSession
-from .offlineengine import OfflineEngine as OfflineEngine
-from .session import Session as Session
-from .synth import SynthGroup as SynthGroup
+from .offline import OfflineSession
+from .offlineengine import OfflineEngine
+from .session import Session
+from .synth import SynthGroup
+
 
 __all__ = [
     'config',
     'logger',
-    'setLoggingLevel',
     'Engine',
     'Session',
     'OfflineEngine',

@@ -13,13 +13,11 @@ import threading
 from collections import deque
 from dataclasses import dataclass
 from functools import cache
-from typing import Callable, Sequence
 
 import bpf4
 import emlib.dialogs as _dialogs
 import emlib.textlib as _textlib
 import numpy as np
-import sndfileio
 
 from . import (
     busproxy,
@@ -27,7 +25,6 @@ from . import (
     engineorc,
     instrtools,
     jupytertools,
-    offline,
     sessioninstrs,
 )
 from . import internal as _internal
@@ -38,10 +35,16 @@ from .engine import Engine
 from .errors import CsoundError
 from .event import Event
 from .instr import Instr
-from .schedevent import SchedEvent
-from .sessionhandler import SessionHandler
+from . import sessionhandler
 from .synth import Synth, SynthGroup
 from .tableproxy import TableProxy
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Callable, Sequence
+    from . import offline
+    from .schedevent import SchedEvent
+
 
 __all__ = [
     'Session',
@@ -73,7 +76,7 @@ class _ReifiedInstr:
         assert isinstance(self.instrnum, int)
 
 
-class _RenderingSessionHandler(SessionHandler):
+class _RenderingSessionHandler(sessionhandler.SessionHandler):
     """
     Adapts a Session for offline rendering
     """
@@ -303,7 +306,7 @@ class Session(AbstractRenderer):
         self._notificationOscPort = 0
         self._includes: set[str] = set()
         self._lockedLatency: float | None = None
-        self._handler: SessionHandler | None = None
+        self._handler: sessionhandler.SessionHandler | None = None
 
         self._dispatcherQueue = _queue.SimpleQueue()
         self._dispatching = True
@@ -617,8 +620,8 @@ class Session(AbstractRenderer):
         bucket[instrname] = instrnum
         return instrnum
 
-    def setHandler(self, handler: SessionHandler | None
-                   ) -> SessionHandler | None:
+    def setHandler(self, handler: sessionhandler.SessionHandler | None
+                   ) -> sessionhandler.SessionHandler | None:
         """
         Set a SessionHandler for this session
 
@@ -1028,7 +1031,7 @@ class Session(AbstractRenderer):
         """
         if kind:
             if value is not None and kind == 'audio':
-                raise ValueError(f"An audio bus cannot have a scalar value")
+                raise ValueError(f"An audio bus cannot have a scalar value, {value=}")
         else:
             kind = 'audio' if value is None else 'control'
         bustoken = self.engine.assignBus(kind=kind, value=value, persist=persist)
@@ -1381,8 +1384,7 @@ class Session(AbstractRenderer):
         :meth:`~csoundengine.synth.Synth.stop`
         """
         if pfields and args:
-            raise ValueError(f"Either pfields as positional arguments or args can be given, "
-                             f"got both")
+            raise ValueError("Either pfields as positional arguments or args can be given, got both")
         elif pfields:
             args = pfields
 
@@ -1664,6 +1666,7 @@ class Session(AbstractRenderer):
         if (table := self._pathToTabproxy.get(path)) is not None and not force:
             return table
         tabnum = self.engine.readSoundfile(path=path, chan=chan, skiptime=skiptime, block=block)
+        import sndfileio
         info = sndfileio.sndinfo(path)
         table = TableProxy(tabnum=tabnum,
                            path=path,
@@ -2061,6 +2064,7 @@ class Session(AbstractRenderer):
 
         if isinstance(source, str):
             if not loop and dur == 0:
+                import sndfileio
                 info = sndfileio.sndinfo(source)
                 dur = info.duration / speed + fadeout
             return Event(instrname='.diskin', delay=delay, dur=dur, whenfinished=whenfinished,
@@ -2198,6 +2202,7 @@ class Session(AbstractRenderer):
             >>> renderer.render("out.wav")
 
         """
+        from . import offline
         renderer = offline.OfflineSession(sr=sr or config['rec_sr'],
                                           nchnls=nchnls if nchnls is not None else self.engine.nchnls,
                                           ksmps=ksmps or config['rec_ksmps'],
@@ -2231,7 +2236,7 @@ def _namedControlsGenerateCode(controls: dict) -> str:
         the generated code
     """
 
-    lines = [fr'''
+    lines = [r'''
     ; --- start generated code for dynamic args
     i__slicestart__ = p4
     i__tabnum__ chnget ".dynargsTabnum"

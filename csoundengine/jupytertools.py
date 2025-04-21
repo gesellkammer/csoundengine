@@ -4,6 +4,7 @@ from typing import Callable
 
 from emlib.envir import inside_jupyter
 
+
 if inside_jupyter():
     import ipywidgets as _ipywidgets
     from IPython.display import display as _ipythonDisplay

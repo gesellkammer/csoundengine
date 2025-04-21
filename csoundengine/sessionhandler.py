@@ -1,10 +1,13 @@
 from __future__ import annotations
-from . import event as _event
-from . import tableproxy
-from . import schedevent
 
-import numpy as np
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from . import tableproxy
+    from . import schedevent
+    import numpy as np
+    from . import event as _event
 
 
 class SessionHandler(ABC):

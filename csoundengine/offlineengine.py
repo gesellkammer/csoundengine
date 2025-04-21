@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Sequence
 
 import libcsound
 import numpy as np
-import sndfileio
 
 from . import csoundlib, engineorc, internal
 from .config import config, logger
@@ -19,6 +18,8 @@ from .enginebase import TableInfo, _EngineBase
 from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL
 from .errors import CsoundError
 from .renderjob import RenderJob
+from . import tools
+
 
 if TYPE_CHECKING:
     from csoundengine.csd import Csd
@@ -670,7 +671,7 @@ class OfflineEngine(_EngineBase):
     @property
     def renderjob(self) -> RenderJob | None:
         if not self._renderjob:
-            info = sndfileio.sndinfo(self.outfile)
+            info = tools.sndfileInfo(self.outfile)
             if info.duration == 0:
                 return None
             renderjob = RenderJob(outfile=self.outfile, samplerate=self.sr, encoding=self.encoding)
@@ -717,7 +718,7 @@ class OfflineEngine(_EngineBase):
         if not os.path.exists(self.outfile):
             raise RuntimeError(f"Did not find rendered file '{self.outfile}'")
 
-        info = sndfileio.sndinfo(self.outfile)
+        info = tools.sndfileInfo(self.outfile)
         if info.duration > 0:
             renderjob = RenderJob(outfile=self.outfile, samplerate=self.sr, encoding=self.encoding)
             self._renderjob = renderjob
@@ -1339,7 +1340,7 @@ class OfflineEngine(_EngineBase):
         """
         assert not self._stopped
         if dur < 0:
-            info = sndfileio.sndinfo(path)
+            info = tools.sndfileInfo(path)
             sampledur = info.duration
             estimatedDuration = sampledur / speed
             endtime = delay + estimatedDuration

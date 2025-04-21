@@ -123,7 +123,6 @@ from __future__ import annotations
 import atexit as _atexit
 import ctypes as _ctypes
 import fnmatch as _fnmatch
-import math
 import os.path
 import queue as _queue
 import re as _re
@@ -132,23 +131,20 @@ import tempfile
 import textwrap as _textwrap
 import threading as _threading
 import time
-from typing import TYPE_CHECKING
 
-import emlib.net
-import emlib.textlib
 import numpy as np
 import pitchtools as pt
 from emlib import iterlib
 from emlib.containers import IntPool
 
 from . import csoundlib, engineorc, internal
-from . import jacktools as jacktools
 from . import state as _state
 from .config import config, logger
 from .enginebase import TableInfo, _EngineBase
 from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL, CONSTS
 from .errors import CsoundError, TableNotFoundError
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import socket
     from typing import Callable, Sequence
@@ -611,6 +607,7 @@ class Engine(_EngineBase):
         self._sendAddr: None | tuple[str, int] = None
 
         if udpserver:
+            import emlib.net
             self.udpPort = udpport or emlib.net.findport()
             self._udpSocket = emlib.net.udpsocket()
             self._sendAddr = ("127.0.0.1", self.udpPort)
@@ -820,6 +817,7 @@ class Engine(_EngineBase):
         buffersize = self.bufferSize
         optB = buffersize * self.numBuffers
         if self.backend == 'jack':
+            from . import jacktools
             jackinfo = jacktools.getInfo()
             if jackinfo is None:
                 logger.error("Asked to use jack as backend, but jack is not running")
