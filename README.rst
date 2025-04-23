@@ -157,6 +157,15 @@ higher level interface, allowing to:
         filt.automatep('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start) 
 
 
+
+-----
+
+Offline
+~~~~~~~
+
+Both an Engine or a Session have an offline version, :class:`OfflineEngine` and :class:`OfflineSession`. In these
+cases the csound process is started to render to a soundfile, possibly faster than realtime.
+
 -----
 
 Installation
@@ -168,14 +177,14 @@ Dependencies
 ~~~~~~~~~~~~
 
 * python >= 3.9
-* csound 6 >= 6.16 (https://github.com/csound/csound/releases). 
+* csound 6 >= 6.17 (https://github.com/csound/csound/releases). Csound 7 is supported and recommended
 
 .. code-block:: bash
 
     pip install csoundengine
 
-**csoundengine** also needs many csound plugins (https://github.com/csound-plugins/csound-plugins/releases),
-but these are installed automatically if needed.
+**csoundengine** also needs some csound plugins (https://github.com/csound-plugins/csound-plugins/releases),
+which are installed automatically if needed.
 
 
 Documentation

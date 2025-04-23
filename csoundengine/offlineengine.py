@@ -157,7 +157,7 @@ class OfflineEngine(_EngineBase):
         numAudioBuses: number of audio buses (see :ref:`Bus Opcodes<busopcodes>`)
         numControlBuses: number of control buses (see :ref:`Bus Opcodes<busopcodes>`)
         quiet: if True, suppress output of csound (-m 0)
-        includes: a list of files to include. Can be added later via :meth:`Engine.includeFile`
+        includes: a list of files to include. Can be added later via :meth:`~OfflineEngine.includeFile`
         sampleAccurate: use sample-accurate scheduling
         commandlineOptions: command line options passed verbatim to the
             csound process when started
@@ -436,10 +436,7 @@ class OfflineEngine(_EngineBase):
             for t in np.arange(2, 4, 0.2):
                 e.sched(100, t+now, 0.2, relative=False, p7=9.8)
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~csoundengine.engine.Engine.unschedAll`
+        .. seealso:: :meth:`~csoundengine.engine.Engine.unschedAll`
         """
         if not self.csound:
             raise RuntimeError("This OfflineEngine has no associated csound process")
@@ -528,10 +525,7 @@ class OfflineEngine(_EngineBase):
         >>> eventid = e.sched(10, 0, -1)
         >>> e.unsched(eventid, 10)
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~Engine.unschedAll`
+        .. seealso:: :meth:`~Engine.unschedAll`
 
         """
         if (isinstance(p1, int) and int(p1) != p1) or (isinstance(p1, str) and "." in p1):
@@ -1305,7 +1299,13 @@ class OfflineEngine(_EngineBase):
         """
         self.generateCsd().write(outfile)
 
-    def includeFile(self, include: str):
+    def includeFile(self, include: str) -> None:
+        """
+        Adds an #include file to this engine and evaluates the file contents
+
+        Args:
+            include: the path to the file to be included and evaluated
+        """
         abspath = os.path.abspath(include)
         for f in self.includes:
             if abspath == f:
@@ -1331,11 +1331,9 @@ class OfflineEngine(_EngineBase):
         Returns:
             the instance number of the scheduled event
 
-        See Also
-        ~~~~~~~~
-
-        * :meth:`~OfflineEngine.readSoundfile`
-        * :meth:`~OfflineEngine.playSample`
+        .. seealso::
+            * :meth:`~OfflineEngine.readSoundfile`
+            * :meth:`~OfflineEngine.playSample`
 
         """
         assert not self._stopped
@@ -1372,22 +1370,23 @@ class OfflineEngine(_EngineBase):
                 (string values are not supported)
             delay: when to start the automation
 
-        Example
-        ~~~~~~~
+        .. rubric:: Example
 
-        >>> engine = OfflineEngine(...)
-        >>> engine.compile(r'''
-        ... instr foo
-        ...   kamp = p5
-        ...   kfreq = p6
-        ...   a0 oscili kamp, kfreq
-        ...   outch 1, a0
-        ... endin
-        ... ''')
-        >>> p1 = engine.sched('foo', args=[0.1, 440], unique=True)
-        >>> p1
-        'foo.0001'
-        >>> engine.setp(p1, 5, 0.2, delay=0.5)
+        .. code-block:: python
+
+            >>> engine = OfflineEngine(...)
+            >>> engine.compile(r'''
+            ... instr foo
+            ...   kamp = p5
+            ...   kfreq = p6
+            ...   a0 oscili kamp, kfreq
+            ...   outch 1, a0
+            ... endin
+            ... ''')
+            >>> p1 = engine.sched('foo', args=[0.1, 440], unique=True)
+            >>> p1
+            'foo.0001'
+            >>> engine.setp(p1, 5, 0.2, delay=0.5)
         """
         numpairs = len(pairs) // 2
         if len(pairs) % 2 == 1:

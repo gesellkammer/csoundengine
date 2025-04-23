@@ -1461,10 +1461,7 @@ class Engine(_EngineBase):
             ...     e.sched(100, t, 0.15, args=[800])
             >>> e.lockClock(False)
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`Engine.elapsedTime`, :meth:`Engine.lockedClock`
+        .. seealso:: :meth:`Engine.elapsedTime`, :meth:`Engine.lockedClock`
 
         """
         if lock:
@@ -1654,10 +1651,7 @@ class Engine(_EngineBase):
             for t in np.arange(2, 4, 0.2):
                 e.sched(100, t+now, 0.2, relative=False)
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~csoundengine.engine.Engine.unschedAll`
+        .. seealso:: :meth:`~csoundengine.engine.Engine.unschedAll`
         """
         assert self.started
 
@@ -1885,10 +1879,7 @@ class Engine(_EngineBase):
         >>> eventid = e.sched(10, 0, -1)
         >>> e.unsched(eventid, 10)
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~Engine.unschedAll`
+        .. seealso:: :meth:`~Engine.unschedAll`
 
         """
         if future:
@@ -1904,11 +1895,7 @@ class Engine(_EngineBase):
         """
         Remove all playing and future events
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~csoundengine.engine.Engine.unsched`,
-        :meth:`~csoundengine.engine.Engine.unschedFuture`
+        .. seealso:: :meth:`~csoundengine.engine.Engine.unsched`, :meth:`~csoundengine.engine.Engine.unschedFuture`
         """
         assert self.csound is not None
         self.csound.rewindScore()
@@ -2365,11 +2352,10 @@ class Engine(_EngineBase):
 
         .. image:: assets/tableplot-sine.png
 
-        See Also
-        ~~~~~~~~
+        .. seealso::
 
-        :meth:`~csoundengine.engine.Engine.readSoundfile`
-        :meth:`~csoundengine.engine.Engine.makeTable`
+            * :meth:`~csoundengine.engine.Engine.readSoundfile`
+            * :meth:`~csoundengine.engine.Engine.makeTable`
         """
         from csoundengine import plotting
         assert isinstance(tabnum, int) and tabnum > 0
@@ -2857,12 +2843,11 @@ class Engine(_EngineBase):
 
         .. figure:: assets/tableplot-sine.png
 
-        See Also
-        ~~~~~~~~
+        .. seealso::
 
-        :meth:`~Engine.makeTable`
-        :meth:`~Engine.plotTable`
-        :meth:`~Engine.readSoundfile`
+            * :meth:`~Engine.makeTable`
+            * :meth:`~Engine.plotTable`
+            * :meth:`~Engine.readSoundfile`
         """
         assert self.csound is not None
         if not isinstance(tabnum, int) or tabnum <= 0:
@@ -2900,8 +2885,7 @@ class Engine(_EngineBase):
             allocated via ``GEN01`` (for example, using :meth:`~Engine.readSoundfile`).
             This data can also be set explicitely via :meth:`~Engine.setTableMetadata`
 
-        Example
-        -------
+        .. rubric:: Example
 
             >>> from csoundengine import *
             >>> e = Engine()
@@ -2909,12 +2893,11 @@ class Engine(_EngineBase):
             >>> e.tableInfo(source)
             TableInfo(tableNumber=200, sr=44100.0, numChannels=2, numFrames=88200, size=176401)
 
-        See Also
-        ~~~~~~~~
+        .. seealso::
 
-        :meth:`~Engine.readSoundfile`
-        :meth:`~Engine.plotTable`
-        :meth:`~Engine.getTableData`
+            * :meth:`~Engine.readSoundfile`
+            * :meth:`~Engine.plotTable`
+            * :meth:`~Engine.getTableData`
 
         """
         info = self._tableInfo.get(tabnum)
@@ -2980,13 +2963,13 @@ class Engine(_EngineBase):
         >>> # Reduce the gain to 0.8 after 2 seconds
         >>> engine.setp(eventid, 4, 0.8, delay=2)
 
-        See Also
-        ~~~~~~~~
+        .. seealso::
 
-        :meth:`~Engine.playSample`
-        :meth:`~Engine.makeTable`
-        :meth:`~Engine.fillTable`
-        :meth:`~Engine.getTableData`
+            * :meth:`~Engine.playSample`
+            * :meth:`~Engine.makeTable`
+            * :meth:`~Engine.fillTable`
+            * :meth:`~Engine.getTableData`
+
         """
         if block and callback:
             raise ValueError("blocking mode not supported when a callback is given")
@@ -3077,11 +3060,10 @@ class Engine(_EngineBase):
 
         .. figure:: assets/select-preset.png
 
-        See Also
-        ~~~~~~~~
+        .. seealso::
 
-        :meth:`~Engine.soundfontPreparePreset`
-        :meth:`~Engine.playSample`
+            * :meth:`~Engine.soundfontPreparePreset`
+            * :meth:`~Engine.playSample`
 
         """
         assert index in self._soundfontPresets.values()
@@ -3114,11 +3096,10 @@ class Engine(_EngineBase):
             an index assigned to this preset, which can be used with
             sfplay/sfplay3 or with :meth:``~Engine.soundfontPlay``
 
-        See Also
-        ~~~~~~~~
+        .. seealso::
 
-        :meth:`~Engine.soundfontPlay`
-        :meth:`~Engine.playSample`
+            * :meth:`~Engine.soundfontPlay`
+            * :meth:`~Engine.playSample`
         """
         if sf2path == "?":
             sf2path = _state.openSoundfont(ensureSelection=True)
@@ -3215,13 +3196,12 @@ class Engine(_EngineBase):
             >>> e.setp(eventid, 5, 0.5)   # Play at half speed
 
 
-        See Also
-        ~~~~~~~~
+        .. seealso::
 
-        * :meth:`~Engine.playSoundFromDisk`
-        * :meth:`~Engine.makeTable`
-        * :meth:`~Engine.readSoundfile`
-        * :meth:`~Engine.soundfontPlay`
+            * :meth:`~Engine.playSoundFromDisk`
+            * :meth:`~Engine.makeTable`
+            * :meth:`~Engine.readSoundfile`
+            * :meth:`~Engine.soundfontPlay`
 
         """
         if not isinstance(tabnum, int):
@@ -3295,10 +3275,7 @@ class Engine(_EngineBase):
         >>> p1 = engine.sched(100, args=[0.1, 440])
         >>> engine.setp(p1, 5, 0.2, delay=0.5)
 
-        See Also
-        ~~~~~~~~
-
-        * :meth:`~Engine.automatep`
+        .. seealso:: :meth:`~Engine.automatep`
         """
         if isinstance(p1, str):
             raise TypeError("named instrs not supported yet")
@@ -3389,11 +3366,10 @@ class Engine(_EngineBase):
         >>> # Automate from the current value, will produce a fade-out
         >>> engine.automateTable(source, 0, [0, -1, 2, 0], overtake=True, delay=5)
 
-        See Also
-        ~~~~~~~~
+        .. seealso::
 
-        :meth:`~Engine.setp`
-        :meth:`~Engine.automatep`
+            * :meth:`~Engine.setp`
+            * :meth:`~Engine.automatep`
 
 
         """
@@ -3514,10 +3490,7 @@ class Engine(_EngineBase):
             it can be used to retrieve the original string via
             ``Sstr = strget(idx)``
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~Engine.strGet`
+        .. seealso:: :meth:`~Engine.strGet`
 
         """
         assert self.started and s

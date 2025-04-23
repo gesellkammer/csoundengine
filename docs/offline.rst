@@ -91,6 +91,7 @@ An alternative way to render offline given a live :class:`~csoundengine.session.
 
 .. toctree::
     :hidden:
+
     renderjob
     schedevent
 

@@ -177,6 +177,7 @@ class _EngineBase(ABC):
                   delay=0.
                   ) -> int: ...
 
+    @abstractmethod
     def initChannel(self,
                     channel: str,
                     value: float | str | np.ndarray = 0,
@@ -214,7 +215,7 @@ class _EngineBase(ABC):
         >>> eventid = e.sched(100)
         >>> e.setChannel("mastergain", 0.5)
         """
-        pass
+        ...
 
     @abstractmethod
     def includeFile(self, include: str) -> None:

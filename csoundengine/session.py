@@ -118,8 +118,7 @@ class Session(AbstractRenderer):
     calling :meth:`~csoundengine.engine.Engine.session` again will always return the
     same Session object.
 
-    Example
-    -------
+    .. rubric:: Example
 
     In order to add an instrument to a :class:`~csoundengine.session.Session`,
     an :class:`~csoundengine.instr.Instr` is created and registered with the Session.
@@ -227,13 +226,12 @@ class Session(AbstractRenderer):
                 has been provided. See docs for :class:`~csoundengine.engine.Engine`
                 for available keywords.
 
-        Example
-        ~~~~~~~
+        .. rubric:: Example
 
             >>> from csoundengine import *
             >>> session = Engine(nchnls=4, nchnls_i=2).session()
 
-        This is the same as
+        This is the same as::
 
             >>> engine = Engine(nchnls=4, nchnls_i=2)
             >>> session = Session(engine=engine)
@@ -384,8 +382,7 @@ class Session(AbstractRenderer):
         Returns:
             the integer p1
 
-        Example
-        ~~~~~~~
+        .. rubric:: Example
 
             >>> s = Session()
             >>> s.defInstr('foo', ...)
@@ -694,8 +691,7 @@ class Session(AbstractRenderer):
             there are instrument numbers that are reserved (see )
 
 
-        Example
-        ~~~~~~~
+        .. rubric:: Example
 
             >>> session = Engine().session()
             # An Instr with named parameters
@@ -743,10 +739,7 @@ class Session(AbstractRenderer):
 
         This will call the instr "printstop" when the synth is stopped.
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~Session.sched`
+        .. seealso:: :meth:`~Session.sched`
         """
         oldinstr = self.instrs.get(name)
         instr = Instr(name=name, body=body, args=args, init=init,
@@ -792,10 +785,7 @@ class Session(AbstractRenderer):
             True if the action was performed, False if this instr was already
             defined in its current form
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~Session.defInstr`
+        .. seealso:: :meth:`~Session.defInstr`
 
         """
         if instr.id in self._instrIndex:
@@ -867,10 +857,7 @@ class Session(AbstractRenderer):
         Args:
             instrname: the name of the Instr - **use "?" to select interactively**
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~Session.defInstr`
+        .. seealso:: :meth:`~Session.defInstr`
         """
         if instrname == "?":
             if (selection := _dialogs.selectItem(list(self.instrs.keys()))):
@@ -944,10 +931,7 @@ class Session(AbstractRenderer):
         Returns:
             the actual (integer) instrument number inside csound
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~Session.defInstr`
+        .. seealso:: :meth:`~Session.defInstr`
         """
         assert isinstance(priority, int) and 1 <= priority <= self.numPriorities
         assert instrname in self.instrs
@@ -992,15 +976,12 @@ class Session(AbstractRenderer):
         .. seealso:: :meth:`csoundengine.engine.Engine.assignBus`, :class:`csoundengine.busproxy.Bus`
 
 
-        Example
-        ~~~~~~~
+        .. rubric:: Example
 
         .. code-block:: python
 
             from csoundengine import *
-
             s = Engine().session()
-
             s.defInstr('sender', r'''
             ibus = p5
             ifreqbus = p6
@@ -1088,8 +1069,7 @@ class Session(AbstractRenderer):
         Returns:
             the generated Synth
 
-        Example
-        ~~~~~~~
+        .. rubric:: Example
 
         >>> from csoundengine import *
         >>> s = Engine().session()
@@ -1191,8 +1171,7 @@ class Session(AbstractRenderer):
         Returns:
             a :class:`csoundengine.offline.OfflineSession`
 
-        Example
-        ~~~~~~~
+        .. rubric:: Example
 
             >>> from csoundengine import *
             >>> s = Engine().session()
@@ -1359,8 +1338,7 @@ class Session(AbstractRenderer):
             a :class:`~csoundengine.synth,Synth`, which is a handle to the instance
             (can be stopped, etc.)
 
-        Example
-        ~~~~~~~
+        .. rubric:: Example
 
         >>> from csoundengine import *
         >>> s = Session()
@@ -1378,10 +1356,7 @@ class Session(AbstractRenderer):
         ...
         >>> synth.stop()
 
-        See Also
-        ~~~~~~~~
-
-        :meth:`~csoundengine.synth.Synth.stop`
+        .. seealso:: :meth:`~csoundengine.synth.Synth.stop`
         """
         if pfields and args:
             raise ValueError("Either pfields as positional arguments or args can be given, got both")
@@ -1643,8 +1618,7 @@ class Session(AbstractRenderer):
             .nchnls: the number of channels in the output
             .sr: the sample rate of the output
 
-        Example
-        ~~~~~~~
+        .. rubric:: Example
 
             >>> import csoundengine as ce
             >>> session = ce.Engine().session()
@@ -1922,8 +1896,7 @@ class Session(AbstractRenderer):
         Returns:
             the playing Synth
 
-        Example
-        ~~~~~~~
+        .. rubric:: Example
 
             >>> import loristrck as lt
             >>> import csoundengine as ce
@@ -2187,8 +2160,8 @@ class Session(AbstractRenderer):
         Returns:
             an :class:`csoundengine.offline.OfflineSession`
 
-        Example
-        -------
+        .. rubric:: Example
+
 
             >>> from csoundengine import *
             >>> s = Engine().session()

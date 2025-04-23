@@ -24,7 +24,6 @@ import sys
 import tempfile as _tempfile
 import textwrap as _textwrap
 
-
 import cachetools as _cachetools
 import emlib.mathlib
 import emlib.misc
@@ -1294,15 +1293,9 @@ def _csoundTestJackRunning():
     return b'could not connect to JACK server' not in proc.stderr.read()
 
 
-def audioBackends(available=False, platform='') -> list[AudioBackend]:
+def audioBackends() -> list[AudioBackend]:
     """
-    Return a list of audio backends for the given platform
-
-    Args:
-        available: if True, only available backends are returned. This
-            is only possible if querying backends for the current platform
-        platform: defaults to the current platform. Possible values: 'linux',
-            'macos', 'windows', but also any value returned by sys.platform
+    Return a list of available audio backends
 
     Returns:
         a list of AudioBackend
@@ -1315,21 +1308,10 @@ def audioBackends(available=False, platform='') -> list[AudioBackend]:
     ~~~~~~~
 
         >>> from csoundengine import *
-        >>> [backend.name for backend in audioBackends(available=True)]
+        >>> [backend.name for backend in audioBackends()]
         ['jack', 'pa_cb', 'pa_bl', 'alsa']
     """
-    if platform:
-        platform = internal.normalizePlatform(platform)
-    if available:
-        platform = sys.platform
-    elif not platform:
-        platform = sys.platform
-    if available and platform != sys.platform:
-        available = False
-    backends = _backendsByPlatform[platform]
-    if available:
-        backends = [b for b in backends if b.isAvailable()]
-    return backends
+    return list(_allAudioBackends.values())
 
 
 def dumpAudioBackends() -> None:
@@ -1338,7 +1320,7 @@ def dumpAudioBackends() -> None:
     """
     rows = []
     headers = "name longname sr".split()
-    backends = audioBackends(available=True)
+    backends = audioBackends()
     backends.sort(key=lambda backend:backend.name)
     for b in backends:
         if b.hasSystemSr:
@@ -1398,7 +1380,7 @@ def getAudioBackendNames(available=False, platform='') -> list[str]:
         given platform
 
     Example
-    =======
+    -------
 
         >>> from csoundengine.csoundlib import *
         >>> getAudioBackendNames()   # in Linux
@@ -1495,7 +1477,7 @@ def csoundOptionsForOutputFormat(fmt='wav',
         sample format/encoding
 
     Example
-    ~~~~~~~
+    -------
 
         >>> csoundOptionsForOutputFormat('flac')
         ('--format=flac', '--format=24bit')
@@ -1539,7 +1521,7 @@ def csoundOptionForSampleEncoding(encoding: str) -> str:
         the csound command line option corresponding to the given format
 
     Example
-    =======
+    -------
 
         >>> csoundOptionForSampleEncoding("pcm24")
         --format=24bit
@@ -1589,7 +1571,7 @@ def mincer(sndfile: str,
         For example, a negative time or a time exceding the duration of the sndfile
 
     Examples
-    ========
+    --------
 
         # Example 1: stretch a output 2x
 
@@ -1975,7 +1957,7 @@ def instrNames(instrdef: str) -> list[int | str]:
         this is not a valid instr definition
 
     Example
-    ~~~~~~~
+    -------
 
         >>> instr = r'''
         ... instr 10, foo
@@ -2230,7 +2212,7 @@ class ParsedInstrBody:
         value, 0. is used
 
         Example
-        ~~~~~~~
+        -------
 
         Given a csound instr:
 
@@ -2289,8 +2271,9 @@ def lastAssignmentToVariable(varname: str, lines: list[str]) -> int | None:
         aout += ...
         aout2, aout = ...
 
+
     Example
-    ~~~~~~~
+    -------
 
         >>> lastAssignmentToVariable("aout", r'''
         ... aout oscili:a(0.1, 1000)
@@ -2357,6 +2340,15 @@ def locateDocstring(lines: list[str]) -> tuple[int | None, int]:
 
 
 def splitDocstring(body: str | list[str]) -> tuple[str, str]:
+    """
+    Given a docstring, split it into the docstring and the rest of the body.
+
+    Args:
+        body: the body of an instr (excluding instr/endin)
+
+    Returns:
+        a tuple (docstring, rest)
+    """
     if isinstance(body, str):
         lines = body.splitlines()
     else:
@@ -2372,6 +2364,15 @@ def splitDocstring(body: str | list[str]) -> tuple[str, str]:
 
 
 def instrGetBody(textOrLines: str | list[str]) -> str:
+    """
+    Get the body of the instrument, without 'instr' / 'endin'
+
+    Args:
+        textOrLines (str | list[str]): the text or lines of the instrument
+
+    Returns:
+        the body of the instr, as one string
+    """
     if isinstance(textOrLines, str):
         lines = textOrLines.splitlines()
     lines = internal.stripTrailingEmptyLines(lines)
@@ -2391,6 +2392,7 @@ def instrParseBody(body: str) -> ParsedInstrBody:
 
     Returns:
         a ParsedInstrBody
+
 
     Example
     -------
@@ -2598,8 +2600,9 @@ def soundfontIndex(sfpath: str) -> SoundFontIndex:
     Returns:
         a SoundFontIndex
 
+
     Example
-    ~~~~~~~
+    -------
 
         >>> from csoundengine import csoundlib
         >>> idx = csoundlib.soundfontIndex("/path/to/piano.sf2")
@@ -2729,6 +2732,16 @@ def soundfontInstrument(sfpath: str, name: str) -> int | None:
 
 @_functools.cache
 def soundfontKeyrange(sfpath: str, preset: tuple[int, int]) -> tuple[int, int] | None:
+    """
+    Determines the key range of a preset in a soundfont file.
+
+    Args:
+        sfpath: the path to a .sf2 file.
+        preset: the preset number (bank, program)
+
+    Returns:
+        the key range of the preset, if exists
+    """
     sf = _sf2file(sfpath)
     for p in sf.presets:
         if p.bank == preset[0] and p.preset == preset[1]:
@@ -2739,6 +2752,18 @@ def soundfontKeyrange(sfpath: str, preset: tuple[int, int]) -> tuple[int, int] |
 def soundfontPeak(sfpath: str, preset: tuple[int, int],
                   pitches: tuple[int, int] | None = None, dur=0.05
                   ) -> float:
+    """
+    Finds the peak amplitude of a soundfont preset.
+
+    Args:
+        sfpath: the path to a .sf2 file.
+        preset: the preset number (bank, program)
+        pitches: the pitches to play (min, max)
+        dur: the duration of each note
+
+    Returns:
+        the peak amplitude of the soundfont preset
+    """
     from csoundengine.offline import OfflineEngine
     e = OfflineEngine(nchnls=0, ksmps=128, numAudioBuses=0, numControlBuses=0)
     bank, prog = preset
@@ -2776,12 +2801,22 @@ def soundfontPeak(sfpath: str, preset: tuple[int, int],
     e.sched('sfpeak', 0, dur, (presetnum, pitches[0], pitches[1]))
     e.perform(extratime=0.1)
     assert e.csound is not None
-    value, error = e.csound.controlChannel("sfpeak")
+    value = e.getControlChannel("sfpeak")
     e.stop()
     return float(value)
 
 
 def splitScoreLine(line: str, quote=False) -> list[float | str]:
+    """
+    Split a score line into its tokens
+
+    Args:
+        line: the score line to split
+        quote: if True, add quotation marks to strings
+
+    Returns:
+        a list of tokens
+    """
     # i "instr" 1 2 3 "foo bar" 0.5 "foofi"
     kind = line[0]
     assert kind in 'ife'
@@ -2801,7 +2836,7 @@ def splitInclude(line: str) -> str:
     Given an include line it splits the include path
 
     Example
-    ~~~~~~~
+    -------
 
         >>> splitInclude(r'   #include "foo/bar" ')
         foo/bar
@@ -2887,6 +2922,17 @@ def isPfield(name: str) -> bool:
 def fillPfields(args: Sequence[float | str],
                 namedpargs: dict[int, float],
                 defaults: dict[int, float] | None) -> list[float | str]:
+    """
+    Given a set of arguments, named pfields and defaults, generates the list of pfields to be passed to csound
+
+    Args:
+        args: seq. of positional arguments, starting with p4
+        namedpargs: dict mapping pfield index to values
+        defaults: dict mapping pfield names to default values
+
+    Returns:
+        the pfield values, starting with p4
+    """
     out: list[float | str]
     if not defaults:
         if namedpargs and not args:
