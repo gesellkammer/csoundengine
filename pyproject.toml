@@ -30,7 +30,6 @@ dependencies = [
     "pygments",
     "sf2utils",
     "ipywidgets",
-    "progressbar2",
     "xxhash",
     "docstring_parser",
     "typing_extensions",

@@ -8,9 +8,14 @@ from emlib.envir import inside_jupyter
 from . import internal
 from .config import config
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+
 
 def _envelope(x: np.ndarray, hop: int):
-    return numpytools.overlapping_frames(x, hoplength=hop,
+    return numpytools.overlapping_frames(x, hop_length=hop,
                                          frame_length=hop).max(axis=0)
 
 
@@ -41,7 +46,7 @@ def _figsizeAsTuple(figsize) -> tuple[int, int]:
 
 
 def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False
-                     ) -> plt.Figure:
+                     ) -> Figure:
     numch = internal.arrayNumChannels(samples)
     numsamples = samples.shape[0]
     dur = numsamples / samplerate
@@ -163,7 +168,7 @@ def plotSamples(samples: np.ndarray,
 
 
 def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window='',
-                    overlap=4, axes: plt.Axes = None, cmap=None, interpolation='bilinear',
+                    overlap=4, axes: Axes = None, cmap=None, interpolation='bilinear',
                     minfreq=40, maxfreq=None,
                     mindb=-90, show=False):
     """
@@ -191,8 +196,8 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window='
     """
     if axes is None:
         figsize = _figsizeAsTuple(config['spectrogram_figsize'])
-        f: plt.Figure = plt.figure(figsize=figsize)
-        axes:plt.Axes = f.add_subplot(1, 1, 1)
+        f: Figure = plt.figure(figsize=figsize)
+        axes: Axes = f.add_subplot(1, 1, 1)
     hopsize = int(fftsize / overlap)
     noverlap = fftsize - hopsize
     if window is None:

@@ -1005,9 +1005,9 @@ class Engine(_EngineBase):
     def restart(self, wait=0.) -> None:
         """ Restart this engine. All defined instrs / tables are removed"""
         self.stop()
-        if wait > 0.5:
-            from . import termui
-            termui.waitWithAnimation(label='Restarting...', waittime=wait)
+        if wait:
+            import time
+            time.sleep(wait)
         self.start()
 
     def _outvalueCallback(self, _, channelName, valptr, chantypeptr):
