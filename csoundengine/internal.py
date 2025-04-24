@@ -866,3 +866,32 @@ def splitBytes(s: bytes, maxlen: int) -> list[bytes]:
         out.append(subs)
         idx += n
     return out
+
+
+def normalizePath(path: str) -> str:
+    """
+    Convert `path` to an absolute path with user expanded
+    (something that can be safely passed to a subprocess)
+    """
+    return os.path.abspath(os.path.expandvars(os.path.expanduser(path)))
+
+
+def exponcurve(num: int, exp: float, x0: float, x1: float, y0: float, y1: float) -> np.ndarray:
+    """
+    Generate an exponential curve between two points
+
+    Args:
+        num: number of points to generate
+        exp: exponent of the curve
+        x0: start x-coordinate
+        x1: end x-coordinate
+        y0: start y-coordinate
+        y1: end y-coordinate
+
+    Returns:
+        a numpy array of shape (num,) containing the y-coordinates of the curve
+    """
+    xs = np.linspace(x0, x1, num)
+    dxs = (xs - x0) / (x1 - x0)
+    ys = (dxs ** exp) * (y1 - y0) + y0
+    return ys

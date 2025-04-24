@@ -83,7 +83,7 @@ def getPluginsLatestRelease() -> dict[str, str]:
     return out
 
 
-def csoundInstalled() -> bool:
+def csoundBinaryInPath() -> bool:
     """ Returns True if csound is installed """
     return shutil.which("csound") is not None
 
@@ -279,8 +279,8 @@ def _checkDependencies(fix=False, quiet=False) -> str | None:
     """
     Either returns None or an error message
     """
-    if not csoundInstalled():
-        return "csound not installed. See https://csound.com/download.html"
+    if not csoundBinaryInPath():
+        logger.error("csound not found in the path. See https://csound.com/download.html. Some functionality might not be available")
 
     version = csoundlib.getVersion(useApi=True)
 
@@ -288,7 +288,7 @@ def _checkDependencies(fix=False, quiet=False) -> str | None:
         return f"Csound version ({version}) is too old, should be >= 6.16"
 
     if version[0] >= 7:
-        logger.warning("WARNING: Csound 7 support is experimental. Proceed at yout own risk")
+        logger.info("Csound 7 support is experimental")
 
     if not pluginsInstalled():
         if fix:
@@ -344,6 +344,7 @@ def checkDependencies(force=False, fix=True) -> bool:
     now = datetime.now()
     timeSinceLastCheck = now - datetime.fromisoformat(state['last_check'])
     if force or timeSinceLastCheck.days >= 30:
+        print("csoundengine - checking dependencies")
         logger.info("Checking dependencies")
         errormsg = _checkDependencies(fix=fix)
         if errormsg:

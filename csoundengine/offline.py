@@ -7,22 +7,16 @@ from dataclasses import dataclass
 from functools import cache
 from typing import TYPE_CHECKING
 
-import bpf4
-import emlib.filetools
 import emlib.iterlib
-import emlib.mathlib
-import emlib.misc
 import emlib.textlib
 import numpy as np
 
 from . import (
-    busproxy,
     csoundlib,
     engineorc,
     instrtools,
     internal,
     offlineorc,
-    sessioninstrs,
 )
 from . import csd as _csd
 from . import state as _state
@@ -39,6 +33,8 @@ if TYPE_CHECKING or "sphinx" in sys.modules:
     from typing import Any, Callable, Iterator, Sequence
     from .renderjob import RenderJob
     from .event import Event
+    from . import busproxy
+
 
 
 __all__ = (
@@ -202,8 +198,7 @@ class OfflineSession(AbstractRenderer):
 
         self._dynargsTokenCounter = 0
 
-        bucketSizeCurve = bpf4.expon(0.7, 1, 500, priorities, 50)
-        bucketSizes = [int(size) for size in bucketSizeCurve.map(priorities)]
+        bucketSizes = [int(x) for x in internal.exponcurve(priorities, 0.5, 1, priorities, 500, 20)]
 
         self._bucketSizes = bucketSizes
         """Size of each bucket, by bucket index"""
@@ -235,6 +230,7 @@ class OfflineSession(AbstractRenderer):
             self._builtinInstrs.update(instrIndex)
             self.csd.addGlobalCode(busorc)
 
+        from . import sessioninstrs
         for instr in sessioninstrs.builtinInstrs():
             self.registerInstr(instr)
 
@@ -774,6 +770,7 @@ class OfflineSession(AbstractRenderer):
         ivalue = float(value) if value is not None else 0.
         args = [0, token, ikind, int(persist), ivalue]
         self.csd.addEvent(self._builtinInstrs['busassign'], 0, 0, args=args)
+        from . import busproxy
         return busproxy.Bus(token=token, kind=kind, renderer=self, bound=False)
 
     def _writeBus(self, bus: busproxy.Bus, value: float, delay=0.) -> None:
@@ -956,7 +953,7 @@ class OfflineSession(AbstractRenderer):
         elif outfile == '?':
             outfile = _state.saveSoundfile(title="Select soundfile for rendering",
                                            ensureSelection=True)
-        outfile = emlib.filetools.normalizePath(outfile)
+        outfile = internal.normalizePath(outfile)
         outfiledir = os.path.split(outfile)[0]
         if not os.path.isdir(outfiledir) or not os.path.exists(outfiledir):
             raise FileNotFoundError(f"The path '{outfiledir}' where the rendered soundfile should "
@@ -1032,6 +1029,7 @@ class OfflineSession(AbstractRenderer):
 
         if openWhenDone:
             job.wait()
+            import emlib.misc
             emlib.misc.open_with_app(outfile, wait=True)
         elif wait:
             job.wait()
@@ -1697,7 +1695,7 @@ def _namedControlsGenerateCodeOffline(controls: dict) -> str:
         the generated code
     """
 
-    lines = [fr'''
+    lines = [r'''
     ; --- start generated code for dynamic args
     i__token__ = p4
     i__tabnum__ = gi__dynargsTable

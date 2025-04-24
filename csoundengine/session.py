@@ -14,7 +14,6 @@ from collections import deque
 from dataclasses import dataclass
 from functools import cache
 
-import bpf4
 import emlib.dialogs as _dialogs
 import emlib.textlib as _textlib
 import numpy as np
@@ -26,6 +25,7 @@ from . import (
     instrtools,
     jupytertools,
     sessioninstrs,
+    internal
 )
 from . import internal as _internal
 from . import state as _state
@@ -275,8 +275,7 @@ class Session(AbstractRenderer):
         self._sessionInstrStart = engineorc.CONSTS['sessionInstrsStart']
         """Start of the reserved instr space for session"""
 
-        bucketSizeCurve = bpf4.expon(0.7, 1, 500, self.numPriorities, 50)
-        bucketSizes = [int(size) for size in bucketSizeCurve.map(self.numPriorities)]
+        bucketSizes = [int(x) for x in internal.exponcurve(priorities, 0.5, 1, priorities, 500, 20)]
         bucketIndices = [self._sessionInstrStart + sum(bucketSizes[:i])
                          for i in range(self.numPriorities)]
 

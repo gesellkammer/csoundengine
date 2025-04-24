@@ -52,7 +52,7 @@ except Exception as e:
         from sphinx.ext.autodoc.mock import _MockObject
         libcsound = _MockObject()
     else:
-        print("libcsound not found! Install it via 'pip install libcsound'")
+        print("Error importing libcsound")
         raise e
 
 logger = _logging.getLogger("csoundengine")
@@ -983,11 +983,11 @@ def saveAsGen23(data: Sequence[float] | np.ndarray,
 
     .. code-block:: python
 
-        import bpf4
-        from csoundengine import csoundlib
-        a = bpf.linear(0, 0, 1, 10, 2, 300)
-        dt = 0.01
-        csoundlib.saveAsGen23(a[::dt].ys, "out.gen23", header=f"dt={dt}")
+        >>> import bpf4
+        >>> from csoundengine import csoundlib
+        >>> a = bpf.linear(0, 0, 1, 10, 2, 300)
+        >>> dt = 0.01
+        >>> csoundlib.saveAsGen23(a[::dt].ys, "out.gen23", header=f"dt={dt}")
 
 
     In csound:
@@ -1537,12 +1537,11 @@ def csoundOptionForSampleEncoding(encoding: str) -> str:
     return _fmtoptions[encoding]
 
 
-
 def mincer(sndfile: str,
            outfile: str,
-           timecurve: Curve | float,
-           pitchcurve: Curve | float,
-           dt=0.002, lock=False, fftsize=2048, ksmps=128, debug=False
+           timecurve: float | Callable[[float], float] = 1.,
+           pitchcurve: float | Callable[[float], float] = 1.,
+           lock=False, fftsize=2048, ksmps=128, debug=False
            ) -> dict:
     """
     Stretch/Pitchshift a output using csound's mincer opcode (offline)
@@ -1582,31 +1581,35 @@ def mincer(sndfile: str,
         >>> timecurve = bpf4.linear(0, 0, snddur*2, snddur)
         >>> mincer(sndfile, "mono2.wav", timecurve=timecurve, pitchcurve=1)
     """
-    import bpf4
-    import bpf4.util
     import sndfileio
 
     info = sndfileio.sndinfo(sndfile)
     sr = info.samplerate
     nchnls = info.channels
-    pitchbpf = bpf4.util.asbpf(pitchcurve)
-
+    t0 = 0
+    dt = 0.002
     if isinstance(timecurve, (int, float)):
-        t0, t1 = 0, info.duration / timecurve
-        timebpf = bpf4.linear(0, 0, t1, info.duration)
-    elif isinstance(timecurve, bpf4.BpfInterface):
-        t0, t1 = timecurve.bounds()
-        timebpf = timecurve
+        t1 = info.duration / timecurve
+        ts = np.arange(0, t1 + dt, dt)
+        times = ts * (1./timecurve)
+    elif callable(timecurve):
+        t1 = info.duration
+        ts = np.arange(0, t1 + dt, dt)
+        times = [timecurve(float(t)) for t in ts]
     else:
         raise TypeError("timecurve should be either a scalar or a bpf")
 
-    assert isinstance(pitchcurve, (int, float, bpf4.BpfInterface))
+    if isinstance(pitchcurve, (int, float)):
+        pitches = np.ones_like(ts) * pitchcurve
+    else:
+        pitches = [pitchcurve(float(t)) for t in ts]
+
     ts = np.arange(t0, t1+dt, dt)
     fmt = "%.12f"
     _, time_gen23 = _tempfile.mkstemp(prefix='time-', suffix='.gen23')
-    np.savetxt(time_gen23, timebpf.map(ts), fmt=fmt, header=str(dt), comments='')
+    np.savetxt(time_gen23, times, fmt=fmt, header=str(dt), comments='')
     _, pitch_gen23 = _tempfile.mkstemp(prefix='pitch-', suffix='.gen23')
-    np.savetxt(pitch_gen23, pitchbpf.map(ts), fmt=fmt, header=str(dt), comments='')
+    np.savetxt(pitch_gen23, pitches, fmt=fmt, header=str(dt), comments='')
     ext = _os.path.splitext(outfile)[1][1:]
     extraoptions = []
     extraoptions.extend(csoundOptionsForOutputFormat(fmt=ext))

@@ -109,7 +109,7 @@ import sys
 
 import emlib.envir
 
-from . import busproxy, csoundlib, instr, tools
+from . import csoundlib, instr, tools
 from .config import config, logger
 from .csoundlib import dumpAudioInfo
 from .engine import Engine
@@ -131,7 +131,6 @@ __all__ = [
     'Event',
     'instr',
     'tools',
-    'busproxy',
     'csoundlib',
     'dumpAudioInfo',
     'installDependencies',
@@ -139,8 +138,9 @@ __all__ = [
 
 
 if 'sphinx' not in sys.modules:
+    # Not building docs
     from .dependencies import checkDependencies, installDependencies
-    _ok = checkDependencies(force=True, fix=True)
+    _ok = checkDependencies(force=False, fix=True)
     if not _ok:
         raise RuntimeError("csoundengine: Depencencies not fullfilled")
 else:
