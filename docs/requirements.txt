@@ -1,16 +1,15 @@
 numpy
 scipy
 matplotlib
-JACK-client
+cachetools
+appdirs
 pygments
+JACK-client
 sndfileio
 emlib
-cachetools
 configdict
 pitchtools
-bpf4
-numpyx
-appdirs
+typing_extensions
 
 sphinx-autodoc-typehints
 sphinx-automodapi
