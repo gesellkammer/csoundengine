@@ -228,13 +228,13 @@ class Session(AbstractRenderer):
 
         .. rubric:: Example
 
-            >>> from csoundengine import *
-            >>> session = Engine(nchnls=4, nchnls_i=2).session()
+        >>> from csoundengine import *
+        >>> session = Engine(nchnls=4, nchnls_i=2).session()
 
         This is the same as::
 
-            >>> engine = Engine(nchnls=4, nchnls_i=2)
-            >>> session = Session(engine=engine)
+        >>> engine = Engine(nchnls=4, nchnls_i=2)
+        >>> session = Session(engine=engine)
         """
         super().__init__()
 
@@ -383,6 +383,8 @@ class Session(AbstractRenderer):
 
         .. rubric:: Example
 
+        .. code-block:: python
+        
             >>> s = Session()
             >>> s.defInstr('foo', ...)
             >>> s.instanceToNumber('foo', 1)
@@ -692,6 +694,8 @@ class Session(AbstractRenderer):
 
         .. rubric:: Example
 
+        .. code-block:: python
+        
             >>> session = Engine().session()
             # An Instr with named parameters
             >>> session.defInstr('filter', r'''
@@ -1172,20 +1176,20 @@ class Session(AbstractRenderer):
 
         .. rubric:: Example
 
-            >>> from csoundengine import *
-            >>> s = Engine().session()
-            >>> s.defInstr('simplesine', r'''
-            ... |kfreq=440, kgain=0.1, iattack=0.05|
-            ... asig vco2 1, ifreq
-            ... asig *= linsegr:a(0, iattack, 1, 0.1, 0)
-            ... asing *= kgain
-            ... outch 1, asig
-            ... ''')
-            >>> with s.rendering('out.wav') as r:
-            ...     r.sched('simplesine', 0, dur=2, kfreq=1000)
-            ...     r.sched('simplesine', 0.5, dur=1.5, kfreq=1004)
-            >>> # Generate the corresponding csd
-            >>> r.writeCsd('out.csd')
+        >>> from csoundengine import *
+        >>> s = Engine().session()
+        >>> s.defInstr('simplesine', r'''
+        ... |kfreq=440, kgain=0.1, iattack=0.05|
+        ... asig vco2 1, ifreq
+        ... asig *= linsegr:a(0, iattack, 1, 0.1, 0)
+        ... asing *= kgain
+        ... outch 1, asig
+        ... ''')
+        >>> with s.rendering('out.wav') as r:
+        ...     r.sched('simplesine', 0, dur=2, kfreq=1000)
+        ...     r.sched('simplesine', 0.5, dur=1.5, kfreq=1004)
+        >>> # Generate the corresponding csd
+        >>> r.writeCsd('out.csd')
 
         .. seealso:: :class:`~csoundengine.offline.OfflineSession`
         """
@@ -1619,16 +1623,16 @@ class Session(AbstractRenderer):
 
         .. rubric:: Example
 
-            >>> import csoundengine as ce
-            >>> session = ce.Engine().session()
-            >>> table = session.readSoundfile("path/to/soundfile.flac")
-            >>> table
-            TableProxy(source=100, sr=44100, nchnls=2,
-                       numframes=88200, path='path/to/soundfile.flac',
-                       freeself=False)
-            >>> table.duration()
-            2.0
-            >>> session.playSample(table)
+        >>> import csoundengine as ce
+        >>> session = ce.Engine().session()
+        >>> table = session.readSoundfile("path/to/soundfile.flac")
+        >>> table
+        TableProxy(source=100, sr=44100, nchnls=2,
+                   numframes=88200, path='path/to/soundfile.flac',
+                   freeself=False)
+        >>> table.duration()
+        2.0
+        >>> session.playSample(table)
 
         """
         if self.isRendering():
@@ -1897,13 +1901,13 @@ class Session(AbstractRenderer):
 
         .. rubric:: Example
 
-            >>> import loristrck as lt
-            >>> import csoundengine as ce
-            >>> samples, sr = lt.util.sndread("/path/to/soundfile")
-            >>> partials = lt.analyze(samples, sr, resolution=50)
-            >>> lt.util.partials_save_matrix(partials, outfile='packed.mtx')
-            >>> session = ce.Engine().session()
-            >>> session.playPartials(source='packed.mtx', speed=0.5)
+        >>> import loristrck as lt
+        >>> import csoundengine as ce
+        >>> samples, sr = lt.util.sndread("/path/to/soundfile")
+        >>> partials = lt.analyze(samples, sr, resolution=50)
+        >>> lt.util.partials_save_matrix(partials, outfile='packed.mtx')
+        >>> session = ce.Engine().session()
+        >>> session.playPartials(source='packed.mtx', speed=0.5)
 
         """
         if self.isRendering():
@@ -2161,7 +2165,8 @@ class Session(AbstractRenderer):
 
         .. rubric:: Example
 
-
+        .. code-block:: python
+        
             >>> from csoundengine import *
             >>> s = Engine().session()
             >>> s.defInstr('sine', r'''

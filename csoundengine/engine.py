@@ -2887,6 +2887,8 @@ class Engine(_EngineBase):
 
         .. rubric:: Example
 
+        .. code-block:: python
+        
             >>> from csoundengine import *
             >>> e = Engine()
             >>> source = e.readSoundfile("stereo.wav", block=True)
