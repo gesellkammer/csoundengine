@@ -109,7 +109,9 @@ import sys
 
 import emlib.envir
 
-from . import csoundlib, instr, tools
+from . import csoundlib
+from . import instr
+from . import tools
 from .config import config, logger
 from .csoundlib import dumpAudioInfo
 from .engine import Engine

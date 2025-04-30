@@ -71,7 +71,7 @@ class SchedEvent(BaseSchedEvent):
                  instrname: str = '',
                  start: float = 0.,
                  dur: float = -1,
-                 args: Sequence[float|str] | None = None,
+                 args: Sequence[float|str] = (),
                  p1: float | str = 0,
                  uniqueId: int = 0,
                  parent: AbstractRenderer = None,
@@ -142,7 +142,7 @@ class SchedEvent(BaseSchedEvent):
             or 'future' if it has not started. For offline events always returns 'offline'
 
         """
-        raise 'offline'
+        return 'offline'
 
     def clone(self, **kws) -> SchedEvent:
         event = copy.copy(self)
@@ -249,8 +249,10 @@ class SchedEvent(BaseSchedEvent):
         if self.parent is None:
             if param not in (params := self.instr.dynamicParams(aliased=True)):
                 raise KeyError(f"Unknown parameter '{param}' for {self}. Possible parameters: {params}")
-            if isinstance(pairs, tuple) and len(pairs) == 0 and isinstance(pairs[0], np.ndarray):
-                pairs = nptools.interlace(*pairs)
+            if isinstance(pairs, tuple) and len(pairs) == 2 and isinstance(pairs[0], np.ndarray):
+                ts, values = pairs
+                assert isinstance(values, np.ndarray) and isinstance(ts, np.ndarray)
+                pairs = nptools.interlace(ts, values)
             automation = SchedAutomation(param=param, pairs=pairs, interpolation=mode, delay=delay)
             if self.automations is None:
                 self.automations = [automation]

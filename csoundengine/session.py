@@ -14,7 +14,6 @@ from collections import deque
 from dataclasses import dataclass
 from functools import cache
 
-import emlib.dialogs as _dialogs
 import emlib.textlib as _textlib
 import numpy as np
 
@@ -29,6 +28,7 @@ from . import (
 )
 from . import internal as _internal
 from . import state as _state
+from . import csoundparse
 from .abstractrenderer import AbstractRenderer
 from .config import config, logger
 from .engine import Engine
@@ -275,7 +275,7 @@ class Session(AbstractRenderer):
         self._sessionInstrStart = engineorc.CONSTS['sessionInstrsStart']
         """Start of the reserved instr space for session"""
 
-        bucketSizes = [int(x) for x in internal.exponcurve(priorities, 0.5, 1, priorities, 500, 20)]
+        bucketSizes = [int(x) for x in internal.exponcurve(self.numPriorities, 0.5, 1, self.numPriorities, 500, 20)]
         bucketIndices = [self._sessionInstrStart + sum(bucketSizes[:i])
                          for i in range(self.numPriorities)]
 
@@ -384,7 +384,7 @@ class Session(AbstractRenderer):
         .. rubric:: Example
 
         .. code-block:: python
-        
+
             >>> s = Session()
             >>> s.defInstr('foo', ...)
             >>> s.instanceToNumber('foo', 1)
@@ -695,7 +695,7 @@ class Session(AbstractRenderer):
         .. rubric:: Example
 
         .. code-block:: python
-        
+
             >>> session = Engine().session()
             # An Instr with named parameters
             >>> session.defInstr('filter', r'''
@@ -863,7 +863,8 @@ class Session(AbstractRenderer):
         .. seealso:: :meth:`~Session.defInstr`
         """
         if instrname == "?":
-            if (selection := _dialogs.selectItem(list(self.instrs.keys()))):
+            import emlib.dialogs
+            if (selection := emlib.dialogs.selectItem(list(self.instrs.keys()))):
                 instrname = selection
             else:
                 return None
@@ -1098,7 +1099,7 @@ class Session(AbstractRenderer):
                            args=event.args,
                            whenfinished=event.whenfinished,
                            relative=event.relative,
-                           **kws)
+                           **kws)  # type: ignore
         if event.automations:
             for automation in event.automations:
                 synth.automate(param=automation.param,
@@ -1229,7 +1230,7 @@ class Session(AbstractRenderer):
     def defaultInstrBody(instr: Instr) -> str:
         body = instr._preprocessedBody
         parts = []
-        docstring, body = csoundlib.splitDocstring(body)
+        docstring, body = csoundparse.splitDocstring(body)
         if docstring:
             parts.append(docstring)
 
@@ -1268,7 +1269,7 @@ class Session(AbstractRenderer):
         """
         body = instr._preprocessedBody
         parts = []
-        docstring, body = csoundlib.splitDocstring(body)
+        docstring, body = csoundparse.splitDocstring(body)
         if docstring:
             parts.append(docstring)
 
@@ -1301,7 +1302,7 @@ class Session(AbstractRenderer):
               delay=0.,
               dur=-1.,
               *pfields,
-              args: Sequence[float|str] | dict[str, float] | None = None,
+              args: Sequence[float|str] | dict[str, float] = (),
               priority=1,
               whenfinished: Callable | None = None,
               relative=True,
@@ -1369,7 +1370,7 @@ class Session(AbstractRenderer):
         if self._handler:
             event = Event(instrname=instrname, delay=delay, dur=dur, priority=priority,
                           args=args, whenfinished=whenfinished, relative=relative, kws=kwargs)
-            return self._handler.schedEvent(event)
+            return self._handler.schedEvent(event)  # type: ignore
 
         if self.isRendering():
             raise RuntimeError("Session blocked during rendering")
@@ -1385,9 +1386,10 @@ class Session(AbstractRenderer):
         abstime = delay if not relative else (self.engine.elapsedTime() + delay + self.engine.extraLatency)
 
         if instrname == "?":
-            selected = _dialogs.selectItem(list(self.instrs.keys()),
-                                           title="Select Instr",
-                                           ensureSelection=True)
+            import emlib.dialogs
+            selected = emlib.dialogs.selectItem(list(self.instrs.keys()),
+                                                title="Select Instr",
+                                                ensureSelection=True)
             assert selected is not None
             instrname = selected
 
@@ -1401,7 +1403,7 @@ class Session(AbstractRenderer):
                              f"a priority of {priority}.")
 
         rinstr, needssync = self.prepareSched(instrname, priority, block=True)
-        pfields5, dynargs = instr.parseSchedArgs(args=args, kws=kwargs)
+        pfields5, dynargs = instr.parseSchedArgs(args=args if isinstance(args, list) else list(args), kws=kwargs)
         if instr.controls:
             slicenum = self._dynargsAssignSlot()
             values = instr._controlsDefaultValues if not dynargs else instr.overrideControls(dynargs)
@@ -1926,14 +1928,9 @@ class Session(AbstractRenderer):
                 table = self.readSoundfile(source)
                 tabnum = table.tabnum
             elif ext == '.sdif':
-                try:
-                    import loristrck as lt
-                    partials, labels = lt.read_sdif(source)
-                    tracks, matrix = lt.util.partials_save_matrix(partials=partials, maxtracks=maxpolyphony)
-                    tabnum = self.makeTable(matrix).tabnum
-                except ImportError:
-                    raise ImportError("loristrck is needed in order to play a .sdif file. "
-                                      "Install it via `pip install loristrck`")
+                from . import tools
+                matrix = tools.sdifToMatrix(source, maxpolyphony=maxpolyphony)
+                tabnum = self.makeTable(matrix).tabnum
             else:
                 raise ValueError(f"Expected a .mtx file or .sdif file, got {source}")
 
@@ -2166,7 +2163,7 @@ class Session(AbstractRenderer):
         .. rubric:: Example
 
         .. code-block:: python
-        
+
             >>> from csoundengine import *
             >>> s = Engine().session()
             >>> s.defInstr('sine', r'''

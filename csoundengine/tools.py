@@ -1,43 +1,19 @@
 from __future__ import annotations
 
-import fnmatch
 import os
-import platform
 import sys
-import tempfile
+import platform
 from collections import UserString
-from functools import cache
-
-import emlib.common
-import emlib.misc
-
-from .config import logger
-
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import sndfileio
+    import numpy as np
 
 
-def makeUniqueFilename(ext: str, prefix='', folder='.') -> str:
-    """
-    Create a unique filename
-
-    Args:
-        ext: the extension of the filename
-        prefix: a prefix to the unique part of the filename
-        folder: where should this file be created? NB: the file itself is not
-            created, but will be unique in the given folder.
-
-    Returns:
-        the generated filename
-    """
-    if not ext.startswith('.'):
-        ext = '.' + ext
-    return tempfile.mktemp(suffix=ext, dir=folder, prefix=prefix)
+_cache = {}
 
 
-@emlib.common.runonce
 def defaultSoundfontPath() -> str:
     """
     Returns the path of the fluid sf2 file
@@ -45,30 +21,17 @@ def defaultSoundfontPath() -> str:
     Returns:
         the path of the default soundfont or an empty path if this does not apply
     """
+    if (path := _cache.get('defaultSoundfontPath')) is not None:
+        return path
     if sys.platform == 'linux':
         paths = ["/usr/share/sounds/sf2/FluidR3_GM.sf2"]
         path = next((path for path in paths if os.path.exists(path)), '')
-        return path
     else:
+        from .config import logger
         logger.info("Default path for soundfonts only defined in linux")
-    return ''
-
-
-def showSoundfontPrograms(sfpath: str, glob="") -> None:
-    """
-    Print a list of sounfont presets/programs
-
-    Args:
-        sfpath: the path to the soundfont
-        glob: if given, it is used to filter the presets to only those
-            whose name matches the given glob pattern
-    """
-    from . import csoundlib
-    progs = csoundlib.soundfontPresets(sfpath)
-    if glob:
-        progs = [p for p in progs
-                 if fnmatch.fnmatch(p[2], glob)]
-    emlib.misc.print_table(progs, headers=('bank', 'num', 'name'), showindex=False)
+        path = ''
+    _cache['defaultSoundfontPath'] = path
+    return path
 
 
 class PlatformId(UserString):
@@ -81,7 +44,6 @@ class PlatformId(UserString):
         super().__init__(osname + "-" + arch)
 
 
-@cache
 def platformId() -> PlatformId:
     """
     Query the platform id for the current system
@@ -90,12 +52,17 @@ def platformId() -> PlatformId:
     'linux-x86_64', 'windows-x86_64', 'macos-x86_64', 'linux-arm64', 'windows-arm64',
     'macos-arm64', ...
     """
+    if (platformid := _cache.get('platformId')) is not None:
+        return platformid
+
     osname = {
         'linux': 'linux',
         'darwin': 'macos',
         'win32': 'windows'
     }[sys.platform]
-    return PlatformId(osname, _platformArch())
+    platformid = PlatformId(osname, _platformArch())
+    _cache['platformId'] = platformid
+    return platformid
 
 
 def _platformArch() -> str:
@@ -120,5 +87,31 @@ def _platformArch() -> str:
 
 
 def sndfileInfo(path: str) -> sndfileio.SndInfo:
+    """
+    Get information about a soundfile
+
+    Args:
+        path: path to the soundfile
+
+    Returns:
+        sndfileio.SndInfo: information about the soundfile
+    """
     import sndfileio
     return sndfileio.sndinfo(path)
+
+
+def sdifToMatrix(path: str, maxpolyphony: int) -> np.ndarray:
+    import importlib
+    import importlib.util
+    if importlib.util.find_spec('loristrck'):
+        try:
+            lt = importlib.import_module('loristrck')
+            partials, labels = lt.read_sdif(path)
+            tracks, matrix = lt.util.partials_save_matrix(partials=partials, maxtracks=maxpolyphony)
+            return matrix
+        except ModuleNotFoundError as e:
+            raise RuntimeError(f"Could not import loristrck while trying to read a .sdif file: {e}")
+    else:
+        raise RuntimeError("loristrck is needed in order to read a .sdif file. "
+                        "Install it via `pip install loristrck` (see https://loristrck.readthedocs.io "
+                        "for more information)")

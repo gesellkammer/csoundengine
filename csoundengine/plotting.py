@@ -196,8 +196,8 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window='
     """
     if axes is None:
         figsize = _figsizeAsTuple(config['spectrogram_figsize'])
-        f: Figure = plt.figure(figsize=figsize)
-        axes: Axes = f.add_subplot(1, 1, 1)
+        f = plt.figure(figsize=figsize)
+        axes = f.add_subplot(1, 1, 1)
     hopsize = int(fftsize / overlap)
     noverlap = fftsize - hopsize
     if window is None:

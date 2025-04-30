@@ -357,7 +357,7 @@ def parseDocstring(text: str | list[str]) -> Docstring | None:
 def distributeParams(params: dict[str, float | str],
                      pfieldNames: set[str] | frozenset[str],
                      controlNames: set[str] | frozenset[str]
-                     ) -> tuple[dict[str | int, float | str], dict[str, float]]:
+                     ) -> tuple[dict[str, float | str], dict[str, float]]:
     """
     Sorts params into pfields and dynamic parameters
 
@@ -376,7 +376,8 @@ def distributeParams(params: dict[str, float | str],
         pfields = {}
         controls = {}
         for name, value in params.items():
-            if isinstance(name, int) or csoundlib.isPfield(name) or name in pfieldNames:
+            assert isinstance(name, str)
+            if name in pfieldNames or csoundlib.isPfield(name):
                 pfields[name] = value
             else:
                 if name not in controlNames:

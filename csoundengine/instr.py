@@ -6,16 +6,17 @@ import textwrap
 from functools import cache
 
 import numpy as np
-from emlib import iterlib, textlib
+from emlib import iterlib
 
-from . import csoundlib, instrtools, jupytertools
+from . import csoundlib
+from . import instrtools
 from ._common import EMPTYDICT, EMPTYSET
 from .config import config, logger
 from .errors import CsoundError
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Callable, Sequence
+    from typing import Callable, Sequence, Mapping
     from .abstractrenderer import AbstractRenderer
 
 
@@ -322,10 +323,8 @@ class Instr:
         self._preprocessedBody: str = textwrap.dedent(body)
         "Body after processing inline args"
 
-        self.pfields: dict[str, float | str] = pfields
-        """Dict mapping pfield name to default value
-
-        pfield index is assigned by order, starting with p5"""
+        self.pfields: Mapping[str, float | str] = pfields
+        """Dict mapping pfield name to default value. pfield index is assigned by order, starting with p5"""
 
         self.init: str = init if init is not None else ''
         """Code to be initialized at the instr0 level, excluding include files"""
@@ -348,7 +347,7 @@ class Instr:
         self.pfieldNameToIndex: dict[str, int] = pargsNameToIndex
         "Dict mapping pfield name to its index"
 
-        self.pfieldIndexToValue: dict[int, float | str] = pargsIndexToValue
+        self.pfieldIndexToValue: Mapping[int, float | str] = pargsIndexToValue
         "Dict mapping pfield index to its default value"
 
         self.aliases = aliases if aliases is not None else EMPTYDICT
@@ -458,6 +457,7 @@ class Instr:
                     f"{pname}:{i}" for i, pname in sorted(pargs.items()) if i != 4)
 
     def _repr_html_(self) -> str:
+        from . import jupytertools
         style = jupytertools.defaultPalette
         parts = [f'Instr <strong style="color:{style["name.color"]}">{self.name}</strong><br>']
         _ = jupytertools.htmlSpan
@@ -754,7 +754,7 @@ class Instr:
         return params
 
     def distributeNamedParams(self, params: dict[str, float | str]
-                              ) -> tuple[dict[str | int, float | str], dict[str, float]]:
+                              ) -> tuple[dict[str, float | str], dict[str, float]]:
         """
         Sorts params into pfields and dynamic controls
 
@@ -833,7 +833,7 @@ class Instr:
     def parseSchedArgs(self,
                        args: list[float | str] | dict[str, float | str],
                        kws: dict[str, float | str],
-                       ) -> tuple[list[float|str], dict[str, float]]:
+                       ) -> tuple[list[float|str], Mapping[str, float | str]]:
         """
         Parse the arguments passed to sched
 
@@ -916,7 +916,7 @@ class Instr:
 
     def pfieldsTranslate(self,
                          args: Sequence[float | str] = (),
-                         kws: dict[str | int, float | str] | None = None
+                         kws: Mapping[str, float | str] = EMPTYDICT
                          ) -> list[float | str]:
         """
         Given pfields as values and keyword arguments, generate a list of
@@ -1115,7 +1115,7 @@ class Instr:
                            f" Known parameters: {self.controls.keys()}")
         return idx
 
-    def overrideControls(self, d: dict[str, float] | None = None, **kws
+    def overrideControls(self, d: Mapping[str, float | str] = EMPTYDICT, **kws
                          ) -> list[float]:
         """
         Overrides default values for the controls in this instr
@@ -1139,14 +1139,17 @@ class Instr:
         if not self.controls:
             raise ValueError("This instrument does not define controls")
 
-        if d is None and not kws:
+        if not d and not kws:
             return self._controlsDefaultValues
 
         out = self._controlsDefaultValues.copy()
         if d:
             for key, value in d.items():
                 idx = self._controlsNameToIndex[key]
-                out[idx] = value
+                if isinstance(value, float):
+                    out[idx] = value
+                else:
+                    raise TypeError(f"Value for {key} must be a float, got {type(value)}")
         if kws:
             for key, value in kws.items():
                 idx = self._controlsNameToIndex[key]
@@ -1187,20 +1190,19 @@ def _namedControlsGenerateCode(controls: dict) -> str:
         the generated code
     """
 
-    lines = [r'''
-    ; --- start generated code for dynamic args
-    i__slicestart__ = p4
-    i__tabnum__ chnget ".dynargsTabnum"
-    if i__tabnum__ == 0 then
-        initerror sprintf("Session table does not exist (p1: %f)", p1)
-        goto __exit
-    endif
-    ''']
+    lines = [r'''\
+; --- start generated code for dynamic args
+i__slicestart__ = p4
+i__tabnum__ chnget ".dynargsTabnum"
+if i__tabnum__ == 0 then
+  initerror sprintf("Session table does not exist (p1: %f)", p1)
+  goto __exit
+endif''']
     idx = 0
     for key, value in controls.items():
         assert key.startswith('k')
-        lines.append(f"    {key} tab i__slicestart__ + {idx}, i__tabnum__")
+        lines.append(f"{key} tab i__slicestart__ + {idx}, i__tabnum__")
         idx += 1
-    lines.append("    ; --- end generated code\n")
-    out = textlib.stripLines(textlib.joinPreservingIndentation(lines))
-    return out
+    lines.append("; --- end generated code\n")
+    return '\n'.join(lines)
+    # return textlib.stripLines(textlib.joinPreservingIndentation(lines))

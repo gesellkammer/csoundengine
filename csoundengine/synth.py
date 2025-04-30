@@ -8,6 +8,8 @@ import emlib.iterlib as _iterlib
 import emlib.misc as _misc
 import numpy as np
 
+from csoundengine._common import EMPTYDICT
+
 from . import internal, jupytertools
 from .baseschedevent import BaseSchedEvent
 from .config import config, logger
@@ -15,7 +17,7 @@ from .schedevent import SchedEvent
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Sequence
+    from typing import Sequence, Mapping
     from .instr import Instr
     from .session import Session
 
@@ -174,10 +176,10 @@ class Synth(SchedEvent, ISynth):
                  instr: Instr,
                  start: float,
                  dur: float = -1,
-                 args: list[float|str] | None = None,
+                 args: Sequence[float|str] = (),
                  autostop=False,
                  priority: int = 1,
-                 controls: dict[str, float] | None = None,
+                 controls: Mapping[str, float] = EMPTYDICT,
                  controlsSlot: int = -1,
                  uniqueId=0,
                  name=''

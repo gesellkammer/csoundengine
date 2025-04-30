@@ -16,6 +16,8 @@ import cachetools
 import emlib.iterlib
 import emlib.numpytools
 import numpy as np
+
+from csoundengine._common import EMPTYDICT
 # import xxhash
 
 
@@ -45,7 +47,7 @@ def ndarrayhash(a: np.ndarray) -> str:
     """Calculates a str hash for the data in the array"""
     if a.flags.contiguous:
         import xxhash
-        return xxhash.xxh128_hexdigest(a)
+        return xxhash.xxh128_hexdigest(a)  # type: ignore
     else:
         return str(id(a))
 
@@ -191,8 +193,8 @@ def splitDict(d: dict[str, float],
 
 def resolveInstrArgs(instr: Instr,
                      p4: int,
-                     pargs: list[float] | dict[str | int, float | str] | None = None,
-                     pkws: dict[str | int, float] | None = None,
+                     pargs: Sequence[float] | dict[str, float | str] = (),
+                     pkws: dict[str, float | str] = EMPTYDICT,
                      ) -> list[float | str]:
     """
     Resolves pargs, returns pargs starting from p4
@@ -209,17 +211,18 @@ def resolveInstrArgs(instr: Instr,
     allargs: list[float | str] = [float(p4)]
     if not pargs and not instr.pfieldIndexToValue and not pkws:
         return allargs
-    if isinstance(pargs, list):
+
+    if isinstance(pargs, (list, tuple)):
         allargs.extend(instr.pfieldsTranslate(pargs, pkws))
     else:
         if pkws:
             if pargs:
-                pargs.update(pkws)
+                pargs.update(pkws)  # type: ignore
             else:
-                pargs = pkws
+                pargs = pkws        # type: ignore
+        assert isinstance(pargs, dict)
         allargs.extend(instr.pfieldsTranslate(kws=pargs))
-    allargs = [arg if isinstance(arg, str) else float(arg) for arg in allargs]
-    return allargs
+    return [arg if isinstance(arg, str) else float(arg) for arg in allargs]
 
 
 def instrWrapBody(body: str,
@@ -489,7 +492,7 @@ def _rewindGroup(pairs: Sequence[float], inplace=False) -> Sequence[float]:
         return out
 
 
-def splitAutomation(flatpairs: Sequence[float], maxpairs: int
+def splitAutomation(flatpairs: Sequence[float] | np.ndarray, maxpairs: int
                     ) -> list[tuple[float, Sequence[float]]]:
     """
     Split an automation line into chunks
@@ -503,7 +506,7 @@ def splitAutomation(flatpairs: Sequence[float], maxpairs: int
         the group from the start of the automation, and group is the automation data
         of this group. Each group starts with t0=0
     """
-    groups = splitPairs(flatpairs=flatpairs, maxpairs=maxpairs)
+    groups = splitPairs(flatpairs=flatpairs.tolist() if isinstance(flatpairs, np.ndarray) else flatpairs, maxpairs=maxpairs)
     out: list[tuple[float, Sequence[float]]] = []
     for group in groups:
         groupdelay = group[0]
@@ -713,14 +716,14 @@ def flattenAutomationData(pairs: npt.ArrayLike | tuple[npt.ArrayLike, npt.ArrayL
             xs, ys = pairs
             if isinstance(xs, (list, tuple)):
                 assert isinstance(ys, (list, tuple))
-                return interleave(xs, ys)
+                return interleave(xs, ys)  # type: ignore
             elif isinstance(xs, np.ndarray):
                 assert isinstance(ys, np.ndarray)
                 return emlib.numpytools.interlace(xs, ys).tolist()  # type: ignore
             else:
                 raise TypeError(f"Expected a tuple (xs, ys), got {pairs}")
         else:
-            return list(pairs)
+            return list(pairs)  # type: ignore
     else:
         raise TypeError(f"Expected a list of values or a tuple (list, list), got {pairs}")
 

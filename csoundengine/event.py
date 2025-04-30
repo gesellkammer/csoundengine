@@ -43,7 +43,7 @@ class Event:
     priority: int = 1
     "The events priority (>1)"
 
-    args: list[float] | dict[str, float] | None = None
+    args: Sequence[float | str] | dict[str, float] = ()
     "Numbered pfields (starting on p5) or a dict of parameters `{name: value}`"
 
     whenfinished: Callable | None = None

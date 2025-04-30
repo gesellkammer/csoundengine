@@ -137,7 +137,10 @@ import pitchtools as pt
 from emlib import iterlib
 from emlib.containers import IntPool
 
-from . import csoundlib, engineorc, internal
+from . import csoundlib
+from . import csoundparse
+from . import engineorc
+from . import internal
 from . import state as _state
 from .config import config, logger
 from .enginebase import TableInfo, _EngineBase
@@ -625,7 +628,7 @@ class Engine(_EngineBase):
         self._instrRegistry: dict[str | int, str] = {}
 
         # Keeps parsed instr bodies, used to analyze pfields, defaults, etc.
-        self._parsedInstrs: dict[str, csoundlib.ParsedInstrBody] = {}
+        self._parsedInstrs: dict[str, csoundparse.ParsedInstrBody] = {}
 
         # a dict of callbacks, reacting to outvalue opcodes
         self._outvalueCallbacks: dict[bytes, callback_t] = {}
@@ -1217,7 +1220,7 @@ class Engine(_EngineBase):
             >>> e.compile(code)
 
         """
-        codeblocks = csoundlib.parseOrc(code)
+        codeblocks = csoundparse.parseOrc(code)
         for codeblock in codeblocks:
             if codeblock.kind == 'include':
                 includepath = csoundlib.splitInclude(codeblock.text)
@@ -1226,7 +1229,7 @@ class Engine(_EngineBase):
                 self.includes.append(includepath)
             elif codeblock.kind == 'instr':
                 if parse:
-                    parsedbody = csoundlib.instrParseBody(csoundlib.instrGetBody(codeblock.text))
+                    parsedbody = csoundparse.instrParseBody(csoundparse.instrGetBody(codeblock.text))
                     self._parsedInstrs[codeblock.name] = parsedbody
                     if codeblock.name[0].isdigit():
                         instrnum = int(codeblock.name)
@@ -1582,7 +1585,7 @@ class Engine(_EngineBase):
               delay=0.,
               dur=-1.,
               *pfields,
-              args: np.ndarray | Sequence[float | str] | None = None,
+              args: np.ndarray | Sequence[float | str] = (),
               relative=True,
               unique=False,
               **namedpfields
@@ -2888,7 +2891,7 @@ class Engine(_EngineBase):
         .. rubric:: Example
 
         .. code-block:: python
-        
+
             >>> from csoundengine import *
             >>> e = Engine()
             >>> source = e.readSoundfile("stereo.wav", block=True)
@@ -3106,7 +3109,8 @@ class Engine(_EngineBase):
         if sf2path == "?":
             sf2path = _state.openSoundfont(ensureSelection=True)
         if preset is None:
-            item = csoundlib.soundfontSelectPreset(sf2path)
+            from . import sftools
+            item = sftools.soundfontSelectPreset(sf2path)
             if item is None:
                 return 0
             presetname, bank, presetnum = item
@@ -3442,14 +3446,16 @@ class Engine(_EngineBase):
         .. seealso:: :meth:`~Engine.setp`, :meth:`~Engine.automateTable`
         """
         maxDataSize = config['max_pfields'] - 10
-        if len(pairs) <= maxDataSize:
-            if isinstance(pairs, np.ndarray):
-                pairs = pairs.tolist()
+        if self.version >= 7000 or len(pairs) <= maxDataSize:
             if isinstance(p1, str):
-                args = [self.strSet(p1), pidx, self.strSet(mode), int(overtake), len(pairs), 1]
+                args = [float(self.strSet(p1)), float(pidx), float(self.strSet(mode)), float(overtake), float(len(pairs)), 1.]
             else:
-                args = [p1, pidx, self.strSet(mode), int(overtake), len(pairs), 0]
-            args.extend(pairs)
+                args = [p1, float(pidx), float(self.strSet(mode)), float(overtake), float(len(pairs)), 0.]
+
+            if isinstance(pairs, np.ndarray):
+                args.extend(pairs.tolist())
+            else:
+                args.extend(pairs)
             return self.sched(self._builtinInstrs['automatePargViaPargs'],
                               delay=delay,
                               dur=pairs[-2] + self.ksmps / self.sr,
@@ -4135,7 +4141,7 @@ class Engine(_EngineBase):
         specs: dict[int|str, interact.ParamSpec] = {}
         instr = internal.instrNameFromP1(eventid)
         body = self._instrRegistry.get(instr)
-        pfieldsNameToIndex = csoundlib.instrParseBody(body).pfieldNameToIndex if body else None
+        pfieldsNameToIndex = csoundparse.instrParseBody(body).pfieldNameToIndex if body else None
         for pfield, spec in pargs.items():
             minval, maxval = spec
             idx = internal.resolvePfieldIndex(pfield, pfieldsNameToIndex)

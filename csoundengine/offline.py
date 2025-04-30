@@ -21,6 +21,7 @@ from . import (
 from . import csd as _csd
 from . import state as _state
 from . import tableproxy
+from . import csoundparse
 from .abstractrenderer import AbstractRenderer
 from .config import config, logger
 from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL
@@ -353,7 +354,7 @@ class OfflineSession(AbstractRenderer):
     def defaultInstrBody(instr: Instr) -> str:
         body = instr._preprocessedBody
         parts = []
-        docstring, body = csoundlib.splitDocstring(body)
+        docstring, body = csoundparse.splitDocstring(body)
         if docstring:
             parts.append(docstring)
 
@@ -1626,15 +1627,9 @@ class OfflineSession(AbstractRenderer):
                 table = self.readSoundfile(source)
                 tabnum = table.tabnum
             elif ext == '.sdif':
-                try:
-                    import loristrck as lt
-                    partials, labels = lt.read_sdif(source)
-                    tracks, matrix = lt.util.partials_save_matrix(partials=partials, maxtracks=maxpolyphony)
-                    tabnum = self.makeTable(matrix).tabnum
-                except ImportError:
-                    raise ImportError("loristrck is needed in order to read a .sdif file. "
-                                      "Install it via `pip install loristrck` (see https://loristrck.readthedocs.io "
-                                      "for more information)")
+                from . import tools
+                matrix = tools.sdifToMatrix(source, maxpolyphony=maxpolyphony)
+                tabnum = self.makeTable(matrix).tabnum
             else:
                 raise ValueError(f"Expected a .mtx file or .sdif file, got {source}")
 
