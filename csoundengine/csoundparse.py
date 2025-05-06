@@ -4,11 +4,14 @@ import functools
 import re
 import dataclasses
 from . import internal
-from ._common import EMPTYDICT
+from._common import EMPTYDICT
+import numpy as np
+
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Sequence
+
 
 
 @dataclasses.dataclass
@@ -36,7 +39,7 @@ class ParsedBlock:
     attrs: dict[str, str] | None = None
 
     def __post_init__(self):
-        assert self.kind in ('instr', 'opcode', 'header', 'include', 'instr0')
+        assert self.kind in ('instr', 'opcode', 'header', 'include', 'instr0', 'comment'), f"Unknown block kind: '{self.kind}': '{'\n'.join(self.lines)}'"
         if self.endLine == -1:
             self.endLine = self.startLine
 
@@ -530,3 +533,209 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                            pfieldLines=pfieldLines,
                            body="\n".join(bodyLines),
                            lines=lines)
+
+
+def highlightCsoundOrc(code: str, theme='') -> str:
+    """
+    Converts csound code to html with syntax highlighting
+
+    Args:
+        code: the code to highlight
+        theme: the theme used, one of 'light', 'dark'. If not given, a default
+            is used (see config['html_theme'])
+
+    Returns:
+        the corresponding html
+    """
+    if not theme:
+        from .config import config
+        theme = config['html_theme']
+
+    import pygments
+    import pygments.formatters
+    if theme == 'light':
+        htmlfmt = pygments.formatters.HtmlFormatter(noclasses=True, wrapcode=True)
+    else:
+        htmlfmt = pygments.formatters.HtmlFormatter(noclasses=True, style='fruity',
+                                                    wrapcode=True)
+    html = pygments.highlight(code, lexer=_pygmentsOrcLexer(), formatter=htmlfmt)
+    return html
+
+
+@functools.cache
+def _pygmentsOrcLexer():
+    import pygments.lexers.csound
+    return pygments.lexers.csound.CsoundOrchestraLexer()
+
+
+def isPfield(name: str) -> bool:
+    """
+    Is name a pfield?
+    """
+    return re.match(r'\bp[1-9][0-9]*\b', name) is not None
+
+
+def splitScoreLine(line: str, quote=False) -> list[float | str]:
+    """
+    Split a score line into its tokens
+
+    Args:
+        line: the score line to split
+        quote: if True, add quotation marks to strings
+
+    Returns:
+        a list of tokens
+    """
+    # i "instr" 1 2 3 "foo bar" 0.5 "foofi"
+    kind = line[0]
+    assert kind in 'ife'
+    rest = line[1:]
+    allparts: list[str | int | float] = [kind]
+    # even parts are not quoted strings, odd parts are quoted strings
+    for i, part in enumerate(rest.split('"')):
+        if i % 2 == 0:
+            allparts.extend(float(sub.strip()) for sub in part.split())
+        else:
+            allparts.append(f'"{part}"' if quote else part)
+    return allparts
+
+
+def normalizeNamedPfields(pfields: dict[str, float],
+                          namesToIndexes: dict[str, int] | None = None
+                          ) -> dict[int, float]:
+    """
+    Given a dict mapping pfield as str to value, return a dict mapping pfield index to value
+
+    Args:
+        pfields: a dict of the form {pfield: value} where pfield can be
+        a key like 'p<n>' or a variable name which was assigned to this pfield
+        (like ``ifreq = p4``
+        namesToIndexes: a dict mapping variable names to indexes
+
+    Returns:
+        a dict of the form {pfieldindex: value}
+
+    Example
+    ~~~~~~~
+
+        >>> normalizeNamedPfields({'p4': 0.5, 'ifreq': 2000}, {'ifreq': 5})
+        {4: 0.5, 5: 2000}
+    """
+    out: dict[int, float] = {}
+    for k, value in pfields.items():
+        if k.startswith('p'):
+            out[int(k[1:])] = value
+        elif namesToIndexes:
+            assert k.startswith('k') or k.startswith('i')
+            idx = namesToIndexes.get(k)
+            if idx is None:
+                raise KeyError(f"Keyword pfield not known: {k}")
+            out[idx] = value
+        else:
+            raise KeyError(f"Keyword pfield not known: {k}")
+    return out
+
+
+def fillPfields(args: Sequence[float | str] | np.ndarray,
+                namedpargs: dict[int, float],
+                defaults: dict[int, float] | None) -> list[float | str]:
+    """
+    Given a set of arguments, named pfields and defaults, generates the list of pfields to be passed to csound
+
+    Args:
+        args: seq. of positional arguments, starting with p4
+        namedpargs: dict mapping pfield index to values
+        defaults: dict mapping pfield names to default values
+
+    Returns:
+        the pfield values, starting with p4
+    """
+    out: list[float | str]
+    if not defaults:
+        if namedpargs and not args:
+            maxp = max(namedpargs.keys())
+            out = [0.] * (maxp - 3)
+            for idx, value in namedpargs.items():
+                out[idx - 4] = value
+            return out
+        elif namedpargs and args:
+            maxp = max(len(args) + 3, max(namedpargs.keys()))
+            out = [0.] * (maxp - 3)
+            for i, arg in enumerate(args):
+                out[i] = arg
+            for idx, value in namedpargs.items():
+                out[idx-4] = value
+            return out
+        elif args:
+            return args if isinstance(args, list) else list(args)
+        else:
+            # no args at all
+            raise ValueError("No args or namedargs given and no default values defined")
+
+    # with defaults
+    if namedpargs and not args:
+        maxp = max(max(defaults.keys()), max(namedpargs.keys()))
+        out = [0.] * (maxp - 3)
+        for idx, value in defaults.items():
+            out[idx - 4] = value
+        for idx, value in namedpargs.items():
+            out[idx - 4] = value
+        return out
+    elif namedpargs and args:
+        maxp = max(len(args)+3, max(defaults.keys()), max(namedpargs.keys()))
+        out = [0.] * (maxp - 3)
+        for idx, value in defaults.items():
+            out[idx - 4] = value
+        out[:len(args)] = args
+        for idx, value in namedpargs.items():
+            out[idx - 4] = value
+        return out
+    elif args:
+        maxp = max(len(args) + 3, max(defaults.keys()))
+        out = [0.] * (maxp - 3)
+        for idx, value in defaults.items():
+            out[idx - 4] = value
+        out[:len(args)] = args
+        return out
+    else:
+        # only defaults
+        maxp = max(defaults.keys())
+        out = [0.] * (maxp - 3)
+        for idx, value in defaults.items():
+            out[idx - 4] = value
+        return out
+
+
+def splitInclude(line: str) -> str:
+    """
+    Given an include line it splits the include path
+
+    Example
+    -------
+
+        >>> splitInclude(r'   #include "foo/bar" ')
+        foo/bar
+
+    NB: the quotation marks are not included
+    """
+    match = re.search(r'#include\s+"(.+)""', line)
+    if not match:
+        raise ValueError("Could not parse include")
+    return match.group(1)
+
+
+def makeIncludeLine(include: str) -> str:
+    """
+    Given a path, creates the #include directive
+
+    In particula, it checks the need for quotation marks
+
+    Args:
+        include: path to include
+
+    Returns:
+
+    """
+    import emlib.textlib
+    s = emlib.textlib.quoteIfNeeded(include.strip())
+    return f'#include {s}'

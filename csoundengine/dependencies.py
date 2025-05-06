@@ -7,12 +7,10 @@ import re
 import shutil
 import sys
 import tempfile
-import urllib.error
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from . import csoundlib, tools
+from . import tools
 from .state import state
 
 logger = logging.getLogger("csoundengine.dependencies")
@@ -52,6 +50,8 @@ def getPluginsLatestRelease() -> dict[str, str]:
          'win32': 'https://github.com/.../csound-plugins-win64.zip'}
     """
     url = "https://api.github.com/repos/csound-plugins/csound-plugins/releases/latest"
+    import urllib.error
+    import urllib.request
     try:
         tmpfile, _ = urllib.request.urlretrieve(url)
     except urllib.error.URLError as e:
@@ -120,6 +120,8 @@ def _download(url: str, destFolder: str | Path) -> Path:
     if dest.exists():
         logger.warning(f"Destination '{dest}' already exists, overwriting")
         os.remove(dest)
+
+    import urllib.request
     urllib.request.urlretrieve(url, dest)
     logger.info(f"Downloaded '{url}', saved to '{dest}'")
     return dest
@@ -144,6 +146,7 @@ def _copyFiles(files: list[str], dest: str, verbose=False) -> None:
 
 def pluginsInstalled(cached=True) -> bool:
     """Returns True if the needed plugins are already installed"""
+    from . import csoundlib
     installedOpcodes = csoundlib.installedOpcodes(cached=cached)
     neededOpcodes = {
         "atstop", "pwrite", "pread", "initerror",
@@ -185,6 +188,7 @@ def _installPluginsFromDist(apiversion=6, codesign=True) -> None:
         logger.error(f"Plugins not found. Plugins folder: '{pluginspath}', "
                      f"glob patter: '{globpattern}'")
         raise RuntimeError("Plugins not found")
+    from . import csoundlib
     pluginsDest = csoundlib.userPluginsFolder(apiversion=f'{apiversion}.0')
     logger.info(f"Installing plugins in folder: '{pluginsDest}'")
     os.makedirs(pluginsDest, exist_ok=True)
@@ -255,6 +259,7 @@ def installPlugins(majorversion=6, risset=True) -> bool:
                 if not pluginsok:
                     logger.error("Tried to load the plugins but the provided opcodes are not"
                                  " listed by csound")
+                    from . import csoundlib
                     opcodes = csoundlib.installedOpcodes(cached=False)
                     opcodestr = ', '.join(opcodes)
                     logger.error(f"List of opcodes loaded by csound: {opcodestr}")
@@ -281,14 +286,14 @@ def _checkDependencies(fix=False, quiet=False) -> str | None:
     """
     if not csoundBinaryInPath():
         logger.error("csound not found in the path. See https://csound.com/download.html. Some functionality might not be available")
-
+    from . import csoundlib
     version = csoundlib.getVersion(useApi=True)
 
     if version < (6, 16, 0):
         return f"Csound version ({version}) is too old, should be >= 6.16"
 
     if version[0] >= 7:
-        logger.info("Csound 7 support is experimental")
+        logger.debug("Csound 7 support is experimental")
 
     if not pluginsInstalled():
         if fix:

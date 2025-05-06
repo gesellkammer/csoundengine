@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Sequence
-
 from . import internal
-from .abstractrenderer import AbstractRenderer
-from .config import logger
 
+import typing
+if typing.TYPE_CHECKING:
+    from .abstractrenderer import AbstractRenderer
+    from typing import Sequence
 
 class Bus:
     """
@@ -176,4 +176,5 @@ class Bus:
             self.renderer._releaseBus(self)
             self.token = -1
         else:
+            from .config import logger
             logger.debug(f"Bus {self} already released")

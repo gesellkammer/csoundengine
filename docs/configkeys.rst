@@ -37,7 +37,7 @@ ksmps:
 
 rec_ksmps:
     | Default: **64**  -- ``int``
-    | Choices: ``16, 32, 64, 128, 256, 512, 1024``
+    | Choices: ``1, 2, 4, 8, 10, 16, 20, 32, 64, 128, 256, 512, 1024``
     | *samples per cycle when rendering*
 
 .. _config_rec_sample_format:
@@ -50,7 +50,7 @@ rec_sample_format:
 .. _config_rec_suppress_output:
 
 rec_suppress_output:
-    | Default: **False**  -- ``bool``
+    | Default: **True**  -- ``bool``
     | *Supress debugging output when rendering offline*
 
 .. _config_buffersize:
@@ -65,24 +65,6 @@ numbuffers:
     | Default: **0**  -- ``int``
     | *determines the -B value as a multiple of the buffersize. 0=auto*
 
-.. _config_linux_backend:
-
-linux_backend:
-    | Default: **jack, pulse, pa_cb**  -- ``str``
-    | *a comma separated list of backends (possible backends: jack, pulse, pa_cb, alsa)*
-
-.. _config_macos_backend:
-
-macos_backend:
-    | Default: **pa_cb**  -- ``str``
-    | *a comma separated list of backends (possible backends: pa_cb, auhal)*
-
-.. _config_windows_backend:
-
-windows_backend:
-    | Default: **pa_cb**  -- ``str``
-    | *a comma separated list of backends (possible backends: pa_cb, pa_bl)*
-
 .. _config_a4:
 
 A4:
@@ -94,43 +76,19 @@ A4:
 
 numthreads:
     | Default: **1**  -- ``int``
-    | *Number of threads to use for realtime performance. This is an experimental feature if csound and might not necessarily result in better performance*
+    | *Number of threads to use for realtime performance. This is an experimental feature and might not necessarily result in better performance*
 
 .. _config_rec_numthreads:
 
 rec_numthreads:
-    | Default: **0**  -- ``int``
+    | Default: **1**  -- ``int``
     | *Number of threads to use when rendering online. If not given, the value set in `numthreads` is used*
-
-.. _config_check_pargs:
-
-check_pargs:
-    | Default: **False**  -- ``bool``
-    | *Check number of pargs passed to instr*
-
-.. _config_max_pfields:
-
-max_pfields:
-    | Default: **1900**  -- ``int``
-    | *The size limit for pfields in an event*
-
-.. _config_offline_score_table_size_limit:
-
-offline_score_table_size_limit:
-    | Default: **1900**  -- ``int``
-    | *size limit when writing tables as f score statements via gen2. If a table is bigger than this size, it is saved as a datafile as gen23 or wav*
 
 .. _config_dynamic_pfields:
 
 dynamic_pfields:
     | Default: **True**  -- ``bool``
     | *If True, use pfields for dynamic parameters (named args starting with k). Otherwise, dynamic controls are implemented via a global table*
-
-.. _config_fail_if_unmatched_pargs:
-
-fail_if_unmatched_pargs:
-    | Default: **False**  -- ``bool``
-    | *Fail if the number of passed arguments doesnt match the number of defined arguments*
 
 .. _config_set_sigint_handler:
 
@@ -143,12 +101,6 @@ set_sigint_handler:
 disable_signals:
     | Default: **True**  -- ``bool``
     | *Disable atexit and sigint signal handler*
-
-.. _config_generalmidi_soundfont:
-
-generalmidi_soundfont:
-    | Default: **''**  -- ``str``
-    | *Default soundfont used for general midi rendering*
 
 .. _config_suppress_output:
 
@@ -177,14 +129,8 @@ sample_fade_time:
 .. _config_prefer_udp:
 
 prefer_udp:
-    | Default: **True**  -- ``bool``
-    | *If true and a udp server was defined,  prefer UDP over the API for communication*
-
-.. _config_start_udp_server:
-
-start_udp_server:
     | Default: **False**  -- ``bool``
-    | *Start an engine with udp communication support*
+    | *If true and a udp server was defined,  prefer UDP over the API for communication*
 
 .. _config_num_audio_buses:
 
@@ -197,6 +143,12 @@ num_audio_buses:
 num_control_buses:
     | Default: **512**  -- ``int``
     | *Num. of control buses in an Engine/Session. This sets the upper limit to the number of simultaneous control buses in use*
+
+.. _config_bus_support:
+
+bus_support:
+    | Default: **False**  -- ``bool``
+    | *If True, an Engine/OfflineEngine will have bus support*
 
 .. _config_html_theme:
 
@@ -256,14 +208,14 @@ jupyter_instr_repr_show_code:
 .. _config_ipython_load_magics_at_startup:
 
 ipython_load_magics_at_startup:
-    | Default: **True**  -- ``bool``
+    | Default: **False**  -- ``bool``
     | *Load csoundengine.magic at startup when inside ipython. If False, magics can still be loaded via `%load_ext csoundengine.magic`*
 
 .. _config_magics_print_info:
 
 magics_print_info:
-    | Default: **False**  -- ``bool``
-    | *Print some informative information when the csounengine.magic extension is loaded*
+    | Default: **True**  -- ``bool``
+    | *Print some informative information when the csoundengine.magic extension is loaded*
 
 .. _config_jupyter_slider_width:
 
@@ -274,7 +226,7 @@ jupyter_slider_width:
 .. _config_timeout:
 
 timeout:
-    | Default: **2.0**  -- ``float``
+    | Default: **2**  -- ``int``
     | *Timeout for any action waiting a response from csound*
 
 .. _config_sched_latency:
@@ -295,7 +247,7 @@ datafile_format:
 max_dynamic_args_per_instr:
     | Default: **10**  -- ``int``
     | Between 2 - 512
-    | *Max. number of dynamic parameters per instr*
+    | *Max. number of dynamic parameters per instr. This applies only if dynamic args are implemented via a global table*
 
 .. _config_session_priorities:
 
@@ -308,7 +260,7 @@ session_priorities:
 
 dynamic_args_num_slots:
     | Default: **10000**  -- ``int``
-    | Between 10 - 9999999
+    | Between 10 - 999999
     | *Number of slots for dynamic parameters. args slices. Dynamic args are implemented as a big array divided in slices. This parameter sets the max. number of such slices, and thus the max number of simultaneous events with named args which can coexist. The size of the allocated table will be size = num_dynamic_args_slices * max_instr_dynamic_args. For 10000 slots, theamount of memory is ~0.8Mb*
 
 .. _config_instr_repr_show_pfield_pnumber:
@@ -322,18 +274,19 @@ instr_repr_show_pfield_pnumber:
 spectrogram_colormap:
     | Default: **inferno**  -- ``str``
     | Choices: ``cividis, inferno, magma, plasma, viridis``
+    | *Colormap used for spectrograms*
 
 .. _config_samplesplot_figsize:
 
 samplesplot_figsize:
     | Default: **12:4**  -- ``str``
-    | *The figure size of the plot in the form '<width>:<height>'*
+    | *Figure size of the plot in the form "<width>:<height>"*
 
 .. _config_spectrogram_figsize:
 
 spectrogram_figsize:
     | Default: **24:8**  -- ``str``
-    | *The figure size of the plot in the form '<width>:<height>'*
+    | *Figure size of the plot in the form "<width>:<height>"*
 
 .. _config_spectrogram_maxfreq:
 
@@ -346,3 +299,4 @@ spectrogram_maxfreq:
 spectrogram_window:
     | Default: **hamming**  -- ``str``
     | Choices: ``hamming, hanning``
+    | *Window function used for spectrograms*

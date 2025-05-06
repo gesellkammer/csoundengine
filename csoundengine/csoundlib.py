@@ -25,11 +25,8 @@ import tempfile as _tempfile
 import textwrap as _textwrap
 
 import cachetools as _cachetools
-import emlib.mathlib
-import emlib.misc
 import emlib.textlib
 import numpy as np
-from emlib.common import runonce
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -38,16 +35,16 @@ if TYPE_CHECKING:
     from . import jacktools
 
 
-try:
-    import libcsound
-except Exception as e:
-    if 'sphinx' in sys.modules:
-        print("Called while building sphinx documentation?")
-        from sphinx.ext.autodoc.mock import _MockObject
-        libcsound = _MockObject()
-    else:
-        print("Error importing libcsound")
-        raise e
+# try:
+#     import libcsound
+# except Exception as e:
+#     if 'sphinx' in sys.modules:
+#         print("Called while building sphinx documentation?")
+#         from sphinx.ext.autodoc.mock import _MockObject
+#         libcsound = _MockObject()
+#     else:
+#         print("Error importing libcsound")
+#         raise e
 
 logger = _logging.getLogger("csoundengine")
 
@@ -83,6 +80,7 @@ def midiDevices(backend='portmidi') -> tuple[list[MidiDevice], list[MidiDevice]]
     windows    portmidi
     ========   ===========================
     """
+    import libcsound
     csound = libcsound.Csound()
     csound.setOption(f"-+rtmidi={backend}")
     csound.setOption("-odac")
@@ -110,6 +108,7 @@ def compressionBitrateToQuality(bitrate: int, fmt='ogg') -> float:
     """
     if fmt == 'ogg':
         bitrates = [64, 80, 96, 128, 128, 160, 192, 224, 256, 320, 500]
+        import emlib.misc
         idx = emlib.misc.nearest_index(bitrate, bitrates)
         return idx / 10
     else:
@@ -180,6 +179,7 @@ class AudioBackend:
     defaultNumBuffers: int = 2
     audioDeviceRegex: str = ''
     acceptsDeviceIndex: bool = True
+    priority: int = 0
 
     def __post_init__(self):
         if not self.longname:
@@ -219,6 +219,7 @@ class AudioBackend:
         if not self.hasSystemSr:
             logger.debug(f"Backend {self.name} does not have a system sr, returning default")
             return 44100
+        import libcsound
         cs = libcsound.Csound()
         cs.setOption("-odac")
         cs.setOption(f"-+rtaudio={self.name}")
@@ -247,6 +248,7 @@ class AudioBackend:
             a tuple (inputDevices: list[AudioDevice], outputDevices: list[AudioDevice])
         """
         logger.info(f"Querying csound's audio devices for backend {self.name}")
+        import libcsound
         cs = libcsound.Csound()
         cs.createMessageBuffer()
         for opt in ['-+rtaudio='+self.name, "-m16", "-odac", "--use-system-sr"]:
@@ -256,12 +258,14 @@ class AudioBackend:
         csindevs = cs.audioDevList(isOutput=False)
         outdevs = [AudioDevice(id=d.deviceId,
                                name=d.deviceName,
+                               backend=self.name,
                                kind='output',
                                index=i,
                                numChannels=d.maxNchnls)
                    for i, d in enumerate(csoutdevs)]
         indevs = [AudioDevice(id=d.deviceId,
                               name=d.deviceName,
+                              backend=self.name,
                               kind='input',
                               index=i,
                               numChannels=d.maxNchnls)
@@ -293,6 +297,7 @@ def _jackdata() -> tuple[jacktools.JackInfo, list[jacktools.JackClient]] | None:
 class _JackAudioBackend(AudioBackend):
     def __init__(self):
         super().__init__(name='jack',
+                         priority=10,
                          alwaysAvailable=False,
                          platforms=('linux', 'darwin', 'win32'),
                          hasSystemSr=True)
@@ -307,6 +312,7 @@ class _JackAudioBackend(AudioBackend):
         if not data:
             raise RuntimeError("Jack is not available")
         blocksize = data[0].blocksize
+        import emlib.mathlib
         if not emlib.mathlib.ispowerof2(blocksize):
             logger.warning(f"Jack's blocksize is not a power of 2: {blocksize}!")
         # jack buf: 512 -> -B 1024 -b 256
@@ -322,10 +328,10 @@ class _JackAudioBackend(AudioBackend):
         if data is None:
             raise RuntimeError("Jack is not available")
         info, clients = data
-        indevs = [AudioDevice(id=f'adc:{c.regex}', name=c.name, kind='input',
+        indevs = [AudioDevice(id=f'adc:{c.regex}', name=c.name, backend=self.name, kind='input',
                               numChannels=len(c.ports), index=c.firstIndex, isPhysical=c.isPhysical)
                   for c in clients if c.kind == 'output']
-        outdevs = [AudioDevice(id=f'dac:{c.regex}', name=c.name, kind='output',
+        outdevs = [AudioDevice(id=f'dac:{c.regex}', name=c.name, backend=self.name, kind='output',
                                numChannels=len(c.ports), index=c.firstIndex, isPhysical=c.isPhysical)
                    for i, c in enumerate(clients) if c.kind == 'input']
         return indevs, outdevs
@@ -343,7 +349,9 @@ class _PulseAudioBackend(AudioBackend):
                          alwaysAvailable=False,
                          hasSystemSr=True,
                          defaultBufferSize=1024,
-                         defaultNumBuffers=2)
+                         defaultNumBuffers=2,
+                         platforms=('linux',),
+                         priority=0)
 
     def getSystemSr(self) -> int:
         from . import linuxaudio
@@ -358,9 +366,9 @@ class _PulseAudioBackend(AudioBackend):
         pulseinfo = linuxaudio.pulseaudioInfo()
         if pulseinfo is None:
             raise RuntimeError("PulseAudio not available")
-        indevs = [AudioDevice(id="adc", name="adc", kind='input', index=0,
+        indevs = [AudioDevice(id="adc", name="adc", backend=self.name, kind='input', index=0,
                               numChannels=pulseinfo.numchannels)]
-        outdevs = [AudioDevice(id="dac", name="dac", kind='output', index=0,
+        outdevs = [AudioDevice(id="dac", name="dac", backend=self.name, kind='output', index=0,
                                numChannels=pulseinfo.numchannels)]
         return indevs, outdevs
 
@@ -369,6 +377,7 @@ class _PortaudioBackend(AudioBackend):
     def __init__(self, kind='callback'):
         shortname = "pa_cb" if kind == 'callback' else 'pa_bl'
         longname = f"portaudio-{kind}"
+        priority = 2 if kind == 'callback' else 0
         if sys.platform == 'linux':
             from . import linuxaudio
             hasSystemSr = linuxaudio.isPipewireRunning()
@@ -377,7 +386,8 @@ class _PortaudioBackend(AudioBackend):
         super().__init__(name=shortname,
                          alwaysAvailable=True,
                          longname=longname,
-                         hasSystemSr=hasSystemSr)
+                         hasSystemSr=hasSystemSr,
+                         priority=priority)
 
     def getSystemSr(self) -> int | None:
         if sys.platform == 'linux' and self.hasSystemSr:
@@ -428,13 +438,16 @@ class _PortaudioBackend(AudioBackend):
         return indev, outdev
 
 
+# linux priorities: jack(10), portaudio-callback(2), alsa(1), pulse(0), portaudio-blocking(0)
+
 class _AlsaBackend(AudioBackend):
     def __init__(self):
         super().__init__(name="alsa",
                          alwaysAvailable=True,
                          platforms=('linux',),
                          audioDeviceRegex=r"([0-9]+):\s((?:adc|dac):.*)\((.*)\)",
-                         acceptsDeviceIndex=False)
+                         acceptsDeviceIndex=False,
+                         priority=1)
 
     def getSystemSr(self) -> int | None:
         if (jackdata := _jackdata()) is not None:
@@ -454,34 +467,27 @@ _backendPortaudioBlocking = _PortaudioBackend('blocking')
 _backendPortaudioCallback = _PortaudioBackend('callback')
 
 
-_allAudioBackends: dict[str, AudioBackend] = {
-    'portaudio': _backendPortaudioCallback,
-    'pa_cb': _backendPortaudioCallback,
-    'pa_bl': _backendPortaudioBlocking,
-}
+@_functools.cache
+def _getAvailableAudioBackends() -> dict[str, AudioBackend]:
+    backends: dict[str, AudioBackend] = {
+        'portaudio': _backendPortaudioCallback,
+        'pa_cb': _backendPortaudioCallback,
+        'pa_bl': _backendPortaudioBlocking,
+    }
+
+    if _jackdata() is not None:
+        backends['jack'] = _JackAudioBackend()
 
 
-if _jackdata() is not None:
-    _allAudioBackends['jack'] = _JackAudioBackend()
-
-
-if sys.platform == 'linux':
-    _allAudioBackends['alsa'] = _AlsaBackend()
-    _allAudioBackends['pulseaudio'] = _PulseAudioBackend()
-elif sys.platform == 'darwin':
-    _allAudioBackends['coreaudio'] = AudioBackend('auhal', alwaysAvailable=True,
-                                                  hasSystemSr=True,
-                                                  needsRealtime=False,
-                                                  longname="coreaudio",
-                                                  platforms=('darwin',))
-    _allAudioBackends['auhal'] = _allAudioBackends['coreaudio']
-
-
-_backendsByPlatform: dict[str, list[AudioBackend]] = {
-    platform: [backend for backend in _allAudioBackends.values()
-               if platform in backend.platforms]
-    for platform in ('linux', 'darwin', 'win32')
-}
+    if sys.platform == 'linux':
+        backends['alsa'] = _AlsaBackend()
+        backends['pulseaudio'] = _PulseAudioBackend()
+    elif sys.platform == 'darwin':
+        backends['coreaudio'] = AudioBackend('auhal', alwaysAvailable=True, hasSystemSr=True,
+                                             needsRealtime=False, longname="coreaudio",
+                                             platforms=('darwin',))
+        backends['auhal'] = backends['coreaudio']
+    return backends
 
 
 def nextpow2(n:int) -> int:
@@ -489,7 +495,6 @@ def nextpow2(n:int) -> int:
     return int(2 ** _math.ceil(_math.log(n, 2)))
 
 
-@runonce
 def findCsound() -> str | None:
     """
     Find the csound binary or None if not found
@@ -509,6 +514,7 @@ def _getVersionViaApi() -> tuple[int, int, int]:
     return _csoundGetInfoViaAPI()['versionTriplet']
 
 
+@_functools.cache
 def getVersion(useApi=True) -> tuple[int, int, int | str]:
     """
     Returns the csound version as tuple (major, minor, patch)
@@ -629,6 +635,7 @@ def _getJackSrViaClient() -> float:
 def _getCsoundSystemSr(backend: str) -> float:
     if backend not in {'jack', 'auhal'}:
         raise ValueError(f"backend {backend} does not support system sr")
+    import libcsound
     csound = libcsound.Csound()
     csound.setOption(f"-+rtaudio={backend}")
     csound.setOption("-odac")
@@ -657,7 +664,7 @@ def getDefaultBackend() -> AudioBackend:
     backends = audioBackends()
     if not backends:
         raise RuntimeError("No available backends")
-    return backends[0]
+    return max(backends, key=lambda b: b.priority)
 
 
 _pluginsFolders = {
@@ -905,7 +912,7 @@ def installedOpcodes(cached=True, opcodedir: str = '') -> set[str]:
 
 def _csoundGetInfoViaAPI(opcodedir='') -> dict:
     global _cache
-
+    import libcsound
     cs = libcsound.Csound()
     cs.setOption("-d")
     cs.setOption("--nosound")
@@ -1184,6 +1191,7 @@ class AudioDevice:
     id: str
     name: str
     kind: str
+    backend: str
     index: int = -1
     numChannels: int | None = 0
     isPhysical: bool | None = None
@@ -1257,7 +1265,7 @@ def getAudioDevices(backend) -> tuple[list[AudioDevice], list[AudioDevice]]:
     """
     backendDef = getAudioBackend(backend)
     if backendDef is None:
-        raise ValueError(f"Backend '{backend}' not supported, known backends: {list(_allAudioBackends.keys())}")
+        raise ValueError(f"Backend '{backend}' not supported, known backends: {list(_getAvailableAudioBackends().keys())}")
     return backendDef.audioDevices()
 
 
@@ -1273,7 +1281,7 @@ def getSamplerateForBackend(backend='') -> int | None:
     """
     backendDef = getAudioBackend(backend)
     if backendDef is None:
-        possible = [name for name, backend in _allAudioBackends.items()
+        possible = [name for name, backend in _getAvailableAudioBackends().items()
                     if sys.platform in backend.platforms]
         raise ValueError(f"Backend '{backend}' not supported. Possible backends for this platform: {possible}")
     if not backendDef.isAvailable():
@@ -1305,7 +1313,7 @@ def audioBackends() -> list[AudioBackend]:
         >>> [backend.name for backend in audioBackends()]
         ['jack', 'pa_cb', 'pa_bl', 'alsa']
     """
-    return list(_allAudioBackends.values())
+    return list(_getAvailableAudioBackends().values())
 
 
 def dumpAudioBackends() -> None:
@@ -1313,16 +1321,17 @@ def dumpAudioBackends() -> None:
     Prints all **available** backends and their properties as a table
     """
     rows = []
-    headers = "name longname sr".split()
+    headers = "backend longname sr".split()
     backends = audioBackends()
     backends.sort(key=lambda backend:backend.name)
+    from emlib.misc import print_table
+
     for b in backends:
         if b.hasSystemSr:
             sr = str(b.getSystemSr())
         else:
             sr = "-"
         rows.append((b.name, b.longname, sr))
-    from emlib.misc import print_table
     print_table(rows, headers=headers, showindex=False)
 
 
@@ -1356,10 +1365,10 @@ def getAudioBackend(name='') -> AudioBackend | None:
     """
     if not name:
         return getDefaultBackend()
-    return _allAudioBackends.get(name)
+    return _getAvailableAudioBackends().get(name)
 
 
-def getAudioBackendNames(available=False, platform='') -> list[str]:
+def getAudioBackendNames() -> list[str]:
     """
     Returns a list with the names of the available audio backends for this
 
@@ -2032,100 +2041,6 @@ def _parsePreset(line: str) -> tuple[str, int, int] | None:
     return (name, bank, presetnum)
 
 
-
-
-def splitScoreLine(line: str, quote=False) -> list[float | str]:
-    """
-    Split a score line into its tokens
-
-    Args:
-        line: the score line to split
-        quote: if True, add quotation marks to strings
-
-    Returns:
-        a list of tokens
-    """
-    # i "instr" 1 2 3 "foo bar" 0.5 "foofi"
-    kind = line[0]
-    assert kind in 'ife'
-    rest = line[1:]
-    allparts: list[str | int | float] = [kind]
-    # even parts are not quoted strings, odd parts are quoted strings
-    for i, part in enumerate(rest.split('"')):
-        if i % 2 == 0:
-            allparts.extend(float(sub.strip()) for sub in part.split())
-        else:
-            allparts.append(f'"{part}"' if quote else part)
-    return allparts
-
-
-def splitInclude(line: str) -> str:
-    """
-    Given an include line it splits the include path
-
-    Example
-    -------
-
-        >>> splitInclude(r'   #include "foo/bar" ')
-        foo/bar
-
-    NB: the quotation marks are not included
-    """
-    match = _re.search(r'#include\s+"(.+)""', line)
-    if not match:
-        raise ValueError("Could not parse include")
-    return match.group(1)
-
-
-def makeIncludeLine(include: str) -> str:
-    """
-    Given a path, creates the #include directive
-
-    In particula, it checks the need for quotation marks
-
-    Args:
-        include: path to include
-
-    Returns:
-
-    """
-    s = emlib.textlib.quoteIfNeeded(include.strip())
-    return f'#include {s}'
-
-
-@_functools.cache
-def _pygmentsOrcLexer():
-    import pygments.lexers.csound
-    return pygments.lexers.csound.CsoundOrchestraLexer()
-
-
-def highlightCsoundOrc(code: str, theme='') -> str:
-    """
-    Converts csound code to html with syntax highlighting
-
-    Args:
-        code: the code to highlight
-        theme: the theme used, one of 'light', 'dark'. If not given, a default
-            is used (see config['html_theme'])
-
-    Returns:
-        the corresponding html
-    """
-    if not theme:
-        from .config import config
-        theme = config['html_theme']
-
-    import pygments
-    import pygments.formatters
-    if theme == 'light':
-        htmlfmt = pygments.formatters.HtmlFormatter(noclasses=True, wrapcode=True)
-    else:
-        htmlfmt = pygments.formatters.HtmlFormatter(noclasses=True, style='fruity',
-                                                    wrapcode=True)
-    html = pygments.highlight(code, lexer=_pygmentsOrcLexer(), formatter=htmlfmt)
-    return html
-
-
 def channelTypeFromValue(value: int | float | str) -> str:
     """
     Channel type (k, S, a) from value
@@ -2138,116 +2053,3 @@ def channelTypeFromValue(value: int | float | str) -> str:
         return 'a'
     else:
         raise TypeError(f"Value of type {type(value)} not supported")
-
-
-def isPfield(name: str) -> bool:
-    """
-    Is name a pfield?
-    """
-    return _re.match(r'\bp[1-9][0-9]*\b', name) is not None
-
-
-def fillPfields(args: Sequence[float | str] | np.ndarray,
-                namedpargs: dict[int, float],
-                defaults: dict[int, float] | None) -> list[float | str]:
-    """
-    Given a set of arguments, named pfields and defaults, generates the list of pfields to be passed to csound
-
-    Args:
-        args: seq. of positional arguments, starting with p4
-        namedpargs: dict mapping pfield index to values
-        defaults: dict mapping pfield names to default values
-
-    Returns:
-        the pfield values, starting with p4
-    """
-    out: list[float | str]
-    if not defaults:
-        if namedpargs and not args:
-            maxp = max(namedpargs.keys())
-            out = [0.] * (maxp - 3)
-            for idx, value in namedpargs.items():
-                out[idx - 4] = value
-            return out
-        elif namedpargs and args:
-            maxp = max(len(args) + 3, max(namedpargs.keys()))
-            out = [0.] * (maxp - 3)
-            for i, arg in enumerate(args):
-                out[i] = arg
-            for idx, value in namedpargs.items():
-                out[idx-4] = value
-            return out
-        elif args:
-            return args if isinstance(args, list) else list(args)
-        else:
-            # no args at all
-            raise ValueError("No args or namedargs given and no default values defined")
-
-    # with defaults
-    if namedpargs and not args:
-        maxp = max(max(defaults.keys()), max(namedpargs.keys()))
-        out = [0.] * (maxp - 3)
-        for idx, value in defaults.items():
-            out[idx - 4] = value
-        for idx, value in namedpargs.items():
-            out[idx - 4] = value
-        return out
-    elif namedpargs and args:
-        maxp = max(len(args)+3, max(defaults.keys()), max(namedpargs.keys()))
-        out = [0.] * (maxp - 3)
-        for idx, value in defaults.items():
-            out[idx - 4] = value
-        out[:len(args)] = args
-        for idx, value in namedpargs.items():
-            out[idx - 4] = value
-        return out
-    elif args:
-        maxp = max(len(args) + 3, max(defaults.keys()))
-        out = [0.] * (maxp - 3)
-        for idx, value in defaults.items():
-            out[idx - 4] = value
-        out[:len(args)] = args
-        return out
-    else:
-        # only defaults
-        maxp = max(defaults.keys())
-        out = [0.] * (maxp - 3)
-        for idx, value in defaults.items():
-            out[idx - 4] = value
-        return out
-
-
-def normalizeNamedPfields(pfields: dict[str, float],
-                          namesToIndexes: dict[str, int] | None = None
-                          ) -> dict[int, float]:
-    """
-    Given a dict mapping pfield as str to value, return a dict mapping pfield index to value
-
-    Args:
-        pfields: a dict of the form {pfield: value} where pfield can be
-        a key like 'p<n>' or a variable name which was assigned to this pfield
-        (like ``ifreq = p4``
-        namesToIndexes: a dict mapping variable names to indexes
-
-    Returns:
-        a dict of the form {pfieldindex: value}
-
-    Example
-    ~~~~~~~
-
-        >>> normalizeNamedPfields({'p4': 0.5, 'ifreq': 2000}, {'ifreq': 5})
-        {4: 0.5, 5: 2000}
-    """
-    out: dict[int, float] = {}
-    for k, value in pfields.items():
-        if k.startswith('p'):
-            out[int(k[1:])] = value
-        elif namesToIndexes:
-            assert k.startswith('k') or k.startswith('i')
-            idx = namesToIndexes.get(k)
-            if idx is None:
-                raise KeyError(f"Keyword pfield not known: {k}")
-            out[idx] = value
-        else:
-            raise KeyError(f"Keyword pfield not known: {k}")
-    return out

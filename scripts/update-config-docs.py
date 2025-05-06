@@ -4,9 +4,9 @@ def findRoot():
     p = Path(__file__).parent
     if (p/"index.rst").exists():
         return p.parent
-    if (p/"setup.py").exists():
+    if (p/"pyproject.toml").exists():
         return p
-    if (p.parent/"setup.py").exists():
+    if (p.parent/"pyproject.toml").exists():
         return p.parent
     raise RuntimeError("Could not locate the root folder")
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from csoundengine.instr import Instr
 from abc import abstractmethod
 
@@ -35,7 +36,3 @@ class BaseSession:
               relative=True,
               **pkws
               ): ...
-
-
-
-

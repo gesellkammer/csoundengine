@@ -4,7 +4,6 @@ import dataclasses
 from abc import ABC, abstractmethod
 from typing import Sequence
 
-import libcsound
 import numpy as np
 
 
@@ -61,6 +60,7 @@ class TableInfo:
 
 
 def _channelMode(kind: str) -> int:
+    import libcsound
     if kind == 'r':
         return libcsound.CSOUND_INPUT_CHANNEL
     elif kind == 'w':

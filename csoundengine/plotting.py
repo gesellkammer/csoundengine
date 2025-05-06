@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from scipy import signal
 import numpy as np
 import matplotlib
@@ -45,7 +47,7 @@ def _figsizeAsTuple(figsize) -> tuple[int, int]:
         raise ValueError(f"Could not interpret {figsize} as a figure size")
 
 
-def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False
+def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False, tight=True
                      ) -> Figure:
     numch = internal.arrayNumChannels(samples)
     numsamples = samples.shape[0]
@@ -54,6 +56,8 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False
     figsize = _figsizeAsTuple(config['samplesplot_figsize'])
     figsize = figsize[0]*2, figsize[1]
     f = plt.figure(figsize=figsize)
+    if tight:
+        f.set_tight_layout(True)
     ax1 = f.add_subplot(numch, 1, 1)
     for i in range(numch):
         if i == 0:
@@ -80,8 +84,8 @@ def matplotlibIsInline() -> bool:
 
 
 def _plotSubsample(samples: np.ndarray, samplerate: int, maxpoints: int,
-                   maxsr: int, show: bool, figsizeFactor=1.,
-                   ) -> plt.Figure:
+                   maxsr: int, show: bool, figsizeFactor=1., tight=True
+                   ) -> Figure:
     targetsr = samplerate
     numch = internal.arrayNumChannels(samples)
     numsamples = samples.shape[0]
@@ -91,6 +95,8 @@ def _plotSubsample(samples: np.ndarray, samplerate: int, maxpoints: int,
     figsize = _figsizeAsTuple(config['samplesplot_figsize'])
     figsize = (int(figsize[0] * figsizeFactor), figsize[1])
     f = plt.figure(figsize=figsize)
+    if tight:
+        f.set_tight_layout(True)
     ax1 = f.add_subplot(numch, 1, 1)
     for i in range(numch):
         ax = ax1 if i == 0 else f.add_subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
@@ -106,7 +112,7 @@ def _plotSubsample(samples: np.ndarray, samplerate: int, maxpoints: int,
                                hoplength=hoplength)
         ax.fill_between(locs, samples_bottom, samples_top)
         ax.set_xlim([locs.min(), locs.max()])
-    f.subplots_adjust(left=0.1, right=0.1, top=0.1, bottom=0.1)
+    # f.subplots_adjust(left=0.1, right=0.1, top=0.1, bottom=0.1)
     f.tight_layout(pad=0.1)
     if not matplotlibIsInline() and show:
         plt.show()
@@ -118,7 +124,8 @@ def plotSamples(samples: np.ndarray,
                 profile='auto',
                 show=False,
                 saveas='',
-                ) -> plt.Figure:
+                closefig=False
+                ) -> Figure:
     """
     Plot the samples
 
@@ -134,9 +141,7 @@ def plotSamples(samples: np.ndarray,
         the figure used
 
     """
-    if saveas:
-        profile = 'highest'
-    elif profile == 'auto':
+    if profile == 'auto':
         dur = len(samples)/samplerate
         if dur > 60*8:
             profile = 'low'
@@ -156,7 +161,7 @@ def plotSamples(samples: np.ndarray,
     elif profile == 'high':
         undersample = min(32, len(samples) // (1024*8))
         fig = _plot_matplotlib(samples[::undersample], samplerate//undersample, show=show)
-    elif profile == 'highest' or saveas:
+    elif profile == 'highest':
         fig = _plot_matplotlib(samples, samplerate, show=show)
     else:
         raise ValueError("profile should be one of 'low', 'medium' or 'high'")
@@ -165,6 +170,37 @@ def plotSamples(samples: np.ndarray,
         plt.close(fig)
         fig.savefig(saveas, transparent=False, facecolor="white", bbox_inches='tight')
     return fig
+
+
+def figureToArray(fig: Figure, removeAlpha=True) -> np.ndarray:
+    fig.canvas.draw()
+    # buf = fig.canvas.tostring_rgb()
+    # X = np.array(fig.canvas.renderer.buffer_rgba())
+    buf = fig.canvas.renderer.buffer_rgba()
+    data = np.frombuffer(buf, dtype=np.uint8)
+    image = data.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+    if removeAlpha:
+        image = image[:, :-1]
+    return image
+
+
+def figureToBase64(fig: Figure) -> str:
+    imgarray = figureToArray(fig)
+    imgb64 = numpyToB64(imgarray)
+    plt.close(fig)
+    return imgb64
+
+
+def numpyToB64(array: np.ndarray) -> str:
+    from PIL import Image
+    from io import BytesIO
+    import base64
+    impil = Image.fromarray(array)
+    if impil.mode != 'RGB':
+        impil = impil.convert('RGB')
+    buff = BytesIO()
+    impil.save(buff, format="png")
+    return base64.b64encode(buff.getvalue()).decode("utf-8")
 
 
 def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window='',

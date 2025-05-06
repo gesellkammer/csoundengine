@@ -109,15 +109,9 @@ import sys
 
 import emlib.envir
 
-from . import csoundlib
-from . import instr
-from . import tools
 from .config import config, logger
-from .csoundlib import dumpAudioInfo
 from .engine import Engine
 from .event import Event
-from .offline import OfflineSession
-from .offlineengine import OfflineEngine
 from .session import Session
 from .synth import SynthGroup
 
@@ -127,13 +121,9 @@ __all__ = [
     'logger',
     'Engine',
     'Session',
-    'OfflineEngine',
-    'OfflineSession',
+    'dumpAudioInfo',
     'SynthGroup',
     'Event',
-    'instr',
-    'tools',
-    'csoundlib',
     'dumpAudioInfo',
     'installDependencies',
 ]
@@ -157,3 +147,11 @@ if emlib.envir.inside_ipython() and config['ipython_load_magics_at_startup']:
     ipython = get_ipython()
     if ipython is not None and ipython.extension_manager is not None:
         ipython.extension_manager.load_extension('csoundengine.magic')
+
+
+def dumpAudioInfo(backend=''):
+    """
+    Dump information about the audio backend.
+    """
+    from . import csoundlib
+    return csoundlib.dumpAudioInfo(backend=backend)

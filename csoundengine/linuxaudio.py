@@ -6,12 +6,8 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
-import cachetools
-
+import functools
 from . import internal
-
-
-logger = logging.getLogger('csoundengine')
 
 
 def _getprocs() -> list[tuple[int, list[str]]]:
@@ -66,7 +62,7 @@ class PulseaudioInfo:
     onPipewire: bool = False
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 20))
+@functools.cache
 def _pactlinfo() -> PulseaudioInfo | None:
     if not shutil.which("pactl"):
         return None
@@ -88,7 +84,7 @@ def _pactlinfo() -> PulseaudioInfo | None:
     return PulseaudioInfo(sr=sr, numchannels=numchannels, onPipewire=onPipewire)
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 20))
+@functools.cache
 def pulseaudioInfo() -> PulseaudioInfo | None:
     """
     Returns info about the pulseaudio server, or None if not running
@@ -123,12 +119,13 @@ def pulseaudioInfo() -> PulseaudioInfo | None:
                           onPipewire=True)
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 5))
+@functools.cache
 def pipewireInfo() -> PipewireInfo | None:
     if not internal.isrunning('pipewire'):
         return None
 
     if shutil.which('pw-cli') is None:
+        logger = logging.getLogger(__name__)
         logger.debug("pipewire seems to be running but could not find pw-cli. "
                      "This is needed in order to query information about pipewire")
         return None

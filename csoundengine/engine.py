@@ -137,7 +137,6 @@ import pitchtools as pt
 from emlib import iterlib
 from emlib.containers import IntPool
 
-from . import csoundlib
 from . import csoundparse
 from . import engineorc
 from . import internal
@@ -149,26 +148,19 @@ from .errors import CsoundError, TableNotFoundError
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    from matplotlib.figure import Figure
     import socket
     from typing import Callable, Sequence
-
-    from matplotlib.figure import Figure
-
+    from . import csoundlib
     from . import session as _session
     callback_t = Callable[[str, float], None]
+    import libcsound as lcs
+
 elif 'sphinx' in _sys.modules:
     import socket
     from typing import Callable, Sequence
     callback_t = Callable[[str, float], None]
 
-
-try:
-    import libcsound as lcs
-    _MYFLTPTR = _ctypes.POINTER(lcs.MYFLT)
-    logger.debug(f'Csound version: {lcs.VERSION}')
-except Exception as e:
-    if 'sphinx' not in _sys.modules:
-        raise e
 
 
 __all__ = [
@@ -290,21 +282,21 @@ class Engine(_EngineBase):
     def __init__(self,
                  name: str = '',
                  sr=0,
-                 ksmps: int | None = None,
-                 backend: str = 'default',
-                 outdev: str | None = None,
-                 indev: str | None = None,
+                 ksmps: int = 0,
+                 backend: str = '',
+                 outdev: str = '',
+                 indev: str = '',
                  a4: int = 0,
                  nchnls: int | None = None,
                  nchnls_i: int | None = None,
                  realtime=False,
-                 buffersize: int | None = None,
-                 numbuffers: int | None = None,
+                 buffersize: int = 0,
+                 numbuffers: int = 0,
                  globalcode: str = "",
                  numAudioBuses: int | None = None,
                  numControlBuses: int | None = None,
                  quiet: bool | None = None,
-                 udpserver: bool | None = None,
+                 udpserver=False,
                  udpport: int = 0,
                  commandlineOptions: list[str] | None = None,
                  includes: list[str] | None = None,
@@ -318,6 +310,9 @@ class Engine(_EngineBase):
                  nosound=False,
                  useProcessQueue=False,
     ):
+        import libcsound as lcs
+        from . import csoundlib
+
         if not name:
             name = _generateUniqueEngineName()
         elif name in Engine.activeEngines:
@@ -326,22 +321,17 @@ class Engine(_EngineBase):
         if backend == 'portaudio':
             backend = 'pa_cb'
         cfg = config
-        availableBackends = csoundlib.getAudioBackendNames(available=True)
-        if backend is None or backend == 'default':
-            backend = cfg[f'{internal.platform}_backend']
+        availableBackends = csoundlib.getAudioBackendNames()
+        if not backend or backend == 'default':
+            backend = csoundlib.getDefaultBackend().name
         elif backend == '?':
             selection = internal.selectItem(availableBackends, title="Select Backend")
             if not selection:
                 raise ValueError("No backend selected")
             backend = selection
         elif backend not in availableBackends:
-            knownBackends = csoundlib.getAudioBackendNames(available=False)
-            if backend not in knownBackends:
-                logger.error(f"Backend {backend} unknown. Available backends: "
-                             f"{availableBackends}")
-            else:
-                logger.error(f"Backend {backend} not available. Available backends: "
-                             f"{availableBackends}")
+            logger.error(f"Backend {backend} unknown. Available backends: "
+                            f"{availableBackends}")
 
         cascadingBackends = [b.strip() for b in backend.split(",")]
         resolvedBackend = internal.resolveOption(cascadingBackends, availableBackends)
@@ -402,7 +392,7 @@ class Engine(_EngineBase):
                                      f"{outdevs}")
                 outdev, outdevName = selected.id, selected.name
 
-        if indev is None:
+        if not indev:
             if defaultin is None:
                 raise RuntimeError(f"No default device for backend {backend}")
             indev, indevName = defaultin.id, defaultin.name
@@ -495,24 +485,21 @@ class Engine(_EngineBase):
         assert isinstance(ksmps, int) and ksmps > 0
 
         if numAudioBuses is None:
-            numAudioBuses = config['num_audio_buses']
+            numAudioBuses = int(config['num_audio_buses'])
         if numControlBuses is None:
-            numControlBuses = config['num_control_buses']
+            numControlBuses = int(config['num_control_buses'])
         if withBusSupport is None:
             withBusSupport = config['bus_support']
 
         if withBusSupport:
             if not numAudioBuses and not numControlBuses:
                 raise ValueError("At least one audio or control bus must be enabled")
-        else:
-            numAudioBuses = 0
-            numControlBuses = 0
 
         super().__init__(sr=sr,
                          ksmps=ksmps,
                          nchnls=nchnls,
-                         numAudioBuses=numAudioBuses if numAudioBuses is not None else config['num_audio_buses'],
-                         numControlBuses=numControlBuses if numControlBuses is not None else config['num_control_buses'],
+                         numAudioBuses=numAudioBuses,
+                         numControlBuses=numControlBuses,
                          sampleAccurate=sampleAccurate,
                          a4=a4)
 
@@ -564,6 +551,9 @@ class Engine(_EngineBase):
         self.autosync: bool = autosync
         """If True, call .sync whenever is needed"""
 
+        assert isinstance(withBusSupport, bool)
+        self._hasBusSupport: bool = withBusSupport
+
         backendBufferSize, backendNumBuffers = backendDef.bufferSizeAndNum()
         buffersize = (buffersize or backendBufferSize or config['buffersize'] or 256)
         buffersize = max(self.ksmps * 2, buffersize)
@@ -604,12 +594,10 @@ class Engine(_EngineBase):
         self.midiin: csoundlib.MidiDevice | None = midiindev
         "Midi input device"
 
-        if udpserver is None:
-            udpserver = config['start_udp_server']
         self._uddocket: None | socket.socket = None
         self._sendAddr: None | tuple[str, int] = None
 
-        if udpserver:
+        if udpserver or udpport > 0:
             import emlib.net
             self.udpPort = udpport or emlib.net.findport()
             self._udpSocket = emlib.net.udpsocket()
@@ -620,6 +608,7 @@ class Engine(_EngineBase):
         self._exited = False           # are we still running?
         self._realtime = realtime
         self._useProcessQueue = useProcessQueue if lcs.VERSION < 7000 else False
+        self._myfltptr = _ctypes.POINTER(lcs.MYFLT)
 
         # counters to create unique instances for each instrument
         self._instanceCounters: dict[int, int] = {}
@@ -690,10 +679,10 @@ class Engine(_EngineBase):
         self._reservedInstrnumRanges: list[tuple[str, int, int]] = [('builtinorc', CONSTS['reservedInstrsStart'], CONSTS['userInstrsStart']-1)]
 
         self._minCyclesForAbsoluteMode = 4
-
-        self.start()
         self.version = lcs.VERSION
         """Csound version as integer (6.18 = 6180)"""
+
+        self.start()
 
     def reservedInstrRanges(self) -> list[tuple[str, int, int]]:
         """
@@ -816,7 +805,54 @@ class Engine(_EngineBase):
         frac = (instance / (10**self._fracnumdigits)) % 1
         return num + frac
 
-    def _startCsound(self) -> tuple[lcs.Csound, lcs.PerformanceThread]:
+    def _setupGlobalInstrs(self):
+        if self.hasBusSupport():
+            self._perfThread.scoreEvent(False, "i", [self._builtinInstrs['clearbuses_post'], 0, -1])
+        self._modified()
+
+    def stop(self):
+        """
+        Stop this Engine
+        """
+        if not hasattr(self, "name"):
+            return
+        if self.csound is None or not self.started or self._exited:
+            logger.debug(f"Engine {self.name} was not running, so can't stop it")
+            return
+        logger.info(f"stopping Engine {self.name}")
+        logger.info("... stopping thread")
+        self._perfThread.stop()
+        time.sleep(0.1)
+        logger.info("... stopping csound")
+        self.csound.stop()
+        time.sleep(0.1)
+        logger.info("... cleaning up")
+        self.csound.cleanup()
+        self._exited = True
+        self._instanceCounters = {}
+        self._instrRegistry = {}
+        self.activeEngines.pop(self.name, None)
+        self.started = False
+        self._session = None
+
+    def start(self):
+        """
+        Start this engine.
+
+        The call to .start() is performed as part of the init process and
+        only needs to be called explicitely if the engine was previously
+        stopped. If the engine has already been started this method
+        does nothing
+        """
+        if self.started:
+            logger.debug(f"start:Engine {self.name} already started")
+            return
+        if priorengine := self.activeEngines.get(self.name):
+            logger.debug("Stopping prior engine")
+            priorengine.stop()
+
+        logger.info(f"Starting engine {self.name}")
+        import libcsound as lcs
         buffersize = self.bufferSize
         optB = buffersize * self.numBuffers
         if self.backend == 'jack':
@@ -839,13 +875,6 @@ class Engine(_EngineBase):
                     f"-B{optB}"]
         options.append(f'-o"{self.outdev}"')
         options.append(f'-i"{self.indev}"')
-        # if lcs.VERSION >= 7000:
-        #     # csound 7 accepts quotes to encompass spaces within an option
-        #     options.append(f'-o"{self.outdev}"')
-        #     options.append(f'-i"{self.indev}"')
-        # else:
-        #     options.append(f'-o{self.outdev}')
-        #     options.append(f'-i{self.indev}')
 
         if self.numthreads > 1:
             options.append(f'-j {self.numthreads}')
@@ -891,8 +920,8 @@ class Engine(_EngineBase):
         orcheader = engineorc.makeOrcHeader(sr=self.sr, ksmps=self.ksmps, nchnls=self.nchnls, nchnls_i=self.nchnls_i, a4=self.a4)
         orc, instrmap = engineorc.makeOrc(globalcode=self.globalCode,
                                           includestr=includestr,
-                                          numAudioBuses=self.numAudioBuses,
-                                          numControlBuses=self.numControlBuses)
+                                          numAudioBuses=self.numAudioBuses if self._hasBusSupport else 0,
+                                          numControlBuses=self.numControlBuses if self._hasBusSupport else 0)
         self._builtinInstrs = instrmap
         self._reservedInstrnums = set(instrmap.values())
         logger.debug("--------------------------------------------------------------\n"
@@ -944,55 +973,7 @@ class Engine(_EngineBase):
         else:
             pt = cs.performanceThread()
         pt.play()
-        return cs, pt
 
-    def _setupGlobalInstrs(self):
-        if self.hasBusSupport():
-            self._perfThread.scoreEvent(False, "i", [self._builtinInstrs['clearbuses_post'], 0, -1])
-        self._modified()
-
-    def stop(self):
-        """
-        Stop this Engine
-        """
-        if not hasattr(self, "name"):
-            return
-        if self.csound is None or not self.started or self._exited:
-            logger.debug(f"Engine {self.name} was not running, so can't stop it")
-            return
-        logger.info(f"stopping Engine {self.name}")
-        logger.info("... stopping thread")
-        self._perfThread.stop()
-        time.sleep(0.1)
-        logger.info("... stopping csound")
-        self.csound.stop()
-        time.sleep(0.1)
-        logger.info("... cleaning up")
-        self.csound.cleanup()
-        self._exited = True
-        self._instanceCounters = {}
-        self._instrRegistry = {}
-        self.activeEngines.pop(self.name, None)
-        self.started = False
-        self._session = None
-
-    def start(self):
-        """
-        Start this engine.
-
-        The call to .start() is performed as part of the init process and
-        only needs to be called explicitely if the engine was previously
-        stopped. If the engine has already been started this method
-        does nothing
-        """
-        if self.started:
-            logger.debug(f"start:Engine {self.name} already started")
-            return
-        if priorengine := self.activeEngines.get(self.name):
-            logger.debug("Stopping prior engine")
-            priorengine.stop()
-        logger.info(f"Starting engine {self.name}")
-        cs, pt = self._startCsound()
         self.started = True
         self.csound = cs
         self._perfThread = pt
@@ -1019,7 +1000,7 @@ class Engine(_EngineBase):
             logger.error(f"outvalue: callback not set for channel {channelName}")
             return
         if valptr is not None:
-            val = _ctypes.cast(valptr, _MYFLTPTR).contents.value
+            val = _ctypes.cast(valptr, self._myfltptr).contents.value
             func(channelName, val)
         else:
             logger.warning(f"outvalueCallback: {channelName=} called with null pointer, skipping")
@@ -1121,7 +1102,7 @@ class Engine(_EngineBase):
         if not force and not self.needsSync():
             return False
 
-        if lcs.VERSION >= 7000:
+        if self.version >= 7000:
             self._perfThread.flushMessageQueue()
         elif self._perfThread._processQueue:
             self._perfThread.flushProcessQueue()
@@ -1220,10 +1201,10 @@ class Engine(_EngineBase):
             >>> e.compile(code)
 
         """
-        codeblocks = csoundparse.parseOrc(code)
+        codeblocks = csoundparse.parseOrc(code, keepComments=False)
         for codeblock in codeblocks:
             if codeblock.kind == 'include':
-                includepath = csoundlib.splitInclude(codeblock.text)
+                includepath = csoundparse.splitInclude(codeblock.text)
                 if not os.path.exists(includepath):
                     logger.warning(f"Include path not found '{includepath}'")
                 self.includes.append(includepath)
@@ -1672,11 +1653,11 @@ class Engine(_EngineBase):
         if namedpfields:
             instrdef = self._parsedInstrs.get(instr if isinstance(instr, str) else str(int(instr)))
             if instrdef:
-                kwargs = csoundlib.normalizeNamedPfields(namedpfields, instrdef.pfieldNameToIndex)
+                kwargs = csoundparse.normalizeNamedPfields(namedpfields, instrdef.pfieldNameToIndex)
             else:
-                assert all(csoundlib.isPfield(key) for key in namedpfields)
+                assert all(csoundparse.isPfield(key) for key in namedpfields)
                 kwargs = {int(key[1:]):value for key, value in namedpfields.items()}
-            args = csoundlib.fillPfields(args, kwargs, defaults=instrdef.pfieldIndexToValue if instrdef else None)
+            args = csoundparse.fillPfields(args, kwargs, defaults=instrdef.pfieldIndexToValue if instrdef else None)
 
         if isinstance(instr, int):
             instrfrac = self._assignEventId(instr) if unique else instr
@@ -1789,7 +1770,7 @@ class Engine(_EngineBase):
         """
         if self.version >= 7000:
             def func7(cs, f=callback, name=name):
-                num = int(cs.evalCode(f'''return nametoinstrnum "{name}"'''))
+                num = int(cs.evalCode(f'return nametoinstrnum:i("{name}")'))
                 self._instrNumCache[name] = num
                 if f:
                     f(name, num)
@@ -1832,7 +1813,7 @@ class Engine(_EngineBase):
             return 0
         # Block!
         if self.version >= 7000 or self._perfThread._processQueue is not None:
-            instrnum = int(self._perfThread.evalCode(f'return nametoinstrnum "{instrname}"'))
+            instrnum = int(self._perfThread.evalCode(f'return nametoinstrnum:i("{instrname}")'))
         else:
             token = self._getSyncToken()
             msg = f'i {self._builtinInstrs["nstrnum"]} 0 0 {token} "{instrname}"'
@@ -2106,7 +2087,7 @@ class Engine(_EngineBase):
             return tabnum
 
         self._tableCache.pop(int(tabnum), None)
-        if lcs.VERSION < 7000 and not self._perfThread._processQueue:
+        if self.version < 7000 and not self._perfThread._processQueue:
             if callback:
                 self._makeTableNotify(data=data, sr=sr, tabnum=tabnum, callback=callback)
             elif not block:
@@ -3379,8 +3360,7 @@ class Engine(_EngineBase):
 
 
         """
-        maxDataSize = config['max_pfields'] - 10
-        if len(pairs) <= maxDataSize:
+        if self.version >= 7000 or len(pairs) <= 1900:
             # iargtab = p4, iargidx = p5, imode = p6, iovertake = p7, ilenpairs = p8
             args: list[float|int] = [tabnum, idx, self.strSet(mode), int(overtake), len(pairs)]
             if isinstance(pairs, np.ndarray):
@@ -3395,7 +3375,7 @@ class Engine(_EngineBase):
             events = [self.automateTable(tabnum=tabnum, idx=idx, pairs=subgroup,
                                          mode=mode, delay=delay+subdelay,
                                          overtake=overtake)
-                      for subdelay, subgroup in internal.splitAutomation(pairs, maxDataSize//2)]
+                      for subdelay, subgroup in internal.splitAutomation(pairs, 1900//2)]
             return events[0]
 
     def automatep(self,
@@ -3445,8 +3425,8 @@ class Engine(_EngineBase):
 
         .. seealso:: :meth:`~Engine.setp`, :meth:`~Engine.automateTable`
         """
-        maxDataSize = config['max_pfields'] - 10
-        if self.version >= 7000 or len(pairs) <= maxDataSize:
+        maxDataSize618 = 1900
+        if self.version >= 7000 or len(pairs) <= maxDataSize618:
             if isinstance(p1, str):
                 args = [float(self.strSet(p1)), float(pidx), float(self.strSet(mode)), float(overtake), float(len(pairs)), 1.]
             else:
@@ -3463,7 +3443,7 @@ class Engine(_EngineBase):
         else:
             events = [self.automatep(p1=p1, pidx=pidx, pairs=subgroup, mode=mode, delay=delay+subdelay,
                                      overtake=overtake)
-                      for subdelay, subgroup in internal.splitAutomation(pairs, maxDataSize // 2)]
+                      for subdelay, subgroup in internal.splitAutomation(pairs, maxDataSize618 // 2)]
             return events[0]
 
     def strSet(self, s: str) -> int:
@@ -3474,7 +3454,7 @@ class Engine(_EngineBase):
         self._strToIndex[s] = stridx
         self._indexToStr[stridx] = s
         cmd = f'strset {stridx}, "{s}"'
-        if lcs.VERSION >= 7000:
+        if self.version >= 7000:
             self._perfThread.compileOrc(cmd)
         elif self._useProcessQueue:
             def task(cs):
@@ -3796,16 +3776,15 @@ class Engine(_EngineBase):
         """
         if not self.hasBusSupport():
             raise RuntimeError("This engine does not have bus support")
-        maxDataSize = config['max_pfields'] - 10
         pairs = internal.flattenAutomationData(pairs)
-        if len(pairs) <= maxDataSize:
+        if self.version >= 7000 or len(pairs) <= 1900:
             args = [int(bus), self.strSet(mode), int(overtake), len(pairs), *pairs]
             self.sched(self._builtinInstrs['automateBusViaPargs'],
                        delay=delay,
                        dur=pairs[-2] + self.ksmps/self.sr,
                        args=args)
         else:
-            for subdelay, subgroup in internal.splitAutomation(pairs, maxDataSize // 2):
+            for subdelay, subgroup in internal.splitAutomation(pairs, 1900 // 2):
                 self.automateBus(bus=bus, pairs=subgroup, delay=delay+subdelay,
                                  mode=mode, overtake=overtake)
 
@@ -3940,6 +3919,27 @@ class Engine(_EngineBase):
     def _dumpbus(self, bus: int):
         pargs = [self._builtinInstrs['busdump'], 0, 0, int(bus)]
         self._perfThread.scoreEvent(False, "i", pargs)
+
+    def hasBusSupport(self) -> bool:
+        return self._hasBusSupport and (self.numAudioBuses > 0 or self.numControlBuses > 0)
+
+    def addBusSupport(self, numAudioBuses: int = None, numControlBuses: int = None) -> None:
+        if self.hasBusSupport():
+            return
+        if numAudioBuses is None:
+            numAudioBuses = self.numAudioBuses or config['num_audio_buses']
+
+        if numControlBuses is None:
+            numControlBuses = self.numControlBuses or config['num_control_buses']
+
+        startInstr = max(instrnum for instrnum in self._builtinInstrs.values() if instrnum < CONSTS['postProcInstrnum'])
+        busorc, businstrs = engineorc.makeBusOrc(numAudioBuses=numAudioBuses, numControlBuses=numControlBuses, startInstr=startInstr)
+        self._builtinInstrs.update(businstrs)
+        self._reservedInstrnumRanges.append(('busorc', min(businstrs.values()), max(businstrs.values())))
+        self._compileCode(busorc, block=True)
+        self._hasBusSupport = True
+        self.numAudioBuses = numAudioBuses
+        self.numControlBuses = numControlBuses
 
     def assignBus(self, kind='', value: float | None = None, persist=False
                   ) -> int:

@@ -3,14 +3,9 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from functools import cache
+from emlib.envir import inside_jupyter
 
-import emlib.iterlib as _iterlib
-import emlib.misc as _misc
-import numpy as np
-
-from csoundengine._common import EMPTYDICT
-
-from . import internal, jupytertools
+from . import internal
 from .baseschedevent import BaseSchedEvent
 from .config import config, logger
 from .schedevent import SchedEvent
@@ -20,6 +15,7 @@ if TYPE_CHECKING:
     from typing import Sequence, Mapping
     from .instr import Instr
     from .session import Session
+    import numpy as np
 
 
 __all__ = (
@@ -179,7 +175,7 @@ class Synth(SchedEvent, ISynth):
                  args: Sequence[float|str] = (),
                  autostop=False,
                  priority: int = 1,
-                 controls: Mapping[str, float] = EMPTYDICT,
+                 controls: Mapping[str, float] = {},
                  controlsSlot: int = -1,
                  uniqueId=0,
                  name=''
@@ -210,6 +206,10 @@ class Synth(SchedEvent, ISynth):
         if self.autostop:
             self.stop()
 
+    @staticmethod
+    def makeGroup(synths: list[Synth]) -> SynthGroup:
+        return SynthGroup(synths)
+
     def wait(self, pollinterval: float = 0.02, sleepfunc=time.sleep) -> None:
         """
         Wait until this synth has stopped
@@ -227,9 +227,6 @@ class Synth(SchedEvent, ISynth):
     @property
     def body(self) -> str:
         return self.session.generateInstrBody(self.instr)
-
-    #def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
-    #    return self.instr.controlNames(aliases=aliases, aliased=aliased)
 
     def ui(self, **specs: tuple[float, float]) -> None:
         """
@@ -274,9 +271,10 @@ class Synth(SchedEvent, ISynth):
         return ui(event=self, specs=specs)
 
     def _html(self, playstatus: str = '') -> str:
+        from . import _palette
         argsfontsize = config['html_args_fontsize']
         maxi = config['synth_repr_max_args']
-        style = jupytertools.defaultPalette
+        style = _palette.defaultPalette
         if not playstatus:
             playstatus = self.playStatus()
         playstr = _synthStatusIcon[playstatus]
@@ -316,8 +314,9 @@ class Synth(SchedEvent, ISynth):
 
     def _repr_html_(self) -> str:
         status = self.playStatus()
-        if status != 'stopped' and jupytertools.inside_jupyter():
+        if status != 'stopped' and inside_jupyter():
             if config['jupyter_synth_repr_stopbutton']:
+                from . import jupytertools
                 jupytertools.displayButton("Stop", self.stop)
         return f"<p>{self._html(playstatus=status)}</p>"
 
@@ -581,7 +580,8 @@ def _synthsCreateHtmlTable(synths: list[Synth], maxrows: int | None = None, tabl
     if limitSynths:
         rows.append(["..."])
 
-    return _misc.html_table(rows, headers=colnames, tablestyle=tablestyle)
+    import emlib.misc
+    return emlib.misc.html_table(rows, headers=colnames, tablestyle=tablestyle)
 
 
 class SynthGroup(BaseSchedEvent):
@@ -766,9 +766,11 @@ class SynthGroup(BaseSchedEvent):
         return eventids
 
     def _htmlTable(self, style='', maxrows: int | None = None) -> str:
-        subgroups = _iterlib.classify(self.synths, lambda synth: synth.instr.name)
+        import emlib.iterlib
+        from . import _palette
+        subgroups = emlib.iterlib.classify(self.synths, lambda synth: synth.instr.name)
         lines = []
-        instrcol = jupytertools.defaultPalette["name.color"]
+        instrcol = _palette.defaultPalette["name.color"]
         for instrname, synths in subgroups.items():
             lines.append(f'<p><small>Instr: <strong style="color:{instrcol}">'
                          f'{instrname}'
@@ -824,9 +826,11 @@ class SynthGroup(BaseSchedEvent):
         ui(event=self, specs=specs)
 
     def _repr_html_(self) -> str:
-        assert jupytertools.inside_jupyter()
+        from . import jupytertools
+
         def bold(txt):
             return span(txt, bold=True)
+
         span = jupytertools.htmlSpan
 
         if not self.synths:

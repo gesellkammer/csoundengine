@@ -4,21 +4,17 @@ import bisect
 import math
 import os
 import re
-import signal
-import subprocess
 import sys
 import textwrap
 import time
 from functools import cache
 from typing import TYPE_CHECKING
 
-import cachetools
 import emlib.iterlib
 import emlib.numpytools
 import numpy as np
 
 from csoundengine._common import EMPTYDICT
-# import xxhash
 
 
 if TYPE_CHECKING:
@@ -52,11 +48,11 @@ def ndarrayhash(a: np.ndarray) -> str:
         return str(id(a))
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 20))
 def isrunning(prog: str) -> bool:
-    """True if prog is running"""
+    """True if prog is running (only for linux for the moment)"""
     if sys.platform != 'linux':
         raise RuntimeError(f"This function is not supported for platform '{sys.platform}'")
+    import subprocess
     failed = subprocess.call(['pgrep', '-f', prog], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return not failed
 
@@ -123,6 +119,7 @@ def setSigintHandler(handler=None):
     """
     if _registry.get('sigint_handler_set'):
         return
+    import signal
     if handler is None:
         handler = _dummySigintHandler
     originalHandler = signal.getsignal(signal.SIGINT)
@@ -139,6 +136,7 @@ def removeSigintHandler():
     """
     if not _registry.get('sigint_handler_set'):
         return
+    import signal
     signal.signal(signal.SIGINT, _registry['original_sigint_handler'])
     _registry['sigint_handler_set'] = False
 
@@ -571,15 +569,7 @@ def soundfileHtml(sndfile: str,
                   audiotagWidth='100%',
                   audiotagMaxWidth='1200px',
                   embedThreshold=2.,
-                  cachesize=100
                   ) -> str:
-    args = (hashSoundfile(sndfile), withHeader, withAudiotag, audiotagMaxDuration,
-            audiotagWidth, audiotagMaxWidth, embedThreshold)
-    h = hash(args)
-    if h in _soundfileHtmlCache:
-        html, t = _soundfileHtmlCache[h]
-        return html
-
     html = _soundfileHtml(sndfile=sndfile,
                           withHeader=withHeader,
                           withAudiotag=withAudiotag,
@@ -587,12 +577,44 @@ def soundfileHtml(sndfile: str,
                           audiotagWidth=audiotagWidth,
                           audiotagMaxWidth=audiotagMaxWidth,
                           embedThreshold=embedThreshold)
-    _soundfileHtmlCache[args] = (html, time.time())
-    if len(_soundfileHtmlCache) > cachesize:
-        oldestkey = min(_soundfileHtmlCache.keys(), key=lambda key: _soundfileHtmlCache[key][1])
-        del _soundfileHtmlCache[oldestkey]
-
     return html
+
+
+def wrapBase64(base64img: str,
+               width: int | str = None,
+               maxwidth: int | str = None,
+               margintop='14px',
+               padding='10px',
+               ) -> str:
+    """
+    Read an image and return the data as base64 within an img html tag
+
+    Args:
+        imgpath: the path to the image
+        width: the width of the displayed image. Either a width
+            in pixels or a str as passed to css ('800px', '100%').
+        maxwidth: similar to width
+        scale: if width is not given, a scale value can be used to display
+            the image at a relative width
+
+    Returns:
+        the generated html
+    """
+    attrs = [f'padding:{padding}',
+             f'margin-top:{margintop}']
+    if maxwidth:
+        if isinstance(maxwidth, int):
+            maxwidth = f'{maxwidth}px'
+        attrs.append(f'max-width: {maxwidth}')
+    if width is not None:
+        if isinstance(width, int):
+            width = f'{width}px'
+        attrs.append(f'width:{width}')
+    style = ";\n".join(attrs)
+    return fr'''
+        <img style="display:inline; {style}"
+             src="data:image/png;base64,{base64img}"/>'''
+
 
 
 def _soundfileHtml(sndfile: str,
@@ -630,19 +652,20 @@ def _soundfileHtml(sndfile: str,
     import emlib.misc
     import IPython.display
     from . import plotting
-    pngfile = tempfile.mktemp(suffix=".png", prefix="plot-")
     import sndfileio
     samples, info = sndfileio.sndget(sndfile)
-    if info.duration < 20:
+    if info.duration < 3:
         profile = 'highest'
-    elif info.duration < 40:
+    elif info.duration < 12:
         profile = 'high'
-    elif info.duration < 180:
+    elif info.duration < 60:
         profile = 'medium'
     else:
         profile = 'low'
-    plotting.plotSamples(samples, samplerate=info.samplerate, profile=profile, saveas=pngfile)
-    img = emlib.img.htmlImgBase64(pngfile)
+    fig = plotting.plotSamples(samples, samplerate=info.samplerate, profile=profile)
+    imgb64 = plotting.figureToBase64(fig)
+    img = wrapBase64(imgb64)
+    # img = emlib.img.htmlImgBase64(pngfile)
     if info.duration > 60:
         durstr = emlib.misc.sec2str(info.duration)
     else:
@@ -729,7 +752,7 @@ def flattenAutomationData(pairs: npt.ArrayLike | tuple[npt.ArrayLike, npt.ArrayL
 
 
 @cache
-def assignInstrNumbers(orc: str, startInstr: int, postInstrNum: int) -> dict[str, int]:
+def assignInstrNumbers(orc: str, startInstr: int, postInstrNum: int = 0) -> dict[str, int]:
     """
     Given an orc with quoted instrument names, assign numbers to each instr
 
@@ -748,8 +771,7 @@ def assignInstrNumbers(orc: str, startInstr: int, postInstrNum: int) -> dict[str
     postInstrs = [name for name in names if name.endswith('_post')]
 
     instrs = {name: i for i, name in enumerate(preInstrs, start=startInstr)}
-    for i, name in enumerate(postInstrs):
-        instrs[name] = postInstrNum + i
+    instrs.update({name: postInstrNum + 1 for i, name in enumerate(postInstrs)})
     return instrs
 
 

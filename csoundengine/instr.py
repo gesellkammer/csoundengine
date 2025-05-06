@@ -8,7 +8,7 @@ from functools import cache
 import numpy as np
 from emlib import iterlib
 
-from . import csoundlib
+from . import csoundparse
 from . import instrtools
 from ._common import EMPTYDICT, EMPTYSET
 from .config import config, logger
@@ -263,7 +263,7 @@ class Instr:
         # At the moment we do not support mixing styles: either args passed to Instr, inline
         # args or pfields declared at the csound body
 
-        parsedInstr = csoundlib.instrParseBody(body)
+        parsedInstr = csoundparse.instrParseBody(body)
         controls: dict[str, float]
 
         if args:
@@ -458,7 +458,8 @@ class Instr:
 
     def _repr_html_(self) -> str:
         from . import jupytertools
-        style = jupytertools.defaultPalette
+        from ._palette import defaultPalette
+        style = defaultPalette
         parts = [f'Instr <strong style="color:{style["name.color"]}">{self.name}</strong><br>']
         _ = jupytertools.htmlSpan
         headerfontsize = '90%'
@@ -497,7 +498,7 @@ class Instr:
                 parts.append(_(f"<br>&nbsp&nbsp&nbsp&nbspAliases: {', '.join(aliases)}", fontsize=headerfontsize))
         if config['jupyter_instr_repr_show_code']:
             parts.append('<hr style="width:38%;text-align:left;margin-left:0;border: 1px dashed; background: transparent;">')
-            htmlorc = _(csoundlib.highlightCsoundOrc(self._preprocessedBody), fontsize=headerfontsize)
+            htmlorc = _(csoundparse.highlightCsoundOrc(self._preprocessedBody), fontsize=headerfontsize)
             parts.append(htmlorc)
         return "\n".join(parts)
 
@@ -847,8 +848,13 @@ class Instr:
             values starting at p5 and dynargs is a dict of dynamic
             parameters mapping parameter name to the given value
         """
-        if args is None:
-            args = []
+        if not args:
+            if not kws:
+                pfields = self.defaultPfieldValues()
+                return pfields, EMPTYDICT
+            else:
+                pfields = self.pfieldsTranslate(kws=kws)
+                return pfields, kws
 
         if isinstance(args, list):
             # All pfields, starting with p5
@@ -862,7 +868,6 @@ class Instr:
             else:
                 namedpfields, dynargs = self.distributeNamedParams(kws)
                 pfields = self.pfieldsTranslate(args=args, kws=namedpfields)
-
         elif isinstance(args, dict):
             namedpfields, dynargs = self.distributeNamedParams(args)
             pfields = self.pfieldsTranslate(kws=namedpfields)

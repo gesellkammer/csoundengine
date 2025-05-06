@@ -880,6 +880,19 @@ a4 = {a4}
 0dbfs = {zerodbfs}
 """
 
+
+@cache
+def makeBusOrc(numAudioBuses: int, numControlBuses: int, startInstr: int) -> tuple[str, dict[str, int]]:
+    template = Template(_busOrc)
+    instrs = internal.assignInstrNumbers(_busOrc, startInstr)
+    subs: dict[str, Any] = {name: f"{num}  /* {name} */"
+                            for name, num in instrs.items()}
+    subs.update(BUILTIN_TABLES)
+    subs.update(CONSTS)
+    orc = template.substitute(numAudioBuses=numAudioBuses, numControlBuses=numControlBuses, **subs)
+    return orc, instrs
+
+
 @cache
 def makeOrc(globalcode: str = "",
             includestr: str = "",

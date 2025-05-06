@@ -9,10 +9,9 @@ from dataclasses import dataclass
 from functools import cache
 from typing import TYPE_CHECKING, Sequence
 
-import libcsound
 import numpy as np
 
-from . import csoundlib, engineorc, internal
+from . import csoundparse, engineorc, internal
 from .config import config, logger
 from .enginebase import TableInfo, _EngineBase
 from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL
@@ -23,6 +22,7 @@ from . import tools
 
 if TYPE_CHECKING:
     from csoundengine.csd import Csd
+    import libcsound
 
 
 __all__ = [
@@ -195,19 +195,22 @@ class OfflineEngine(_EngineBase):
                          numAudioBuses=numAudioBuses if numAudioBuses is not None else config['num_audio_buses'],
                          numControlBuses=numControlBuses if numControlBuses is not None else config['num_control_buses'],
                          sampleAccurate=sampleAccurate)
+        from . import csoundlib
         self.outfile = outfile or tempfile.mktemp(prefix='csoundengine-', suffix='.wav') if not nosound else ''
         self.globalcode = globalcode
         self.numAudioBuses = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
         self.numControlBuses = numControlBuses if numControlBuses is not None else config['num_control_buses']
         self.includes = includes if includes is not None else []
         self.encoding = encoding or csoundlib.bestSampleEncodingForExtension(os.path.splitext(self.outfile)[1][1:])
+        self.version = 0
+
         self._renderjob: RenderJob | None = None
 
         self._strToIndex: dict[str, int] = {}
         self._indexToStr: dict[int, str] = {}
         self._tableInfo: dict[int, TableInfo] = {}
         self._soundfilesLoaded: dict[tuple[str, int, float], int] = {}
-        self._parsedInstrs: dict[str, csoundlib.ParsedInstrBody] = {}
+        self._parsedInstrs: dict[str, csoundparse.ParsedInstrBody] = {}
         # maps (path, chan, skiptime) -> tablenumber
 
         self._instanceCounters: dict[int, int] = {}
@@ -256,6 +259,8 @@ class OfflineEngine(_EngineBase):
         return "\n".join(includelines)
 
     def _start(self) -> libcsound.Csound:
+        import libcsound
+        self.version = libcsound.VERSION
         csound = libcsound.Csound()
         for option in self.options:
             csound.setOption(option)
@@ -307,10 +312,10 @@ class OfflineEngine(_EngineBase):
         if not self.csound:
             raise RuntimeError("This OfflineEngine does not have an associated csound process")
 
-        codeblocks = csoundlib.parseOrc(code)
+        codeblocks = csoundparse.parseOrc(code)
         for codeblock in codeblocks:
             if codeblock.kind == 'instr':
-                parsedbody = csoundlib.instrParseBody(csoundlib.instrGetBody(codeblock.text))
+                parsedbody = csoundparse.instrParseBody(csoundparse.instrGetBody(codeblock.text))
                 self._parsedInstrs[codeblock.name] = parsedbody
                 if codeblock.name[0].isdigit():
                     instrnum = int(codeblock.name)
@@ -450,11 +455,11 @@ class OfflineEngine(_EngineBase):
         if namedpfields:
             instrdef = self._parsedInstrs.get(str(int(instr)) if isinstance(instr, (int, float)) else instr)
             if instrdef:
-                kwargs = csoundlib.normalizeNamedPfields(namedpfields, instrdef.pfieldNameToIndex)
+                kwargs = csoundparse.normalizeNamedPfields(namedpfields, instrdef.pfieldNameToIndex)
             else:
-                assert all(csoundlib.isPfield(key) for key in namedpfields)
+                assert all(csoundparse.isPfield(key) for key in namedpfields)
                 kwargs = {int(key[1:]):value for key, value in namedpfields.items()}
-            args = csoundlib.fillPfields(args, kwargs, defaults=instrdef.pfieldIndexToValue if instrdef else None)
+            args = csoundparse.fillPfields(args, kwargs, defaults=instrdef.pfieldIndexToValue if instrdef else None)
 
         if unique:
             if isinstance(instr, str):
@@ -766,7 +771,7 @@ class OfflineEngine(_EngineBase):
             logger.warning(f"Performance has already been started (elapsed time: {self.elapsedTime()}, "
                            f"this message ('{msg}') will probably be ignored.")
         self.csound.inputMessage(msg)
-        parts = csoundlib.splitScoreLine(msg, quote=False)
+        parts = csoundparse.splitScoreLine(msg, quote=False)
         kind = parts[0]
         start = parts[2]
         dur = parts[3]
@@ -1046,44 +1051,6 @@ class OfflineEngine(_EngineBase):
         self._addHistory(_TableDataEvent(data=data, delay=delay, tabnum=tabnum, sr=sr))
         return int(tabnum)
 
-    # def _makeTable(self,
-    #               data: np.ndarray | Sequence[float],
-    #               tabnum: int = -1,
-    #               sr: int = 0,
-    #               delay=0.
-    #               ) -> int:
-    #     """
-    #     Create a new table and fill it with data.
-
-    #     Args:
-    #         data: the data used to fill the table
-    #         tabnum: the table number. If -1, a number is assigned by the engine.
-    #             If 0, a number is assigned by csound (this operation will be blocking
-    #             if no callback was given)
-    #         sr: only needed if filling sample data. If given, it is used to fill the
-    #             table metadata in csound, as if this table had been read via gen01
-    #         delay: when to allocate the table
-
-    #     Returns:
-    #         the index of the new table
-    #     """
-    #     if not self.csound:
-    #         raise RuntimeError("This OfflineEngine does not have an associated csound process")
-
-    #     if tabnum == -1:
-    #         tabnum = self._assignTableNumber()
-    #     if not isinstance(data, np.ndarray):
-    #         data = np.asarray(data)
-    #     numchannels = 1 if len(data.shape) == 1 else data.shape[1]
-    #     flatdata = data if numchannels == 1 else data.flatten()
-    #     arr = np.zeros((len(flatdata)+4,), dtype=float)
-    #     arr[0:4] = [tabnum, 0, len(flatdata), -2]
-    #     arr[4:] = flatdata
-    #     self.csound.scoreEvent("f", arr)
-    #     self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(flatdata), numChannels=numchannels)
-    #     self._addHistory(_TableDataEvent(data=data, delay=delay, tabnum=tabnum))
-    #     return int(tabnum)
-
     def freeTable(self, tableindex: int, delay=0.) -> None:
         self.sched(self._builtinInstrs['freetable'], delay, 0., tableindex)
 
@@ -1211,7 +1178,6 @@ class OfflineEngine(_EngineBase):
         if math.isnan(pairs[1]):
             overtake = True
 
-        maxDataSize = config['max_pfields'] - 10
         if len(pairs) % 2 != 0:
             raise ValueError(f"Pairs needs to be a flat sequence of floats with the form"
                              f" t0, value0, t1, value1, ..., with an even number of "
@@ -1228,7 +1194,7 @@ class OfflineEngine(_EngineBase):
 
         self._addHistory(_AutomateEvent(p1, pfield=pfield, pairs=pairs, delay=delay, overtake=overtake))
 
-        if len(pairs) <= maxDataSize:
+        if self.version >= 7000 or len(pairs) <= 1900:
             if isinstance(pairs, np.ndarray):
                 pairs = pairs.tolist()
             p1IsString = int(isinstance(p1, str))
@@ -1244,7 +1210,7 @@ class OfflineEngine(_EngineBase):
                 pairs = list(pairs)
             events = [self.automatep(p1=p1, pfield=pfield, pairs=subgroup, mode=mode, delay=delay + subdelay,
                                      overtake=overtake)
-                      for subdelay, subgroup in internal.splitAutomation(pairs, maxDataSize // 2)]
+                      for subdelay, subgroup in internal.splitAutomation(pairs, 1900 // 2)]
             return events[0]
 
     def renderHistory(self, outfile='') -> RenderJob:

@@ -3,25 +3,12 @@ from __future__ import annotations
 from typing import Callable
 
 from emlib.envir import inside_jupyter
+from . import _palette
 
 
 if inside_jupyter():
     import ipywidgets as _ipywidgets
     from IPython.display import display as _ipythonDisplay
-
-
-lightPalette = {
-    'name.color': 'MediumSeaGreen'
-}
-
-darkPalette = lightPalette.copy()
-
-defaultPalette = lightPalette
-
-palettes = {
-    'light': lightPalette,
-    'dark': darkPalette
-}
 
 
 def displayButton(buttonText: str, callback: Callable[[], None]
@@ -55,26 +42,10 @@ def htmlName(text: str, palette='light') -> str:
 
     It will use the colors as defined in the palette
     """
-    colors = palettes.get(palette)
+    colors = _palette.palettes.get(palette)
     if not colors:
-        raise ValueError(f"palette {palette} not known. Possible palettes: {palettes.keys()}")
+        raise ValueError(f"palette {palette} not known. Possible palettes: {_palette.palettes.keys()}")
     return f'<strong style="color:{colors["name.color"]}">{text}</strong>'
-
-
-safeColors = {
-    'blue1': '#9090FF',
-    'blue2': '#6666E0',
-    'red1': '#FF9090',
-    'red2': '#E08080',
-    'green1': '#90FF90',
-    'green2': '#8080E0',
-    'magenta1': '#F090F0',
-    'magenta2': '#E080E0',
-    'cyan': '#70D0D0',
-    'grey1': '#BBBBBB',
-    'grey2': '#A0A0A0',
-    'grey3': '#909090'
-}
 
 
 def htmlSpan(text, color='', fontsize='', italic=False, bold=False, tag='span') -> str:
@@ -97,7 +68,7 @@ def htmlSpan(text, color='', fontsize='', italic=False, bold=False, tag='span') 
     """
     text = str(text)
     if color.startswith(':'):
-        color = safeColors[color[1:]]
+        color = _palette.safeColors[color[1:]]
     styleitems = {}
     if color:
         styleitems['color'] = color

@@ -550,11 +550,14 @@ class OfflineSession(AbstractRenderer):
 
     def schedEvent(self, event: Event) -> SchedEvent:
         kws = event.kws or {}
+        args = event.args
+        if args and isinstance(args, tuple):
+            args = list(args)
         schedevent = self.sched(instrname=event.instrname,
                                 delay=event.delay,
                                 dur=event.dur,
                                 priority=event.priority,
-                                args=event.args,
+                                args=args,
                                 whenfinished=None,
                                 **kws)
         if event.automations:
@@ -782,16 +785,15 @@ class OfflineSession(AbstractRenderer):
 
     def _automateBus(self, bus: busproxy.Bus, pairs: Sequence[float],
                      mode='linear', delay=0., overtake=False):
-        maxDataSize = config['max_pfields'] - 10
         if isinstance(pairs, np.ndarray):
             assert len(pairs.shape) == 1, f"Invalid pairs: {pairs}"
-        if len(pairs) <= maxDataSize:
+        if csoundlib.getVersion()[0] >= 7 or len(pairs) <= 1900:
             args = [int(bus), self.strSet(mode), int(overtake), len(pairs), *pairs]
             dur = float(pairs[-2]) + self.ksmps / self.sr
             self.csd.addEvent(self._builtinInstrs['automateBusViaPargs'],
                               start=delay, dur=dur, args=args)
         else:
-            for groupdelay, subgroup in internal.splitAutomation(pairs, maxDataSize//2):
+            for groupdelay, subgroup in internal.splitAutomation(pairs, 1900//2):
                 self._automateBus(bus=bus, pairs=subgroup, delay=groupdelay+delay,
                                   mode=mode, overtake=overtake)
 
@@ -1439,9 +1441,8 @@ class OfflineSession(AbstractRenderer):
 
         instr = event.instr
         assert instr is not None
-        maxDataSize = config['max_pfields'] - 10
-        if len(pairs) > maxDataSize:
-            for subdelay, subgroup in internal.splitAutomation(pairs, maxDataSize//2):
+        if csoundlib.getVersion()[0] < 7 and len(pairs) > 1900:
+            for subdelay, subgroup in internal.splitAutomation(pairs, 1900//2):
                 self.automate(event=event, param=param, pairs=subgroup, mode=mode,
                               delay=delay+subdelay, overtake=overtake)
             return 0.
@@ -1452,7 +1453,7 @@ class OfflineSession(AbstractRenderer):
         if instr.hasControls() and param in instr.controlNames(aliases=False):
             self._automateTable(event=event, param=param, pairs=pairs, mode=mode, delay=delay,
                                 overtake=overtake)
-        elif csoundlib.isPfield(param) or param in instr.pfieldNames(aliases=False):
+        elif csoundparse.isPfield(param) or param in instr.pfieldNames(aliases=False):
             self._automatePfield(event=event, param=param, pairs=pairs, mode=mode, delay=delay,
                                  overtake=overtake)
         else:
@@ -1496,7 +1497,8 @@ class OfflineSession(AbstractRenderer):
         Automate a named control of an event
         """
         # splitting is done in automate
-        assert len(pairs) < config['max_pfields'] and len(pairs) % 2 == 0
+        if len(pairs) % 2 != 0:
+            raise ValueError("pairs must have an even number of elements")
         instr = event.instr
         paramindex = instr.controlIndex(param)
         dur = pairs[-2] - pairs[0]
@@ -1535,13 +1537,13 @@ class OfflineSession(AbstractRenderer):
             soundfileHtml = internal.soundfileHtml(sndfile)
             info = f'sr={_(self.sr)}, renderedJobs={_(self.renderedJobs)}'
             htmlparts = (
-                f'<strong>Renderer</strong>({info})',
+                f'<strong>{type(self).__name__}</strong>({info})',
                 soundfileHtml
             )
             return '<br>'.join(htmlparts)
         else:
             info = f'sr={_(self.sr)}'
-            return f'<strong>Renderer</strong>({info})'
+            return f'<strong>{type(self).__name__}</strong>({info})'
 
     def playPartials(self,
                      source: int | str | tableproxy.TableProxy | np.ndarray,
@@ -1706,10 +1708,3 @@ def _namedControlsGenerateCodeOffline(controls: dict) -> str:
     lines.append("    ; --- end generated code\n")
     out = emlib.textlib.stripLines(emlib.textlib.joinPreservingIndentation(lines))
     return out
-
-
-class Renderer:
-    def __new__(cls, *args, **kwargs):
-        import warnings
-        warnings.warn("The class 'Renderer' has been renamed to 'OfflineSession'")
-        return OfflineSession(*args, **kwargs)

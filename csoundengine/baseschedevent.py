@@ -5,7 +5,8 @@ from typing import Sequence
 
 import numpy as np
 
-from . import csoundlib, jupytertools
+import emlib.envir
+from . import csoundparse
 from ._common import EMPTYDICT, EMPTYSET
 
 
@@ -112,7 +113,7 @@ class BaseSchedEvent(ABC):
                 self.set(param=k, value=v, delay=delay)
 
         if param:
-            if csoundlib.isPfield(param):
+            if csoundparse.isPfield(param):
                 self._setPfield(param=param, value=value, delay=delay)
             else:
                 unaliased = self.unaliasParam(param, param)
@@ -224,7 +225,7 @@ class BaseSchedEvent(ABC):
         if isinstance(param, str):
             param = self.unaliasParam(param, param)
 
-        if isinstance(param, int) or csoundlib.isPfield(param) or (
+        if isinstance(param, int) or csoundparse.isPfield(param) or (
                 (pargs := self.pfieldNames(aliases=False)) and param in pargs):
             return self._automatePfield(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
         elif (tabargs := self.controlNames(aliases=False)) and param in tabargs:
@@ -317,7 +318,7 @@ class BaseSchedEvent(ABC):
         """
         If inside jupyter, display the html representation of self
         """
-        if jupytertools.inside_jupyter():
+        if emlib.envir.inside_jupyter():
             from IPython.display import display
             display(self)
         else:

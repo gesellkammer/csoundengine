@@ -18,7 +18,7 @@ import numpy as np
 
 from csoundengine.config import config
 
-from . import csoundlib
+from . import csoundlib, csoundparse
 from .renderjob import RenderJob
 
 if TYPE_CHECKING:
@@ -180,8 +180,10 @@ class ScoreLine:
                     parts.append(pfield)
                 else:
                     parts.append(f'"{pfield}"')
+            elif hasattr(pfield, '__float__') or hasattr(pfield, '__int__'):
+                parts.append(str(float(pfield)))
             else:
-                raise TypeError(f"Invalid pfield: {pfield}")
+                raise TypeError(f"Invalid pfield: {pfield}, {type(pfield)=}, {self.pfields=}")
         if self.comment:
             parts.append(f'    ; {self.comment}')
         return ' '.join(parts)
@@ -431,7 +433,7 @@ class Csd:
         """
         if isinstance(line, str):
             try:
-                parts = csoundlib.splitScoreLine(line)
+                parts = csoundparse.splitScoreLine(line)
             except ValueError as e:
                 raise ValueError(f"Could not parse line '{line}', error: {e}")
         else:
@@ -755,6 +757,7 @@ class Csd:
             bitrate: the bitrate in kB/s
             format: the format used (only 'ogg' at the moment)
         """
+        from . import csoundlib
         self.setCompressionQuality(csoundlib.compressionBitrateToQuality(bitrate, format))
 
     def _writeScore(self, stream, datadir='.', dataprefix='') -> None:

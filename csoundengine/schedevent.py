@@ -8,13 +8,13 @@ from typing import TYPE_CHECKING, Sequence
 import emlib.numpytools as nptools
 import numpy as np
 
-from . import instr
 from ._common import EMPTYSET
 from .baseschedevent import BaseSchedEvent
 from .config import logger
 
 if TYPE_CHECKING:
     from .abstractrenderer import AbstractRenderer
+    from . import instr as _instr
 
 
 @dataclass
@@ -205,7 +205,7 @@ class SchedEvent(BaseSchedEvent):
         return instr.aliases
 
     @property
-    def instr(self) -> instr.Instr:
+    def instr(self) -> _instr.Instr:
         """
         The Instr corresponding to this Event, if applicable
 

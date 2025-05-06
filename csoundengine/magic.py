@@ -21,9 +21,12 @@ from __future__ import annotations
 from IPython.core.magic import Magics, cell_magic, line_cell_magic, magics_class
 from IPython.display import HTML, display
 
-from . import csoundlib
-from . import engine as _engine
+from . import csoundparse
 from .config import config, logger
+
+import typing
+if typing.TYPE_CHECKING:
+    from . import engine as _engine
 
 
 def _splitonce(s: str):
@@ -42,9 +45,10 @@ class EngineMagics(Magics):
         }
 
     def _resolveEngine(self, line: str) -> _engine.Engine | None:
+        from .engine import Engine
         if line:
             engineName = line.strip()
-            engine = _engine.getEngine(engineName)
+            engine = Engine.activeEngines.get(engineName)
             if engine is None:
                 logger.warning(f"Engine {engineName} not known. "
                                f"Possible engines: {_engine.Engine.activeEngines.keys()}")
@@ -52,12 +56,12 @@ class EngineMagics(Magics):
             return engine
         if self.currentEngine:
             return self.currentEngine
-        engines = _engine.activeEngines()
+        engines = Engine.activeEngines.keys()
         if not engines:
             print("No active Engine. After creating an Engine, "
                   "do `%csound <enginename>` to set it as the default Engine")
             return None
-        return _engine.getEngine(list(engines)[-1])
+        return Engine.activeEngines[list(engines)[-1]]
 
     def _cmd_setengine(self, line:str) -> None:
         engine = _engine.getEngine(line)
@@ -122,7 +126,7 @@ class EngineMagics(Magics):
             return None
         self.currentEngine = engine
         self.currentEngine.compile(cell, block=True)
-        html = csoundlib.highlightCsoundOrc(cell)
+        html = csoundparse.highlightCsoundOrc(cell)
         display(HTML(html))
         return None
 
@@ -189,4 +193,4 @@ def load_ipython_extension(ip):
         print("csoundengine.magic extension loaded")
         print("Magics available: %csound, %%csound, %%definstr")
     ip.magics_manager.register(EngineMagics)
-    ip.user_ns['Engine'] = _engine.Engine
+    ip.user_ns['Engine'] = None

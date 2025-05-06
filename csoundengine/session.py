@@ -15,35 +15,33 @@ from dataclasses import dataclass
 from functools import cache
 
 import emlib.textlib as _textlib
+from emlib.envir import inside_jupyter
+
 import numpy as np
 
 from . import (
     busproxy,
-    csoundlib,
+    csoundparse,
     engineorc,
     instrtools,
-    jupytertools,
-    sessioninstrs,
-    internal
+    internal,
+    tableproxy,
+    sessionhandler,
 )
-from . import internal as _internal
-from . import state as _state
-from . import csoundparse
+
 from .abstractrenderer import AbstractRenderer
 from .config import config, logger
 from .engine import Engine
 from .errors import CsoundError
 from .event import Event
-from .instr import Instr
-from . import sessionhandler
 from .synth import Synth, SynthGroup
-from .tableproxy import TableProxy
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Callable, Sequence
     from . import offline
     from .schedevent import SchedEvent
+    from .instr import Instr
 
 
 __all__ = [
@@ -90,7 +88,7 @@ class _RenderingSessionHandler(sessionhandler.SessionHandler):
                   data: np.ndarray | list[float] | None = None,
                   size: int | tuple[int, int] = 0,
                   sr: int = 0,
-                  ) -> TableProxy:
+                  ) -> tableproxy.TableProxy:
         return self.renderer.makeTable(data=data, size=size, sr=sr)
 
     def readSoundfile(self,
@@ -99,7 +97,7 @@ class _RenderingSessionHandler(sessionhandler.SessionHandler):
                       skiptime=0.,
                       delay=0.,
                       force=False,
-                      ) -> TableProxy:
+                      ) -> tableproxy.TableProxy:
         return self.renderer.readSoundfile(path)
 
 
@@ -182,24 +180,18 @@ class Session(AbstractRenderer):
 
     """
     def __new__(cls,
-                engine: str | Engine | None = None,
+                engine: Engine | None = None,
                 priorities: int | None = None,
                 dynamicArgsPerInstr: int | None = None,
                 dynamicArgsSlots: int | None = None,
                 **enginekws):
 
-        if isinstance(engine, str):
-            _engine = Engine.activeEngines.get(engine)
-            if not _engine:
-                raise KeyError(f"Engine {engine} does not exist!")
-        else:
-            _engine = engine if isinstance(engine, Engine) else None
-        if _engine and _engine._session:
-            return _engine._session
+        if engine and engine._session:
+            return engine._session
         return super().__new__(cls)
 
     def __init__(self,
-                 engine: str | Engine | None = None,
+                 engine: Engine | None = None,
                  priorities: int | None = None,
                  maxControlsPerInstr: int | None = None,
                  numControlSlots: int | None = None,
@@ -240,18 +232,11 @@ class Session(AbstractRenderer):
 
         if not engine:
             _engine = Engine(**enginekws)
-        elif isinstance(engine, str):
-            _engine = Engine.activeEngines.get(engine)
-            if _engine is None:
-                raise ValueError(f"Engine '{engine}' does not exist")
-            if _engine._session is not None:
-                raise ValueError(f"The given engine already has an active session: {_engine._session}")
-        elif isinstance(engine, Engine):
+        else:
+            assert isinstance(engine, Engine)
             if engine._session is not None:
                 raise ValueError(f"The given engine already has an active session: {engine._session}")
             _engine = engine
-        else:
-            raise TypeError(f"Expected an Engine or an engine name, got {engine}")
 
         self.engine: Engine = _engine
         """The Engine corresponding to this Session"""
@@ -293,9 +278,9 @@ class Session(AbstractRenderer):
         self._synths: dict[float | str, Synth] = {}
         self._whenfinished: dict[float|int|str, Callable] = {}
         self._initCodes: list[str] = []
-        self._tabnumToTabproxy: dict[int, TableProxy] = {}
-        self._pathToTabproxy: dict[str, TableProxy] = {}
-        self._ndarrayHashToTabproxy: dict[str, TableProxy] = {}
+        self._tabnumToTabproxy: dict[int, tableproxy.TableProxy] = {}
+        self._pathToTabproxy: dict[str, tableproxy.TableProxy] = {}
+        self._ndarrayHashToTabproxy: dict[str, tableproxy.TableProxy] = {}
         self._offlineRenderer: offline.OfflineSession | None = None
         self._inbox: _queue.Queue[Callable] = _queue.Queue()
         self._acceptingMessages = True
@@ -429,7 +414,7 @@ class Session(AbstractRenderer):
         """
         now = self.engine.elapsedTime()
         relstart = delay if delay is not None else event.start - now
-        pairs = _internal.flattenAutomationData(pairs)
+        pairs = internal.flattenAutomationData(pairs)
 
         assert isinstance(pairs, (list, tuple))
         if len(pairs) % 2 == 1:
@@ -444,16 +429,16 @@ class Session(AbstractRenderer):
         absAutomStart = now + relstart + pairs[0]
         absAutomEnd = now + relstart + pairs[-2]
         if absAutomStart < event.start or absAutomEnd > event.end:
-            pairs, absdelay = _internal.cropDelayedPairs(pairs=pairs, delay=now + relstart, start=absAutomStart,
+            pairs, absdelay = internal.cropDelayedPairs(pairs=pairs, delay=now + relstart, start=absAutomStart,
                                                       end=absAutomEnd)
             if not pairs:
                 return 0
             relstart = absdelay - now
 
         if pairs[0] > 0:
-            pairs, relstart = _internal.consolidateDelay(pairs, relstart)
+            pairs, relstart = internal.consolidateDelay(pairs, relstart)
 
-        if csoundlib.isPfield(param):
+        if csoundparse.isPfield(param):
             return self._automatePfield(event=event, param=param, pairs=pairs, mode=mode, delay=relstart,
                                         overtake=overtake)
 
@@ -548,8 +533,10 @@ class Session(AbstractRenderer):
         return f"Session({self.name}, synths={active})"
 
     def _repr_html_(self):
+        assert inside_jupyter()
+        from . import jupytertools
         active = len(self.activeSynths())
-        if active and jupytertools.inside_jupyter():
+        if active:
             jupytertools.displayButton("Stop Synths", self.unschedAll)
         name = jupytertools.htmlName(self.name)
         return f"Session({name}, synths={active})"
@@ -745,6 +732,7 @@ class Session(AbstractRenderer):
         .. seealso:: :meth:`~Session.sched`
         """
         oldinstr = self.instrs.get(name)
+        from . instr import Instr
         instr = Instr(name=name, body=body, args=args, init=init,
                       doc=doc, includes=includes, aliases=aliases,
                       maxNamedArgs=self.maxDynamicArgs,
@@ -840,7 +828,7 @@ class Session(AbstractRenderer):
         self._initInstr(instr)
         instrnum = self._registerInstrAtPriority(name, priority)
         body = self.generateInstrBody(instr=instr)
-        instrtxt = _internal.instrWrapBody(body=body,
+        instrtxt = internal.instrWrapBody(body=body,
                                         instrid=instrnum)
         try:
             self.engine._compileInstr(instrnum, instrtxt, block=block)
@@ -1019,6 +1007,9 @@ class Session(AbstractRenderer):
                 raise ValueError(f"An audio bus cannot have a scalar value, {value=}")
         else:
             kind = 'audio' if value is None else 'control'
+        if not self.engine.hasBusSupport():
+            logger.debug("Adding bus support")
+            self.engine.addBusSupport(numAudioBuses=self.engine.numAudioBuses or None, numControlBuses=self.engine.numControlBuses or None)
         bustoken = self.engine.assignBus(kind=kind, value=value, persist=persist)
         return busproxy.Bus(token=bustoken, kind=kind, renderer=self, bound=persist)
 
@@ -1598,7 +1589,7 @@ class Session(AbstractRenderer):
                       delay=0.,
                       force=False,
                       block=False
-                      ) -> TableProxy:
+                      ) -> tableproxy.TableProxy:
         """
         Read a soundfile, store its metadata in a :class:`~csoundengine.tableproxy.TableProxy`
 
@@ -1641,28 +1632,29 @@ class Session(AbstractRenderer):
             raise RuntimeError("This Session is blocked during rendering. Call .readSoundFile on the offline "
                                "renderer instead")
         if path == "?":
-            path = _state.openSoundfile()
+            from . import state
+            path = state.openSoundfile()
         if (table := self._pathToTabproxy.get(path)) is not None and not force:
             return table
         tabnum = self.engine.readSoundfile(path=path, chan=chan, skiptime=skiptime, block=block)
         import sndfileio
         info = sndfileio.sndinfo(path)
-        table = TableProxy(tabnum=tabnum,
-                           path=path,
-                           sr=info.samplerate,
-                           nchnls=info.channels,
-                           parent=self,
-                           numframes=info.nframes)
+        table = tableproxy.TableProxy(tabnum=tabnum,
+                                      path=path,
+                                      sr=info.samplerate,
+                                      nchnls=info.channels,
+                                      parent=self,
+                                      numframes=info.nframes)
 
         self._registerTable(table)
         return table
 
-    def _registerTable(self, tabproxy: TableProxy) -> None:
+    def _registerTable(self, tabproxy: tableproxy.TableProxy) -> None:
         self._tabnumToTabproxy[tabproxy.tabnum] = tabproxy
         if tabproxy.path:
             self._pathToTabproxy[tabproxy.path] = tabproxy
 
-    def findTable(self, tabnum: int) -> TableProxy | None:
+    def findTable(self, tabnum: int) -> tableproxy.TableProxy | None:
         """
         Find a table by number
 
@@ -1678,9 +1670,9 @@ class Session(AbstractRenderer):
         tabinfo = self.engine.tableInfo(tabnum)
         if not tabinfo:
             return None
-        tabproxy = TableProxy(tabnum=tabnum, path=tabinfo.path,
-                              sr=tabinfo.sr, nchnls=tabinfo.numChannels,
-                              parent=self, numframes=tabinfo.numFrames)
+        tabproxy = tableproxy.TableProxy(tabnum=tabnum, path=tabinfo.path,
+                                         sr=tabinfo.sr, nchnls=tabinfo.numChannels,
+                                         parent=self, numframes=tabinfo.numFrames)
         self._registerTable(tabproxy)
         return tabproxy
 
@@ -1694,7 +1686,7 @@ class Session(AbstractRenderer):
                   freeself=False,
                   block=False,
                   callback=None,
-                  ) -> TableProxy:
+                  ) -> tableproxy.TableProxy:
         """
         Create a table with given data or an empty table of the given size
 
@@ -1743,8 +1735,8 @@ class Session(AbstractRenderer):
             else:
                 raise TypeError(f"Expected a size as int or a tuple (numchannels, size), got {size}")
             tabnum = self.engine.makeEmptyTable(size=tabsize, numchannels=numchannels, sr=sr)
-            tabproxy = TableProxy(tabnum=tabnum, sr=sr, nchnls=numchannels, numframes=tabsize,
-                                  parent=self, freeself=freeself)
+            tabproxy = tableproxy.TableProxy(tabnum=tabnum, sr=sr, nchnls=numchannels, numframes=tabsize,
+                                             parent=self, freeself=freeself)
             if block or callback:
                 logger.info("blocking / callback for this operation is not implemented")
         elif data is None:
@@ -1755,9 +1747,9 @@ class Session(AbstractRenderer):
                 data = np.asarray(data, dtype=float)
             else:
                 assert isinstance(data, np.ndarray)
-                nchnls = _internal.arrayNumChannels(data)
+                nchnls = internal.arrayNumChannels(data)
             if not unique:
-                datahash = _internal.ndarrayhash(data)
+                datahash = internal.ndarrayhash(data)
                 if (tabproxy := self._ndarrayHashToTabproxy.get(datahash)) is not None:
                     return tabproxy
             else:
@@ -1765,15 +1757,15 @@ class Session(AbstractRenderer):
             numframes = len(data)
             tabnum = self.engine.makeTable(data=data, tabnum=tabnum, block=block,
                                            callback=callback, sr=sr)
-            tabproxy = TableProxy(tabnum=tabnum, sr=sr, nchnls=nchnls, numframes=numframes,
-                                  parent=self, freeself=freeself)
+            tabproxy = tableproxy.TableProxy(tabnum=tabnum, sr=sr, nchnls=nchnls, numframes=numframes,
+                                             parent=self, freeself=freeself)
             if datahash is not None:
                 self._ndarrayHashToTabproxy[datahash] = tabproxy
 
         self._registerTable(tabproxy)
         return tabproxy
 
-    def _getTableData(self, table: int | TableProxy) -> np.ndarray | None:
+    def _getTableData(self, table: int | tableproxy.TableProxy) -> np.ndarray | None:
         tabnum = table if isinstance(table, int) else table.tabnum
         assert self.engine.csound is not None
         return self.engine.csound.table(tabnum)
@@ -1785,7 +1777,7 @@ class Session(AbstractRenderer):
             instrs = [instr for instr in instrs if fnmatch.fnmatch(instr.name, pattern)]
         if excludehidden:
             instrs = [instr for instr in instrs if not instr.name.startswith('.')]
-        if jupytertools.inside_jupyter() and not forcetext:
+        if inside_jupyter() and not forcetext:
             from IPython.display import HTML, display
             htmlparts = []
             for instr in instrs:
@@ -1798,7 +1790,7 @@ class Session(AbstractRenderer):
                 instr.dump()
 
     def freeTable(self,
-                  table: int | TableProxy,
+                  table: int | tableproxy.TableProxy,
                   delay: float = 0.) -> None:
         """
         Free the given table
@@ -1833,7 +1825,7 @@ class Session(AbstractRenderer):
                           args=dict(imode=imode, iperiod=period, igain=gain, iverbose=int(verbose)))
 
     def playPartials(self,
-                     source: int | TableProxy | str | np.ndarray,
+                     source: int | tableproxy.TableProxy | str | np.ndarray,
                      delay=0.,
                      dur=-1,
                      speed=1.,
@@ -1919,7 +1911,7 @@ class Session(AbstractRenderer):
 
         if isinstance(source, int):
             tabnum = source
-        elif isinstance(source, TableProxy):
+        elif isinstance(source, tableproxy.TableProxy):
             tabnum = source.tabnum
         elif isinstance(source, str):
             # a .mtx file
@@ -1972,7 +1964,7 @@ class Session(AbstractRenderer):
                                     kminamp=minamp))
 
     def makeSampleEvent(self,
-                        source: int | TableProxy | str | tuple[np.ndarray, int],
+                        source: int | tableproxy.TableProxy | str | tuple[np.ndarray, int],
                         delay=0.,
                         dur=0.,
                         chan=1,
@@ -2052,7 +2044,7 @@ class Session(AbstractRenderer):
             tabnum = source
             dur = -1
 
-        elif isinstance(source, TableProxy):
+        elif isinstance(source, tableproxy.TableProxy):
             tabnum = source.tabnum
             if dur == 0:
                 dur = source.duration() / speed + fadeout
@@ -2080,7 +2072,7 @@ class Session(AbstractRenderer):
                               ixfade=crossfade))
 
     def playSample(self,
-                   source: int | TableProxy | str | tuple[np.ndarray, int],
+                   source: int | tableproxy.TableProxy | str | tuple[np.ndarray, int],
                    delay=0.,
                    dur=0.,
                    chan=1,
@@ -2194,6 +2186,7 @@ class Session(AbstractRenderer):
         return renderer
 
     def _defBuiltinInstrs(self):
+        from . import sessioninstrs
         for csoundInstr in sessioninstrs.builtinInstrs():
             self.registerInstr(csoundInstr)
 

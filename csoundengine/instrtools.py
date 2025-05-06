@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from . import csoundlib
+from . import csoundparse
 
 
 @dataclass
@@ -47,8 +47,9 @@ def pfieldsGenerateCode(pfields: dict[int, str],
     Returns:
         the generated code
 
-    Example
-    =======
+    .. rubric:: Example
+
+    .. code-block:: python
 
         >>> print(pfieldsGenerateCode({4: 'ichan', 5: 'kfreq', '6': 'Sname'}))
         ichan = p4
@@ -87,10 +88,10 @@ def generatePfieldsCode(body: str,
     Returns:
         a tuple (pfieldscode, restbody, docstring)
     """
-    parsedCode = csoundlib.instrParseBody(body)
+    parsedCode = csoundparse.instrParseBody(body)
     pfieldsText = pfieldsGenerateCode(idxToName)
     bodylines = parsedCode.body.splitlines()
-    docstringLocation = csoundlib.locateDocstring(bodylines)
+    docstringLocation = csoundparse.locateDocstring(bodylines)
     if docstringLocation is None:
         return pfieldsText, '\n'.join(bodylines), ''
     else:
@@ -169,7 +170,7 @@ def pfieldsMergeDeclaration(args: dict[str, float],
         without default receive a fallback value of 0.
 
     Example
-    =======
+    -------
 
         >>> body = '''
         ... ichan = p5
@@ -181,7 +182,7 @@ def pfieldsMergeDeclaration(args: dict[str, float],
          6: ('ifade', 0),
          7: ('icutoff', 0)}
     """
-    parsedbody = csoundlib.instrParseBody(body)
+    parsedbody = csoundparse.instrParseBody(body)
     body_i2n = parsedbody.pfieldIndexToName
     args_i2n = {i: n for i, n in enumerate(args.keys(), start=startidx)}
     allindexes = set(body_i2n.keys())
@@ -377,7 +378,7 @@ def distributeParams(params: dict[str, float | str],
         controls = {}
         for name, value in params.items():
             assert isinstance(name, str)
-            if name in pfieldNames or csoundlib.isPfield(name):
+            if name in pfieldNames or csoundparse.isPfield(name):
                 pfields[name] = value
             else:
                 if name not in controlNames:
