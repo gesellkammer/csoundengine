@@ -96,6 +96,9 @@ higher level interface, allowing to:
     # Create an Engine and a corresponding Session using default options
     session = Engine().session()
 
+    # or directly create a session, this will launch an engine
+    session = Session()
+
     # create a master audio bus
     masterbus = session.assignBus()
 
@@ -163,7 +166,7 @@ higher level interface, allowing to:
 Offline
 ~~~~~~~
 
-Both an Engine or a Session have an offline version, :class:`OfflineEngine` and :class:`OfflineSession`. In these
+Both an Engine or a Session have an offline version, ``OfflineEngine`` and ``OfflineSession``. In these
 cases the csound process is started to render to a soundfile, possibly faster than realtime.
 
 -----
@@ -186,11 +189,6 @@ Dependencies
 **csoundengine** also needs some csound plugins (https://github.com/csound-plugins/csound-plugins/releases),
 which are installed automatically if needed.
 
-
-Documentation
--------------
-
-https://csoundengine.readthedocs.io
 
 ----------------
 
