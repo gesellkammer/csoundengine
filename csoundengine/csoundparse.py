@@ -39,7 +39,7 @@ class ParsedBlock:
     attrs: dict[str, str] | None = None
 
     def __post_init__(self):
-        assert self.kind in ('instr', 'opcode', 'header', 'include', 'instr0', 'comment'), f"Unknown block kind: '{self.kind}': '{'\n'.join(self.lines)}'"
+        assert self.kind in ('instr', 'opcode', 'header', 'include', 'instr0', 'comment'), f"Unknown block kind: '{self.kind}'"
         if self.endLine == -1:
             self.endLine = self.startLine
 
