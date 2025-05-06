@@ -4,7 +4,7 @@ import sys, os
 if sys.platform.lower().startswith('win'):
     os.environ['PATH'] += ';C:/Program Files/csound'
 
-import csoundengine as ce
+from csoundengine.offline import OfflineSession
 import argparse
 import logging
 
@@ -18,7 +18,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-o', '--outfile', default='test1.wav')
 args = parser.parse_args()
 
-r = ce.OfflineSession()
+r = OfflineSession()
 
 r.defInstr("sin", r"""
 imidi = p5

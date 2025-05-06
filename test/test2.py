@@ -1,5 +1,5 @@
 import csoundengine as ce
-from csoundengine import dependencies
+from csoundengine import csoundlib, dependencies
 import sys
 import logging
 logging.basicConfig(level="DEBUG")
@@ -14,13 +14,13 @@ if not ok:
     sys.exit(1)
 print(":::::::::::::::: Dependencies ok")
 
-ce.csoundlib.dumpAudioBackends()
+csoundlib.dumpAudioInfo()
 
 # Portaudio
 print("Audio Devices for portaudio")
-ce.csoundlib.dumpAudioDevices(backend='portaudio')
+csoundlib.dumpAudioDevices(backend='portaudio')
 
-pa = ce.csoundlib.getAudioBackend('portaudio')
+pa = csoundlib.getAudioBackend('portaudio')
 print("Default Audio Devices")
 indev, outdev = pa.defaultAudioDevices()
 print(f"Default Input device : '{indev}'")
