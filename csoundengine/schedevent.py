@@ -74,7 +74,7 @@ class SchedEvent(BaseSchedEvent):
                  args: Sequence[float|str] = (),
                  p1: float | str = 0,
                  uniqueId: int = 0,
-                 parent: AbstractRenderer = None,
+                 parent: AbstractRenderer | None = None,
                  priority: int = 0,
                  controls: dict[str, float] | None = None,
                  controlsSlot: int = -1,
@@ -427,7 +427,7 @@ class SchedEventGroup(BaseSchedEvent):
                  param: str,
                  pairs: Sequence[float] | np.ndarray | tuple[np.ndarray, np.ndarray],
                  mode="linear",
-                 delay: float = None,
+                 delay: float | None = None,
                  overtake=False,
                  ) -> float:
         count = 0

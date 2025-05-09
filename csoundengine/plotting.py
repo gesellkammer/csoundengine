@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from scipy import signal
 import numpy as np
-import matplotlib
 import matplotlib.pyplot as plt
 
 from emlib import numpytools
@@ -38,7 +37,8 @@ def _figsizeAsTuple(figsize) -> tuple[int, int]:
     elif isinstance(figsize, list):
         assert len(figsize) == 2
         assert isinstance(figsize[0], int) and isinstance(figsize[1], int)
-        return tuple(figsize)
+        h, w = figsize
+        return (h, w)
     elif isinstance(figsize, str):
         parts = figsize.split(":")
         assert len(parts) == 2
@@ -80,7 +80,7 @@ def matplotlibIsInline() -> bool:
 
     https://stackoverflow.com/questions/15341757/how-to-check-that-pylab-backend-of-matplotlib-runs-inline
     """
-    return inside_jupyter() and 'inline' in matplotlib.get_backend()
+    return inside_jupyter() and 'inline' in plt.get_backend()
 
 
 def _plotSubsample(samples: np.ndarray, samplerate: int, maxpoints: int,
@@ -204,8 +204,8 @@ def numpyToB64(array: np.ndarray) -> str:
 
 
 def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window='',
-                    overlap=4, axes: Axes = None, cmap=None, interpolation='bilinear',
-                    minfreq=40, maxfreq=None,
+                    overlap=4, axes: Axes | None = None, cmap: str = '', interpolation='bilinear',
+                    minfreq=40, maxfreq=0,
                     mindb=-90, show=False):
     """
     Plot a spectrogram
@@ -220,7 +220,7 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window='
         axes: the axes to plot on. If None, new axes will be created
         cmap: colormap, see pyplot.colormaps() (see config['spectrogram_colormap'])
         minfreq: initial min.frequency
-        maxfreq: initial max. frequency. If None, a configurable default will be used
+        maxfreq: initial max. frequency. If 0, a configurable default will be used
             (see config['spectrogram_maxfreq')
         interpolation: one of 'bilinear'
         mindb: the amplitude threshold
@@ -239,7 +239,7 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window='
     if window is None:
         window = config['spectrogram_window']
     win = signal.get_window(window or None, fftsize)
-    cmap = cmap if cmap is not None else config['spectrogram_colormap']
+    cmap = cmap if cmap else config['spectrogram_colormap']
     axes.specgram(samples,
                   NFFT=fftsize,
                   Fs=samplerate,
@@ -248,7 +248,7 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window='
                   cmap=cmap,
                   interpolation=interpolation,
                   vmin=mindb)
-    if maxfreq is None:
+    if not maxfreq:
         maxfreq = config['spectrogram_maxfreq']
     axes.set_ylim(minfreq, maxfreq)
     if not matplotlibIsInline() and show:

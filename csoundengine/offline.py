@@ -560,7 +560,7 @@ class OfflineSession(AbstractRenderer):
                                 args=args,
                                 whenfinished=None,
                                 **kws)
-        if event.automations:
+        if event.automations is not None:
             for autom in event.automations:
                 schedevent.automate(param=autom.param, pairs=autom.pairs,
                                     delay=autom.delay, mode=autom.interpolation,
@@ -1223,7 +1223,7 @@ class OfflineSession(AbstractRenderer):
             if isinstance(data, list):
                 data = np.array(data)
             arrayhash = internal.ndarrayhash(data)
-            if not unique and (tabproxy := self._ndarrayHashToTabproxy.get(arrayhash)) is not None:
+            if (tabproxy := self._ndarrayHashToTabproxy.get(arrayhash)) is not None and not unique:
                 return tabproxy
             tabnum = self.csd.addTableFromData(data=data, tabnum=tabnum, start=delay, sr=sr)
             tabproxy = tableproxy.TableProxy(tabnum=tabnum, numframes=len(data), sr=sr)

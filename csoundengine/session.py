@@ -622,12 +622,12 @@ class Session(AbstractRenderer):
                  body: str,
                  args: dict[str, float|str] = None,
                  init='',
-                 priority: int = None,
+                 priority: int | None = None,
                  doc='',
-                 includes: list[str] = None,
-                 aliases: dict[str, str] = None,
-                 useDynamicPfields: bool = None,
-                 initCallback: Callable[[AbstractRenderer], None] = None,
+                 includes: list[str] | None = None,
+                 aliases: dict[str, str] | None = None,
+                 useDynamicPfields: bool | None = None,
+                 initCallback: Callable[[AbstractRenderer], None] | None = None,
                  **kws) -> Instr:
         """
         Create an :class:`~csoundengine.instr.Instr` and register it at this session
@@ -1847,7 +1847,7 @@ class Session(AbstractRenderer):
                      minbw=0.,
                      maxbw=1.,
                      minamp=0.,
-                     whenfinished: Callable = None
+                     whenfinished: Callable | None = None
                      ) -> Synth:
         """
         Play a packed spectrum
@@ -1976,7 +1976,7 @@ class Session(AbstractRenderer):
                         fade: float | tuple[float, float] | None = None,
                         crossfade=0.02,
                         blockread=True,
-                        whenfinished: Callable = None
+                        whenfinished: Callable | None = None
                         ) -> Event:
         """
         Prepares to play a sample, returns an :class:`~csoundengine.event.Event`

@@ -173,19 +173,19 @@ class TableProxy:
             data = self.data()
             plotting.plt.plot(data)
 
-    def plotSpectrogram(self, fftsize=2048, mindb=-90, maxfreq:int=None, overlap=4,
-                        minfreq:int=0) -> None:
+    def plotSpectrogram(self, fftsize=2048, mindb=-90, maxfreq=0, overlap=4,
+                        minfreq=20) -> None:
         """
         Plot a spectrogram of the sample data in this table.
 
         Requires that the samplerate is set
 
         Args:
-            fftsize (int): the size of the fft
-            mindb (int): the min. dB to plot
-            maxfreq (int): the max. frequency to plot
-            overlap (int): the number of overlaps per window
-            minfreq (int): the min. frequency to plot
+            fftsize: the size of the fft
+            mindb: the min. dB to plot
+            maxfreq: the max. frequency to plot (0=default)
+            overlap: the number of overlaps per window
+            minfreq: the min. frequency to plot
 
         """
         if not self.sr:

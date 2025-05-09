@@ -1074,12 +1074,12 @@ class Engine(_EngineBase):
         """
         return self.ksmps/self.sr * 2
 
-    def sync(self, timeout: float | None = None, force=False, threshold=2.) -> bool:
+    def sync(self, timeout=0., force=False, threshold=2.) -> bool:
         """
         Block until csound has processed its immediate events
 
         Args:
-            timeout: a timeout in seconds; None = use default timeout as defined
+            timeout: a timeout in seconds; 0. = use default timeout as defined
                 in the configuration (TODO: add link to configuration docs)
             force: if True, sync even if not needed
             threshold: if time since last modification is longuer than this
@@ -1111,7 +1111,7 @@ class Engine(_EngineBase):
         self._lastModification = 0
         return True
 
-    def pingback(self, timeout: float = None):
+    def pingback(self, timeout: float = 0.):
         token = self._getSyncToken()
         self._eventWait(token, [self._builtinInstrs['pingback'], 0, 0, token], timeout=timeout)
 
@@ -2223,9 +2223,9 @@ class Engine(_EngineBase):
             pargs = [self._builtinInstrs['pingback'], delay, 0.01, token]
             self._eventWithCallback(token, pargs, lambda token: callback())
 
-    def _eventWait(self, token: int, pargs: Sequence[float], timeout: float | None = None
+    def _eventWait(self, token: int, pargs: Sequence[float], timeout: float = 0.
                    ) -> float | None:
-        if timeout is None:
+        if not timeout:
             timeout = config['timeout']
         else:
             assert timeout > 0
@@ -3923,7 +3923,7 @@ class Engine(_EngineBase):
     def hasBusSupport(self) -> bool:
         return self._hasBusSupport and (self.numAudioBuses > 0 or self.numControlBuses > 0)
 
-    def addBusSupport(self, numAudioBuses: int = None, numControlBuses: int = None) -> None:
+    def addBusSupport(self, numAudioBuses: int|None = None, numControlBuses: int|None = None) -> None:
         if self.hasBusSupport():
             return
         if numAudioBuses is None:
