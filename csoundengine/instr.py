@@ -832,7 +832,7 @@ class Instr:
         raise KeyError(errormsg)
 
     def parseSchedArgs(self,
-                       args: list[float | str] | dict[str, float | str],
+                       args: Sequence[float | str] | dict[str, float | str],
                        kws: dict[str, float | str],
                        ) -> tuple[list[float|str], Mapping[str, float | str]]:
         """
@@ -856,9 +856,11 @@ class Instr:
                 pfields = self.pfieldsTranslate(kws=kws)
                 return pfields, kws
 
-        if isinstance(args, list):
+        if isinstance(args, (list, tuple)):
             # All pfields, starting with p5
             if not kws:
+                if isinstance(args, tuple):
+                    args = list(args)
                 if len(args) >= self.maxPfieldIndex() - 4:
                     pfields = args
                 else:

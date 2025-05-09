@@ -1394,7 +1394,7 @@ class Session(AbstractRenderer):
                              f"a priority of {priority}.")
 
         rinstr, needssync = self.prepareSched(instrname, priority, block=True)
-        pfields5, dynargs = instr.parseSchedArgs(args=args if isinstance(args, list) else list(args), kws=kwargs)
+        pfields5, dynargs = instr.parseSchedArgs(args=args, kws=kwargs)
         if instr.controls:
             slicenum = self._dynargsAssignSlot()
             values = instr._controlsDefaultValues if not dynargs else instr.overrideControls(dynargs)
