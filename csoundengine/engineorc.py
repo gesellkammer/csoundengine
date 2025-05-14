@@ -202,7 +202,6 @@ instr ${automatePargViaPargs}
         Sp1 = p4
         ip1 = namedinstrtofrac(Sp1)
     endif
-    ; prints "automating p1: %f, index: %d, iovertake: %d, lenpairs: %d, dur: %f\n", ip1, ipindex, iovertake, ilenpairs, p3
 
     ; special case: simple line, two pairs
     if ilenpairs == 4 && p10 == 0 && iovertake == 0 then
@@ -223,10 +222,9 @@ instr ${automatePargViaPargs}
         iYs[0] = icurrval
     endif
 
-    kt timeinsts
+    kt = eventtime()
     kidx bisect kt, iXs
     ky interp1d kidx, iYs, Sinterpmethod
-
 end:
     pwrite ip1, ipindex, ky
 endin
