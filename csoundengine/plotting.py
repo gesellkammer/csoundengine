@@ -57,7 +57,7 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False, tight=Tru
     figsize = figsize[0]*2, figsize[1]
     f = plt.figure(figsize=figsize)
     if tight:
-        f.set_tight_layout(True)
+        f.set_tight_layout(True)  # type: ignore
     ax1 = f.add_subplot(numch, 1, 1)
     for i in range(numch):
         if i == 0:

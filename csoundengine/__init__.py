@@ -100,10 +100,10 @@ built-in instruments to play a sample from disk/memory, offline rendering, etc.
         filt.automate('kcutoff', [0, 2000, dur*0.8, 500, dur, 6000], delay=start)
 """
 # This disables warning about denormals
-import numpy as np
+# import numpy as np
 
-np.finfo(np.dtype("float32"))
-np.finfo(np.dtype("float64"))
+# np.finfo(np.dtype("float32"))
+# np.finfo(np.dtype("float64"))
 
 import sys
 

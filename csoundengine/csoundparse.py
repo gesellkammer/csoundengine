@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from typing import Sequence
 
 
-
 @dataclasses.dataclass
 class ParsedBlock:
     """

@@ -2242,7 +2242,7 @@ class Engine(_EngineBase):
                              tabnum: int,
                              fftsize=2048,
                              mindb=-90,
-                             maxfreq: int | None = None,
+                             maxfreq: int = 0,
                              overlap: int = 4,
                              minfreq: int = 0,
                              sr: int = 44100,
