@@ -128,7 +128,7 @@ class OfflineSession(AbstractRenderer):
                  priorities: int | None = None,
                  numAudioBuses=1000,
                  numControlBuses=10000,
-                 withBusSupport=True,
+                 withBusSupport=False,
                  dynamicArgsPerInstr: int = 16,
                  dynamicArgsSlots: int | None = None):
 
@@ -173,9 +173,6 @@ class OfflineSession(AbstractRenderer):
         self.soundfileRegistry: dict[str, tableproxy.TableProxy] = {}
         """A dict mapping soundfile paths to their corresponding TableProxy"""
 
-        if not withBusSupport:
-            numAudioBuses = numControlBuses = 0
-
         self._idCounter = 0
         self._nameAndPriorityToInstrnum: dict[tuple[str, int], int] = {}
         self._instrnumToNameAndPriority: dict[int, tuple[str, int]] = {}
@@ -215,21 +212,12 @@ class OfflineSession(AbstractRenderer):
         self._stringRegistry: dict[str, int] = {}
         self._includes: set[str] = set()
         self._builtinInstrs: dict[str, int] = {}
+        self._hasBusSupport = withBusSupport
 
         prelude = offlineorc.prelude(controlNumSlots=self._dynargsNumSlices,
                                      controlArgsPerInstr=self._dynargsSliceSize)
         self.csd.addGlobalCode(prelude)
         self.csd.addGlobalCode(offlineorc.orchestra())
-
-        if self.hasBusSupport():
-            # The bus code should make room for the named instruments in the offline
-            # orchestra
-            busorc, instrIndex = engineorc.busSupportCode(numAudioBuses=self._numAudioBuses,
-                                                          numControlBuses=self._numControlBuses,
-                                                          postInstrNum=self._postUserInstrs,
-                                                          startInstr=20)
-            self._builtinInstrs.update(instrIndex)
-            self.csd.addGlobalCode(busorc)
 
         from . import sessioninstrs
         for instr in sessioninstrs.builtinInstrs():
@@ -238,8 +226,25 @@ class OfflineSession(AbstractRenderer):
         self._dynargsTabnum = self.makeTable(size=self.controlArgsPerInstr * self._dynargsNumSlices).tabnum
         self.setChannel('.dynargsTabnum', self._dynargsTabnum)
 
-        if self.hasBusSupport():
-            self.csd.addEvent(self._builtinInstrs['clearbuses_post'], start=0, dur=-1)
+        if withBusSupport:
+            self._addBusSupport()
+
+    def _addBusSupport(self) -> None:
+        if self._hasBusSupport:
+            return
+        if self._numAudioBuses == 0 and self._numControlBuses == 0:
+            logger.error("Cannot add bus support because this session was created with "
+                         "numAudioBuses=0 and numControlBuses=0")
+            return
+        busorc, instrIndex = engineorc.makeBusOrc(
+            numAudioBuses=self._numAudioBuses,
+            numControlBuses=self._numControlBuses,
+            postInstr=self._postUserInstrs,
+            startInstr=20)
+        self._builtinInstrs.update(instrIndex)
+        self.csd.addGlobalCode(busorc)
+        self.csd.addEvent(self._builtinInstrs['clearbuses_post'], start=0, dur=-1)
+        self._hasBusSupport = True
 
     def renderMode(self) -> str:
         return 'offline'
@@ -285,7 +290,7 @@ class OfflineSession(AbstractRenderer):
             logger.warning(f"Channel '{channel}' already defined: {previousDef}. Skipiing")
             return
         self._channelRegistry[channel] = channelDef
-        self.addGlobalCode(f'chn_{kind} "{channel}" "{mode}"')
+        self.compile(f'chn_{kind} "{channel}" "{mode}"')
         if value is not None:
             self.setChannel(channel=channel, value=value, delay=0.)
 
@@ -305,9 +310,9 @@ class OfflineSession(AbstractRenderer):
             self.csd.addEvent(instr='_chnset', start=delay, dur=0., args=[channel, value])
         else:
             if isinstance(value, str):
-                self.addGlobalCode(f'chnset "{value}", "{channel}"')
+                self.compile(f'chnset "{value}", "{channel}"')
             else:
-                self.addGlobalCode(f'chnset {value}, "{channel}"')
+                self.compile(f'chnset {value}, "{channel}"')
 
     def commitInstrument(self, instrname: str, priority=1) -> int:
         """
@@ -378,6 +383,9 @@ class OfflineSession(AbstractRenderer):
         Register a function to be called when exiting this renderer as context manager
         """
         self._exitCallbacks.add(callback)
+
+    def _registerTable(self, tabproxy: tableproxy.TableProxy):
+        pass
 
     def registerInstr(self, instr: Instr) -> bool:
         """
@@ -520,9 +528,9 @@ class OfflineSession(AbstractRenderer):
             logger.warning(f"Adding an include '{path}', but this path does not exist")
         self.csd.addGlobalCode(f'#include "{path}"')
 
-    def addGlobalCode(self, code: str, unique=False) -> None:
+    def compile(self, code: str, unique=False) -> None:
         """
-        Add global code
+        Add code to the orchestra
 
         This can be used to add resources, define global variables,
         define udos, etc
@@ -710,9 +718,8 @@ class OfflineSession(AbstractRenderer):
     def hasBusSupport(self):
         """
         Returns True if this Engine was started with bus suppor
-
         """
-        return (self._numAudioBuses > 0 or self._numControlBuses > 0)
+        return self._hasBusSupport and (self._numAudioBuses > 0 or self._numControlBuses > 0)
 
     def assignBus(self, kind='', value=None, persist=False) -> busproxy.Bus:
         """
@@ -760,7 +767,8 @@ class OfflineSession(AbstractRenderer):
 
         """
         if not self.hasBusSupport():
-            raise RuntimeError("This session was created without bus support")
+            logger.debug("Adding bus support")
+            self._addBusSupport()
 
         if kind:
             if value is not None and kind == 'audio':
@@ -778,13 +786,16 @@ class OfflineSession(AbstractRenderer):
         return busproxy.Bus(token=token, kind=kind, renderer=self, bound=False)
 
     def _writeBus(self, bus: busproxy.Bus, value: float, delay=0.) -> None:
+        assert self.hasBusSupport() and self._numControlBuses > 0
         if bus.kind != 'control':
             raise ValueError("This operation is only valid for control buses")
         self.csd.addEvent(self._builtinInstrs['busoutk'], start=delay, dur=0,
                           args=[bus.token, value])
 
     def _automateBus(self, bus: busproxy.Bus, pairs: Sequence[float],
-                     mode='linear', delay=0., overtake=False):
+                     mode='linear', delay=0., overtake=False) -> float:
+        assert self.hasBusSupport()
+        assert bus.kind == 'control', f"Only control buses are accepted, got {bus.kind}"
         if isinstance(pairs, np.ndarray):
             assert len(pairs.shape) == 1, f"Invalid pairs: {pairs}"
         if csoundlib.getVersion()[0] >= 7 or len(pairs) <= 1900:
@@ -796,6 +807,7 @@ class OfflineSession(AbstractRenderer):
             for groupdelay, subgroup in internal.splitAutomation(pairs, 1900//2):
                 self._automateBus(bus=bus, pairs=subgroup, delay=groupdelay+delay,
                                   mode=mode, overtake=overtake)
+        return 0.
 
     def _readBus(self, bus: busproxy.Bus) -> float | None:
         "Reading from a bus is not supported in offline mode"
@@ -806,7 +818,7 @@ class OfflineSession(AbstractRenderer):
         """
         The python counterpart of a bus does not need to be released in offline mode
 
-        The csound bus itself will release itself
+        The csound bus will release itself
         """
         return None
 

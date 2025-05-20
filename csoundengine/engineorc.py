@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from functools import cache
 from string import Template
-from typing import Any
 
 from . import internal
+import typing as _t
 
 # In all templates we make the difference between substitutions which
 # are constant (with the form ${subst} and substitutions which respond
@@ -323,11 +323,14 @@ instr ${readSndfile}
     itab = p6
     ichan = p7
     iskiptime = p8
+    itime0 = p9
     itab2 ftgen itab, 0, 0, -1, Spath, iskiptime, 0, ichan
+    ; OSCsend 1, "127.0.0.1", 9990, "/sync", "f", itime0
     if itoken > 0 then
         tabw_i itab2, itoken, gi__responses
         outvalue "__sync__", itoken
     endif
+    turnoff
 endin
 
 instr ${playgen1}
@@ -505,11 +508,11 @@ ga__buses[] init gi__numAudioBuses
 gi__bustable ftgen 0, 0, gi__numControlBuses, -2, 0
 
 ; This table keeps track of the number of references a bus has
-gi__busrefs ftgen 0, 0, ${numAudioBuses}, -2, 0
+gi__busrefs  ftgen 0, 0, ${numAudioBuses}, -2, 0
 gi__busrefsk ftgen 0, 0, ${numControlBuses}, -2, 0
 
 ; A pool of bus indexes
-gi__buspool pool_gen ${numAudioBuses}
+gi__buspool  pool_gen ${numAudioBuses}
 gi__buspoolk pool_gen ${numControlBuses}
 
 ; A dict mapping bustoken to bus number, used for both audio and scalar buses
@@ -743,23 +746,6 @@ instr ${busaddref}
     _busaddref(ibus, ikind)
 endin
 
-instr ${busdump}
-    itoken = p4
-    ibus dict_get gi__bustoken2num, itoken, -1
-    if ibus < 0 then
-        initerror sprintf("itoken %d has no bus assigned to it", itoken)
-    endif
-    ikind dict_get gi__bustoken2kind, itoken
-    irefstable = ikind == $$_BUSKIND_AUDIO ? gi__busrefs : gi__busrefsk
-    irefs tab_i ibus, irefstable
-    if ikind == $$_BUSKIND_CONTROL then
-        ivalue = tab_i(ibus, gi__bustable)
-        prints "Bus token=%d, bus=%d, kind=k, value=%f, refs=%d\n", itoken, ibus, ivalue, irefs
-    else
-        prints "Bus token=%d, bus=%d, kind=a, refs=%d\n", itoken, ibus, irefs
-    endif
-endin
-
 instr ${busrelease}  ; release audio bus
     itoken = p4
     ikind dict_get gi__bustoken2kind, itoken, -1
@@ -821,7 +807,6 @@ endin
 instr ${clearbuses_post}
     ; Use masked version of zeroarray
     zeroarray ga__buses, gi__busrefs
-    ; zeroarray ga__buses
 endin
 
 chnset 0, "_busTokenCount"
@@ -833,14 +818,13 @@ ftset gi__bustable, $$_BUSUNSET
 # Constants
 CONSTS = {
     'numTokens': 2000,  # Number of tokens to be allocated for responses
-    'eventMaxSize': 1999,
-    'postProcInstrnum': 11000,   # Post processing instrument number
+    'postProcInstrnum': 10000,   # Post processing instrument number
     'reservedTablesStart': 300,  # Tables managed by csoundengine start here. ftgen tables start at 100
     'reservedInstrsStart': 1,
     'userInstrsStart': 100,
-    'sessionInstrsStart': 500,
+    'sessionInstrsStart': 400,
     'numReservedTables': 2000,   # Size of a pool of table numbers
-    'maxNumInstrs': 10000,
+    'maxNumInstrs': 9999,
     'BUSUNSET': -999999999,
 
 }
@@ -854,12 +838,6 @@ BUSKIND_CONTROL = 1
 _tableNames = ['responses', 'tokenToInstrnum']
 
 BUILTIN_TABLES = {name:i for i, name in enumerate(_tableNames, start=1)}
-
-
-def _joinOrc(busSupport=True) -> str:
-    if busSupport:
-        return "\n".join((_orc, _busOrc))
-    return _orc
 
 
 @cache
@@ -878,24 +856,9 @@ a4 = {a4}
 0dbfs = {zerodbfs}
 """
 
-
-@cache
-def makeBusOrc(numAudioBuses: int, numControlBuses: int, startInstr: int) -> tuple[str, dict[str, int]]:
-    template = Template(_busOrc)
-    instrs = internal.assignInstrNumbers(_busOrc, startInstr)
-    subs: dict[str, Any] = {name: f"{num}  /* {name} */"
-                            for name, num in instrs.items()}
-    subs.update(BUILTIN_TABLES)
-    subs.update(CONSTS)
-    orc = template.substitute(numAudioBuses=numAudioBuses, numControlBuses=numControlBuses, **subs)
-    return orc, instrs
-
-
 @cache
 def makeOrc(globalcode: str = "",
             includestr: str = "",
-            numAudioBuses: int = 0,
-            numControlBuses: int = 0
             ) -> tuple[str, dict[str, int]]:
     """
     Create an Engine's orchestra
@@ -905,50 +868,60 @@ def makeOrc(globalcode: str = "",
         instr number
 
     """
-    withBusSupport = numAudioBuses > 0 or numControlBuses > 0
-    orcproto = _joinOrc(busSupport=withBusSupport)
+    orcproto = _orc
     template = Template(orcproto)
     instrs = internal.assignInstrNumbers(orcproto,
                                          startInstr=CONSTS['reservedInstrsStart'],
-                                         postInstrNum=CONSTS['postProcInstrnum'])
-    subs: dict[str, Any] = {name: f"{num}  /* {name} */"
+                                         postInstr=CONSTS['postProcInstrnum'])
+    subs: dict[str, _t.Any] = {name: f"{num}  /* {name} */"
                             for name, num in instrs.items()}
     subs.update(BUILTIN_TABLES)
     subs.update(CONSTS)
     orc = template.substitute(
             globalcode=globalcode,
             includes=includestr,
-            numAudioBuses=numAudioBuses,
-            numControlBuses=numControlBuses,
             **subs
     )
     return orc, instrs
 
 
-def busSupportCode(numAudioBuses: int,
-                   numControlBuses: int,
-                   postInstrNum: int,
-                   startInstr: int
-                   ) -> tuple[str, dict[str, int]]:
-    """
-    Generates bus support code
+@cache
+def makeBusOrc(numAudioBuses: int, numControlBuses: int, startInstr: int, postInstr: int
+               ) -> tuple[str, dict[str, int]]:
+    template = Template(_busOrc)
+    instrs = internal.assignInstrNumbers(_busOrc, startInstr, postInstr)
+    subs: dict[str, _t.Any] = {name: f"{num}  /* {name} */"
+                            for name, num in instrs.items()}
+    subs.update(BUILTIN_TABLES)
+    subs.update(CONSTS)
+    orc = template.substitute(numAudioBuses=numAudioBuses, numControlBuses=numControlBuses, **subs)
+    return orc, instrs
 
-    Args:
-        numAudioBuses: the number of audio buses
-        numControlBuses: the number of control buses
-        postInstrNum: the starting instr number for *post* instrs. A post
-            instr should be run at the end of the evaluation chain. Such
-            instruments should have a _post in their name
-        startInstr: start instrument number for non-post instruments
-    """
-    instrnums = internal.assignInstrNumbers(_busOrc,
-                                                 startInstr=startInstr,
-                                                 postInstrNum=postInstrNum)
-    subs: dict[str, Any] = {name: f"{num}  /* {name} */"
-                            for name, num in instrnums.items()}
-    subs['clearbuses'] = f'{postInstrNum} /* clearbuses */'
-    orc = Template(_busOrc).substitute(numAudioBuses=numAudioBuses,
-                                       numControlBuses=numControlBuses,
-                                       BUSUNSET=CONSTS['BUSUNSET'],
-                                       **subs)
-    return orc, instrnums
+
+# def busSupportCode(numAudioBuses: int,
+#                    numControlBuses: int,
+#                    postInstrNum: int,
+#                    startInstr: int
+#                    ) -> tuple[str, dict[str, int]]:
+#     """
+#     Generates bus support code
+
+#     Args:
+#         numAudioBuses: the number of audio buses
+#         numControlBuses: the number of control buses
+#         postInstrNum: the starting instr number for *post* instrs. A post
+#             instr should be run at the end of the evaluation chain. Such
+#             instruments should have a _post in their name
+#         startInstr: start instrument number for non-post instruments
+#     """
+#     instrnums = internal.assignInstrNumbers(_busOrc,
+#                                             startInstr=startInstr,
+#                                             postInstrNum=postInstrNum)
+#     subs: dict[str, _t.Any] = {name: f"{num}  /* {name} */"
+#                             for name, num in instrnums.items()}
+#     subs['clearbuses'] = f'{postInstrNum} /* clearbuses */'
+#     orc = Template(_busOrc).substitute(numAudioBuses=numAudioBuses,
+#                                        numControlBuses=numControlBuses,
+#                                        BUSUNSET=CONSTS['BUSUNSET'],
+#                                        **subs)
+#     return orc, instrnums

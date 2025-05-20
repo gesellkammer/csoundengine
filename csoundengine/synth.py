@@ -58,6 +58,11 @@ class ISynth(ABC):
         internal.removeSigintHandler()
 
     @abstractmethod
+    def stop(self, delay=0.) -> None:
+        raise NotImplementedError
+
+
+    @abstractmethod
     def ui(self, **specs: tuple[float, float]) -> None:
         """
         Modify dynamic (named) arguments through an interactive user-interface
@@ -119,7 +124,6 @@ _synthStatusIcon = {
     'future': '𝍪'
 }
 
-
 class Synth(SchedEvent, ISynth):
     """
     A Synth represents a realtime csound event
@@ -169,26 +173,28 @@ class Synth(SchedEvent, ISynth):
     def __init__(self,
                  session: Session,
                  p1: float,
-                 instr: Instr,
                  start: float,
                  dur: float = -1,
+                 instr: Instr | None = None,
                  args: Sequence[float|str] = (),
                  autostop=False,
                  priority: int = 1,
-                 controls: Mapping[str, float] = {},
+                 controls: Mapping[str, float] | None = {},
                  controlsSlot: int = -1,
                  uniqueId=0,
                  name=''
                  ) -> None:
-        SchedEvent.__init__(self, instrname=instr.name, start=start, dur=dur, args=args,
+        assert controls is None or isinstance(controls, dict)
+        SchedEvent.__init__(self, instrname=instr.name if instr else '', start=start, dur=dur, args=args,
                             p1=p1, uniqueId=uniqueId, parent=session, priority=priority,
                             controlsSlot=controlsSlot, controls=controls, username=name)
         # AbstrSynth.__init__(self, start=start, dur=dur, session=session, autostop=autostop)
 
-        if controlsSlot < 0 and instr.dynamicParams():
-            raise ValueError("Synth has dynamic args but was not assigned a control slot")
-        elif controlsSlot >= 1 and not instr.dynamicParams():
-            logger.warning("A control slot was assigned but this synth does not have any controls")
+        if instr:
+            if controlsSlot < 0 and instr.dynamicParams():
+                raise ValueError("Synth has dynamic args but was not assigned a control slot")
+            elif controlsSlot >= 1 and not instr.dynamicParams():
+                logger.warning("A control slot was assigned but this synth does not have any controls")
 
         self.p1: float = p1
         """Event id for this synth"""

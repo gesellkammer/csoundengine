@@ -752,14 +752,14 @@ def flattenAutomationData(pairs: npt.ArrayLike | tuple[npt.ArrayLike, npt.ArrayL
 
 
 @cache
-def assignInstrNumbers(orc: str, startInstr: int, postInstrNum: int = 0) -> dict[str, int]:
+def assignInstrNumbers(orc: str, startInstr: int, postInstr: int = 0) -> dict[str, int]:
     """
     Given an orc with quoted instrument names, assign numbers to each instr
 
     Args:
         orc: the orchestra code
         startInstr: the starting instrument number
-        postInstrNum: starting instrument number for 'post' instruments. Post
+        postInstr: starting instrument number for 'post' instruments. Post
             instruments are those which should be placed after all other
             instruments
 
@@ -771,7 +771,7 @@ def assignInstrNumbers(orc: str, startInstr: int, postInstrNum: int = 0) -> dict
     postInstrs = [name for name in names if name.endswith('_post')]
 
     instrs = {name: i for i, name in enumerate(preInstrs, start=startInstr)}
-    instrs.update({name: postInstrNum + 1 for i, name in enumerate(postInstrs)})
+    instrs.update({name: postInstr + i for i, name in enumerate(postInstrs)})
     return instrs
 
 

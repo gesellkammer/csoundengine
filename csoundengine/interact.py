@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING, Callable
 
-from emlib.envir import inside_jupyter
 
+import emlib.envir
 from . import synth as _synth
 
-if TYPE_CHECKING:
+import typing as _t
+if _t.TYPE_CHECKING:
     from . import engine
 
 
@@ -66,10 +66,17 @@ class ParamSpec:
     step: float = -1
     startvalue: float = 0.
     widgetHint: str = 'slider'
+    valuescale: str = 'linear'
 
     description: str = ''
     """A optional description"""
 
+    def scale(self, x: float) -> float:
+        assert 0 <= x <= 1
+        if self.valuescale == 'linear':
+            return (self.maxvalue - self.minvalue) * x + self.minvalue
+        elif self.valuescale == 'log10':
+            return (self.maxvalue - self.minvalue) * (10**(1-x)) + self.minvalue
 
 def __post_init__(self):
         if self.step == -1:
@@ -89,7 +96,7 @@ def _stepToFormat(step: float) -> str:
 
 
 def _jupyterSlider(name: str, startvalue: float, minvalue: float, maxvalue: float,
-                   callback: Callable, step: float | None = None, width='80%',
+                   callback: _t.Callable, step: float | None = None, width='80%',
                    log=False):
     import ipywidgets as ipy
     if step is None:
@@ -110,7 +117,7 @@ def _jupyterSlider(name: str, startvalue: float, minvalue: float, maxvalue: floa
 
 
 def _jupyterEntry(name: str, startvalue: float, minvalue:float, maxvalue: float,
-                  callback: Callable):
+                  callback: _t.Callable):
     import ipywidgets as ipy
     step = 0.001
     w = ipy.BoundedFloatText(value=startvalue, min=minvalue, max=maxvalue,
@@ -119,7 +126,7 @@ def _jupyterEntry(name: str, startvalue: float, minvalue:float, maxvalue: float,
     return w
 
 
-def interact(**sliders: tuple[float, float, float, Callable]):
+def interact(**sliders: tuple[float, float, float, _t.Callable]):
     """
     Creates a set of interactive widgets
 
@@ -193,7 +200,7 @@ def interactSynth(synth: _synth.Synth | _synth.SynthGroup,
         params = {param: synth.paramValue(param) for param in sorted(dynparams)}
         specs = guessParamSpecs(params=params)
 
-    if inside_jupyter():
+    if emlib.envir.inside_jupyter():
         return _interactSynthJupyter(synth=synth, specs=specs)
     else:
         raise RuntimeError("interact is only supported inside a jupyter session at the"
@@ -273,7 +280,7 @@ def interactPargs(engine: engine.Engine,
         allspecs.update(specs)
     if namedSpecs:
         allspecs.update(namedSpecs)
-    if inside_jupyter():
+    if emlib.envir.inside_jupyter():
         return _jupyInteractPargs(engine=engine, p1=p1, specs=allspecs)
     else:
         raise RuntimeError("interact is only supporte inside a jupyter session at the"
@@ -320,7 +327,12 @@ def _jupyInteractPargs(engine: engine.Engine,
 
     for key, spec in specs.items():
         idx = key if isinstance(key, int) else int(key[1:])
-        value0 = engine.getp(p1, idx) if spec.startvalue is None else spec.startvalue
+        if isinstance(p1, str):
+            p1 = engine.queryNamedInstr(p1)
+        currentvalue = engine._getp(p1, idx)
+        value0 = currentvalue if currentvalue is not None else spec.startvalue
+        if value0 is None:
+            value0 = spec.minvalue
         if spec.widgetHint == 'slider':
             w = _jupyterSlider(spec.description, startvalue=value0,
                                minvalue=spec.minvalue, maxvalue=spec.maxvalue,

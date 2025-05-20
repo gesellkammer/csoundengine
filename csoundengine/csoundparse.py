@@ -8,9 +8,7 @@ from._common import EMPTYDICT
 import numpy as np
 
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import Sequence
+import typing as _t
 
 
 @dataclasses.dataclass
@@ -200,13 +198,13 @@ class ParsedInstrBody:
     pfieldIndexToName: dict[int, str]
     """Maps pfield index to assigned name"""
 
-    pfieldLines: Sequence[str]
+    pfieldLines: _t.Sequence[str]
     """List of lines where pfields are defined"""
 
     body: str
     """The body parsed"""
 
-    lines: Sequence[str]
+    lines: _t.Sequence[str]
     """The body, split into lines"""
 
     pfieldIndexToValue: dict[int, float] | None = None
@@ -635,7 +633,7 @@ def normalizeNamedPfields(pfields: dict[str, float],
     return out
 
 
-def fillPfields(args: Sequence[float | str] | np.ndarray,
+def fillPfields(args: _t.Sequence[float | str] | np.ndarray,
                 namedpargs: dict[int, float],
                 defaults: dict[int, float] | None) -> list[float | str]:
     """

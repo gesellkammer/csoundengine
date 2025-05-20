@@ -5,6 +5,8 @@ from abc import ABC, abstractmethod
 from typing import Sequence
 
 import numpy as np
+from . import internal
+
 
 
 @dataclasses.dataclass
@@ -18,23 +20,23 @@ class TableInfo:
     size: int
     "Total number of items (independent of numChannels)"
 
-    numChannels: int = 1
+    nchnls: int = 1
     "Number of channels"
 
     path: str = ''
     "Path to the source soundfile"
 
-    hasGuard: bool | None = None
+    guard: bool | None = None
     "Has this table a guard point"
 
     def __post_init__(self):
-        if self.hasGuard is None:
-            self.hasGuard = self.size == self.numFrames * self.numChannels + 1
+        if self.guard is None:
+            self.guard = self.size == self.numFrames * self.nchnls + 1
 
     @property
     def numFrames(self):
         """Number of frames (size // numchannels)"""
-        return self.size // self.numChannels
+        return self.size // self.nchnls
 
     @property
     def duration(self) -> float:
@@ -55,7 +57,7 @@ class TableInfo:
         sndinfo = sndfileio.sndinfo(path)
         return TableInfo(sr=sndinfo.samplerate,
                          size=sndinfo.channels * sndinfo.nframes,
-                         numChannels=sndinfo.channels,
+                         nchnls=sndinfo.channels,
                          path=path)
 
 
@@ -86,6 +88,8 @@ class _EngineBase(ABC):
         assert ksmps > 0
         assert a4 > 0
 
+        self.version: int = 0
+
         self.sr = sr
         "Sample rate"
 
@@ -113,6 +117,12 @@ class _EngineBase(ABC):
         self._busIndexes: dict[int, int] = {}
         self._builtinInstrs: dict[str, int] = {}
         """Dict of built-in instrs, mapping instr name to number"""
+
+    @abstractmethod
+    def elapsedTime(self) -> float: ...
+
+    @abstractmethod
+    def strSet(self, s: str) -> int: ...
 
     @abstractmethod
     def unsched(self, p1: float | str, delay: float = 0) -> None: ...
@@ -227,6 +237,17 @@ class _EngineBase(ABC):
         """
         pass
 
+    def sched(self,
+              instr: int | float | str,
+              delay=0.,
+              dur=-1.,
+              *pfields,
+              args: np.ndarray | Sequence[float | str] = (),
+              relative=True,
+              unique=False,
+              **namedpfields
+              ) -> float: ...
+
     @abstractmethod
     def playSoundFromDisk(self, path: str, delay=0., chan=0, speed=1., fade=0.01
                           ) -> float:
@@ -250,13 +271,63 @@ class _EngineBase(ABC):
         """
         return (self.numAudioBuses > 0 or self.numControlBuses > 0)
 
-    @abstractmethod
-    def assignBus(self,
-                  kind='',
-                  value: float | None = None,
-                  persist=False
-                  ) -> int:
-        ...
+    def automateBus(self,
+                    bus: int,
+                    pairs: Sequence[float] | tuple[Sequence[float], Sequence[float]],
+                    mode='linear',
+                    delay=0.,
+                    overtake=False) -> float:
+        """
+        Automate a control bus
+
+        The automation is performed within csound and is thus assured to stay
+        in sync
+
+        Args:
+            bus: the bus token as received via :meth:`Engine.assignBus`
+            pairs: the automation data as a flat sequence (t0, value0, t1, value1, ...) or
+                a tuple (times, values)
+                Times are relative to the start of the automation event
+            mode: interpolation mode, one of 'linear', 'expon(xx)', 'cos', 'smooth'.
+                See the csound opcode 'interp1d' for mode information
+                (https://csound-plugins.github.io/csound-plugins/opcodes/interp1d.html)
+            delay: when to start the automation
+            overtake: if True, the first value of pairs is replaced with the current
+                value of the bus. The same effect can be achieved if the first value
+                of the automation line is a nan
+
+        .. seealso:: :meth:`Engine.assignBus`, :meth:`Engine.writeBus`, :meth:`Engine.automatep`
+
+        Example
+        ~~~~~~~
+
+        >>> e = Engine()
+        >>> e.compile(r'''
+        ... instr 100
+        ...   ifreqbus = p4
+        ...   kfreq = busin:k(ifreqbus)
+        ...   outch 1, oscili:a(0.1, kfreq)
+        ... endin
+        ... ''')
+        >>> freqbus = e.assignBus(value=440)
+        >>> eventid = e.sched(100, args=(freqbus,))
+        >>> e.automateBus(freqbus, [0, float('nan'), 3, 200, 5, 200])
+
+        """
+        if not self.hasBusSupport():
+            raise RuntimeError("This engine does not have bus support")
+        pairs = internal.flattenAutomationData(pairs)
+        if self.version >= 7000 or len(pairs) <= 1900:
+            args = [int(bus), self.strSet(mode), int(overtake), len(pairs), *pairs]
+            return self.sched(self._builtinInstrs['automateBusViaPargs'],
+                              delay=delay,
+                              dur=pairs[-2] + self.ksmps/self.sr,
+                              args=args)
+        else:
+            for subdelay, subgroup in internal.splitAutomation(pairs, 1900 // 2):
+                self.automateBus(bus=bus, pairs=subgroup, delay=delay+subdelay,
+                                 mode=mode, overtake=overtake)
+            return 0
 
     @abstractmethod
     def writeBus(self, bus: int, value: float, delay=0.) -> None:

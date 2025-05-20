@@ -32,6 +32,7 @@ from . import (
 from .abstractrenderer import AbstractRenderer
 from .config import config, logger
 from .engine import Engine
+from .enginebase import TableInfo
 from .errors import CsoundError
 from .event import Event
 from .synth import Synth, SynthGroup
@@ -340,6 +341,7 @@ class Session(AbstractRenderer):
         Does this session have a handler to redirect actions?
 
         .. seealso:: :meth:`Session.setHandler`
+
         """
         return self._handler is not None
 
@@ -1024,9 +1026,9 @@ class Session(AbstractRenderer):
         self.engine.releaseBus(bus.token)
 
     def _automateBus(self, bus: busproxy.Bus, pairs: Sequence[float],
-                     mode='linear', delay=0., overtake=False) -> None:
-        self.engine.automateBus(bus=bus.token, pairs=pairs, mode=mode,
-                                delay=delay, overtake=overtake)
+                     mode='linear', delay=0., overtake=False) -> float:
+        return self.engine.automateBus(bus=bus.token, pairs=pairs, mode=mode,
+                                          delay=delay, overtake=overtake)
 
     def schedEvents(self, events: Sequence[Event]) -> SynthGroup:
         """
@@ -1082,6 +1084,9 @@ class Session(AbstractRenderer):
         .. seealso:: :class:`csoundengine.synth.Synth`, :class:`csoundengine.schedevent.SchedEvent`
 
         """
+        if self._handler:
+            return self._handler.schedEvent(event)  # type: ignore
+
         kws = event.kws or {}
         synth = self.sched(instrname=event.instrname,
                            delay=event.delay,
@@ -1394,7 +1399,7 @@ class Session(AbstractRenderer):
                              f"a priority of {priority}.")
 
         rinstr, needssync = self.prepareSched(instrname, priority, block=True)
-        pfields5, dynargs = instr.parseSchedArgs(args=args, kws=kwargs)
+        pfields5, dynargs = instr.parseSchedArgs(args=args, kws=kwargs)  # type: ignore
         if instr.controls:
             slicenum = self._dynargsAssignSlot()
             values = instr._controlsDefaultValues if not dynargs else instr.overrideControls(dynargs)
@@ -1628,14 +1633,15 @@ class Session(AbstractRenderer):
         >>> session.playSample(table)
 
         """
-        if self.isRendering():
-            raise RuntimeError("This Session is blocked during rendering. Call .readSoundFile on the offline "
-                               "renderer instead")
         if path == "?":
             from . import state
             path = state.openSoundfile()
+        else:
+            path = internal.normalizePath(path)
+
         if (table := self._pathToTabproxy.get(path)) is not None and not force:
             return table
+
         tabnum = self.engine.readSoundfile(path=path, chan=chan, skiptime=skiptime, block=block)
         import sndfileio
         info = sndfileio.sndinfo(path)
@@ -1645,8 +1651,8 @@ class Session(AbstractRenderer):
                                       nchnls=info.channels,
                                       parent=self,
                                       numframes=info.nframes)
-
-        self._registerTable(table)
+        # Fill engines information
+        self.engine._tableInfo[table.tabnum] = TableInfo(path=table.path, size=table.size, sr=table.sr, nchnls=table.nchnls)
         return table
 
     def _registerTable(self, tabproxy: tableproxy.TableProxy) -> None:
@@ -1671,9 +1677,8 @@ class Session(AbstractRenderer):
         if not tabinfo:
             return None
         tabproxy = tableproxy.TableProxy(tabnum=tabnum, path=tabinfo.path,
-                                         sr=tabinfo.sr, nchnls=tabinfo.numChannels,
+                                         sr=tabinfo.sr, nchnls=tabinfo.nchnls,
                                          parent=self, numframes=tabinfo.numFrames)
-        self._registerTable(tabproxy)
         return tabproxy
 
     def makeTable(self,
@@ -1762,13 +1767,11 @@ class Session(AbstractRenderer):
             if datahash is not None:
                 self._ndarrayHashToTabproxy[datahash] = tabproxy
 
-        self._registerTable(tabproxy)
         return tabproxy
 
     def _getTableData(self, table: int | tableproxy.TableProxy) -> np.ndarray | None:
         tabnum = table if isinstance(table, int) else table.tabnum
-        assert self.engine.csound is not None
-        return self.engine.csound.table(tabnum)
+        return self.engine.getTableData(tabnum)
 
     def dumpInstrs(self, pattern='*', forcetext=False, excludehidden=True) -> None:
         instrs = self.instrs.values()

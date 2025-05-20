@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Sequence
-
 from .schedevent import SchedAutomation
+
+import typing as _t
 
 
 @dataclass
@@ -43,10 +43,10 @@ class Event:
     priority: int = 1
     "The events priority (>1)"
 
-    args: Sequence[float | str] | dict[str, float] = ()
+    args: _t.Sequence[float | str] | dict[str, float] = ()
     "Numbered pfields (starting on p5) or a dict of parameters `{name: value}`"
 
-    whenfinished: Callable | None = None
+    whenfinished: _t.Callable | None = None
     "A callback to be fired when this event is finished"
 
     p1: float | str = 0.
@@ -64,7 +64,7 @@ class Event:
     automations: list[SchedAutomation] | None = None
     """Automations attached to this event"""
 
-    def automate(self, param: str, pairs: Sequence[float], delay=0.,
+    def automate(self, param: str, pairs: _t.Sequence[float], delay=0.,
                  interpolation='linear', overtake=False) -> None:
         if self.automations is None:
             self.automations = []

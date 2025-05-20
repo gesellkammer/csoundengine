@@ -209,3 +209,7 @@ class AbstractRenderer(ABC):
                       force=False,
                       ) -> tableproxy.TableProxy:
         raise NotImplementedError
+
+    @abstractmethod
+    def _registerTable(self, tabproxy: tableproxy.TableProxy):
+        raise NotImplementedError

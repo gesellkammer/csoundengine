@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import numpy as np
 
 from typing import TYPE_CHECKING
@@ -64,8 +63,9 @@ class TableProxy:
                  path: str = '',
                  skiptime=0.,
                  freeself=False):
-        if path:
-            path = os.path.abspath(os.path.expanduser(path))
+
+        # if path:
+        #    path = os.path.abspath(os.path.expanduser(path))
 
         self.tabnum = tabnum
         """The table number assigned to this table"""
@@ -93,6 +93,13 @@ class TableProxy:
 
         self._array: np.ndarray | None = None
         """The data, if applicable"""
+
+        if parent:
+            parent._registerTable(self)
+
+    @property
+    def size(self) -> int:
+        return self.numframes * self.nchnls
 
     def __repr__(self):
         return (f"TableProxy(source={self.tabnum}, sr={self.sr},"

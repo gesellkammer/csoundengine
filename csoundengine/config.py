@@ -20,7 +20,6 @@ def _validateFigsize(cfg: dict, key: str, val) -> bool:
 _defaultconf = {
     'A4': 442,
     'buffersize': 0,
-    'bus_support': False,
     'datafile_format': 'gen23',
     'disable_signals': True,
     'define_builtin_instrs': True,
@@ -141,8 +140,6 @@ _docs = {
     'num_control_buses':
         'Num. of control buses in an Engine/Session. This sets the upper limit to the '
         'number of simultaneous control buses in use',
-    'bus_support':
-        'If True, an Engine/OfflineEngine will have bus support',
     'html_theme':
         'Style to use when displaying syntax highlighting in jupyter',
     'html_args_fontsize':

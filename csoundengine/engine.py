@@ -166,7 +166,6 @@ elif 'sphinx' in _sys.modules:
 __all__ = [
     'Engine',
     'getEngine',
-    'activeEngines',
 ]
 
 
@@ -306,7 +305,7 @@ class Engine(_EngineBase):
                  latency: float | None = None,
                  sampleAccurate: bool = False,
                  numthreads: int = 0,
-                 withBusSupport: bool | None = None,
+                 withBusSupport=False,
                  nosound=False,
                  useProcessQueue=False,
     ):
@@ -488,8 +487,6 @@ class Engine(_EngineBase):
             numAudioBuses = int(config['num_audio_buses'])
         if numControlBuses is None:
             numControlBuses = int(config['num_control_buses'])
-        if withBusSupport is None:
-            withBusSupport = config['bus_support']
 
         if withBusSupport:
             if not numAudioBuses and not numControlBuses:
@@ -608,7 +605,6 @@ class Engine(_EngineBase):
         self._exited = False           # are we still running?
         self._realtime = realtime
         self._useProcessQueue = useProcessQueue if lcs.VERSION < 7000 else False
-        self._myfltptr = _ctypes.POINTER(lcs.MYFLT)
 
         # counters to create unique instances for each instrument
         self._instanceCounters: dict[int, int] = {}
@@ -679,6 +675,7 @@ class Engine(_EngineBase):
         self._reservedInstrnumRanges: list[tuple[str, int, int]] = [('builtinorc', CONSTS['reservedInstrsStart'], CONSTS['userInstrsStart']-1)]
 
         self._minCyclesForAbsoluteMode = 4
+        self._fltptr = _ctypes.POINTER(lcs.MYFLT)
         self.version = lcs.VERSION
         """Csound version as integer (6.18 = 6180)"""
 
@@ -848,7 +845,7 @@ class Engine(_EngineBase):
             logger.debug(f"start:Engine {self.name} already started")
             return
         if priorengine := self.activeEngines.get(self.name):
-            logger.debug("Stopping prior engine")
+            logger.debug(f"Stopping prior engine with same name ('{self.name}')")
             priorengine.stop()
 
         logger.info(f"Starting engine {self.name}")
@@ -919,16 +916,9 @@ class Engine(_EngineBase):
         assert self.sr > 0
         orcheader = engineorc.makeOrcHeader(sr=self.sr, ksmps=self.ksmps, nchnls=self.nchnls, nchnls_i=self.nchnls_i, a4=self.a4)
         orc, instrmap = engineorc.makeOrc(globalcode=self.globalCode,
-                                          includestr=includestr,
-                                          numAudioBuses=self.numAudioBuses if self._hasBusSupport else 0,
-                                          numControlBuses=self.numControlBuses if self._hasBusSupport else 0)
+                                          includestr=includestr)
         self._builtinInstrs = instrmap
         self._reservedInstrnums = set(instrmap.values())
-        logger.debug("--------------------------------------------------------------\n"
-                     "  Starting performance thread. \n"
-                     f"     Csound Options: {options}")
-        logger.debug(orc)
-        logger.debug("--------------------------------------------------------------")
         cs.compileOrc(orcheader)
         err = cs.compileOrc(orc)
         if err:
@@ -958,25 +948,22 @@ class Engine(_EngineBase):
         assert isinstance(chanptr, np.ndarray), f"_soundfontPresetCount channel is not set: {err}"
         self._soundfontPresetCountPtr = chanptr
 
-        if self.hasBusSupport():
-            chanptr, error = cs.channelPtr("_busTokenCount", kind='control', mode='rw')
-            assert isinstance(chanptr, np.ndarray), f"_busTokenCount channel not set: {error}\n{orc}"
-            self._busTokenCountPtr = chanptr
-            kbustable = int(cs.evalCode("return gi__bustable"))
-            self._kbusTable = cs.table(kbustable)
-        else:
-            logger.info("Server started without bus support")
+        self.csound = cs
+
+        if self._hasBusSupport:
+            self._hasBusSupport = False
+            self.addBusSupport()
+
         if csversion < 7000:
             pt = cs.performanceThread()
             if self._useProcessQueue:
                 pt.setProcessQueue()
         else:
             pt = cs.performanceThread()
-        pt.play()
 
-        self.started = True
-        self.csound = cs
+        pt.play()
         self._perfThread = pt
+        self.started = True
         self._setupCallbacks()
         self._setupGlobalInstrs()
         self.activeEngines[self.name] = self
@@ -1000,7 +987,7 @@ class Engine(_EngineBase):
             logger.error(f"outvalue: callback not set for channel {channelName}")
             return
         if valptr is not None:
-            val = _ctypes.cast(valptr, self._myfltptr).contents.value
+            val = _ctypes.cast(valptr, self._fltptr).contents.value
             func(channelName, val)
         else:
             logger.warning(f"outvalueCallback: {channelName=} called with null pointer, skipping")
@@ -1170,7 +1157,7 @@ class Engine(_EngineBase):
                 self.sync()
             self._queryNamedInstrs([instrname], timeout=0.1 if block else 0)
 
-    def compile(self, code: str, block=False, parse=True) -> None:
+    def compile(self, code: str, block=False) -> None:
         """
         Send orchestra code to the running csound instance.
 
@@ -1209,23 +1196,22 @@ class Engine(_EngineBase):
                     logger.warning(f"Include path not found '{includepath}'")
                 self.includes.append(includepath)
             elif codeblock.kind == 'instr':
-                if parse:
-                    parsedbody = csoundparse.instrParseBody(csoundparse.instrGetBody(codeblock.text))
-                    self._parsedInstrs[codeblock.name] = parsedbody
-                    if codeblock.name[0].isdigit():
-                        instrnum = int(codeblock.name)
-                        for rangename, mininstr, maxinstr in self._reservedInstrnumRanges:
-                            if mininstr <= instrnum < maxinstr:
-                                logger.error(f"Instrument number {instrnum} is reserved. Code:")
-                                logger.error("\n" + _textwrap.indent(codeblock.text, "    "))
-                                raise ValueError(f"Cannot use instrument number {instrnum}, "
-                                                f"the range {mininstr} - {maxinstr} is reserved for '{rangename}'")
+                parsedbody = csoundparse.instrParseBody(csoundparse.instrGetBody(codeblock.text))
+                self._parsedInstrs[codeblock.name] = parsedbody
+                if codeblock.name[0].isdigit():
+                    instrnum = int(codeblock.name)
+                    for rangename, mininstr, maxinstr in self._reservedInstrnumRanges:
+                        if mininstr <= instrnum < maxinstr:
+                            logger.error(f"Instrument number {instrnum} is reserved. Code:")
+                            logger.error("\n" + _textwrap.indent(codeblock.text, "    "))
+                            raise ValueError(f"Cannot use instrument number {instrnum}, "
+                                            f"the range {mininstr} - {maxinstr} is reserved for '{rangename}'")
 
-                        if instrnum in self._reservedInstrnums:
-                            raise ValueError("Cannot compile instrument with number "
-                                            f"{instrnum}: this is a reserved instr and "
-                                            f"cannot be redefined. Reserved instrs: "
-                                            f"{sorted(self._reservedInstrnums)}")
+                    if instrnum in self._reservedInstrnums:
+                        raise ValueError("Cannot compile instrument with number "
+                                        f"{instrnum}: this is a reserved instr and "
+                                        f"cannot be redefined. Reserved instrs: "
+                                        f"{sorted(self._reservedInstrnums)}")
 
         instrs = [b for b in codeblocks if b.kind == 'instr']
 
@@ -1330,12 +1316,15 @@ class Engine(_EngineBase):
 
         """
         arr: np.ndarray | None = self._tableCache.get(idx)
-        if arr:
+        if arr is not None:
             return arr
+
         if self.version >= 7000:
-            q = _queue.SimpleQueue()
-            self._perfThread.requestCallback(lambda cs, q=q, idx=idx: q.put(cs.table(idx)))
-            arr = q.get()
+            # Accessing the table directly is faster than using requestCallback :-)
+            arr = self.csound.table(idx)
+            # q = _queue.SimpleQueue()
+            # self._perfThread.requestCallback(lambda cs, q=q, idx=idx: q.put(cs.table(idx)))
+            # arr = q.get()
         elif self._perfThread._processQueue is None:
             arr = self.csound.table(idx)
         else:
@@ -1349,10 +1338,10 @@ class Engine(_EngineBase):
             tabinfo = self.tableInfo(idx)
             if not tabinfo:
                 raise IndexError(f"Table {idx} not found")
-            if tabinfo.numChannels > 1:
-                if tabinfo.size == tabinfo.numFrames*tabinfo.numChannels+1:
+            if tabinfo.nchnls > 1:
+                if tabinfo.size == tabinfo.numFrames*tabinfo.nchnls+1:
                     arr = arr[:-1]
-                arr.shape = (tabinfo.numFrames, tabinfo.numChannels)
+                arr.shape = (tabinfo.numFrames, tabinfo.nchnls)
         self._tableCache[idx] = arr
         return arr
 
@@ -2015,7 +2004,7 @@ class Engine(_EngineBase):
         if block and delay > 0:
             raise ValueError(f"Either block=True or delay > 0, got {block=}, {delay=}")
         tabnum = self._assignTableNumber()
-        self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
+        self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, nchnls=numchannels)
         if block or self.version >= 7000:
             if sr == 0 and numchannels == 1:
                 self._perfThread.scoreEvent(False, "f", [tabnum, delay, -size, -2, 0])
@@ -2082,7 +2071,7 @@ class Engine(_EngineBase):
             tabnum = self._assignTableNumber()
         elif tabnum == 0:
             tabnum = self._makeTableNotify(data=data, tabnum=0, sr=sr, numchannels=nchnls)
-            self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(data), numChannels=nchnls)
+            self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(data), nchnls=nchnls)
             self._modified()
             return tabnum
 
@@ -2120,7 +2109,7 @@ class Engine(_EngineBase):
                 self._perfThread.processQueueTask(task)
             if ev:
                 ev.wait()
-        self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(data), numChannels=nchnls)
+        self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(data), nchnls=nchnls)
         self._modified()
         assert tabnum > 0
         return tabnum
@@ -2169,16 +2158,19 @@ class Engine(_EngineBase):
             delay: when to perform the operation. This is useful if setting the metadata
                 for a table not created yet
         """
-        logger.info(f"Setting table metadata. {tabnum=}, {sr=}, {numchannels=}")
-        pargs = [self._builtinInstrs['ftsetparams'], delay, 0., tabnum, sr, numchannels]
-        self._perfThread.scoreEvent(False, "i", pargs)
+        logger.debug(f"Setting table metadata. {tabnum=}, {sr=}, {numchannels=}")
+        if delay == 0:
+            self._compileCode(f"ftsetparams {tabnum}, {sr}, {numchannels}")
+        else:
+            pargs = [self._builtinInstrs['ftsetparams'], delay, 0., tabnum, sr, numchannels]
+            self._perfThread.scoreEvent(False, "i", pargs)
+            # self._modified()
         tabinfo = self._tableInfo.get(tabnum)
         if tabinfo:
             tabinfo.sr = sr
-            tabinfo.numChannels = numchannels
+            tabinfo.nchnls = numchannels
         else:
-            logger.debug(f"setTableMetadata: table {tabnum} was not created by this Engine")
-        self._modified()
+            logger.debug(f"setTableMetadata: table {tabnum} was not created via python")
 
     def _registerSync(self, token: int) -> _queue.SimpleQueue:
         """
@@ -2593,7 +2585,7 @@ class Engine(_EngineBase):
                     tabnum = int(response)
                     self.fillTable(tabnum, data=data)
                     self._tableInfo[tabnum] = TableInfo(sr=sr, size=numitems,
-                                                        numChannels=numchannels)
+                                                        nchnls=numchannels)
                 else:
                     def callback2(tabnum, self=self, data=data, callback=callback):
                         self.fillTable(tabnum, data=data)
@@ -2608,7 +2600,7 @@ class Engine(_EngineBase):
                 raise RuntimeError(f"Failed to create table with args {pargs}")
             tabnum = int(response)
             assert tabnum > 0
-        self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
+        self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, nchnls=numchannels)
         return tabnum
 
     def channelPointer(self, channel: str, kind='control', mode='rw') -> np.ndarray:
@@ -2888,6 +2880,11 @@ class Engine(_EngineBase):
         """
         info = self._tableInfo.get(tabnum)
         if info and cache:
+            if info.path and info.sr == 0 and info.size == 0:
+                # Table created via .readSoundFile, info only has the
+                # path of the soundfile
+                info = TableInfo.get(info.path)
+                self._tableInfo[tabnum] = info
             return info
         toks = [self._getSyncToken() for _ in range(4)]
         pargs = [self._builtinInstrs['tableInfo'], 0, 0., tabnum]
@@ -2906,7 +2903,9 @@ class Engine(_EngineBase):
         sr = vals[0]
         if sr <= 0:
             return None
-        return TableInfo(sr=int(vals[0]), numChannels=int(vals[1]),size=int(vals[3]))
+        tabinfo = TableInfo(sr=int(vals[0]), nchnls=int(vals[1]),size=int(vals[3]))
+        self._tableInfo[tabnum] = tabinfo
+        return tabinfo
 
     def includeFile(self, include: str) -> None:
         """
@@ -2961,6 +2960,7 @@ class Engine(_EngineBase):
             raise ValueError("blocking mode not supported when a callback is given")
         if path == "?":
             path = _state.openSoundfile(ensureSelection=True)
+
         if not block and not callback:
             return self._readSoundfileAsync(path=path, tabnum=tabnum, chan=chan)
 
@@ -2974,21 +2974,19 @@ class Engine(_EngineBase):
                         "operation can be non-blocking")
             block = True
 
-        self._tableInfo[tabnum] = TableInfo.get(path)
-
-        if block or callback:
-            token = self._getSyncToken()
+        if block and tabnum:
+            self._compileCode(f'i__tab__ ftgen {tabnum},0,0,-1, "{path}", {skiptime}, 0, {chan}', block=True)
         else:
-            # if token is set to 0, no notification takes place
-            token = 0
-        p1 = self._builtinInstrs['readSndfile']
-        msg = f'i {p1} 0 0. {token} "{path}" {tabnum} {chan} {skiptime}'
-        if callback:
-            self._inputMessageWithCallback(token, msg, lambda *args: callback())
-        elif block:
-            self._inputMessageWait(token, msg)
-        else:
-            self._perfThread.inputMessage(msg)
+            token = self._getSyncToken() if (block or callback) else 0
+            p1 = self._builtinInstrs['readSndfile']
+            msg = f'i {p1} 0 0.01 {token} "{path}" {tabnum} {chan} {skiptime}'
+            if callback:
+                self._inputMessageWithCallback(token, msg, lambda *args: callback())
+            elif block:
+                self._inputMessageWait(token, msg)
+            else:
+                self._perfThread.inputMessage(msg)
+        self._tableInfo[tabnum] = TableInfo(sr=0, size=0, nchnls=1, path=path)
         return tabnum
 
     def soundfontPlay(self, index: int, pitch: float, amp=0.7, delay=0.,
@@ -3116,8 +3114,11 @@ class Engine(_EngineBase):
         assert self.started
         if tabnum is None:
             tabnum = self._assignTableNumber()
+        else:
+            assert tabnum > 0
         s = f'f {tabnum} 0 0 -1 "{path}" 0 0 {chan}'
         self._perfThread.inputMessage(s)
+        self._tableInfo[tabnum] = TableInfo(sr=0, size=0, nchnls=1, path=path)
         return tabnum
 
     def getUniqueInstrInstance(self, instr: int | str) -> float:
@@ -3731,63 +3732,6 @@ class Engine(_EngineBase):
         else:
             self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.onecycle*8, args=(int(bus), value))
 
-    def automateBus(self,
-                    bus: int,
-                    pairs: Sequence[float] | tuple[Sequence[float], Sequence[float]],
-                    mode='linear',
-                    delay=0.,
-                    overtake=False) -> None:
-        """
-        Automate a control bus
-
-        The automation is performed within csound and is thus assured to stay
-        in sync
-
-        Args:
-            bus: the bus token as received via :meth:`Engine.assignBus`
-            pairs: the automation data as a flat sequence (t0, value0, t1, value1, ...) or
-                a tuple (times, values)
-                Times are relative to the start of the automation event
-            mode: interpolation mode, one of 'linear', 'expon(xx)', 'cos', 'smooth'.
-                See the csound opcode 'interp1d' for mode information
-                (https://csound-plugins.github.io/csound-plugins/opcodes/interp1d.html)
-            delay: when to start the automation
-            overtake: if True, the first value of pairs is replaced with the current
-                value of the bus. The same effect can be achieved if the first value
-                of the automation line is a nan
-
-        .. seealso:: :meth:`Engine.assignBus`, :meth:`Engine.writeBus`, :meth:`Engine.automatep`
-
-        Example
-        ~~~~~~~
-
-        >>> e = Engine()
-        >>> e.compile(r'''
-        ... instr 100
-        ...   ifreqbus = p4
-        ...   kfreq = busin:k(ifreqbus)
-        ...   outch 1, oscili:a(0.1, kfreq)
-        ... endin
-        ... ''')
-        >>> freqbus = e.assignBus(value=440)
-        >>> eventid = e.sched(100, args=(freqbus,))
-        >>> e.automateBus(freqbus, [0, float('nan'), 3, 200, 5, 200])
-
-        """
-        if not self.hasBusSupport():
-            raise RuntimeError("This engine does not have bus support")
-        pairs = internal.flattenAutomationData(pairs)
-        if self.version >= 7000 or len(pairs) <= 1900:
-            args = [int(bus), self.strSet(mode), int(overtake), len(pairs), *pairs]
-            self.sched(self._builtinInstrs['automateBusViaPargs'],
-                       delay=delay,
-                       dur=pairs[-2] + self.ksmps/self.sr,
-                       args=args)
-        else:
-            for subdelay, subgroup in internal.splitAutomation(pairs, 1900 // 2):
-                self.automateBus(bus=bus, pairs=subgroup, delay=delay+subdelay,
-                                 mode=mode, overtake=overtake)
-
     def readBus(self, bus: int, default: float | None = None) -> float | None:
         """
         Read the current value of a control bus
@@ -3916,30 +3860,43 @@ class Engine(_EngineBase):
         pargs = [self._builtinInstrs['busrelease'], delay or 0., 0, int(bus)]
         self._perfThread.scoreEvent(False, "i", pargs)
 
-    def _dumpbus(self, bus: int):
-        pargs = [self._builtinInstrs['busdump'], 0, 0, int(bus)]
-        self._perfThread.scoreEvent(False, "i", pargs)
-
     def hasBusSupport(self) -> bool:
         return self._hasBusSupport and (self.numAudioBuses > 0 or self.numControlBuses > 0)
 
     def addBusSupport(self, numAudioBuses: int|None = None, numControlBuses: int|None = None) -> None:
         if self.hasBusSupport():
             return
+
         if numAudioBuses is None:
             numAudioBuses = self.numAudioBuses or config['num_audio_buses']
 
         if numControlBuses is None:
             numControlBuses = self.numControlBuses or config['num_control_buses']
+        logger.debug(f"Adding bus support, {numAudioBuses=}, {numControlBuses=}")
 
-        startInstr = max(instrnum for instrnum in self._builtinInstrs.values() if instrnum < CONSTS['postProcInstrnum'])
-        busorc, businstrs = engineorc.makeBusOrc(numAudioBuses=numAudioBuses, numControlBuses=numControlBuses, startInstr=startInstr)
+        startInstr = max(instrnum for instrnum in self._builtinInstrs.values() if instrnum < CONSTS['postProcInstrnum']) + 1
+        postInstrnum = 1 + max(max(self._builtinInstrs.values()), CONSTS['postProcInstrnum'])
+        busorc, businstrs = engineorc.makeBusOrc(numAudioBuses=numAudioBuses,
+                                                 numControlBuses=numControlBuses,
+                                                 startInstr=startInstr,
+                                                 postInstr=postInstrnum)
         self._builtinInstrs.update(businstrs)
         self._reservedInstrnumRanges.append(('busorc', min(businstrs.values()), max(businstrs.values())))
-        self._compileCode(busorc, block=True)
         self._hasBusSupport = True
         self.numAudioBuses = numAudioBuses
         self.numControlBuses = numControlBuses
+        chanptr, error = self.csound.channelPtr("_busTokenCount", kind='control', mode='rw')
+        assert isinstance(chanptr, np.ndarray)
+        self._busTokenCountPtr = chanptr
+        if self.started:
+            self._compileCode(busorc, block=True)
+            kbustable = int(self.evalCode("return gi__bustable"))
+            self._kbusTable = self.getTableData(kbustable)
+        else:
+            self.csound.compileOrc(busorc)
+            kbustable = int(self.csound.evalCode("return gi__bustable"))
+            self._kbusTable = self.csound.table(kbustable)
+        assert self._kbusTable is not None
 
     def assignBus(self, kind='', value: float | None = None, persist=False
                   ) -> int:
@@ -4163,22 +4120,6 @@ def _cleanup() -> None:
         for engine in engines:
             print(f"... stopping {engine.name}")
             engine.stop()
-
-
-def activeEngines() -> list[str]:
-    """
-    Returns the names of the active engines
-
-    Example
-    ~~~~~~~
-
-        >>> import csoundengine as ce
-        >>> ce.Engine(nchnls=2)   # Will receive a generic name
-        >>> ce.Engine(name='multichannel', nchnls=8)
-        >>> ce.activeEngines()
-        ['engine0', 'multichannel']
-    """
-    return list(Engine.activeEngines.keys())
 
 
 def getEngine(name: str) -> Engine | None:

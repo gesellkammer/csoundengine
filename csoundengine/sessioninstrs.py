@@ -10,14 +10,6 @@ def builtinInstrs() -> list[instr.Instr]:
     from .instr import Instr
 
     return [
-        Instr('.sine', body="""
-            |kpitch=60, kamp=0.5, kpos=0.5, ichan=0|
-            aenv linsegr 0, 0.04, 1, 0.08, 0
-            a0 oscil interp(kamp), mtof:k(kpitch)
-            a0 *= aenv
-            aL, aR pan2 a0, kpos
-            outch ichan, aL, ichan+1, aR
-            """),
         Instr('.testAudio', body=r'''
             |imode=0, iperiod=1, igain=0.1, iverbose=1|
             kchan init -1

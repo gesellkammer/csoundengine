@@ -176,18 +176,13 @@ class OfflineEngine(_EngineBase):
                  globalcode='',
                  numAudioBuses: int | None = None,
                  numControlBuses: int | None = None,
-                 withBusSupport: bool | None = None,
+                 withBusSupport=False,
                  quiet=True,
                  includes: list[str] | None = None,
                  sampleAccurate=False,
                  encoding='',
                  nosound=False,
                  commandlineOptions: list[str] | None = None):
-        if withBusSupport is None:
-            withBusSupport = config['bus_support']
-        if not withBusSupport:
-            numAudioBuses = 0
-            numControlBuses = 0
         super().__init__(sr=sr,
                          ksmps=ksmps,
                          a4=a4 or config['A4'],
@@ -220,6 +215,7 @@ class OfflineEngine(_EngineBase):
         self._history: list[_OfflineComponent] = []
         self._trackHistory = True
         self._usesBuses = False  # does any instr uses the bus system?
+        self._hasBusSupport = withBusSupport
 
         self._reservedInstrnums: set[int] = set()
         self._reservedInstrnumRanges: list[tuple[str, int, int]] = [
@@ -243,7 +239,9 @@ class OfflineEngine(_EngineBase):
         if commandlineOptions:
             self.options.extend(commandlineOptions)
 
-        self.csound: libcsound.Csound = self._start()
+        self.csound: libcsound.Csound
+
+        self._start()
 
         for s in ["cos", "linear", "smooth", "smoother"]:
             self.strSet(s)
@@ -258,47 +256,73 @@ class OfflineEngine(_EngineBase):
         includelines = [f'#include "{include}"' for include in self.includes]
         return "\n".join(includelines)
 
-    def _start(self) -> libcsound.Csound:
+    def _compile(self, code: str) -> None:
+        err = self.csound.compileOrc(code)
+        if err:
+            logger.error(internal.addLineNumbers(code))
+            raise CsoundError(f"Error compiling base ochestra, error: {err}")
+        self._history.append(_CompileEvent(code))
+
+    def _start(self) -> None:
         import libcsound
         self.version = libcsound.VERSION
-        csound = libcsound.Csound()
+        self.csound = csound = libcsound.Csound()
         for option in self.options:
             csound.setOption(option)
         if not self.nosound:
             csound.setOption(f'-o{self.outfile}')
 
-
         header = engineorc.makeOrcHeader(sr=self.sr, ksmps=self.ksmps, nchnls=self.nchnls, nchnls_i=0, a4=self.a4)
         csound.compileOrc(header)
         orc, instrmap = engineorc.makeOrc(globalcode=self.globalcode,
-                                          includestr=self._makeIncludeBlock(),
-                                          numAudioBuses=self.numAudioBuses,
-                                          numControlBuses=self.numControlBuses)
+                                          includestr=self._makeIncludeBlock())
 
         self._builtinInstrs = instrmap
         self._reservedInstrnums.update(set(instrmap.values()))
-
-        err = csound.compileOrc(orc)
-        if err:
-            tmporc = tempfile.mktemp(prefix="csoundengine-", suffix=".orc")
-            with open(tmporc, "w") as f:
-                f.write(header)
-                f.write(orc)
-            logger.error(f"Error compiling base orchestra. A copy of the orchestra"
-                         f" has been saved to {tmporc}")
-
-            logger.error(internal.addLineNumbers(orc))
-            raise CsoundError(f"Error compiling base ochestra, error: {err}")
+        self._compile(orc)
         csound.start()
-        if self.hasBusSupport():
-            chanptr, error = csound.channelPtr("_busTokenCount", kind="control", mode="rw")
-            assert chanptr is not None, f"_busTokenCount channel not set: {error}\n{orc}"
-            if not isinstance(chanptr, np.ndarray):
-                raise RuntimeError(f"Could not create channel for bus support, got {chanptr}")
-            self._busTokenCountPtr = chanptr
-            kbustable = int(csound.evalCode("return gi__bustable"))
-            self._kbusTable = csound.table(kbustable)
-        return csound
+        if self._hasBusSupport:
+            self.addBusSupport()
+
+    def evalCode(self, code: str) -> float:
+        return self.csound.evalCode(code)
+
+    def addBusSupport(self, numAudioBuses: int|None = None, numControlBuses: int|None = None) -> None:
+        numAudioBuses = numAudioBuses if numAudioBuses is not None else self.numAudioBuses
+        numControlBuses = numControlBuses if numControlBuses is not None else self.numControlBuses
+
+        startInstr = max(instrnum for instrnum in self._builtinInstrs.values() if instrnum < engineorc.CONSTS['postProcInstrnum']) + 1
+        postInstrnum = 1 + max(max(self._builtinInstrs.values()), engineorc.CONSTS['postProcInstrnum'])
+
+        busorc, businstrs = engineorc.makeBusOrc(numAudioBuses=self.numAudioBuses,
+                                                 numControlBuses=self.numControlBuses,
+                                                 startInstr=startInstr,
+                                                 postInstr=postInstrnum)
+        self._builtinInstrs.update(businstrs)
+        self._reservedInstrnumRanges.append(('busorc', min(businstrs.values()), max(businstrs.values())))
+        self._hasBusSupport = True
+        self.numAudioBuses = numAudioBuses
+        self.numControlBuses = numControlBuses
+        chanptr, error = self.csound.channelPtr("_busTokenCount", kind='control', mode='rw')
+        if error:
+            raise RuntimeError(f"Error in csound.channelPtr: {error}")
+        assert isinstance(chanptr, np.ndarray)
+        self._busTokenCountPtr = chanptr
+        self._compile(busorc)
+        kbustable = int(self.csound.evalCode("return gi__bustable"))
+        self._kbusTable = self.getTableData(kbustable)
+
+    def hasBusSupport(self) -> bool:
+        """
+        Returns True if this Engine was started with bus support
+
+        .. seealso::
+
+            :meth:`~csoundengine.engine.Engine.assignBus`
+            :meth:`~csoundengine.engine.Engine.writeBus`
+            :meth:`~csoundengine.engine.Engine.readBus`
+        """
+        return self._hasBusSupport and (self.numAudioBuses > 0 or self.numControlBuses > 0)
 
     def compile(self, code: str) -> None:
         """
@@ -379,6 +403,7 @@ class OfflineEngine(_EngineBase):
               args: np.ndarray | list[float | str] | None = None,
               unique=False,
               comment='',
+              relative=True,
               **namedpfields
               ) -> float | str:
         """
@@ -475,6 +500,13 @@ class OfflineEngine(_EngineBase):
         else:
             p1 = instr if not isinstance(instr, str) else self.instrNum(instr)
 
+        now = self.elapsedTime()
+        if not relative:
+            # We always convert to relative
+            delay = delay - now
+            if delay < 0:
+                raise ValueError(f"The time offset is in the pase, elapsed time: {now}, absolute offset given: {delay + now}")
+
         if dur >= 0 and delay + dur > self._endtime:
             self._endtime = delay + dur
         elif delay > self._endtime:
@@ -493,10 +525,9 @@ class OfflineEngine(_EngineBase):
                     # do not keep track of strsets for scheduling events in the history
                     # since these end up in the score and csound does the string handling for us
                     pfields.extend(float(a) if not isinstance(a, str) else self.strSet(a) for a in args)
-        timeOffset = delay + self.elapsedTime()
         self.csound.scoreEvent("i", pfields=pfields)
         # self.csound.scoreEventAbsolute(type_='i', pFields=pfields, timeOffset=timeOffset)
-        self._addHistory(_SchedEvent(instr=instr, delay=timeOffset, dur=dur, args=args,
+        self._addHistory(_SchedEvent(instr=instr, delay=delay+now, dur=dur, args=args,
                                      eventid=p1, comment=comment))
 
         self._shouldPerform = True
@@ -882,7 +913,7 @@ class OfflineEngine(_EngineBase):
         sr = self.csound.evalCode(f'return ftsr({tabnum})')
         numchannels = self.csound.evalCode(f'return ftchnls({tabnum})')
         tablen = self.csound.evalCode(f'return ftlen({tabnum}')
-        return TableInfo(sr=int(sr), size=int(tablen), numChannels=int(numchannels))
+        return TableInfo(sr=int(sr), size=int(tablen), nchnls=int(numchannels))
 
     def makeEmptyTable(self, size: int, numchannels=1, sr=0, delay=0.) -> int:
         """
@@ -899,7 +930,7 @@ class OfflineEngine(_EngineBase):
             the table number
         """
         tabnum = self._assignTableNumber()
-        self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, numChannels=numchannels)
+        self._tableInfo[tabnum] = TableInfo(sr=sr, size=size, nchnls=numchannels)
         self.compile(f'itab ftgen {tabnum}, {delay}, {-size}, -2, 0')
         if sr > 0:
             self.sched(instr=self._builtinInstrs['ftsetparams'], delay=delay, dur=0,
@@ -1047,7 +1078,7 @@ class OfflineEngine(_EngineBase):
             if sr > 0 or numchannels > 0:
                 self.csound.compileOrc(fr'ftsetparams {tabnum}, {sr}, {numchannels}')
 
-        self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(flatdata), numChannels=numchannels)
+        self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(flatdata), nchnls=numchannels)
         self._addHistory(_TableDataEvent(data=data, delay=delay, tabnum=tabnum, sr=sr))
         return int(tabnum)
 
@@ -1237,17 +1268,10 @@ class OfflineEngine(_EngineBase):
         """
         from csoundengine.csd import Csd
         csd = Csd(sr=self.sr, ksmps=self.ksmps, nchnls=self.nchnls, a4=self.a4,
-                            options=self.options, nchnls_i=0)
+                  options=self.options, nchnls_i=0)
         csd.setSampleEncoding(self.encoding)
-        orc, instrmap = engineorc.makeOrc(globalcode=self.globalcode,
-                                          includestr=self._makeIncludeBlock(),
-                                          numAudioBuses=self.numAudioBuses if self._usesBuses else 0,
-                                          numControlBuses=self.numControlBuses if self._usesBuses else 0)
-
-        csd.addGlobalCode(orc)
         for event in self._history:
             event.apply(csd)
-
         return csd
 
     def write(self, outfile: str) -> None:
@@ -1534,8 +1558,11 @@ class OfflineEngine(_EngineBase):
             logger.warning(f"Bus token {bus} not known")
         elif kind != 'control':
             raise ValueError(f"Only control buses can be written to, got {kind}")
-
-        self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.ksmps/self.sr*2, args=[bus, value])
+        if delay == 0 and (busindex := self._getBusIndex(bus)) is not None:
+            assert self._kbusTable is not None
+            self._kbusTable[busindex] = value
+        else:
+             self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.ksmps/self.sr*2, args=[bus, value])
 
     def openOutfile(self, app='') -> None:
         """

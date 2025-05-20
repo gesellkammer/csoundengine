@@ -126,7 +126,7 @@ class Bus:
 
     def automate(self,
                  pairs: Sequence[float] | tuple[Sequence[float], Sequence[float]],
-                 mode='linear', delay=0., overtake=False):
+                 mode='linear', delay=0., overtake=False) -> float:
         """
         Automate this bus
 
@@ -143,6 +143,9 @@ class Bus:
             overtake: if True, the first value of pairs is replaced with the current
                 value of the bus. The same effect can be achieved if the first value
                 of the automation line is a nan
+
+        Returns:
+            a float representing the event id of the automation
 
         .. seealso:: :meth:`Engine.assignBus`, :meth:`Engine.writeBus`, :meth:`Engine.automatep`
 
@@ -164,7 +167,7 @@ class Bus:
         if self.token < 0:
             raise ValueError("This Bus has been already released")
         pairs = internal.flattenAutomationData(pairs)
-        self.renderer._automateBus(self, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
+        return self.renderer._automateBus(self, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
 
     def release(self) -> None:
         """
