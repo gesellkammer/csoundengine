@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from scipy import signal
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -47,13 +46,14 @@ def _figsizeAsTuple(figsize) -> tuple[int, int]:
         raise ValueError(f"Could not interpret {figsize} as a figure size")
 
 
-def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False, tight=True
+def _plot_matplotlib(samples: np.ndarray, samplerate: int, show=False, tight=True,
+                     figsize: tuple[int, int] | None = None
                      ) -> Figure:
     numch = internal.arrayNumChannels(samples)
     numsamples = samples.shape[0]
     dur = numsamples / samplerate
     times = np.linspace(0, dur, numsamples)
-    figsize = _figsizeAsTuple(config['samplesplot_figsize'])
+    figsize = figsize or _figsizeAsTuple(config['samplesplot_figsize'])
     figsize = figsize[0]*2, figsize[1]
     f = plt.figure(figsize=figsize)
     if tight:
@@ -84,7 +84,8 @@ def matplotlibIsInline() -> bool:
 
 
 def _plotSubsample(samples: np.ndarray, samplerate: int, maxpoints: int,
-                   maxsr: int, show: bool, figsizeFactor=1., tight=True
+                   maxsr: int, show: bool, figsizeFactor=1., tight=True,
+                   figsize: tuple[int, int] | None = None
                    ) -> Figure:
     targetsr = samplerate
     numch = internal.arrayNumChannels(samples)
@@ -92,7 +93,7 @@ def _plotSubsample(samples: np.ndarray, samplerate: int, maxpoints: int,
     if maxpoints < numsamples:
         targetsr = min(maxsr, (samplerate * numsamples) // maxpoints)
     hoplength = samplerate // targetsr
-    figsize = _figsizeAsTuple(config['samplesplot_figsize'])
+    figsize = figsize or _figsizeAsTuple(config['samplesplot_figsize'])
     figsize = (int(figsize[0] * figsizeFactor), figsize[1])
     f = plt.figure(figsize=figsize)
     if tight:
@@ -124,6 +125,7 @@ def plotSamples(samples: np.ndarray,
                 profile='auto',
                 show=False,
                 saveas='',
+                figsize: tuple[int, int] | None = None,
                 closefig=False
                 ) -> Figure:
     """
@@ -143,21 +145,21 @@ def plotSamples(samples: np.ndarray,
     """
     if profile == 'auto':
         dur = len(samples)/samplerate
-        if dur > 60*8:
+        if dur > 60*2:
             profile = 'low'
-        elif dur > 60*2:
-            profile = 'medium'
         elif dur > 60*1:
+            profile = 'medium'
+        elif dur > 4:
             profile = 'high'
         else:
             profile = 'highest'
 
     if profile == 'low':
         fig = _plotSubsample(samples=samples, samplerate=samplerate,
-                              maxpoints=2000, maxsr=300, show=show)
+                              maxpoints=2000, maxsr=300, show=show, figsize=figsize)
     elif profile == 'medium':
         fig = _plotSubsample(samples=samples, samplerate=samplerate, maxpoints=4000,
-                              maxsr=600, show=show, figsizeFactor=1.4)
+                              maxsr=600, show=show, figsizeFactor=1.4, figsize=figsize)
     elif profile == 'high':
         undersample = min(32, len(samples) // (1024*8))
         fig = _plot_matplotlib(samples[::undersample], samplerate//undersample, show=show)
@@ -236,9 +238,10 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window='
         axes = f.add_subplot(1, 1, 1)
     hopsize = int(fftsize / overlap)
     noverlap = fftsize - hopsize
-    if window is None:
+    if not window:
         window = config['spectrogram_window']
-    win = signal.get_window(window or None, fftsize)
+    from scipy import signal
+    win = signal.get_window(window, fftsize)
     cmap = cmap if cmap else config['spectrogram_colormap']
     axes.specgram(samples,
                   NFFT=fftsize,

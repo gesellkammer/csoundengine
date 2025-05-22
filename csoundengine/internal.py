@@ -7,6 +7,7 @@ import re
 import sys
 import textwrap
 import time
+import tempfile
 from functools import cache
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,7 @@ from csoundengine._common import EMPTYDICT
 if TYPE_CHECKING:
     from typing import Any, Callable, KeysView, Sequence, TypeVar
     import numpy.typing as npt
+    from matplotlib.figure import Figure
 
     from csoundlib import AudioDevice, MidiDevice
 
@@ -562,23 +564,6 @@ def hashSoundfile(path: str) -> int:
 _soundfileHtmlCache = {}
 
 
-def soundfileHtml(sndfile: str,
-                  withHeader=True,
-                  withAudiotag=True,
-                  audiotagMaxDuration=10,
-                  audiotagWidth='100%',
-                  audiotagMaxWidth='1200px',
-                  embedThreshold=2.,
-                  ) -> str:
-    html = _soundfileHtml(sndfile=sndfile,
-                          withHeader=withHeader,
-                          withAudiotag=withAudiotag,
-                          audiotagMaxDuration=audiotagMaxDuration,
-                          audiotagWidth=audiotagWidth,
-                          audiotagMaxWidth=audiotagMaxWidth,
-                          embedThreshold=embedThreshold)
-    return html
-
 
 def wrapBase64(base64img: str,
                width: int | str = None,
@@ -616,15 +601,96 @@ def wrapBase64(base64img: str,
              src="data:image/png;base64,{base64img}"/>'''
 
 
+def plotSamplesAsHtml(samples: np.ndarray,
+                      sr: int,
+                      withHeader=True,
+                      withAudiotag=True,
+                      audiotagWidth='100%',
+                      audiotagMaxWidth='1200px',
+                      audiotagMaxDuration=0.,
+                      profile='',
+                      embedAudiotag=True,
+                      path='',
+                      figure: Figure | None = None,
+                      customHeader: str = '',
+                      figsize: tuple[int, int] | None = None) -> str:
+    """
+    Plot the given samples and return a base64 image as html
 
-def _soundfileHtml(sndfile: str,
-                   withHeader=True,
-                   withAudiotag=True,
-                   audiotagMaxDuration=10,
-                   audiotagWidth='100%',
-                   audiotagMaxWidth='1200px',
-                   embedThreshold=2.
-                   ) -> str:
+    Args:
+        samples: the samples to plot
+        sr: the samplerate
+        withHeader: if True, add a header with info about the samples
+        withAudiotag: if True, add an <audio> element to play the samples
+        audiotagWidth: width of the audio tag element as css width
+        audiotagMaxWidth: max. width given to the audio tag element (as css value)
+        audiotagMaxDuration: if the samples exceed this duration the audio actually
+            passed to the audio tag is shortened to not exceed this duration
+        profile: a plotting profile, one of 'low', 'medium', 'high', 'highest'. If
+            not given, a profile is chosen based on the length of the sample
+
+    """
+    import IPython.display
+    from . import plotting
+    dur = len(samples) / sr
+    if figure is None:
+        if not profile:
+            if dur < 3:
+                profile = 'highest'
+            elif dur < 9:
+                profile = 'high'
+            elif dur < 45:
+                profile = 'medium'
+            else:
+                profile = 'low'
+        figure = plotting.plotSamples(samples, samplerate=sr, profile=profile, figsize=figsize)
+    imgb64 = plotting.figureToBase64(figure)
+    imgtag = wrapBase64(imgb64)
+    parts = []
+    if customHeader:
+        parts.append(customHeader)
+    elif withHeader:
+        import emlib.misc
+        durstr = durstr = emlib.misc.sec2str(dur) if dur > 60 else f"{dur:.3g}"
+        nchnls = 1 if len(samples.shape) == 1 else samples.shape[0]
+        parts.append(f"<b>Soundfile</b>: '{path}', duration: <code>{durstr}</code>, "
+                     f"sr: <code>{sr}</code>, "
+                     f"numchannels: <code>{nchnls}</code>)<br>")
+    parts.append(imgtag)
+    if withAudiotag:
+        # embed short audio files, the longer ones are written to disk and read
+        # from there
+        if embedAudiotag:
+            samplestransp = samples.T
+            if dur > audiotagMaxDuration:
+                samplestransp = samplestransp[:int(audiotagMaxDuration*sr)]
+            audioobj = IPython.display.Audio(samplestransp, rate=sr)
+            audiotag = audioobj._repr_html_()
+        else:
+            os.makedirs('tmp', exist_ok=True)
+            outfile = tempfile.mktemp(suffix='.mp3')
+            if dur > audiotagMaxDuration:
+                samples = samples[:int(audiotagMaxDuration*sr)]
+            import sndfileio
+            sndfileio.sndwrite(outfile, samples=samples, sr=sr)
+            audioobj = IPython.display.Audio(outfile)
+            audiotag = audioobj._repr_html_()
+        audiotag = audiotag.replace('audio  controls="controls"',
+                                    fr'audio controls style="width: {audiotagWidth}; max-width: {audiotagMaxWidth};"')
+        parts.append("<br>")
+        parts.append(audiotag)
+    return "\n".join(parts)
+
+
+def soundfileHtml(sndfile: str,
+                  withHeader=True,
+                  withAudiotag=True,
+                  audiotagMaxDuration=10,
+                  audiotagWidth='100%',
+                  audiotagMaxWidth='1200px',
+                  profile='',
+                  embedThreshold=2.
+                  ) -> str:
     """
     Returns an HTML representation of this Sample
 
@@ -647,53 +713,17 @@ def _soundfileHtml(sndfile: str,
         the HTML repr as str
 
     """
-    import tempfile  # noqa: I001
-    import emlib.img
-    import emlib.misc
-    import IPython.display
-    from . import plotting
     import sndfileio
     samples, info = sndfileio.sndget(sndfile)
-    if info.duration < 3:
-        profile = 'highest'
-    elif info.duration < 12:
-        profile = 'high'
-    elif info.duration < 60:
-        profile = 'medium'
-    else:
-        profile = 'low'
-    fig = plotting.plotSamples(samples, samplerate=info.samplerate, profile=profile)
-    imgb64 = plotting.figureToBase64(fig)
-    img = wrapBase64(imgb64)
-    # img = emlib.img.htmlImgBase64(pngfile)
-    if info.duration > 60:
-        durstr = emlib.misc.sec2str(info.duration)
-    else:
-        durstr = f"{info.duration:.3g}"
-    if withHeader:
-        s = (f"<b>Soundfile</b>: '{sndfile}', duration: <code>{durstr}</code>, "
-             f"sr: <code>{info.samplerate}</code>, "
-             f"numchannels: <code>{info.channels}</code>)<br>")
-    else:
-        s = ''
-    s += img
-    if withAudiotag and info.duration/60 < audiotagMaxDuration:
-        maxwidth = audiotagMaxWidth
-        # embed short audio files, the longer ones are written to disk and read
-        # from there
-        if info.duration < embedThreshold:
-            audioobj = IPython.display.Audio(samples.T, rate=info.samplerate)
-            audiotag = audioobj._repr_html_()
-        else:
-            os.makedirs('tmp', exist_ok=True)
-            outfile = tempfile.mktemp(suffix='.mp3')
-            sndfileio.sndwrite(outfile, samples=samples, sr=info.samplerate)
-            audioobj = IPython.display.Audio(outfile)
-            audiotag = audioobj._repr_html_()
-        audiotag = audiotag.replace('audio  controls="controls"',
-                                    fr'audio controls style="width: {audiotagWidth}; max-width: {maxwidth};"')
-        s += "<br>" + audiotag
-    return s
+    dur = len(samples) / info.samplerate
+    return plotSamplesAsHtml(samples=samples, sr=info.samplerate,
+                             withHeader=withHeader, path=sndfile,
+                             withAudiotag=withAudiotag,
+                             audiotagMaxDuration=audiotagMaxDuration,
+                             audiotagMaxWidth=audiotagMaxWidth,
+                             audiotagWidth=audiotagWidth,
+                             profile=profile,
+                             embedAudiotag=dur < embedThreshold)
 
 
 safeColors = {

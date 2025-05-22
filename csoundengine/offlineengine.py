@@ -4,25 +4,30 @@ import math
 import os
 import tempfile
 import textwrap
-from contextlib import contextmanager
+import contextlib
 from dataclasses import dataclass
 from functools import cache
-from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
 
-from . import csoundparse, engineorc, internal
+from . import (
+    csoundparse,
+    engineorc,
+    internal,
+    tools
+    )
 from .config import config, logger
 from .enginebase import TableInfo, _EngineBase
 from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL
 from .errors import CsoundError
 from .renderjob import RenderJob
-from . import tools
 
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from csoundengine.csd import Csd
     import libcsound
+    from typing import Sequence
 
 
 __all__ = [
@@ -156,6 +161,10 @@ class OfflineEngine(_EngineBase):
         a4: reference frequency
         numAudioBuses: number of audio buses (see :ref:`Bus Opcodes<busopcodes>`)
         numControlBuses: number of control buses (see :ref:`Bus Opcodes<busopcodes>`)
+        withBusSupport: if True, add bus support at creation time. This should be True
+            if you are using the bus opcodes from csound code before creating
+            any bus from python. Otherwise, the creation of any bus (via assignBus)
+            adds bus support automatically
         quiet: if True, suppress output of csound (-m 0)
         includes: a list of files to include. Can be added later via :meth:`~OfflineEngine.includeFile`
         sampleAccurate: use sample-accurate scheduling
@@ -570,7 +579,7 @@ class OfflineEngine(_EngineBase):
             mode = 0
         self.sched(self._builtinInstrs['turnoff'], delay, 0, p1, mode)
 
-    @contextmanager
+    @contextlib.contextmanager
     def nohistory(self):
         """
         A context manager to suppress tracking history

@@ -13,6 +13,7 @@ This functionality includes:
 from __future__ import annotations
 
 import dataclasses
+import sys
 import functools as _functools
 import logging as _logging
 import math as _math
@@ -20,7 +21,6 @@ import os as _os
 import re as _re
 import shutil as _shutil
 import subprocess as _subprocess
-import sys
 import tempfile as _tempfile
 import textwrap as _textwrap
 

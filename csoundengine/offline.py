@@ -5,7 +5,6 @@ import sys
 import textwrap
 from dataclasses import dataclass
 from functools import cache
-from typing import TYPE_CHECKING
 
 import emlib.iterlib
 import emlib.textlib
@@ -17,11 +16,9 @@ from . import (
     instrtools,
     internal,
     offlineorc,
+    tableproxy,
+    csoundparse
 )
-from . import csd as _csd
-from . import state as _state
-from . import tableproxy
-from . import csoundparse
 from .abstractrenderer import AbstractRenderer
 from .config import config, logger
 from .engineorc import BUSKIND_AUDIO, BUSKIND_CONTROL
@@ -30,6 +27,7 @@ from .instr import Instr
 from .offlineengine import OfflineEngine
 from .schedevent import SchedEvent
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING or "sphinx" in sys.modules:
     from typing import Any, Callable, Iterator, Sequence
     from .renderjob import RenderJob
@@ -158,7 +156,8 @@ class OfflineSession(AbstractRenderer):
         self.renderedJobs: list[RenderJob] = []
         """A stack of rendered jobs"""
 
-        self.csd = _csd.Csd(sr=self.sr, nchnls=nchnls, ksmps=self.ksmps, a4=self.a4)
+        from .csd import Csd
+        self.csd = Csd(sr=self.sr, nchnls=nchnls, ksmps=self.ksmps, a4=self.a4)
         """Csd structure for this session (see :class:`~csoundengine.csd.Csd`"""
 
         self.controlArgsPerInstr = dynamicArgsPerInstr or config['max_dynamic_args_per_instr']
@@ -172,6 +171,9 @@ class OfflineSession(AbstractRenderer):
 
         self.soundfileRegistry: dict[str, tableproxy.TableProxy] = {}
         """A dict mapping soundfile paths to their corresponding TableProxy"""
+
+        self.version = csoundlib.getVersion()
+        """The csound version, as a tuple (major, minor, patch)"""
 
         self._idCounter = 0
         self._nameAndPriorityToInstrnum: dict[tuple[str, int], int] = {}
@@ -798,7 +800,7 @@ class OfflineSession(AbstractRenderer):
         assert bus.kind == 'control', f"Only control buses are accepted, got {bus.kind}"
         if isinstance(pairs, np.ndarray):
             assert len(pairs.shape) == 1, f"Invalid pairs: {pairs}"
-        if csoundlib.getVersion()[0] >= 7 or len(pairs) <= 1900:
+        if self.version[0] >= 7 or len(pairs) <= 1900:
             args = [int(bus), self.strSet(mode), int(overtake), len(pairs), *pairs]
             dur = float(pairs[-2]) + self.ksmps / self.sr
             self.csd.addEvent(self._builtinInstrs['automateBusViaPargs'],
@@ -966,7 +968,8 @@ class OfflineSession(AbstractRenderer):
             outfile = tempfile.mktemp(suffix=".wav")
             logger.info(f"Rendering to temporary file: '{outfile}'. See renderer.renderedJobs")
         elif outfile == '?':
-            outfile = _state.saveSoundfile(title="Select soundfile for rendering",
+            from . import state
+            outfile = state.saveSoundfile(title="Select soundfile for rendering",
                                            ensureSelection=True)
         outfile = internal.normalizePath(outfile)
         outfiledir = os.path.split(outfile)[0]
@@ -1280,7 +1283,8 @@ class OfflineSession(AbstractRenderer):
             a TableProxy, representing the table holding the soundfile
         """
         if path == "?":
-            path = _state.openSoundfile()
+            from . import state
+            path = state.openSoundfile()
 
         tabproxy = self.soundfileRegistry.get(path)
         if tabproxy is not None:
@@ -1453,7 +1457,7 @@ class OfflineSession(AbstractRenderer):
 
         instr = event.instr
         assert instr is not None
-        if csoundlib.getVersion()[0] < 7 and len(pairs) > 1900:
+        if self.version[0] < 7 and len(pairs) > 1900:
             for subdelay, subgroup in internal.splitAutomation(pairs, 1900//2):
                 self.automate(event=event, param=param, pairs=subgroup, mode=mode,
                               delay=delay+subdelay, overtake=overtake)
