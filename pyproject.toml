@@ -37,7 +37,7 @@ dependencies = [
 
     "libcsound>=0.11.1",
     "sndfileio>=2.1.1",
-    "emlib>=1.16",
+    "emlib>=1.19",
     "configdict>=2.10.0",
     # "numpyx>=1.3.3",
     "pitchtools>=1.14.0",

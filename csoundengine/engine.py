@@ -609,7 +609,7 @@ class Engine(_EngineBase):
         # counters to create unique instances for each instrument
         self._instanceCounters: dict[int, int] = {}
 
-        # Maps instrname/number: code
+        # # Maps instrname/number: code
         self._instrRegistry: dict[str | int, str] = {}
 
         # Keeps parsed instr bodies, used to analyze pfields, defaults, etc.
@@ -826,8 +826,8 @@ class Engine(_EngineBase):
         logger.info("... cleaning up")
         self.csound.cleanup()
         self._exited = True
-        self._instanceCounters = {}
-        self._instrRegistry = {}
+        self._instanceCounters.clear()
+        self._instrRegistry.clear()
         self.activeEngines.pop(self.name, None)
         self.started = False
         self._session = None
@@ -1196,8 +1196,9 @@ class Engine(_EngineBase):
                     logger.warning(f"Include path not found '{includepath}'")
                 self.includes.append(includepath)
             elif codeblock.kind == 'instr':
-                parsedbody = csoundparse.instrParseBody(csoundparse.instrGetBody(codeblock.text))
+                parsedbody = csoundparse.instrParseBody(csoundparse.instrGetBody(codeblock.lines))
                 self._parsedInstrs[codeblock.name] = parsedbody
+                self._instrRegistry[codeblock.name] = codeblock.text
                 if codeblock.name[0].isdigit():
                     instrnum = int(codeblock.name)
                     for rangename, mininstr, maxinstr in self._reservedInstrnumRanges:
@@ -1213,14 +1214,9 @@ class Engine(_EngineBase):
                                         f"cannot be redefined. Reserved instrs: "
                                         f"{sorted(self._reservedInstrnums)}")
 
-        instrs = [b for b in codeblocks if b.kind == 'instr']
-
-        for instr in instrs:
-            self._instrRegistry[instr.name] = instr.text
-
         self._compileCode(code)
 
-        names = [instr.name for instr in instrs if instr.name[0].isalpha()]
+        names = [b.name for b in codeblocks if b.kind == 'instr' and b.name[0].isalpha()]
         if names:
             # if named instrs are defined we sync in order to avoid assigning
             # the same number to different instrs. This should be taken
@@ -4033,7 +4029,7 @@ class Engine(_EngineBase):
 
     def busSystemStatus(self) -> dict:
         """
-        Get debugging nformation about the status of the bus system
+        Get debugging information about the status of the bus system
 
         This is only provided for debugging
 
@@ -4044,19 +4040,12 @@ class Engine(_EngineBase):
         if not self.hasBusSupport():
             raise RuntimeError("This Engine has no bus support")
 
-        audioBusesFree = self.evalCode('pool_size(gi__buspool)')
-        controlBusesFree = self.evalCode('pool_size(gi__buspoolk)')
+        audioBusesFree = self.evalCode('return pool_size:i(gi__buspool)')
+        controlBusesFree = self.evalCode('return pool_size:i(gi__buspoolk)')
         return {'audioBusesFree': audioBusesFree,
                 'controlBusesFree': controlBusesFree,
                 'numAudioBuses': self.numAudioBuses,
                 'numControlBuses': self.numControlBuses}
-
-
-    @staticmethod
-    def lastEngine() -> Engine | None:
-        if not Engine.activeEngines:
-            return None
-        return list(Engine.activeEngines.values())[-1]
 
     def eventUI(self, eventid: float, **pargs: tuple[float, float]) -> None:
         """
@@ -4096,8 +4085,7 @@ class Engine(_EngineBase):
         """
         from . import interact
         specs: dict[int|str, interact.ParamSpec] = {}
-        instr = internal.instrNameFromP1(eventid)
-        body = self._instrRegistry.get(instr)
+        body = self._instrRegistry.get(int(eventid)) or self._instrRegistry.get(internal.instrNameFromP1(eventid))
         pfieldsNameToIndex = csoundparse.instrParseBody(body).pfieldNameToIndex if body else None
         for pfield, spec in pargs.items():
             minval, maxval = spec

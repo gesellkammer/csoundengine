@@ -3,11 +3,16 @@ from __future__ import annotations
 import dataclasses
 import functools
 import os
-import subprocess
 
 import emlib.misc
 
 from . import internal
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import subprocess
+    from typing import Sequence
+
 
 
 @dataclasses.dataclass
@@ -38,14 +43,18 @@ class RenderJob:
     """The csound subprocess used to render the soundfile"""
 
     @property
-    def args(self) -> list[str]:
+    def args(self) -> Sequence[str | bytes]:
         """The args used to render this job, if a process was used"""
         if not self.process:
             return []
         args = self.process.args
-        if isinstance(args, str):
+        from collections.abc import Iterable
+        if isinstance(args, (str, bytes)):
             return [args]
-        return args
+        elif isinstance(args, Iterable):
+            return [str(a) for a in args]
+        else:
+            return [str(self.args)]
 
     def openOutfile(self, timeout=None, appwait=True, app=''):
         """

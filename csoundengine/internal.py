@@ -558,7 +558,7 @@ def hashSoundfile(path: str) -> int:
     import sndfileio
     info = sndfileio.sndinfo(path)
     mtime = os.path.getmtime(path)
-    return hash((mtime, info.nframes, info.encoding, info.channels, info.samplerate))
+    return hash((path, mtime, info.nframes, info.encoding, info.channels, info.samplerate))
 
 
 _soundfileHtmlCache = {}

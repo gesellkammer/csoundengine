@@ -55,7 +55,7 @@ class _OrcBlock:
     inargs: str = ""
 
 
-def parseOrc(code: str, keepComments=True) -> list[ParsedBlock]:
+def parseOrc(code: str | list[str], keepComments=True) -> list[ParsedBlock]:
     """
     Parse orchestra code into blocks
 
@@ -124,7 +124,8 @@ def parseOrc(code: str, keepComments=True) -> list[ParsedBlock]:
     context = []
     blocks: list[ParsedBlock] = []
     block = _OrcBlock("", 0, [])
-    for i, line in enumerate(code.splitlines()):
+    lines = code if isinstance(code, list) else code.splitlines()
+    for i, line in enumerate(lines):
         strippedline = line.strip()
         if not strippedline:
             continue
@@ -201,9 +202,6 @@ class ParsedInstrBody:
     pfieldLines: _t.Sequence[str]
     """List of lines where pfields are defined"""
 
-    body: str
-    """The body parsed"""
-
     lines: _t.Sequence[str]
     """The body, split into lines"""
 
@@ -215,6 +213,10 @@ class ParsedInstrBody:
 
     outChannels: set[int] | None = None
     "Which output channels are used"
+
+    @functools.cached_property
+    def body(self) -> str:
+        return "\n".join(self.lines)
 
     @functools.cached_property
     def pfieldsText(self) -> str:
@@ -390,7 +392,7 @@ def splitDocstring(body: str | list[str]) -> tuple[str, str]:
     return docstring, rest
 
 
-def instrGetBody(textOrLines: str | list[str]) -> str:
+def instrGetBody(textOrLines: str | list[str]) -> list[str]:
     """
     Get the body of the instrument, without 'instr' / 'endin'
 
@@ -398,7 +400,7 @@ def instrGetBody(textOrLines: str | list[str]) -> str:
         textOrLines (str | list[str]): the text or lines of the instrument
 
     Returns:
-        the body of the instr, as one string
+        the body of the instr, split into lines
     """
     if isinstance(textOrLines, str):
         lines = textOrLines.splitlines()
@@ -406,11 +408,10 @@ def instrGetBody(textOrLines: str | list[str]) -> str:
     if not lines[0].lstrip().startswith('instr') or not lines[-1].rstrip().endswith('endin'):
         raise ValueError(f'Invalid instrument body: {textOrLines}')
     lines = lines[1:-1]
-    return '\n'.join(lines)
+    return lines
 
 
-@functools.cache
-def instrParseBody(body: str) -> ParsedInstrBody:
+def instrParseBody(body: str | list[str]) -> ParsedInstrBody:
     """
     Parses the body of an instrument, returns pfields used, output channels, etc.
 
@@ -443,7 +444,8 @@ def instrParseBody(body: str) -> ParsedInstrBody:
                         outChannels={1},
                         pfieldsNameToIndex={'ibus': 4, 'kfreq': 5})
     """
-    if not body.strip():
+    lines = body if isinstance(body, list) else body.splitlines()
+    if len(lines) == 1 and not lines[0].strip():
         return ParsedInstrBody(pfieldIndexToValue={},
                                pfieldLines=(),
                                body='',
@@ -457,7 +459,6 @@ def instrParseBody(body: str) -> ParsedInstrBody:
     pfieldsUsed = set()
     pfieldIndexToName: dict[int, str] = {}
     outchannels: set[int] = set()
-    lines = body.splitlines()
     for i, line in enumerate(lines):
         if insideComment:
             bodyLines.append(line)
