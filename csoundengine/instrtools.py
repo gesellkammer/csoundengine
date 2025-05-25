@@ -75,7 +75,7 @@ def pfieldsGenerateCode(pfields: dict[int, str],
     return "\n".join(lines)
 
 
-def generatePfieldsCode(body: str,
+def generatePfieldsCode(parsedCode: csoundparse.ParsedInstrBody,
                         idxToName: dict[int, str]
                         ) -> tuple[str, str, str]:
     """
@@ -88,9 +88,8 @@ def generatePfieldsCode(body: str,
     Returns:
         a tuple (pfieldscode, restbody, docstring)
     """
-    parsedCode = csoundparse.instrParseBody(body)
     pfieldsText = pfieldsGenerateCode(idxToName)
-    bodylines = parsedCode.body.splitlines()
+    bodylines = parsedCode.lines
     docstringLocation = csoundparse.locateDocstring(bodylines)
     if docstringLocation is None:
         return pfieldsText, '\n'.join(bodylines), ''

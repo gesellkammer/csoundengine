@@ -293,7 +293,7 @@ class Session(AbstractRenderer):
 
         self._dispatcherQueue = _queue.SimpleQueue()
         self._dispatching = True
-        self._dispatcherThread = threading.Thread(target=self._dispatcher)
+        self._dispatcherThread = threading.Thread(target=self._dispatcher, daemon=True)
         self._dispatcherThread.start()
 
         self._instrInitCallbackRegistry: set[str] = set()
@@ -319,17 +319,28 @@ class Session(AbstractRenderer):
         _engine._session = self
 
     def __del__(self):
-        self._dispatching = False
-        self._dispatcherThread.join()
+        if self._dispatching:
+            self.stop()
 
     def __hash__(self):
         return id(self)
 
-    def _dispatcher(self):
+    def _dispatcher_(self):
         logger.debug("Starting dispatch...")
         while self._dispatching:
             task = self._dispatcherQueue.get()
             task()
+        print("exit!!! loop")
+        logger.debug("Exited dispatch loop")
+
+    def _dispatcher(self):
+        logger.debug("Starting dispatch...")
+        while self._dispatching:
+            try:
+                task = self._dispatcherQueue.get(timeout=1)
+                task()
+            except _queue.Empty:
+                continue
         logger.debug("Exited dispatch loop")
 
     def isRendering(self) -> bool:
@@ -347,8 +358,10 @@ class Session(AbstractRenderer):
 
     def stop(self) -> None:
         """Stop this session and the underlying engine"""
-        self.engine.stop()
+        self._dispatching = False
+        self._dispatcherThread.join(timeout=0.1)
         self.engine._session = None
+        self.engine.stop()
 
     def hasBusSupport(self) -> bool:
         """Does the underlying engine have bus support?"""
@@ -573,7 +586,7 @@ class Session(AbstractRenderer):
             if self._dispatching:
                 self._dispatcherQueue.put(lambda: self._deallocSynthResources(synthid))
             else:
-                logger.debug("Deallocating resources in the wrong thread...")
+                logger.warning("Deallocating resources in the wrong thread...")
                 self._deallocSynthResources(synthid)
         else:
             logger.debug(f"Dealloc for synth {synthid}, but it is not present, synths: {self._synths.keys()}")
@@ -1239,9 +1252,18 @@ class Session(AbstractRenderer):
             if pfieldstext:
                 parts.append(pfieldstext)
         parts.append(body)
+
         # deallocInstr = self.engine._builtinInstrs['notifyDealloc']
         # parts.append(f'atstop {deallocInstr}, 0.01, 0, p1')
-        parts.append('atstop dict_get:i(gi__builtinInstrs, "notifyDealloc"), 0, 0, p1')
+        parts.append(
+r'''
+printico "here!\n"
+i__notifyinstr = dict_get:i(gi__builtinInstrs, "notifyDealloc")
+prints "notify instr: %d\n", i_notifyinstr
+if i_notifyinstr > 0 then
+    atstop i_notifyinstr, 0, 0, p1
+endif''')
+        # parts.append('atstop dict_get:i(gi__builtinInstrs, "notifyDealloc"), 0, 0, p1')
         if instr.controls:
             parts.append('__exit:')
         out = _textlib.joinPreservingIndentation(parts)
@@ -1263,20 +1285,24 @@ class Session(AbstractRenderer):
             the generated body. This is the text which must be
             wrapped between instr/endin
         """
-        body = instr._preprocessedBody
-        parts = []
-        docstring, body = csoundparse.splitDocstring(body)
-        if docstring:
-            parts.append(docstring)
+        parts: list[str] = []
+        # csoundparse.firstLineWithoutComments()
+        lines = instr.parsedCode.lines
+        bodystart = csoundparse.firstLineWithoutComments(lines)
+        if bodystart is None:
+            raise ValueError(f"Invalid instrument {instr.name}:\n{instr._preprocessedBody}")
+        if bodystart > 0:
+            parts.extend(lines[0:bodystart])
 
         if instr.controls:
             code = _namedControlsGenerateCode(instr.controls)
             parts.append(code)
 
         if instr.pfieldIndexToName:
-            pfieldstext, body, docstring = instrtools.generatePfieldsCode(body, instr.pfieldIndexToName)
+            pfieldstext, body, docstring = instrtools.generatePfieldsCode(instr.parsedCode, instr.pfieldIndexToName)
             if pfieldstext:
                 parts.append(pfieldstext)
+        body = "\n".join(lines[bodystart:])
         parts.append(body)
         if not self._notificationUseOsc:
             # Use outvalue for deallocation
@@ -1290,8 +1316,8 @@ class Session(AbstractRenderer):
 
         if instr.controls:
             parts.append('__exit:')
-        out = _textlib.joinPreservingIndentation(parts)
-        return textwrap.dedent(out)
+        out = textwrap.dedent(_textlib.joinPreservingIndentation(parts))
+        return out
 
     def sched(self,
               instrname: str,

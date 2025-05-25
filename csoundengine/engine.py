@@ -817,20 +817,21 @@ class Engine(_EngineBase):
             logger.debug(f"Engine {self.name} was not running, so can't stop it")
             return
         logger.info(f"stopping Engine {self.name}")
-        logger.info("... stopping thread")
-        self._perfThread.stop()
-        time.sleep(0.1)
-        logger.info("... stopping csound")
-        self.csound.stop()
-        time.sleep(0.1)
-        logger.info("... cleaning up")
-        self.csound.cleanup()
-        self._exited = True
-        self._instanceCounters.clear()
-        self._instrRegistry.clear()
-        self.activeEngines.pop(self.name, None)
-        self.started = False
-        self._session = None
+        if self._session is not None:
+            self._session.stop()
+        else:
+            self._perfThread.stop()
+            # time.sleep(0.1)
+            logger.info("... stopping csound")
+            self.csound.stop()
+            # time.sleep(0.1)
+            logger.info("... cleaning up")
+            self.csound.cleanup()
+            self._exited = True
+            self._instanceCounters.clear()
+            self._instrRegistry.clear()
+            self.activeEngines.pop(self.name, None)
+            self.started = False
 
     def start(self):
         """
@@ -4104,9 +4105,9 @@ class Engine(_EngineBase):
 def _cleanup() -> None:
     engines = list(Engine.activeEngines.values())
     if engines:
-        print("Exiting python, closing all active engines")
+        logger.debug("Exiting python, closing all active engines")
         for engine in engines:
-            print(f"... stopping {engine.name}")
+            logger.debug(f"... stopping {engine.name}")
             engine.stop()
 
 

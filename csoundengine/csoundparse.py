@@ -325,9 +325,17 @@ def lastAssignmentToVariable(varname: str, lines: list[str]) -> int | None:
     return None
 
 
-def locateDocstring(lines: list[str]) -> tuple[int | None, int]:
+def locateDocstring(lines: _t.Sequence[str]) -> tuple[int | None, int]:
     """
     Locate the docstring in this instr code
+
+    To reconstruct the docstring do::
+
+        start, end = locatedDocstring(lines)
+        if start is None:
+            docstring = ''
+        else:
+            docstring = '\n'.join(lines[start:end])
 
     Args:
         lines: the code to analyze, tipically the code inside an instr
@@ -335,10 +343,10 @@ def locateDocstring(lines: list[str]) -> tuple[int | None, int]:
 
     Returns:
         a tuple (firstline, lastline) indicating the location of the docstring
-        within the given text. firstline will be None if no docstring was found
+        within the given text. firstline will be None if no docstring was found.
 
     """
-    assert isinstance(lines, list)
+    assert isinstance(lines, (list, tuple))
     docstringStart = None
     docstringEnd = 0
     docstringKind = ''
@@ -368,7 +376,20 @@ def locateDocstring(lines: list[str]) -> tuple[int | None, int]:
     return docstringStart, docstringEnd
 
 
-def splitDocstring(body: str | list[str]) -> tuple[str, str]:
+def firstLineWithoutComments(lines: _t.Sequence[str]) -> int | None:
+    insideComment = False
+    for i, line in enumerate(lines):
+        if insideComment:
+            if re.match(r'\s*\*\/', line):
+                insideComment = False
+        elif re.match(r'\s*\/\*', line):
+            insideComment = True
+        elif not re.match(r'\s*[;\/]', line) and line.strip():
+            return i
+    return None
+
+
+def splitDocstring(body: str | _t.Sequence[str]) -> tuple[str, str]:
     """
     Given a docstring, split it into the docstring and the rest of the body.
 
@@ -434,7 +455,7 @@ def instrParseBody(body: str | list[str]) -> ParsedInstrBody:
         ... a1 = oscili:a(0.5, kfreq) * a0
         ... outch 1, a1
         ... '''
-        >>> csoundlib.instrParseBody(body)
+        >>> csoundlib.instrParseBody()
         ParsedInstrBody(pfieldsIndexToName={4: 'ibus', 5: 'kfreq'},
                         pfieldLines=['ibus = p4', ['kfreq = p5'],
                         body='\\na0 = busin(ibus)\\n
@@ -448,7 +469,6 @@ def instrParseBody(body: str | list[str]) -> ParsedInstrBody:
     if len(lines) == 1 and not lines[0].strip():
         return ParsedInstrBody(pfieldIndexToValue={},
                                pfieldLines=(),
-                               body='',
                                lines=(),
                                pfieldIndexToName={})
 
@@ -529,7 +549,6 @@ def instrParseBody(body: str | list[str]) -> ParsedInstrBody:
                            pfieldsUsed=pfieldsUsed,
                            outChannels=outchannels,
                            pfieldLines=pfieldLines,
-                           body="\n".join(bodyLines),
                            lines=lines)
 
 

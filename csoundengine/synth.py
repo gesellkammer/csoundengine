@@ -120,8 +120,8 @@ def ui(event, specs: dict[str, tuple[float, float]]):
 
 _synthStatusIcon = {
     'playing': '▶',
-    'stopped': '■',
-    'future': '𝍪'
+    'stopped': '◼',
+    'future': '‖',
 }
 
 class Synth(SchedEvent, ISynth):
@@ -328,7 +328,9 @@ class Synth(SchedEvent, ISynth):
 
     def __repr__(self):
         playstr = _synthStatusIcon[self.playStatus()]
-        parts = [f'{playstr} {self.instr.name}={self.p1} start={self.start:.3f} dur={self.dur:.3f}']
+        def f3(x) -> str:
+            return f"{x:.3f}".strip('0').rstrip('.')
+        parts = [f'{playstr} {self.instr.name}={self.p1} start={f3(self.start)} dur={f3(self.dur)}']
 
         if self.instr.hasControls():
             parts.append(f'slot={self.controlsSlot}')
@@ -345,17 +347,18 @@ class Synth(SchedEvent, ISynth):
             maxi = max((i for i, name in i2n.items() if name.startswith("k")),
                        default=maxi)
             argsstrs = []
-            pargs = self.args[0:]
+            pargs = self.args
             for i, parg in enumerate(pargs):
                 if i > maxi:
                     argsstrs.append("…")
                     break
-                name = i2n.get(i+4)
+                pindex = i+5
+                name = i2n.get(pindex)
                 if not isinstance(parg, str):
                     parg = f'{parg:.6g}'
                 if name:
                     if showpidx:
-                        s = f"{name}:{i+4}={parg}"
+                        s = f"{name}:{pindex}={parg}"
                     else:
                         s = f"{name}={parg}"
                 else:
