@@ -359,7 +359,7 @@ class Session(AbstractRenderer):
     def stop(self) -> None:
         """Stop this session and the underlying engine"""
         self._dispatching = False
-        self._dispatcherThread.join(timeout=0.1)
+        self._dispatcherThread.join(timeout=0.01)
         self.engine._session = None
         self.engine.stop()
 
@@ -1248,7 +1248,7 @@ class Session(AbstractRenderer):
             parts.append(code)
 
         if instr.pfieldIndexToName:
-            pfieldstext, body, docstring = instrtools.generatePfieldsCode(body, instr.pfieldIndexToName)
+            pfieldstext = instrtools.pfieldsGenerateCode(instr.pfieldIndexToName)
             if pfieldstext:
                 parts.append(pfieldstext)
         parts.append(body)

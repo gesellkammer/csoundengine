@@ -88,6 +88,7 @@ def generatePfieldsCode(parsedCode: csoundparse.ParsedInstrBody,
     Returns:
         a tuple (pfieldscode, restbody, docstring)
     """
+    assert isinstance(parsedCode, csoundparse.ParsedInstrBody)
     pfieldsText = pfieldsGenerateCode(idxToName)
     bodylines = parsedCode.lines
     docstringLocation = csoundparse.locateDocstring(bodylines)
