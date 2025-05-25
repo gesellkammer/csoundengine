@@ -370,7 +370,7 @@ class OfflineSession(AbstractRenderer):
             parts.append(code)
 
         if instr.pfieldIndexToName:
-            pfieldstext, body, docstring = instrtools.generatePfieldsCode(body, instr.pfieldIndexToName)
+            pfieldstext = instrtools.pfieldsGenerateCode(instr.pfieldIndexToName)
             if pfieldstext:
                 parts.append(pfieldstext)
         parts.append(body)
