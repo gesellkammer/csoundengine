@@ -348,7 +348,7 @@ class OfflineEngine(_EngineBase):
         codeblocks = csoundparse.parseOrc(code)
         for codeblock in codeblocks:
             if codeblock.kind == 'instr':
-                parsedbody = csoundparse.instrParseBody(csoundparse.instrGetBody(codeblock.text))
+                parsedbody = csoundparse.instrParseBody(csoundparse.instrGetBody(codeblock.lines))
                 self._parsedInstrs[codeblock.name] = parsedbody
                 if codeblock.name[0].isdigit():
                     instrnum = int(codeblock.name)

@@ -849,12 +849,12 @@ class Instr:
             parameters mapping parameter name to the given value
         """
         if not args:
-            if not kws:
-                pfields = self.defaultPfieldValues()
-                return pfields, EMPTYDICT
-            else:
+            if kws:
                 pfields = self.pfieldsTranslate(kws=kws)
                 return pfields, kws
+            else:
+                pfields = self.defaultPfieldValues()
+                return pfields, EMPTYDICT
 
         if isinstance(args, (list, tuple)):
             # All pfields, starting with p5
@@ -939,22 +939,19 @@ class Instr:
 
         """
         assert isinstance(args, (list, tuple))
-        assert not kws or isinstance(kws, dict)
+        assert isinstance(kws, dict) or kws is None
         maxidx = self.maxPfieldIndex() - 5
         if kws:
             kwsindexes = [k if isinstance(k, int) else self.pfieldIndex(k) for k in kws]
             maxidx = max(maxidx, max(kwsindexes) - 5)
-        else:
-            kwsindexes = []
 
         numpfields = maxidx + 1
         if not args:
             defaultvals = self.defaultPfieldValues()
-            if len(defaultvals) >= numpfields:
+            if numpfields <= len(defaultvals):
                 pargs = defaultvals.copy()
             else:
                 pargs = defaultvals + [0.] * (numpfields - len(defaultvals))
-
         elif maxidx >= len(args):
             pargs = list(args)
             pargs.extend([0.] * (numpfields - len(args)))

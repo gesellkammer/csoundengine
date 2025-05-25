@@ -413,21 +413,19 @@ def splitDocstring(body: str | _t.Sequence[str]) -> tuple[str, str]:
     return docstring, rest
 
 
-def instrGetBody(textOrLines: str | list[str]) -> list[str]:
+def instrGetBody(lines: list[str]) -> list[str]:
     """
     Get the body of the instrument, without 'instr' / 'endin'
 
     Args:
-        textOrLines (str | list[str]): the text or lines of the instrument
+        lines: the lines of the instrument
 
     Returns:
         the body of the instr, split into lines
     """
-    if isinstance(textOrLines, str):
-        lines = textOrLines.splitlines()
     lines = internal.stripTrailingEmptyLines(lines)
     if not lines[0].lstrip().startswith('instr') or not lines[-1].rstrip().endswith('endin'):
-        raise ValueError(f'Invalid instrument body: {textOrLines}')
+        raise ValueError(f'Invalid instrument body: {lines}')
     lines = lines[1:-1]
     return lines
 

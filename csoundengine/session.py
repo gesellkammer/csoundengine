@@ -906,7 +906,6 @@ class Session(AbstractRenderer):
         if priority < 0:
             priority = self.numPriorities + 1 + priority
         assert 1 <= priority <= self.numPriorities
-
         needssync = False
         instrname = instr if isinstance(instr, str) else instr.name
         rinstr = self._getReifiedInstr(instrname, priority)
@@ -1236,6 +1235,7 @@ class Session(AbstractRenderer):
         self._dynargsSlotPool.appendleft(slicenum)
 
     @staticmethod
+    @cache
     def defaultInstrBody(instr: Instr) -> str:
         body = instr._preprocessedBody
         parts = []
@@ -1252,18 +1252,7 @@ class Session(AbstractRenderer):
             if pfieldstext:
                 parts.append(pfieldstext)
         parts.append(body)
-
-        # deallocInstr = self.engine._builtinInstrs['notifyDealloc']
-        # parts.append(f'atstop {deallocInstr}, 0.01, 0, p1')
-        parts.append(
-r'''
-printico "here!\n"
-i__notifyinstr = dict_get:i(gi__builtinInstrs, "notifyDealloc")
-prints "notify instr: %d\n", i_notifyinstr
-if i_notifyinstr > 0 then
-    atstop i_notifyinstr, 0, 0, p1
-endif''')
-        # parts.append('atstop dict_get:i(gi__builtinInstrs, "notifyDealloc"), 0, 0, p1')
+        parts.append('atstop dict_get:i(gi__builtinInstrs, "notifyDealloc"), 0, 0, p1')
         if instr.controls:
             parts.append('__exit:')
         out = _textlib.joinPreservingIndentation(parts)
@@ -1394,15 +1383,8 @@ endif''')
                           args=args, whenfinished=whenfinished, relative=relative, kws=kwargs)
             return self._handler.schedEvent(event)  # type: ignore
 
-        if self.isRendering():
-            raise RuntimeError("Session blocked during rendering")
-
         if priority < 0:
             priority = self.numPriorities + 1 + priority
-
-        if not (1 <= priority <= self.numPriorities):
-            raise ValueError(f"Invalid priority {priority}. A priority must be an int "
-                             f"between 1 and {self.numPriorities} (including both ends)")
 
         assert self._dynargsArray is not None
         abstime = delay if not relative else (self.engine.elapsedTime() + delay + self.engine.extraLatency)
@@ -1419,12 +1401,12 @@ endif''')
         if instr is None:
             raise ValueError(f"Instrument '{instrname}' not defined. "
                              f"Known instruments: {', '.join(self.instrs.keys())}")
-        if priority < instr.minPriority:
-            raise ValueError(f"Instrument '{instrname}' defines a min. priority of "
-                             f"{instr.minPriority}, but this instance was scheduled with "
-                             f"a priority of {priority}.")
 
-        rinstr, needssync = self.prepareSched(instrname, priority, block=True)
+        if not (instr.minPriority <= priority <= self.numPriorities):
+            raise ValueError(f"Invalid priority {priority}. For this instrument the priority "
+                             f"must be between {instr.minPriority} and {self.numPriorities} (including both ends)")
+
+        rinstr, needssync = self.prepareSched(instrname, priority)
         pfields5, dynargs = instr.parseSchedArgs(args=args, kws=kwargs)  # type: ignore
         if instr.controls:
             slicenum = self._dynargsAssignSlot()
