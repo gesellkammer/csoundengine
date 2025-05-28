@@ -1411,7 +1411,6 @@ class Session(AbstractRenderer):
         if instr.controls:
             slicenum = self._dynargsAssignSlot()
             values = instr._controlsDefaultValues if not dynargs else instr.overrideControls(dynargs)
-            assert isinstance(values, list)
             idx0 = p4 = slicenum * self.maxDynamicArgs
             if delay < 1:
                 self._dynargsArray[idx0:idx0+len(values)] = values
@@ -1422,8 +1421,7 @@ class Session(AbstractRenderer):
                                   args=[p4, len(values), *values],
                                   relative=False)
         else:
-            p4 = 0
-            slicenum = 0
+            p4, slicenum = 0, 0
 
         pfields4 = [p4, *pfields5]
 
