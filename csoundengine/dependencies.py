@@ -280,9 +280,9 @@ def installPlugins(majorversion=6, risset=True) -> bool:
     return True
 
 
-def _checkDependencies(fix=False, quiet=False) -> str | None:
+def _checkDependencies(fix=False, quiet=False) -> str:
     """
-    Either returns None or an error message
+    Returns an error message on failure, or an empty string on success
     """
     if not csoundBinaryInPath():
         logger.error("csound not found in the path. See https://csound.com/download.html. Some functionality might not be available")
@@ -313,6 +313,7 @@ def _checkDependencies(fix=False, quiet=False) -> str | None:
                     "https://github.com/csound-plugins/csound-plugins/releases")
     logger.info("Dependencies OK")
     state['last_check'] = datetime.now().isoformat()
+    return ''
 
 
 def installDependencies() -> bool:
@@ -325,16 +326,19 @@ def installDependencies() -> bool:
     Returns:
         True if dependencies are installed or were installed successfully, False otherwise
     """
-    return checkDependencies(force=True, fix=True)
+    err = _checkDependencies(fix=True)
+    if err:
+        logger.error(f"Failed to install dependencies: {err}")
+    return not err
 
 
-def checkDependencies(force=False, fix=True) -> bool:
+def checkDependencies(force=True, fix=False) -> bool:
     """
     Check that all external dependencies are fullfilled.
 
     Args:
         force: if True, do not use cached results
-        fix: if True, try to fix missing dependencies, where possible
+        fix: if True, try to fix missing dependencies if needed
 
     Returns:
         True if all dependencies are fullfilled
@@ -345,19 +349,17 @@ def checkDependencies(force=False, fix=True) -> bool:
         logger.debug("Called by sphinx? Skipping dependency check")
         return True
 
-    okstatus = True
     now = datetime.now()
     timeSinceLastCheck = now - datetime.fromisoformat(state['last_check'])
-    if force or timeSinceLastCheck.days >= 30:
-        print("csoundengine - checking dependencies")
-        logger.info("Checking dependencies")
-        errormsg = _checkDependencies(fix=fix)
-        if errormsg:
-            logger.error(f"*** checkDependencies: {errormsg}")
-            if not fix:
-                logger.error("*** You can try to fix this by calling installDependencies()")
-            okstatus = False
-    return okstatus
+    if not force and timeSinceLastCheck.days < 30:
+        return True
+    logger.info("Checking dependencies")
+    errormsg = _checkDependencies(fix=fix)
+    if errormsg:
+        logger.error(f"Failed while checking dependencies: {errormsg}")
+        if not fix:
+            logger.error("Missing dependencies might be installed by calling installDependencies()")
+    return not errormsg
 
 
 def _codesignBinaries(binaries: list[str]) -> None:
