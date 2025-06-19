@@ -1318,6 +1318,7 @@ class Session(AbstractRenderer):
               whenfinished: Callable | None = None,
               relative=True,
               name='',
+              unique=True,
               **kwargs
               ) -> Synth:
         """
@@ -1346,6 +1347,8 @@ class Session(AbstractRenderer):
             name: if given, this session keeps a reference to the scheduled synth under this
                 name in session.namedEvents. The use case for named synths is for global synths
                 acting as mixers, filters, etc.
+            unique: assign a unique instr id to the event. This results in a fractional p1 which can
+                be used to adress this specific event (turnoff, modify pfields, automate, etc)
             kwargs: keyword arguments are interpreted as named parameters. This is needed when
                 passing positional and named arguments at the same time
 
@@ -1386,9 +1389,6 @@ class Session(AbstractRenderer):
         if priority < 0:
             priority = self.numPriorities + 1 + priority
 
-        assert self._dynargsArray is not None
-        abstime = delay if not relative else (self.engine.elapsedTime() + delay + self.engine.extraLatency)
-
         if instrname == "?":
             import emlib.dialogs
             selected = emlib.dialogs.selectItem(list(self.instrs.keys()),
@@ -1396,6 +1396,9 @@ class Session(AbstractRenderer):
                                                 ensureSelection=True)
             assert selected is not None
             instrname = selected
+
+        assert self._dynargsArray is not None
+        abstime = delay if not relative else (self.engine.elapsedTime() + delay + self.engine.extraLatency)
 
         instr = self.getInstr(instrname)
         if instr is None:
@@ -1428,7 +1431,7 @@ class Session(AbstractRenderer):
         if needssync:
             self.engine.sync()
         synthid = self.engine.sched(rinstr.instrnum, delay=abstime, dur=dur, args=pfields4,
-                                    relative=False, unique=True)
+                                    relative=False, unique=unique)
         synth = Synth(session=self,
                       p1=synthid,
                       instr=instr,
