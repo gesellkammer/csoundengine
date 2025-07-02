@@ -232,7 +232,7 @@ class Instr:
                  init='',
                  numchans=1,
                  doc='',
-                 includes: list[str] | None = None,
+                 includes: Sequence[str] = (),
                  aliases: dict[str, str] | None = None,
                  maxNamedArgs=0,
                  useDynamicPfields: bool | None = None,
@@ -329,7 +329,7 @@ class Instr:
         self.init: str = init if init is not None else ''
         """Code to be initialized at the instr0 level, excluding include files"""
 
-        self.includes: list[str] | None = includes
+        self.includes: tuple[str, ...] = includes if isinstance(includes, tuple) else tuple(includes)
         """List of included files, or None"""
 
         self.numchans = numchans
@@ -383,7 +383,7 @@ class Instr:
         ~~~~~~~
 
             >>> from csoundengine import *
-            >>> s = Engine().session()
+            >>> s = Session()
             >>> Instr('myinstr', ...).register(s)
 
         This is equivalent to
@@ -396,7 +396,7 @@ class Instr:
         argshash = hash(frozenset(self.pfields.items())) if self.pfields else 0
         tabhash = hash(frozenset(self.controls.items())) if self.controls else 0
         return hash((self.name, self.originalBody, self.init, self.doc, self.numchans,
-                     argshash, tabhash))
+                     argshash, tabhash, self.includes))
 
     def __hash__(self) -> int:
         return self.id
