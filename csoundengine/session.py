@@ -635,11 +635,11 @@ class Session(AbstractRenderer):
     def defInstr(self,
                  name: str,
                  body: str,
-                 args: dict[str, float|str] = None,
+                 args: dict[str, float|str] | None = None,
                  init='',
                  priority: int | None = None,
                  doc='',
-                 includes: list[str] | None = None,
+                 includes: Sequence[str] = (),
                  aliases: dict[str, str] | None = None,
                  useDynamicPfields: bool | None = None,
                  initCallback: Callable[[AbstractRenderer], None] | None = None,
@@ -2096,7 +2096,7 @@ class Session(AbstractRenderer):
                    fade: float | tuple[float, float] | None = None,
                    crossfade=0.02,
                    blockread=True,
-                   whenfinished: Callable = None
+                   whenfinished: Callable | None = None
                    ) -> Synth:
 
         """

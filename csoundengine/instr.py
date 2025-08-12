@@ -241,6 +241,7 @@ class Instr:
                  ) -> None:
 
         assert isinstance(name, str)
+        assert isinstance(includes, (tuple, list))
 
         if errmsg := _checkInstr(body):
             raise CsoundError(errmsg)
@@ -330,7 +331,7 @@ class Instr:
         """Code to be initialized at the instr0 level, excluding include files"""
 
         self.includes: tuple[str, ...] = includes if isinstance(includes, tuple) else tuple(includes)
-        """List of included files, or None"""
+        """List of included files, or an empty tuple"""
 
         self.numchans = numchans
         "Number of audio outputs of this instr"

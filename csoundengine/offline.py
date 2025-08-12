@@ -434,7 +434,7 @@ class OfflineSession(AbstractRenderer):
                  init: str = '',
                  priority: int | None = None,
                  doc: str = '',
-                 includes: list[str] | None = None,
+                 includes: Sequence[str] = (),
                  aliases: dict[str, str] | None = None,
                  useDynamicPfields: bool | None = None,
                  **kws) -> Instr:
@@ -1251,6 +1251,7 @@ class OfflineSession(AbstractRenderer):
             else:
                 numframes = size
                 numchannels = 1
+            assert isinstance(numframes, int)
             tabnum = self.csd.addEmptyTable(size=numframes, sr=sr, tabnum=tabnum, numchannels=numchannels)
             return tableproxy.TableProxy(tabnum=tabnum, numframes=numframes, sr=sr, nchnls=numchannels)
 

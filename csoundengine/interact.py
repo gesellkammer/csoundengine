@@ -77,6 +77,8 @@ class ParamSpec:
             return (self.maxvalue - self.minvalue) * x + self.minvalue
         elif self.valuescale == 'log10':
             return (self.maxvalue - self.minvalue) * (10**(1-x)) + self.minvalue
+        else:
+            raise ValueError(f"Invalid valuescale: {self.valuescale}")
 
 def __post_init__(self):
         if self.step == -1:

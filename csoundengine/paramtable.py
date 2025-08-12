@@ -38,8 +38,8 @@ class ParamTable:
     def __init__(self,
                  idx: int,
                  engine: Engine | None = None,
-                 mapping: dict[str, int] = None,
-                 instrName: str = None):
+                 mapping: dict[str, int] | None = None,
+                 instrName=''):
         """
 
         Args:
