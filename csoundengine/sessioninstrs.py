@@ -187,23 +187,23 @@ def builtinInstrs() -> list[instr.Instr]:
             kSel[] init inumcols / 3
 
             if kmaxfreq > 0 || kminfreq > 0 then
-            kmaxfreq = kmaxfreq > 0 ? kmaxfreq : sr / 2
-            kSel cmp kminfreq, "<=", kF, "<=", kmaxfreq
-            kA *= kSel
+              kmaxfreq = kmaxfreq > 0 ? kmaxfreq : sr / 2
+              kSel cmp kminfreq, "<=", kF, "<=", kmaxfreq
+              kA *= kSel
             endif
 
             if kminbw > 0 || kmaxbw < 1 then
-            kSel cmp kminbw, "<=", kB, "<=", kmaxbw
-            kA *= kSel
+              kSel cmp kminbw, "<=", kB, "<=", kmaxbw
+              kA *= kSel
             endif
 
             if kfreqoffset > 0 then
-            kF += kfreqoffset
+              kF += kfreqoffset
             endif
 
             if kminamp > 0 then
-            kSel cmp kA, ">=", kminamp
-            kA *= kSel
+              kSel cmp kA, ">=", kminamp
+              kA *= kSel
             endif
 
             aout beadsynt kF, kA, kB, -1, iflags, kfreqscale, kbwscale
@@ -223,10 +223,10 @@ def builtinInstrs() -> list[instr.Instr]:
 
             kplayhead += ksmps/sr * kspeed
             if kplayhead >= istop then
-            kplayhead = istart
-            if kloop == 0 && release() == 0 then
+              kplayhead = istart
+              if kloop == 0 && release() == 0 then
                 turnoff
-            endif
+              endif
             endif
         '''),
     ]
