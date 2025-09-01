@@ -1404,7 +1404,7 @@ class OfflineSession(AbstractRenderer):
     def automate(self,
                  event: SchedEvent,
                  param: str,
-                 pairs: Sequence[float] | np.ndarray,
+                 pairs: Sequence[float] | np.ndarray | tuple[np.ndarray, np.ndarray],
                  mode="linear",
                  delay: float | None = None,
                  overtake=False
@@ -1418,8 +1418,8 @@ class OfflineSession(AbstractRenderer):
                 have a corresponding line of the sort "kparam = pn".
                 Call :meth:`ScoreEvent.dynamicParams` to query the set of accepted
                 parameters
-            pairs: the automateion data as a flat list ``[t0, y0, t1, y1, ...]``, where
-                the times are relative to the start of the automation event
+            pairs: the automateion data as a flat list ``[t0, y0, t1, y1, ...]`` or a tuple
+                of (times, values), where the times are relative to the start of the automation event
             mode: one of "linear", "cos", "smooth", "exp=xx" (see interp1d)
             delay: start time of the automation event. If None is given, the start
                 time of the automated event will be used.
@@ -1427,7 +1427,7 @@ class OfflineSession(AbstractRenderer):
                 for the given parameter is used in its place.
         """
         instr = event.instr
-        pairs = internal.aslist(pairs)
+        flatpairs = internal.flattenAutomationData(pairs)
         param = instr.unaliasParam(param, param)
         params = instr.dynamicParamNames(aliases=False)
         if param not in params:
@@ -1437,8 +1437,8 @@ class OfflineSession(AbstractRenderer):
         if delay is None:
             delay = event.start
 
-        automStart = delay + pairs[0]
-        automEnd = delay + pairs[-2]
+        automStart = delay + float(flatpairs[0])
+        automEnd = delay + float(flatpairs[-2])
         if automEnd <= event.start or automStart >= event.end:
             # automation line ends before the actual event!!
             logger.debug(f"Automation times outside of this event: {param=}, "
@@ -1447,14 +1447,14 @@ class OfflineSession(AbstractRenderer):
             return 0
 
         if automStart > event.start or automEnd < event.end:
-            pairs, delay = internal.cropDelayedPairs(pairs=pairs, delay=delay,
-                                                     start=automStart, end=automEnd)
-            if not pairs:
+            flatpairs, delay = internal.cropDelayedPairs(pairs=flatpairs, delay=delay,
+                                                         start=automStart, end=automEnd)
+            if not flatpairs:
                 logger.warning("There is no intersection between event and automation data")
                 return 0.
 
-        if pairs[0] > 0:
-            pairs, delay = internal.consolidateDelay(pairs, delay)
+        if flatpairs[0] > 0:
+            flatpairs, delay = internal.consolidateDelay(flatpairs, delay)
 
         instr = event.instr
         assert instr is not None
@@ -1468,10 +1468,10 @@ class OfflineSession(AbstractRenderer):
             param = f'p{param}'
 
         if instr.hasControls() and param in instr.controlNames(aliases=False):
-            self._automateTable(event=event, param=param, pairs=pairs, mode=mode, delay=delay,
+            self._automateTable(event=event, param=param, pairs=flatpairs, mode=mode, delay=delay,
                                 overtake=overtake)
         elif csoundparse.isPfield(param) or param in instr.pfieldNames(aliases=False):
-            self._automatePfield(event=event, param=param, pairs=pairs, mode=mode, delay=delay,
+            self._automatePfield(event=event, param=param, pairs=flatpairs, mode=mode, delay=delay,
                                  overtake=overtake)
         else:
             raise KeyError(f"Parameter '{param}' not known. Controls: {instr.controlNames(aliased=True)}, "
