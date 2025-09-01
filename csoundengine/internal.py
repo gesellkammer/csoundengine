@@ -652,7 +652,7 @@ def plotSamplesAsHtml(samples: np.ndarray,
     elif withHeader:
         import emlib.misc
         durstr = durstr = emlib.misc.sec2str(dur) if dur > 60 else f"{dur:.3g}"
-        nchnls = 1 if len(samples.shape) == 1 else samples.shape[0]
+        nchnls = 1 if len(samples.shape) == 1 else samples.shape[1]
         parts.append(f"<b>Soundfile</b>: '{path}', duration: <code>{durstr}</code>, "
                      f"sr: <code>{sr}</code>, "
                      f"numchannels: <code>{nchnls}</code>)<br>")
