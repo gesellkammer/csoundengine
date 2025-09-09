@@ -1852,13 +1852,15 @@ class Engine(_EngineBase):
         .. seealso:: :meth:`~Engine.unschedAll`
 
         """
+        dur = 0
         if future:
             mode = -1
+            dur = 0.01
         elif (isinstance(p1, float) and int(p1) != p1) or (isinstance(p1, str) and "." in p1):
             mode = 4
         else:
             mode = 0
-        pfields = [self._builtinInstrs['turnoff'], delay, 0, p1, mode]
+        pfields = [self._builtinInstrs['turnoff'], delay, dur, p1, mode]
         self._perfThread.scoreEvent(False, "i", pfields)
 
     def unschedAll(self) -> None:

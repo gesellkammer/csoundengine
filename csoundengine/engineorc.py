@@ -120,6 +120,7 @@ instr ${turnoff}
             turnoff2_i Swhich, imode, 1
         endif
     endif
+    turnoff
 endin
 
 instr ${print}
