@@ -933,7 +933,9 @@ class Engine(_EngineBase):
             logger.error(internal.addLineNumbers(orc))
             raise CsoundError(f"Error compiling base ochestra, error: {err}")
         logger.info(f"Starting csound with options: {options}")
-        cs.start()
+        err = cs.start()
+        if err != 0:
+            raise CsoundError(f"Could not start csound (error code: {err})")
         responsesTable = cs.table(self._builtinTables['responses'])
         if responsesTable is None:
             raise RuntimeError("Could not create responses table")
