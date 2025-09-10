@@ -315,10 +315,11 @@ class _JackAudioBackend(AudioBackend):
         import emlib.mathlib
         if not emlib.mathlib.ispowerof2(blocksize):
             logger.warning(f"Jack's blocksize is not a power of 2: {blocksize}!")
-        # jack buf: 512 -> -B 1024 -b 256
-        periodsize = blocksize // 2
-        numbuffers = 4
-        return periodsize, numbuffers
+        # jack buf: 512 -> -B 768 -b 256
+        # buffsize: 256, numbuffers: 2
+        buffsize = blocksize // 2
+        numbuffers = 2
+        return buffsize, numbuffers
 
     def isAvailable(self) -> bool:
         return _jackdata() is not None

@@ -159,7 +159,9 @@ def determineNumbuffers(backend: str, buffersize: int) -> int:
         info = jacktools.getInfo()
         if info is None:
             raise RuntimeError("Jack does not seem to be running")
-        numbuffers = int(math.ceil(info.blocksize / buffersize))
+        # numbuffers = int(math.ceil(info.blocksize / buffersize))
+        numbuffers = info.blocksize // buffersize + 1
+        print("----------- **", buffersize, numbuffers, info.blocksize)
     else:
         numbuffers = 2
     return numbuffers

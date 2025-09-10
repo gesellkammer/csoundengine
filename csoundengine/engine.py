@@ -542,7 +542,7 @@ class Engine(_EngineBase):
         self.udpPort = 0
         "UDP port used (0 if no udp port is active)"
 
-        self.csound: lcs.Csound
+        self.csound: lcs.Csound | None = None
         "The csound object"
 
         self.autosync: bool = autosync
@@ -558,6 +558,7 @@ class Engine(_EngineBase):
         numbuffers = (numbuffers or backendNumBuffers or config['numbuffers'] or
                       internal.determineNumbuffers(self.backend or "portaudio", buffersize=buffersize))
 
+        print("!!!!", buffersize, numbuffers)
         self.bufferSize: int = buffersize
         "Buffer size"
 
@@ -813,13 +814,15 @@ class Engine(_EngineBase):
         """
         if not hasattr(self, "name"):
             return
-        if self.csound is None or not self.started or self._exited:
+        elif not self.started or self._exited or (hasattr(self, "csound") and self.csound is None):
             logger.debug(f"Engine {self.name} was not running, so can't stop it")
             return
+
         logger.info(f"stopping Engine {self.name}")
         if self._session is not None:
             self._session.stop()
         else:
+            assert self.csound is not None
             self._perfThread.stop()
             # time.sleep(0.1)
             logger.info("... stopping csound")
@@ -843,8 +846,9 @@ class Engine(_EngineBase):
         does nothing
         """
         if self.started:
-            logger.debug(f"start:Engine {self.name} already started")
+            logger.debug(f"start: Engine {self.name} already started")
             return
+
         if priorengine := self.activeEngines.get(self.name):
             logger.debug(f"Stopping prior engine with same name ('{self.name}')")
             priorengine.stop()
@@ -854,6 +858,9 @@ class Engine(_EngineBase):
         buffersize = self.bufferSize
         optB = buffersize * self.numBuffers
         if self.backend == 'jack':
+            # Resulting -B is always one buffer size smaller, so if we pass -B512 and -b128
+            # the resulting -B will be 384. We need to account for that
+            optB = buffersize * (self.numBuffers + 1)
             from . import jacktools
             jackinfo = jacktools.getInfo()
             if jackinfo is None:
@@ -861,16 +868,18 @@ class Engine(_EngineBase):
                 raise RuntimeError("jack is not running")
             self.sr = jackinfo.samplerate
             minB = jackinfo.blocksize if jackinfo.onPipewire else jackinfo.blocksize*2
-            if optB < minB:
+            if optB <= minB:
                 optB = minB
-                self.numBuffers = optB // self.bufferSize
-                logger.warning(f"Using -b {self.bufferSize}, -B {optB} "
+                self.numBuffers = (optB // self.bufferSize)
+                optB = self.bufferSize * (self.numBuffers + 1)
+                # self.numBuffers = optB // self.bufferSize
+                logger.warning(f"csoundengine: Using -b {self.bufferSize}, -B {optB} "
                                f"(numBuffers: {self.numBuffers}, "
                                f"jack's blocksize: {jackinfo.blocksize})")
         options = ["-d",   # suppress all displays
-                    f"-+rtaudio={self.backend}",
-                    f"-b{buffersize}",
-                    f"-B{optB}"]
+                   f"-+rtaudio={self.backend}",
+                   f"-b{self.bufferSize}",
+                   f"-B{optB}"]
         options.append(f'-o"{self.outdev}"')
         options.append(f'-i"{self.indev}"')
 
@@ -935,6 +944,7 @@ class Engine(_EngineBase):
         logger.info(f"Starting csound with options: {options}")
         err = cs.start()
         if err != 0:
+            logger.error(f"\nCsound failed to start, options used: {options}\n")
             raise CsoundError(f"Could not start csound (error code: {err})")
         responsesTable = cs.table(self._builtinTables['responses'])
         if responsesTable is None:
