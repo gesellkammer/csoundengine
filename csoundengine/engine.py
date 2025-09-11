@@ -558,7 +558,6 @@ class Engine(_EngineBase):
         numbuffers = (numbuffers or backendNumBuffers or config['numbuffers'] or
                       internal.determineNumbuffers(self.backend or "portaudio", buffersize=buffersize))
 
-        print("!!!!", buffersize, numbuffers)
         self.bufferSize: int = buffersize
         "Buffer size"
 
