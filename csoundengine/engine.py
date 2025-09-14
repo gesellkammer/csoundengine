@@ -552,7 +552,7 @@ class Engine(_EngineBase):
         self.udpPort = 0
         "UDP port used (0 if no udp port is active)"
 
-        self.csound: lcs.Csound | None = None
+        self.csound: lcs.Csound = lcs.Csound()
         "The csound object"
 
         self.autosync: bool = autosync
@@ -831,7 +831,6 @@ class Engine(_EngineBase):
         if self._session is not None:
             self._session.stop()
         else:
-            assert self.csound is not None
             self._perfThread.stop()
             # time.sleep(0.1)
             logger.info("... stopping csound")
@@ -918,7 +917,10 @@ class Engine(_EngineBase):
             lcs.csoundInitialize(atExitHandler=False, signalHandler=False)
         else:
             logger.debug("Starting a csound instance without disabling signals...")
-        cs = lcs.Csound()
+        # cs = lcs.Csound()
+        if self._exited:
+            self.csound = lcs.Csound()
+        cs = self.csound
         csversion = cs.version()
         if csversion < 6180:
             raise RuntimeError(f"Csound's version should be >= 6.18, got {csversion:.2f}")
@@ -969,8 +971,6 @@ class Engine(_EngineBase):
 
         assert isinstance(chanptr, np.ndarray), f"_soundfontPresetCount channel is not set: {err}"
         self._soundfontPresetCountPtr = chanptr
-
-        self.csound = cs
 
         if self._hasBusSupport:
             self._hasBusSupport = False
@@ -1034,7 +1034,6 @@ class Engine(_EngineBase):
                 logger.error(f"Unknown sync token: {token}")
 
         self.registerOutvalueCallback("__sync__", _syncCallback)
-        assert self.csound is not None
         self.csound.setOutputChannelCallback(self._outvalueCallback)
 
     def registerOutvalueCallback(self, chan: str, func: callback_t) -> None:
@@ -1132,7 +1131,6 @@ class Engine(_EngineBase):
             self._modified()
             return
 
-        assert self.csound is not None
         if self.version >= 7000:
             self._perfThread.compileOrc(code)
             if block:
@@ -1337,7 +1335,6 @@ class Engine(_EngineBase):
         arr: np.ndarray | None = self._tableCache.get(idx)
         if arr is not None:
             return arr
-        assert self.csound is not None
 
         if self.version >= 7000:
             # Accessing the table directly is faster than using requestCallback :-)
@@ -1379,7 +1376,6 @@ class Engine(_EngineBase):
 
         .. seealso:: :meth:`Engine.elapsedTime`
         """
-        # assert self.csound is not None
         # return self.csound.currentTimeSamples() / self.sr
 
         reportedTime, lastTime = self._realElapsedTime
@@ -1461,7 +1457,6 @@ class Engine(_EngineBase):
             if self.isClockLocked():
                 logger.debug("The elapsed time clock is already locked")
             else:
-                assert self.csound is not None
                 self._lockedElapsedTime = self.csound.currentTimeSamples()/self.sr
         else:
             if not self._lockedElapsedTime:
@@ -1892,7 +1887,6 @@ class Engine(_EngineBase):
 
         .. seealso:: :meth:`~csoundengine.engine.Engine.unsched`, :meth:`~csoundengine.engine.Engine.unschedFuture`
         """
-        assert self.csound is not None
         self.csound.rewindScore()
         self._setupGlobalInstrs()
 
@@ -2639,7 +2633,6 @@ class Engine(_EngineBase):
         """
         if kind != 'control' and kind != 'audio':
             raise NotImplementedError("Only kind 'control' and 'audio' are implemented at the moment")
-        assert self.csound is not None
         ptr = self._channelPointers.get(channel)
         if ptr is None:
             ptr, err = self.csound.channelPtr(channel, kind=kind, mode=mode)
@@ -2680,7 +2673,6 @@ class Engine(_EngineBase):
         >>> eventid = e.sched(100)
         >>> e.setChannel("mastergain", 0.5)
         """
-        assert self.csound is not None
         isaudio = isinstance(value, np.ndarray)
         if delay > 0:
             method = "score"
@@ -2810,7 +2802,6 @@ class Engine(_EngineBase):
         ...     print(f"freq: {freq:.1f}")
         ...     time.sleep(0.1)
         """
-        assert self.csound is not None
         value, errorCode = self.csound.controlChannel(channel)
         if errorCode != 0:
             raise KeyError(f"control channel {channel} not found, error: {errorCode}, value: {value}")
@@ -2847,7 +2838,6 @@ class Engine(_EngineBase):
             * :meth:`~Engine.plotTable`
             * :meth:`~Engine.readSoundfile`
         """
-        assert self.csound is not None
         if not isinstance(tabnum, int) or tabnum <= 0:
             raise ValueError(f"tabnum should be an int > 0, got {tabnum}")
 
