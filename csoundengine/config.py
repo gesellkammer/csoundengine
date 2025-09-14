@@ -49,7 +49,6 @@ _defaultconf = {
     'sched_latency': 0.05,
     'set_sigint_handler': True,
     'sr': 0,
-    'suppress_output': True,
     'synth_repr_max_args': 12,
     'synth_repr_show_pfield_index': False,
     'synthgroup_repr_max_rows': 4,
@@ -125,8 +124,6 @@ _docs = {
         'Set a sigint handler to prevent csound crash with CTRL-C',
     'disable_signals':
         'Disable atexit and sigint signal handler',
-    'suppress_output':
-        'Suppress csound´s debugging information',
     'unknown_parameter_fail_silently':
         'Do not raise if a synth tries to set an unknown parameter',
     'define_builtin_instrs':

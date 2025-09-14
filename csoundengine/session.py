@@ -545,7 +545,7 @@ class Session(AbstractRenderer):
 
     def __repr__(self):
         active = len(self.activeSynths())
-        return f"Session({self.name}, synths={active})"
+        return f"Session({self.name}, backend={self.engine.backend}, outdev={self.engine.outdevName}, synths={active})"
 
     def _repr_html_(self):
         assert inside_jupyter()
@@ -554,7 +554,7 @@ class Session(AbstractRenderer):
         if active:
             jupytertools.displayButton("Stop Synths", self.unschedAll)
         name = jupytertools.htmlName(self.name)
-        return f"Session({name}, synths={active})"
+        return f"Session({name}, backend={self.engine.backend}, outdev={self.engine.outdevName}, synths={active})"
 
     def _deallocSynthResources(self, synthid: int | float | str) -> None:
         """

@@ -221,7 +221,9 @@ class Engine(_EngineBase):
         includes: a list of files to include. Can be added later via :meth:`Engine.includeFile`
         numAudioBuses: number of audio buses (see :ref:`Bus Opcodes<busopcodes>`)
         numControlBuses: number of control buses (see :ref:`Bus Opcodes<busopcodes>`)
-        quiet: if True, suppress output of csound (-m 0)
+        verbose: if True, do not suppress output of csound (-m16 -d). If you need to customize
+            the debugging output, set verbose to True (csound is verbose by default) and set
+            your own flags via commandlineOptions
         udpserver: if True, start a udp server for communication (see udpport)
         udpport: the udpport to use for real-time messages. 0=autoassign port
         commandlineOptions: command line options passed verbatim to the
@@ -233,6 +235,11 @@ class Engine(_EngineBase):
         sampleAccurate: use sample-accurate scheduling
         useProcessQueue: only valid for csound 6. If True, will set the process
             callback to handle async tasks
+        suppressVersion: in csound7 a version message is printed by default
+            whenever a csound instance is created. Setting this flag to True
+            disables this message. The csound version and commit
+            can always be consulted via the command line or using the API directly.
+            Setting verbose=True sets this flag to False
 
     .. note::
         Any option with a default value of None has a corresponding slot in the
@@ -294,7 +301,7 @@ class Engine(_EngineBase):
                  globalcode: str = "",
                  numAudioBuses: int | None = None,
                  numControlBuses: int | None = None,
-                 quiet: bool | None = None,
+                 verbose=False,
                  udpserver=False,
                  udpport: int = 0,
                  commandlineOptions: list[str] | None = None,
@@ -308,6 +315,7 @@ class Engine(_EngineBase):
                  withBusSupport=False,
                  nosound=False,
                  useProcessQueue=False,
+                 suppressVersion=True
     ):
         import libcsound as lcs
         from . import csoundlib
@@ -460,19 +468,21 @@ class Engine(_EngineBase):
         if nchnls_i == -1:
             nchnls_i = inchnls
 
-        assert nchnls is not None and nchnls > 0
+        assert nchnls is not None and nchnls > 0, f"{nchnls=}, {outchnls=}, {inchnls=}, {nchnls_i=}, {cfg=}"
         assert nchnls_i is not None and nchnls_i >= 0
 
         if nosound and '--nosound' not in commandlineOptions:
             commandlineOptions.append('--nosound')
 
-
-        if quiet is None:
-            quiet = cfg['suppress_output']
-
-        if quiet:
+        if not verbose:
             commandlineOptions.append('-m0')
             commandlineOptions.append('-d')
+        else:
+            # When debugging we force print version
+            suppressVersion = False
+
+        if suppressVersion and lcs.VERSION >= 7000:
+            commandlineOptions.append('--suppress-version')
 
         if sampleAccurate:
             commandlineOptions.append('--sample-accurate')
@@ -1024,6 +1034,7 @@ class Engine(_EngineBase):
                 logger.error(f"Unknown sync token: {token}")
 
         self.registerOutvalueCallback("__sync__", _syncCallback)
+        assert self.csound is not None
         self.csound.setOutputChannelCallback(self._outvalueCallback)
 
     def registerOutvalueCallback(self, chan: str, func: callback_t) -> None:
@@ -1326,6 +1337,7 @@ class Engine(_EngineBase):
         arr: np.ndarray | None = self._tableCache.get(idx)
         if arr is not None:
             return arr
+        assert self.csound is not None
 
         if self.version >= 7000:
             # Accessing the table directly is faster than using requestCallback :-)

@@ -192,7 +192,7 @@ class AudioBackend:
         Search a certain audio device from the devices presented by this backend
         """
         # we get the devices via getAudioDevices to enable caching
-        indevs, outdevs = self.audioDevices()
+        # indevs, outdevs = self.audioDevices()
         indevs, outdevs = getAudioDevices(self.name)
         devs = indevs if kind == 'input' else outdevs
         match = next((d for d in devs if d.id == pattern), None)
