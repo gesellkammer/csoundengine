@@ -16,7 +16,7 @@ from .errors import CsoundError
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Callable, Sequence, Mapping
+    from typing import Callable, Sequence, Mapping, Any
     from .abstractrenderer import AbstractRenderer
 
 
@@ -52,6 +52,9 @@ class Instr:
         useDynamicPfields: if True, use pfields to implement dynamic arguments (arguments
             given as k-variables). Otherwise dynamic args are implemented as named controls,
             using a big global table
+        initCallback: function called whenever the instrument is instantiated for the first
+            time, at any priority. Signature: ``(renderer) -> None``, where renderer
+            is either a Session or an OfflineSession.
 
     Example
     -------
@@ -199,6 +202,15 @@ class Instr:
         session.set(events[1], 3, 'kmidi', 67.2)
         session.render("out.wav")
 
+    **Init callback**
+
+    An Instr can declare an init callback to setup any resources needed
+
+    .. code-block:: python
+
+        from csoundengine import *
+        session = Session()
+        # TODO
     """
 
     __slots__ = (
@@ -206,7 +218,6 @@ class Instr:
         'pfields',
         'aliases',
         'init',
-        'id',
         'controls',
         'numchans',
         'doc',
@@ -217,6 +228,8 @@ class Instr:
         'includes',
         'parsedCode',
         'minPriority',
+        'properties',
+        '_id',
         '_controlsDefaultValues',
         '_controlsNameToIndex',
         '_argToAlias',
@@ -238,6 +251,7 @@ class Instr:
                  useDynamicPfields: bool | None = None,
                  minPriority=1,
                  initCallback: Callable[[AbstractRenderer], None] | None = None,
+                 properties: dict[str, Any] = {}
                  ) -> None:
 
         assert isinstance(name, str)
@@ -339,9 +353,6 @@ class Instr:
         self.doc = doc
         "Description of this instr (optional)"
 
-        self.id: int = self._calculateHash()
-        "Unique numeric id of this instr"
-
         self.pfieldIndexToName: dict[int, str] = pargsIndexToName
         "Dict mapping pfield index to its name"
 
@@ -366,9 +377,22 @@ class Instr:
         be scheduled at the lowest priority, for example.
         """
 
+        self.properties = properties
+        """
+        A dict to hold properties set by the user
+        """
+
+        self._id: int = 0  # Used to hold the hash
         self._argToAlias = {name: alias for alias, name in aliases.items()} if aliases else EMPTYDICT
         self._defaultPfieldValues: list[float | str] = list(self.pfields.values())
         self._initCallback = initCallback
+
+    @property
+    def id(self) -> int:
+        "Unique numeric id of this instr"
+        if self._id == 0:
+            self._id = self._calculateHash()
+        return self._id
 
     def register(self, renderer: AbstractRenderer) -> None:
         """
@@ -396,8 +420,9 @@ class Instr:
     def _calculateHash(self) -> int:
         argshash = hash(frozenset(self.pfields.items())) if self.pfields else 0
         tabhash = hash(frozenset(self.controls.items())) if self.controls else 0
+        prophash = hash(frozenset(self.properties.items())) if self.properties else 0
         return hash((self.name, self.originalBody, self.init, self.doc, self.numchans,
-                     argshash, tabhash, self.includes))
+                     argshash, tabhash, prophash, self.includes))
 
     def __hash__(self) -> int:
         return self.id

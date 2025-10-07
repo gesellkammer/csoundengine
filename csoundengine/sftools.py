@@ -89,10 +89,13 @@ def _soundfontInstrumentsAndPresets(sfpath: str
     instruments: list[tuple[int, str]] = [(num, instr.name.strip())
                                           for num, instr in enumerate(sf.instruments)
                                           if instr.name and instr.name != 'EOI']
-    presets: list[tuple[int, int, str]] = [(p.bank, p.preset, p.name.strip())
-                                           for p in sf.presets
-                                           if p.name and p.name != 'EOP']
-    presets.sort()
+    if sf.presets is None:
+        presets = []
+    else:
+        presets: list[tuple[int, int, str]] = [(p.bank, p.preset, p.name.strip())
+                                            for p in sf.presets
+                                            if p.name and p.name != 'EOP']
+        presets.sort()
     return instruments, presets
 
 
@@ -192,9 +195,10 @@ def soundfontKeyrange(sfpath: str, preset: tuple[int, int]) -> tuple[int, int] |
         the key range of the preset, if exists
     """
     sf = _sf2file(sfpath)
-    for p in sf.presets:
-        if p.bank == preset[0] and p.preset == preset[1]:
-            return p.key_range.start, p.key_range.stop
+    if sf.presets is not None:
+        for p in sf.presets:
+            if p.bank == preset[0] and p.preset == preset[1]:
+                return p.key_range.start, p.key_range.stop
     return None
 
 

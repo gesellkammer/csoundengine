@@ -1349,6 +1349,8 @@ class Session(AbstractRenderer):
                 acting as mixers, filters, etc.
             unique: assign a unique instr id to the event. This results in a fractional p1 which can
                 be used to adress this specific event (turnoff, modify pfields, automate, etc)
+            name: gives the created synth a name. Named events are stored at the dict ``session.namedEvents``.
+                If an active event exists with the given name, it is stopped
             kwargs: keyword arguments are interpreted as named parameters. This is needed when
                 passing positional and named arguments at the same time
 
@@ -1450,10 +1452,10 @@ class Session(AbstractRenderer):
             if oldsynth := self.namedEvents.get(name):
                 if oldsynth.playStatus() != 'stopped':
                     logger.info(
-                        f"An event with name {name} and status {oldsynth.playStatus()} "
-                        "already existed. It will remain active. To prevent this, stop "
-                        "it manually by checking session.namedEvents: "
-                        "``if event := session.namedEvents.get(name): event.stop()``")
+                        f"An event ({oldsynth}) with name '{name}' and status {oldsynth.playStatus()} "
+                        "already existed. It will be stopped"
+                        )
+                    oldsynth.stop()
             self.namedEvents[name] = synth
         return synth
 

@@ -17,13 +17,13 @@ class AbstractRenderer(ABC):
     Base class for rendering (both live and offline)
     """
     def __init__(self):
-        self._instrInitCallbackRegistry: set[str] = set()
+        self._instrInitCallbackRegistry: set[_instr.Instr] = set()
         self.namedEvents: dict[str, SchedEvent] = {}
 
     def _initInstr(self, instr: _instr.Instr):
-        if instr._initCallback is not None and instr.name not in self._instrInitCallbackRegistry:
+        if instr._initCallback is not None and instr not in self._instrInitCallbackRegistry:
             instr._initCallback(self)
-            self._instrInitCallbackRegistry.add(instr.name)
+            self._instrInitCallbackRegistry.add(instr)
 
     @abstractmethod
     def renderMode(self) -> str:

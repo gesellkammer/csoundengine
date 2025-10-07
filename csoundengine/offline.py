@@ -437,6 +437,7 @@ class OfflineSession(AbstractRenderer):
                  includes: Sequence[str] = (),
                  aliases: dict[str, str] | None = None,
                  useDynamicPfields: bool | None = None,
+                 initCallback: Callable[[AbstractRenderer], None] | None = None,
                  **kws) -> Instr:
         """
         Create an :class:`~csoundengine.instr.Instr` and register it with this session
@@ -498,6 +499,7 @@ class OfflineSession(AbstractRenderer):
         instr = Instr(name=name, body=body, args=args, init=init,
                       includes=includes, aliases=aliases,
                       useDynamicPfields=useDynamicPfields,
+                      initCallback=initCallback,
                       **kws)
         self.registerInstr(instr)
         return instr
