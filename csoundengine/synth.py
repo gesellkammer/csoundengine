@@ -15,13 +15,14 @@ if TYPE_CHECKING:
     from typing import Sequence, Mapping
     from .instr import Instr
     from .session import Session
+    from . import interact
     import numpy as np
 
 
 __all__ = (
     'Synth',
     'SynthGroup',
-    'ui'
+    'ISynth'
 )
 
 
@@ -104,18 +105,7 @@ class ISynth(ABC):
             - :meth:`Engine.eventui`
 
         """
-        return ui(self, specs=specs)
-
-
-def ui(event, specs: dict[str, tuple[float, float]]):
-    from . import interact
-    dynparams = event.dynamicParamNames(aliases=True, aliased=False)
-    if not dynparams:
-        logger.error(f"No named parameters for {event}")
-        return
-    params = {param: event.paramValue(param) for param in sorted(dynparams)}
-    paramspecs = interact.guessParamSpecs(params, ranges=specs)
-    return interact.interactSynth(event, specs=paramspecs)
+        raise NotImplementedError
 
 
 _synthStatusIcon = {
@@ -234,7 +224,7 @@ class Synth(SchedEvent, ISynth):
     def body(self) -> str:
         return self.session.generateInstrBody(self.instr)
 
-    def ui(self, **specs: tuple[float, float]) -> None:
+    def ui(self, **specs: tuple[float, float] | tuple[float, float, str]) -> None:
         """
         Modify dynamic (named) arguments through an interactive user-interface
 
@@ -274,7 +264,13 @@ class Synth(SchedEvent, ISynth):
 
             - :meth:`Engine.eventui`
         """
-        return ui(event=self, specs=specs)
+        from . import interact
+        paramspecs = self._makeParamSpecs(specs)
+        return interact.interactSynth(self, paramspecs)
+
+    def paramSpecs(self) -> dict[str, interact.ParamSpec]:
+        instr = self.instr
+        return instr.specs or {}
 
     def _html(self, playstatus: str = '') -> str:
         from . import _palette
@@ -288,6 +284,14 @@ class Synth(SchedEvent, ISynth):
             f'{playstr} <strong style="color:{style["name.color"]}">'
             f'{self.instr.name}</strong>:{self.p1:.4f}',
             ]
+
+        if playstatus == 'future':
+            delay = self.start - self.session.engine._realElapsedTime[0]
+            if delay > self.session.engine.extraLatency * 1.05:
+                parts.append(f"start={self.start - self.session.engine._realElapsedTime[0]:.3f}")
+
+        durstr = f"{self.dur:.3f}".rstrip("0").rstrip(".")
+        parts.append("dur=" + durstr)
 
         if self.args and len(self.args) > 1:
             i2n = self.instr.pfieldIndexToName
@@ -789,50 +793,64 @@ class SynthGroup(BaseSchedEvent):
         out = '\n'.join(lines)
         return out
 
-    def ui(self, **specs: tuple[float, float]) -> None:
+    def paramSpecs(self) -> dict[str, interact.ParamSpec]:
+        """Returns the parameter specs, if defined
+
+        The returned dict maps a dynamic parameter name
+        to a :class``csoundengine.interact.ParamSpec``,
+        which defines the value range, start value, scale
+        type (linear, log), etc.
         """
-        Modify dynamic (named) arguments through an interactive user-interface
+        allspecs = {}
+        for synth in self.synths:
+            specs = synth.paramSpecs()
+            allspecs.update(specs)
+        return allspecs
 
-        If run inside a jupyter notebook, this method will create embedded widgets
-        to control the values of the dynamic pfields of an event. Dynamic pfields
-        are those assigned to a k-variable or declared as ``|karg|`` (see below)
+    # def ui(self, **specs: tuple[float, float]) -> None:
+    #     """
+    #     Modify dynamic (named) arguments through an interactive user-interface
 
-        Args:
-            specs: map named arg to a tuple (minvalue, maxvalue), the keyword
-                is the name of the parameter, the value is a tuple with the
-                range
+    #     If run inside a jupyter notebook, this method will create embedded widgets
+    #     to control the values of the dynamic pfields of an event. Dynamic pfields
+    #     are those assigned to a k-variable or declared as ``|karg|`` (see below)
 
-        Example
-        ~~~~~~~
+    #     Args:
+    #         specs: map named arg to a tuple (minvalue, maxvalue), the keyword
+    #             is the name of the parameter, the value is a tuple with the
+    #             range
 
-        .. code::
+    #     Example
+    #     ~~~~~~~
 
-            # Inside jupyter
-            from csoundengine import *
-            s = Engine().session()
-            s.defInstr('vco', r'''
-              |kmidinote, kampdb=-12, kcutoff=3000, kres=0.9|
-              kfreq = mtof:k(kmidinote)
-              asig = vco2:a(ampdb(kampdb), kfreq)
-              asig = moogladder2(asig, kcutoff, kres)
-              asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
-              outs asig, asig
-            ''')
-            synths = [
-                s.sched('vco', kmidinote=67)
-                s.sched('vco', kmidinote=69)
-            ]
-            group = SynthGroup(synths)
+    #     .. code::
 
-            # Specify the ranges for some sliders. All named parameters
-            # are assigned a widget
-            group.ui(kampdb=(-48, 0), kres=(0, 1))
+    #         # Inside jupyter
+    #         from csoundengine import *
+    #         s = Engine().session()
+    #         s.defInstr('vco', r'''
+    #           |kmidinote, kampdb=-12, kcutoff=3000, kres=0.9|
+    #           kfreq = mtof:k(kmidinote)
+    #           asig = vco2:a(ampdb(kampdb), kfreq)
+    #           asig = moogladder2(asig, kcutoff, kres)
+    #           asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
+    #           outs asig, asig
+    #         ''')
+    #         synths = [
+    #             s.sched('vco', kmidinote=67)
+    #             s.sched('vco', kmidinote=69)
+    #         ]
+    #         group = SynthGroup(synths)
 
-        .. seealso::
+    #         # Specify the ranges for some sliders. All named parameters
+    #         # are assigned a widget
+    #         group.ui(kampdb=(-48, 0), kres=(0, 1))
 
-            - :meth:`Engine.eventui`
-        """
-        ui(event=self, specs=specs)
+    #     .. seealso::
+
+    #         - :meth:`Engine.eventui`
+    #     """
+    #     ui(event=self, specs=specs)
 
     def _repr_html_(self) -> str:
         from . import jupytertools

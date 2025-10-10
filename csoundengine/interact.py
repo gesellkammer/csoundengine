@@ -4,11 +4,11 @@ import dataclasses
 
 
 import emlib.envir
-from . import synth as _synth
 
 import typing as _t
 if _t.TYPE_CHECKING:
     from . import engine
+    from . import synth as _synth
 
 
 def _guessStep(minval: float, maxval: float):
@@ -26,34 +26,37 @@ def _guessStep(minval: float, maxval: float):
     return step
 
 
-def _guessRange(value: float, namehint: str = '') -> tuple[float, float]:
+def _guessRange(value: float, namehint: str = '') -> tuple[float, float, str]:
     if namehint:
+        namehint = namehint.lower()
         if "freq" in namehint and 0 < value < 12000:
-            return (0, 12000)
-        if ("amp" in namehint or "gain" in namehint) and 0 <= value <= 1:
-            return (0, 1)
+            return (0, 12000, "log")
         if "cutoff" in namehint and 0 < value < 12000:
-            return (0, 12000)
+            return (0, 12000, "log")
         if ("midi" in namehint or "pitch" in namehint) and 0 <= value <= 127:
-            return (0, 127)
+            return (0, 127, "linear")
+        if namehint in ("amp", "gain", "level", "kamp", "kgain", "klevel") and 0 <= value <= 2.:
+            return (0., 1.5, "linear")
+        if ("gain" in namehint or "amp" in namehint) and namehint.endswith("db") and value <= 0:
+            return (-120, 6, "log")
         if namehint == 'pan' or namehint == 'kpan' and 0 <= value <= 1:
-            return (0., 1.)
+            return (0., 1., "linear")
 
     if -90 < value < 0:
-        return (-100, 0)
+        return (-100, 0, "linear")
     if value < 0:
-        val0, val1 = _guessRange(-value)
-        return -val1, -val0
+        val0, val1, scale = _guessRange(-value)
+        return (-val1, -val0, scale)
     if value <= 1:
-        return (0, 2)
+        return (0, 2, "linear")
     elif value < 5:
-        return (0, 10)
+        return (0, 10, "linear")
     elif value < 50:
-        return (0, 500)
+        return (0, 500, "linear")
     elif value < 100:
-        return (0, 1000)
+        return (0, 1000, "linear")
     else:
-        return (0, value * 10)
+        return (0, value * 10, "linear")
 
 
 @dataclasses.dataclass
@@ -168,6 +171,15 @@ def interact(**sliders: tuple[float, float, float, _t.Callable]):
     display(*widgets)
 
 
+def guessParamSpec(param: str, startvalue: float | int) -> ParamSpec:
+    minval, maxval, scale = _guessRange(startvalue, param)
+    return ParamSpec(name=param,
+                     minvalue=minval,
+                     maxvalue=maxval,
+                     startvalue=startvalue,
+                     valuescale=scale)
+
+
 def guessParamSpecs(params: dict[str, float | int | str | None],
                     ranges: dict[str, tuple[float, float]] = None
                     ) -> list[ParamSpec]:
@@ -177,14 +189,17 @@ def guessParamSpecs(params: dict[str, float | int | str | None],
             continue
         elif value is None:
             value = 0.
+
         if ranges and paramname in ranges:
             minval, maxval = ranges[paramname]
+            scale = "linear"
         else:
-            minval, maxval = _guessRange(value, paramname)
+            minval, maxval, scale = _guessRange(value, paramname)
         paramspecs.append(ParamSpec(name=paramname,
                                     minvalue=minval,
                                     maxvalue=maxval,
-                                    startvalue=value))
+                                    startvalue=value,
+                                    valuescale=scale))
     return paramspecs
 
 

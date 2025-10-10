@@ -2061,12 +2061,12 @@ class Session(AbstractRenderer):
         elif isinstance(source, tableproxy.TableProxy):
             tabnum = source.tabnum
             if dur == 0:
-                dur = source.duration() / speed + fadeout
+                dur = -1 if loop else source.duration() / speed + fadeout
         elif isinstance(source, tuple) and isinstance(source[0], np.ndarray) and isinstance(source[1], int):
             table = self.makeTable(source[0], sr=source[1], unique=False, block=blockread)
             tabnum = table.tabnum
             if dur == 0:
-                dur = table.duration() / speed + fadeout
+                dur = -1 if loop else table.duration() / speed + fadeout
         else:
             raise TypeError(f"Expected table number as int, TableProxy, a path to a soundfile as str or a "
                             f"tuple (samples: np.ndarray, sr: int), got {source}")

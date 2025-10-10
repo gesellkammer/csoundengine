@@ -10,6 +10,7 @@ from emlib import iterlib
 
 from . import csoundparse
 from . import instrtools
+from . import interact as _interact
 from ._common import EMPTYDICT, EMPTYSET
 from .config import config, logger
 from .errors import CsoundError
@@ -229,6 +230,7 @@ class Instr:
         'parsedCode',
         'minPriority',
         'properties',
+        'specs',
         '_id',
         '_controlsDefaultValues',
         '_controlsNameToIndex',
@@ -251,7 +253,8 @@ class Instr:
                  useDynamicPfields: bool | None = None,
                  minPriority=1,
                  initCallback: Callable[[AbstractRenderer], None] | None = None,
-                 properties: dict[str, Any] = {}
+                 properties: dict[str, Any] = {},
+                 specs: dict[str, _interact.ParamSpec] | None = None,
                  ) -> None:
 
         assert isinstance(name, str)
@@ -382,10 +385,17 @@ class Instr:
         A dict to hold properties set by the user
         """
 
+        self.specs = specs if specs is not None else {}
+        """
+        A dict holding interact specs for the arguments of this instr
+        """
+
         self._id: int = 0  # Used to hold the hash
         self._argToAlias = {name: alias for alias, name in aliases.items()} if aliases else EMPTYDICT
         self._defaultPfieldValues: list[float | str] = list(self.pfields.values())
         self._initCallback = initCallback
+        if specs is not None:
+            assert all(isinstance(spec, _interact.ParamSpec) for spec in specs.values()), f"Invalid specs: {specs}"
 
     @property
     def id(self) -> int:

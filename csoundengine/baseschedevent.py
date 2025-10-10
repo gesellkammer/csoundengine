@@ -9,6 +9,10 @@ import emlib.envir
 from . import csoundparse
 from ._common import EMPTYDICT, EMPTYSET
 
+import typing as _t
+if _t.TYPE_CHECKING:
+    from . import interact
+
 
 class BaseSchedEvent(ABC):
     """
@@ -323,3 +327,40 @@ class BaseSchedEvent(ABC):
             display(self)
         else:
             print(repr(self))
+
+    def paramSpecs(self) -> dict[str, interact.ParamSpec]:
+        """Returns the parameter specs, if defined
+
+        The returned dict maps a dynamic parameter name
+        to a :class``csoundengine.interact.ParamSpec``,
+        which defines the value range, start value, scale
+        type (linear, log), etc.
+        """
+        return {}
+
+    def _makeParamSpecs(self,
+            specs: dict[str, tuple[float, float] | tuple[float, float, str]] | None = None
+            ) -> list[interact.ParamSpec]:
+        from . import interact
+        specdict: dict[str, interact.ParamSpec] = {}
+        if specs:
+            for param, paramrange in specs.items():
+                if len(paramrange) == 2:
+                    minval, maxval = paramrange
+                    scale = 'log' if param in ('freq', 'frequency') else 'linear'
+                else:
+                    minval, maxval, scale = paramrange
+                spec = interact.ParamSpec(name=param, minvalue=minval, maxvalue=maxval, valuescale=scale)
+                specdict[param] = spec
+        instrspecs = self.paramSpecs()
+        if instrspecs:
+            specdict.update(instrspecs)
+        dynparams = self.dynamicParamNames(aliases=False, aliased=True)
+        for param in dynparams:
+            value = self.paramValue(param)
+            if spec := specdict.get(param):
+                if isinstance(value, (float, int)):
+                    spec.startvalue = value
+            elif isinstance(value, (float, int)):
+                specdict[param] = interact.guessParamSpec(param, value)
+        return list(specdict.values())
