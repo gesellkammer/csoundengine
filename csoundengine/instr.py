@@ -254,7 +254,7 @@ class Instr:
                  minPriority=1,
                  initCallback: Callable[[AbstractRenderer], None] | None = None,
                  properties: dict[str, Any] = {},
-                 specs: dict[str, _interact.ParamSpec] | None = None,
+                 specs: Sequence[_interact.ParamSpec] | None = None,
                  ) -> None:
 
         assert isinstance(name, str)
@@ -385,7 +385,10 @@ class Instr:
         A dict to hold properties set by the user
         """
 
-        self.specs = specs if specs is not None else {}
+        if specs is not None:
+            assert all(isinstance(spec, _interact.ParamSpec) for spec in specs), f"Invalid specs: {specs}"
+
+        self.specs: dict[str, _interact.ParamSpec] = {} if not specs else {s.name: s for s in specs}
         """
         A dict holding interact specs for the arguments of this instr
         """
@@ -394,8 +397,6 @@ class Instr:
         self._argToAlias = {name: alias for alias, name in aliases.items()} if aliases else EMPTYDICT
         self._defaultPfieldValues: list[float | str] = list(self.pfields.values())
         self._initCallback = initCallback
-        if specs is not None:
-            assert all(isinstance(spec, _interact.ParamSpec) for spec in specs.values()), f"Invalid specs: {specs}"
 
     @property
     def id(self) -> int:

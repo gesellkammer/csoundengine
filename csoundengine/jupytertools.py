@@ -45,8 +45,8 @@ def htmlName(text: str, palette='light') -> str:
     colors = _palette.palettes.get(palette)
     if not colors:
         raise ValueError(f"palette {palette} not known. Possible palettes: {_palette.palettes.keys()}")
-    return f'<strong style="color:{colors["name.color"]}">{text}</strong>'
-
+    html = f'<strong style="color:{colors["name.color"]}">{text}</strong>'
+    return html
 
 def htmlSpan(text, color='', fontsize='', italic=False, bold=False, tag='span') -> str:
     """

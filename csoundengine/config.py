@@ -25,6 +25,7 @@ _defaultconf = {
     'define_builtin_instrs': True,
     'dynamic_pfields': True,
     'html_theme': 'light',
+    'html_repr_fontsize': '12px',
     'html_args_fontsize': '12px',
     'jupyter_synth_repr_stopbutton': True,
     'jupyter_synth_repr_interact': True,

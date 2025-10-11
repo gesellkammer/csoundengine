@@ -550,11 +550,14 @@ class Session(AbstractRenderer):
     def _repr_html_(self):
         assert inside_jupyter()
         from . import jupytertools
+        from . import config
         active = len(self.activeSynths())
         if active:
             jupytertools.displayButton("Stop Synths", self.unschedAll)
         name = jupytertools.htmlName(self.name)
-        return f"Session({name}, backend={self.engine.backend}, outdev={self.engine.outdevName}, synths={active})"
+        s = f"Session({name}, backend=<code>{self.engine.backend}</code>, outdev=<code>{self.engine.outdevName}</code>, synths=<code>{active}</code>)"
+        s = jupytertools.htmlSpan(s, fontsize=config['html_repr_fontsize'])
+        return s
 
     def _deallocSynthResources(self, synthid: int | float | str) -> None:
         """
