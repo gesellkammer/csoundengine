@@ -317,7 +317,6 @@ def parseInlineArgs(body: str | list[str],
                 value = value[1:-1]
             else:
                 value = float(value)
-            # varname, defaultval = part.split("=")
             args[varname.strip()] = value
         else:
             args[part] = 0
