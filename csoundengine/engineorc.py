@@ -109,6 +109,7 @@ instr ${turnoff}
     if qnan:i(iwhich) == 0 then
         if imode < 0 then
             turnoff3 iwhich
+            turnoff2_i iwhich, 4, 1
         else
             turnoff2_i iwhich, imode, 1
         endif
@@ -116,6 +117,7 @@ instr ${turnoff}
         Swhich = p4
         if imode < 0 then
             turnoff3 Swhich
+            turnoff2_i Swhich, 4, 1
         else
             turnoff2_i Swhich, imode, 1
         endif

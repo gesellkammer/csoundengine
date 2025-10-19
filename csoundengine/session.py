@@ -1556,8 +1556,10 @@ class Session(AbstractRenderer):
             # No need to deallocate resources here, as they will be automatically
             # released when the synth is stopped
             # self._deallocSynthResources(p1)
+        if isinstance(event, Synth):
+            dealloc(self, event.p1, delay=delay, status=event.playStatus())
 
-        if isinstance(event, float):
+        elif isinstance(event, float):
             synth = self._synths.get(event)
             if not synth:
                 logger.debug(f"Event {event} not found, cannot unschedule")
@@ -1568,15 +1570,17 @@ class Session(AbstractRenderer):
                 if int(p1) == event:
                     dealloc(self, p1, delay, status=synth.playStatus())
         elif isinstance(event, str):
-            if event not in self.instrs:
+            if synth := self.namedEvents.get(event):
+                self.unsched(synth, delay=delay)
+            elif event in self.instrs:
+                for p1, synth in self._synths.items():
+                    if synth.instrname == event:
+                        dealloc(self, p1, delay, status=synth.playStatus())
+            else:
                 logger.warning(f"No instruments with the name {event} are defined")
                 return
-
-            for p1, synth in self._synths.items():
-                if synth.instrname == event:
-                    dealloc(self, p1, delay, status=synth.playStatus())
         else:
-            dealloc(self, event.p1, delay=delay, status=event.playStatus())
+            raise ValueError(f"Invalid event {event}")
 
     def unschedAll(self, future=False) -> None:
         """
