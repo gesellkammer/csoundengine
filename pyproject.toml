@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "csoundengine"
-version = "2.21.0"
+version = "2.21.1"
 license = { file = "LICENSE.txt" }
 description = "An audio synthesis framework using csound"
 authors = [
