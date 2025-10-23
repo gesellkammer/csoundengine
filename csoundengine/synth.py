@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ast import In
 import time
 from abc import ABC, abstractmethod
 from functools import cache
@@ -12,7 +13,7 @@ from .schedevent import SchedEvent
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Sequence, Mapping
+    from typing import Sequence, Mapping, Callable
     from .instr import Instr
     from .session import Session
     from . import interact
@@ -137,6 +138,7 @@ class Synth(SchedEvent, ISynth):
             defines named controls
         uniqueId: an integer identifying this synth, if applicable
 
+
     Example
     ~~~~~~~
 
@@ -158,7 +160,7 @@ class Synth(SchedEvent, ISynth):
         synths[1].automate('ktransp', [0, 0, 10, -1])
 
     """
-    __slots__ = ('session', 'autostop', '_scheduled')
+    __slots__ = ('session', 'autostop', '_scheduled', '_setCallback')
 
     def __init__(self,
                  session: Session,
@@ -172,7 +174,8 @@ class Synth(SchedEvent, ISynth):
                  controls: Mapping[str, float] | None = {},
                  controlsSlot: int = -1,
                  uniqueId=0,
-                 name=''
+                 name='',
+                 setCallback: Callable[[Synth, str, float, float]] | None = None
                  ) -> None:
         assert controls is None or isinstance(controls, dict)
         SchedEvent.__init__(self, instrname=instr.name if instr else '', start=start, dur=dur, args=args,
@@ -198,6 +201,9 @@ class Synth(SchedEvent, ISynth):
         if name and autostop:
             logger.warning("Autostop is disabled for named synths")
 
+        self._instr: Instr | None = None
+        self._setCallback = setCallback
+
     def __del__(self):
         if self.autostop:
             self.stop()
@@ -205,6 +211,18 @@ class Synth(SchedEvent, ISynth):
     @staticmethod
     def makeGroup(synths: list[Synth]) -> SynthGroup:
         return SynthGroup(synths)
+
+    def set(self, param='', value: float = 0, delay=0, **kws) -> None:
+        proceed = True
+        if param:
+            # One callback shadows the other. If needed the synth callback
+            # can call the instr callback
+            if self._setCallback:
+                proceed = self._setCallback(self, param, value, delay)
+            elif func := self.instr._setCallback:
+                proceed = func(self, param, value, delay)
+        if proceed:
+            return super().set(param, value, delay, **kws)
 
     def wait(self, pollinterval: float = 0.02, sleepfunc=time.sleep) -> None:
         """
@@ -264,6 +282,9 @@ class Synth(SchedEvent, ISynth):
 
             - :meth:`Engine.eventui`
         """
+        if not self.playing():
+            logger.error("ui can only be shown for playing events, synth=%s", self)
+            raise ValueError("This synth is not playing, cannot show ui")
         from . import interact
         paramspecs = self._makeParamSpecs(specs)
         return interact.interactSynth(self, paramspecs)
@@ -439,8 +460,8 @@ class Synth(SchedEvent, ISynth):
 
         """
         if self.playStatus() == 'stopped':
-            logger.error(f"Synth {self} has already stopped, cannot "
-                         f"set param '{param}'")
+            logger.error("Synth %s has already stopped, cannot "
+                         "set param '%s'", self, param)
         return self.session._setPfield(event=self, delay=delay, param=param, value=value)
 
     def _setTable(self, param: str, value: float, delay=0.) -> None:

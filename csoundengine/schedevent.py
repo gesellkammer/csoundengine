@@ -65,7 +65,7 @@ class SchedEvent(BaseSchedEvent):
     """
 
     __slots__ = ('uniqueId', 'parent', 'instrname', 'priority',
-                 'args', 'p1', 'controlsSlot', 'automations', 'controls', 'username')
+                 'args', 'p1', 'controlsSlot', 'automations', 'controls', 'username', '_instr')
 
     def __init__(self,
                  instrname: str = '',
@@ -113,6 +113,8 @@ class SchedEvent(BaseSchedEvent):
 
         self.username = username
         """A user given name to identify this event, normally not set"""
+
+        self._instr: _instr.Instr | None = None
 
     def __hash__(self) -> int:
         return hash(('SchedEvent', self.uniqueId))
@@ -212,11 +214,14 @@ class SchedEvent(BaseSchedEvent):
         Raises ValueError if this event cannot access to the Instr
         instance (if it has no parent or its instrument name is invalid)
         """
+        if self._instr:
+            return self._instr
         if not self.parent:
             raise ValueError(f"This event {self} has no parent")
         instr = self.parent.getInstr(self.instrname)
         if instr is None:
             raise ValueError(f"Instrument {self.instrname} not known")
+        self._instr = instr
         return instr
 
     def paramNames(self, aliases=True, aliased=False) -> frozenset[str]:

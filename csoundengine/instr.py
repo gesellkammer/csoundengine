@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Callable, Sequence, Mapping, Any
     from .abstractrenderer import AbstractRenderer
-
+    from .synth import Synth
 
 __all__ = (
     'Instr',
@@ -56,6 +56,10 @@ class Instr:
         initCallback: function called whenever the instrument is instantiated for the first
             time, at any priority. Signature: ``(renderer) -> None``, where renderer
             is either a Session or an OfflineSession.
+        setCallback: a func of the form (Synth, param: str, value: float, delay: float) -> None,
+            will be called whenever a synth created from this instr calls its .set method.
+            The return value indicates if the event should actually proceed with
+            setting its parameter to the given value (False=bypass the operation)
 
     Example
     -------
@@ -237,7 +241,8 @@ class Instr:
         '_argToAlias',
         '_preprocessedBody',
         '_defaultPfieldValues',
-        '_initCallback'
+        '_initCallback',
+        '_setCallback'
     )
 
     def __init__(self,
@@ -255,6 +260,7 @@ class Instr:
                  initCallback: Callable[[AbstractRenderer], None] | None = None,
                  properties: dict[str, Any] = {},
                  specs: Sequence[_interact.ParamSpec] | None = None,
+                 setCallback: Callable[[Synth, str, float, float], bool] | None = None,
                  ) -> None:
 
         assert isinstance(name, str)
@@ -397,6 +403,7 @@ class Instr:
         self._argToAlias = {name: alias for alias, name in aliases.items()} if aliases else EMPTYDICT
         self._defaultPfieldValues: list[float | str] = list(self.pfields.values())
         self._initCallback = initCallback
+        self._setCallback = setCallback
 
     @property
     def id(self) -> int:

@@ -330,7 +330,6 @@ class Session(AbstractRenderer):
         while self._dispatching:
             task = self._dispatcherQueue.get()
             task()
-        print("exit!!! loop")
         logger.debug("Exited dispatch loop")
 
     def _dispatcher(self):
@@ -761,7 +760,7 @@ class Session(AbstractRenderer):
             return oldinstr
         self.registerInstr(instr)
         if priority:
-            self.prepareSched(name, priority, block=True)
+            self.prepareInstr(name, priority, block=True)
         return instr
 
     def registeredInstrs(self) -> dict[str, Instr]:
@@ -842,7 +841,6 @@ class Session(AbstractRenderer):
         instr = self.instrs.get(name)
         if instr is None:
             raise ValueError(f"instrument {name} not registered")
-
         self._initInstr(instr)
         instrnum = self._registerInstrAtPriority(name, priority)
         body = self.generateInstrBody(instr=instr)
@@ -883,7 +881,7 @@ class Session(AbstractRenderer):
             return None
         return registry.get(priority)
 
-    def prepareSched(self,
+    def prepareInstr(self,
                      instr: str | Instr,
                      priority: int = 1,
                      block=False
@@ -911,8 +909,7 @@ class Session(AbstractRenderer):
         assert 1 <= priority <= self.numPriorities
         needssync = False
         instrname = instr if isinstance(instr, str) else instr.name
-        rinstr = self._getReifiedInstr(instrname, priority)
-        if rinstr is None:
+        if (rinstr := self._getReifiedInstr(instrname, priority)) is None:
             rinstr = self._makeReifiedInstr(instrname, priority, block=block)
             if block:
                 self.engine.sync()
@@ -944,7 +941,7 @@ class Session(AbstractRenderer):
         """
         assert isinstance(priority, int) and 1 <= priority <= self.numPriorities
         assert instrname in self.instrs
-        rinstr, needssync = self.prepareSched(instrname, priority)
+        rinstr, needssync = self.prepareInstr(instrname, priority)
         return rinstr.instrnum
 
     def assignBus(self, kind='', value: float | None = None, persist=False
@@ -1057,7 +1054,7 @@ class Session(AbstractRenderer):
         """
         sync = False
         for event in events:
-            _, needssync = self.prepareSched(instr=event.instrname,
+            _, needssync = self.prepareInstr(instr=event.instrname,
                                              priority=event.priority,
                                              block=False)
             if needssync:
@@ -1343,7 +1340,7 @@ class Session(AbstractRenderer):
             priority: the priority, 1 to the number of priorities defined in this session (10
                 by default). Can be negative: using a priority of -1 will
                 set the priority to its maximum value.
-            whenfinished: a function of the form f(synthid) -> None
+            whenfinished: a function of the form f(synthid: int|float|str) -> None
                 if given, it will be called when this instance stops
             relative: if True, delay is relative to the current time. Otherwise delay
                 is interpreted as an absolute time from the start time of the Engine.
@@ -1414,7 +1411,7 @@ class Session(AbstractRenderer):
             raise ValueError(f"Invalid priority {priority}. For this instrument the priority "
                              f"must be between {instr.minPriority} and {self.numPriorities} (including both ends)")
 
-        rinstr, needssync = self.prepareSched(instrname, priority)
+        rinstr, needssync = self.prepareInstr(instrname, priority)
         pfields5, dynargs = instr.parseSchedArgs(args=args, kws=kwargs)  # type: ignore
         if instr.controls:
             slicenum = self._dynargsAssignSlot()

@@ -447,8 +447,8 @@ class Engine(_EngineBase):
                 sr = backendsr
             else:
                 sr = 44100
-                logger.info(f"Asked for system sr, but backend '{resolvedBackend}', does not"
-                            f"have a fixed sr. Using sr={sr}")
+                logger.info("Asked for system sr, but backend '%s', does not"
+                            "have a fixed sr. Using sr=%d", resolvedBackend, sr)
 
         if not a4:
             a4 = cfg['A4']
@@ -827,16 +827,16 @@ class Engine(_EngineBase):
             logger.debug(f"Engine {self.name} was not running, so can't stop it")
             return
 
-        logger.info(f"stopping Engine {self.name}")
+        logger.debug(f"stopping Engine {self.name}")
         if self._session is not None:
             self._session.stop()
         else:
             self._perfThread.stop()
             # time.sleep(0.1)
-            logger.info("... stopping csound")
+            logger.debug("... stopping csound")
             self.csound.stop()
             # time.sleep(0.1)
-            logger.info("... cleaning up")
+            logger.debug("... cleaning up")
             self.csound.cleanup()
             self._exited = True
             self._instanceCounters.clear()
@@ -861,7 +861,7 @@ class Engine(_EngineBase):
             logger.debug(f"Stopping prior engine with same name ('{self.name}')")
             priorengine.stop()
 
-        logger.info(f"Starting engine {self.name}")
+        logger.debug("Starting engine '%s'", self.name)
         import libcsound as lcs
         buffersize = self.bufferSize
         optB = buffersize * self.numBuffers
@@ -952,7 +952,7 @@ class Engine(_EngineBase):
 
             logger.error(internal.addLineNumbers(orc))
             raise CsoundError(f"Error compiling base ochestra, error: {err}")
-        logger.info(f"Starting csound with options: {options}")
+        logger.debug("Starting csound with options: %s", options)
         err = cs.start()
         if err != 0:
             logger.error(f"\nCsound failed to start, options used: {options}\n")
@@ -1460,7 +1460,7 @@ class Engine(_EngineBase):
                 self._lockedElapsedTime = self.csound.currentTimeSamples()/self.sr
         else:
             if not self._lockedElapsedTime:
-                logger.info("Asked to unlock the elapsed time clock, but it was not locked")
+                logger.debug("Asked to unlock the elapsed time clock, but it was not locked")
             self._lockedElapsedTime = 0
 
     def isClockLocked(self) -> bool:
@@ -2979,7 +2979,7 @@ class Engine(_EngineBase):
         if tabnum is None:
             tabnum = self._assignTableNumber()
         elif tabnum == 0 and not callback and not block:
-            logger.info("readSoundfile: tabnum==0 indicates that csound must assign"
+            logger.debug("readSoundfile: tabnum==0 indicates that csound must assign"
                         "a table number. This operation will block until the soundfile"
                         "is read. To avoid this, set tabnum to None; in this case"
                         "csoundengine will assign a table number itself and the"

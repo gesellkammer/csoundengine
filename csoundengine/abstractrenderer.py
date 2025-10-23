@@ -17,13 +17,23 @@ class AbstractRenderer(ABC):
     Base class for rendering (both live and offline)
     """
     def __init__(self):
-        self._instrInitCallbackRegistry: set[_instr.Instr] = set()
+        self._instrInitRegistry: set[_instr.Instr] = set()
+        "Keeps track of Instrs which have been initialized"
+
         self.namedEvents: dict[str, SchedEvent] = {}
 
-    def _initInstr(self, instr: _instr.Instr):
-        if instr._initCallback is not None and instr not in self._instrInitCallbackRegistry:
+    def _initInstr(self, instr: _instr.Instr) -> bool:
+        """
+        Call the init callback of the instrument if needed
+
+        Returns:
+            True if initialization was done, False if not needed (already done)
+        """
+        if instr._initCallback and instr not in self._instrInitRegistry:
             instr._initCallback(self)
-            self._instrInitCallbackRegistry.add(instr)
+            self._instrInitRegistry.add(instr)
+            return True
+        return False
 
     @abstractmethod
     def renderMode(self) -> str:

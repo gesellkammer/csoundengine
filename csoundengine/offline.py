@@ -6,7 +6,7 @@ import textwrap
 from dataclasses import dataclass
 from functools import cache
 
-import emlib.iterlib
+from math import inf
 import emlib.textlib
 import numpy as np
 
@@ -341,7 +341,6 @@ class OfflineSession(AbstractRenderer):
             raise KeyError(f"instrument {instrname} is not defined")
 
         self._initInstr(instrdef)
-
         priority0 = priority - 1
         count = self._bucketCounters[priority0]
         if count > self._bucketSizes[priority0]:
@@ -867,36 +866,53 @@ class OfflineSession(AbstractRenderer):
             end = min(end, self._endMarker)
         return end
 
-    def scoreTimeRange(self) -> tuple[float, float]:
+    def scoreTimeRange(self, finite=False, marker=True) -> tuple[float, float]:
         """
         Returns a tuple (score start time, score end time)
 
-        If any event is of indeterminate duration (``dur==-1``) the
-        end time will be *infinite*. Notice that the end marker is not taken
-        into consideration here
+        The end marker will cut any infinite event but any determinate
+        event passt the end marker will extend the score time
+
+        Args:
+            finite: if True, only events with a finite end are
+                considered. This can be useful with infinite
+                events like reverbs, where the user might only need
+                to know when is the time range of non-global events
+            marker: if True, the end marker, if set, limits any
+                infinite event. Any finite event past the end
+                marker will extend the time range. Set it to False
+                when interested in the range of scheduled events,
+                independently of any end marker.
 
         Returns:
-            a tuple (start of the earliest event, end of last event). If no events, returns
-            (0, 0)
+            a tuple (start of the earliest event, end of last event). If no events,
+            returns (0, 0)
         """
         if not self.scheduledEvents:
             return (0., 0.)
         events = self.scheduledEvents.values()
-        start = min(event.start for event in events)
-        end = max(event.end for event in events)
-        if end < float("inf"):
-            end = max(end, self._endMarker)
+        start = min(ev.start for ev in events)
+        if not finite:
+            end = max(ev.end for ev in events)
+        else:
+            end = max((ev.end for ev in events if ev.end < inf), default=0)
+        if marker and self._endMarker:
+            end = max(end, self._endMarker) if end < inf else self._endMarker
         return start, end
 
     def setEndMarker(self, time: float) -> None:
         """
         Set the end marker for the score
 
-        The end marker will **extend the rendering time** if it is placed **after** the
-        end of the last event; it will also **crop** any *infinite* event. It does not
-        have any effect if there are events with determinate duration ending after
-        it. In this case **the end time of the render will be the end of the latest
-        event**.
+        Args:
+            time: the time of the end marker. Set it to 0 to remove
+                any previously set end marker
+
+        The end marker will **extend the rendering time** if it is placed
+        **after** the end of the last event; it will also **crop** any
+        *infinite* event. It does not have any effect if there are events
+        with finite duration ending after it. In this case **the end time of
+        the render will be the end of the latest event**.
 
         .. note::
 
@@ -979,22 +995,21 @@ class OfflineSession(AbstractRenderer):
             raise FileNotFoundError(f"The path '{outfiledir}' where the rendered soundfile should "
                                     f"be generated does not exist "
                                     f"(outfile: '{outfile}')")
-        scorestart, scoreend = self.scoreTimeRange()
+        scorestart, scoreend = self.scoreTimeRange(finite=True, marker=True)
         if endtime == 0:
-            endtime = scoreend
-        endmarker = self._endMarker or endtime
-        renderend = min(endtime, scoreend, endmarker) + tail
-
+            renderend = scoreend + tail
+        else:
+            renderend = max(endtime, scoreend) + tail
         if renderend == float('inf'):
             raise RenderError("Cannot render an infinite score. Set an endtime when calling "
                               ".render(...)")
         if renderend <= scorestart:
-            logger.error("Invalid render time. Score: ")
+            logger.error("Invalid render time, scorestart=%f, renderend=%f", scorestart, renderend)
+            logger.error("... Score:")
             events = sorted(self.scheduledEvents.values(), key=lambda event: event.start)
             for ev in events:
                 logger.error(f"    {ev}")
             raise RenderError(f"No score to render (start: {scorestart}, end: {renderend})")
-
         if numthreads == 0:
             numthreads = config['rec_numthreads'] or config['numthreads']
 
