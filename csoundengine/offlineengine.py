@@ -161,7 +161,7 @@ class OfflineEngine(_EngineBase):
         a4: reference frequency
         numAudioBuses: number of audio buses (see :ref:`Bus Opcodes<busopcodes>`)
         numControlBuses: number of control buses (see :ref:`Bus Opcodes<busopcodes>`)
-        withBusSupport: if True, add bus support at creation time. This should be True
+        busSupport: if True, add bus support at creation time. This should be True
             if you are using the bus opcodes from csound code before creating
             any bus from python. Otherwise, the creation of any bus (via assignBus)
             adds bus support automatically
@@ -183,9 +183,9 @@ class OfflineEngine(_EngineBase):
                  nchnls=2,
                  a4: int = 0,
                  globalcode='',
+                 busSupport=False,
                  numAudioBuses: int | None = None,
                  numControlBuses: int | None = None,
-                 withBusSupport=False,
                  quiet=True,
                  includes: list[str] | None = None,
                  sampleAccurate=False,
@@ -200,6 +200,8 @@ class OfflineEngine(_EngineBase):
                          numControlBuses=numControlBuses if numControlBuses is not None else config['num_control_buses'],
                          sampleAccurate=sampleAccurate)
         from . import csoundlib
+        if outfile:
+            outfile = internal.normalizePath(outfile)
         self.outfile = outfile or tempfile.mktemp(prefix='csoundengine-', suffix='.wav') if not nosound else ''
         self.globalcode = globalcode
         self.numAudioBuses = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
@@ -224,7 +226,7 @@ class OfflineEngine(_EngineBase):
         self._history: list[_OfflineComponent] = []
         self._trackHistory = True
         self._usesBuses = False  # does any instr uses the bus system?
-        self._hasBusSupport = withBusSupport
+        self._hasBusSupport = busSupport
 
         self._reservedInstrnums: set[int] = set()
         self._reservedInstrnumRanges: list[tuple[str, int, int]] = [

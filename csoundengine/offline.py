@@ -87,6 +87,10 @@ class OfflineSession(AbstractRenderer):
         nchnls: number of channels.
         ksmps: csound ksmps. If not given, the value in the config is used (see :ref:`config['ksmps'] <config_ksmps>`)
         a4: reference frequency. (see :ref:`config['A4'] <config_a4>`)
+        busSupport: add bus support to this session. Bus support will be added implicitely
+            whenever .assignBus is called, but it is possible to add it explicitely
+            at the beginning of the session. This is needed in the case where
+            the instruments themselves are calling the ``busassign`` opcode from csound
         priorities: max. number of priority groups. This will determine
             how long an effect chain can be
         numAudioBuses: max. number of audio buses. This is the max. number of simultaneous
@@ -123,10 +127,10 @@ class OfflineSession(AbstractRenderer):
                  nchnls: int = 2,
                  ksmps: int | None = None,
                  a4: float | None = None,
+                 busSupport=False,
                  priorities: int | None = None,
                  numAudioBuses=1000,
                  numControlBuses=10000,
-                 withBusSupport=False,
                  dynamicArgsPerInstr: int = 16,
                  dynamicArgsSlots: int | None = None):
 
@@ -214,7 +218,7 @@ class OfflineSession(AbstractRenderer):
         self._stringRegistry: dict[str, int] = {}
         self._includes: set[str] = set()
         self._builtinInstrs: dict[str, int] = {}
-        self._hasBusSupport = withBusSupport
+        self._hasBusSupport = False
 
         prelude = offlineorc.prelude(controlNumSlots=self._dynargsNumSlices,
                                      controlArgsPerInstr=self._dynargsSliceSize)
@@ -228,12 +232,13 @@ class OfflineSession(AbstractRenderer):
         self._dynargsTabnum = self.makeTable(size=self.controlArgsPerInstr * self._dynargsNumSlices).tabnum
         self.setChannel('.dynargsTabnum', self._dynargsTabnum)
 
-        if withBusSupport:
+        if busSupport:
             self._addBusSupport()
 
     def _addBusSupport(self) -> None:
         if self._hasBusSupport:
             return
+
         if self._numAudioBuses == 0 and self._numControlBuses == 0:
             logger.error("Cannot add bus support because this session was created with "
                          "numAudioBuses=0 and numControlBuses=0")

@@ -8,7 +8,6 @@ import textwrap
 import time
 import tempfile
 from functools import cache
-from typing import TYPE_CHECKING
 
 import emlib.iterlib
 import emlib.numpytools
@@ -16,7 +15,7 @@ import numpy as np
 
 from csoundengine._common import EMPTYDICT
 
-
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Any, Callable, KeysView, Sequence, TypeVar
     import numpy.typing as npt

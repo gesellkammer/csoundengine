@@ -312,7 +312,7 @@ class Engine(_EngineBase):
                  latency: float | None = None,
                  sampleAccurate: bool = False,
                  numthreads: int = 0,
-                 withBusSupport=False,
+                 busSupport=False,
                  nosound=False,
                  useProcessQueue=False,
                  suppressVersion=True
@@ -498,7 +498,7 @@ class Engine(_EngineBase):
         if numControlBuses is None:
             numControlBuses = int(config['num_control_buses'])
 
-        if withBusSupport:
+        if busSupport:
             if not numAudioBuses and not numControlBuses:
                 raise ValueError("At least one audio or control bus must be enabled")
 
@@ -558,8 +558,12 @@ class Engine(_EngineBase):
         self.autosync: bool = autosync
         """If True, call .sync whenever is needed"""
 
-        assert isinstance(withBusSupport, bool)
-        self._hasBusSupport: bool = withBusSupport
+        assert isinstance(busSupport, bool)
+        self._addBusSupport: bool = busSupport
+        """Should this engine add bus support when started?"""
+
+        self._hasBusSupport: bool = False
+        """Has bus support been added?"""
 
         backendBufferSize, backendNumBuffers = backendDef.bufferSizeAndNum()
         buffersize = (buffersize or backendBufferSize or config['buffersize'] or 256)
@@ -812,10 +816,13 @@ class Engine(_EngineBase):
         frac = (instance / (10**self._fracnumdigits)) % 1
         return num + frac
 
-    def _setupGlobalInstrs(self):
+    def _busGlobalInstrs(self) -> None:
         if self.hasBusSupport():
             self._perfThread.scoreEvent(False, "i", [self._builtinInstrs['clearbuses_post'], 0, -1])
-        self._modified()
+            self._modified()
+
+    def _setupGlobalInstrs(self):
+        self._busGlobalInstrs()
 
     def stop(self):
         """
@@ -972,8 +979,7 @@ class Engine(_EngineBase):
         assert isinstance(chanptr, np.ndarray), f"_soundfontPresetCount channel is not set: {err}"
         self._soundfontPresetCountPtr = chanptr
 
-        if self._hasBusSupport:
-            self._hasBusSupport = False
+        if self._addBusSupport:
             self.addBusSupport()
 
         if csversion < 7000:
@@ -3904,13 +3910,16 @@ class Engine(_EngineBase):
             self._compileCode(busorc, block=True)
             kbustable = int(self.evalCode("return gi__bustable"))
             self._kbusTable = self.getTableData(kbustable)
+            # self.sync()
+            self._busGlobalInstrs()
+            # Setup clearbuses
         else:
             self.csound.compileOrc(busorc)
             kbustable = int(self.csound.evalCode("return gi__bustable"))
             self._kbusTable = self.csound.table(kbustable)
         assert self._kbusTable is not None
 
-    def assignBus(self, kind='', value: float | None = None, persist=False
+    def assignBus(self, kind='', value: float | None = None, persist=True
                   ) -> int:
         """
         Assign one audio/control bus, returns the bus number.
@@ -4056,12 +4065,14 @@ class Engine(_EngineBase):
         if not self.hasBusSupport():
             raise RuntimeError("This Engine has no bus support")
 
-        audioBusesFree = self.evalCode('return pool_size:i(gi__buspool)')
-        controlBusesFree = self.evalCode('return pool_size:i(gi__buspoolk)')
+        controlBusesFree = int(self.evalCode('return pool_size:i(gi__buspoolk)'))
+        audioBusesFree = int(self.evalCode('return pool_size:i(gi__buspool)'))
+
         return {'audioBusesFree': audioBusesFree,
                 'controlBusesFree': controlBusesFree,
                 'numAudioBuses': self.numAudioBuses,
-                'numControlBuses': self.numControlBuses}
+                'numControlBuses': self.numControlBuses,
+                'busIndexes': self._busIndexes}
 
     def eventUI(self, eventid: float, **pargs: tuple[float, float]) -> None:
         """

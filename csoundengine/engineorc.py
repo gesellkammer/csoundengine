@@ -78,14 +78,13 @@ opcode sfpresetindex, i, Sii
     xout iidx
 endop
 
-opcode sendsync, 0, io
+opcode sendsync, 0, ii
     ; send a sync message back, to be used by instruments scheduled
     ; via schedSync
     itoken, ivalue xin
     tabw_i ivalue, itoken, gi__responses
     outvalue "__sync__", itoken
 endop
-
 
 instr ${notifyDealloc}
     outvalue "__dealloc__", p4
@@ -134,8 +133,9 @@ instr ${nstrnum}
     itoken = p4
     Sname = p5
     inum nametoinstrnum Sname
-    tabw_i inum, itoken, gi__responses
-    outvalue "__sync__", itoken
+    sendsync(itoken, inum)
+    ; tabw_i inum, itoken, gi__responses
+    ; outvalue "__sync__", itoken
 endin
 
 instr ${tabwrite}
@@ -188,8 +188,9 @@ instr ${maketable}
     endif
     ; notify host that token is ready (if asked to)
     if itoken > 0 then
-        tabw_i itabnum, itoken, gi__responses
-        outvalue "__sync__", itoken
+        sendsync(itoken, itabnum)
+        ; tabw_i itabnum, itoken, gi__responses
+        ; outvalue "__sync__", itoken
     endif
 endin
 
@@ -285,8 +286,9 @@ instr ${uniqinstance}
     itoken = p4
     ip1    = p5
     iuniq uniqinstance ip1
-    tabw_i iuniq, itoken, gi__responses
-    outvalue "__sync__", itoken
+    sendsync(itoken, iuniq)
+    ; tabw_i iuniq, itoken, gi__responses
+    ; outvalue "__sync__", itoken
 endin
 
 instr ${freetable}
@@ -330,8 +332,9 @@ instr ${readSndfile}
     itab2 ftgen itab, 0, 0, -1, Spath, iskiptime, 0, ichan
     ; OSCsend 1, "127.0.0.1", 9990, "/sync", "f", itime0
     if itoken > 0 then
-        tabw_i itab2, itoken, gi__responses
-        outvalue "__sync__", itoken
+        sendsync(itoken, itab2)
+        ; tabw_i itab2, itoken, gi__responses
+        ; outvalue "__sync__", itoken
     endif
     turnoff
 endin
@@ -515,8 +518,8 @@ gi__busrefs  ftgen 0, 0, ${numAudioBuses}, -2, 0
 gi__busrefsk ftgen 0, 0, ${numControlBuses}, -2, 0
 
 ; A pool of bus indexes
-gi__buspool  pool_gen ${numAudioBuses}
 gi__buspoolk pool_gen ${numControlBuses}
+gi__buspool  pool_gen ${numAudioBuses}
 
 ; A dict mapping bustoken to bus number, used for both audio and scalar buses
 gi__bustoken2num  dict_new "int:float"
@@ -547,9 +550,9 @@ opcode _bususe, i, ii
     itoken, ikind xin
     ibus dict_get gi__bustoken2num, itoken, -1
     if ibus < 0 then
-        ; initerror sprintf("Bus not found (token %d)\n", itoken)
-        ibus _busnew itoken, ikind
-        prints "Bus not found (token %d, kind=%d). Assigned bus %d\n", itoken, ikind, ibus
+        initerror sprintf("Bus not found (token %d)\n", itoken)
+        ; ibus _busnew itoken, ikind
+        ; prints "Bus not found (token %d, kind=%d). Assigned bus %d\n", itoken, ikind, ibus
     else
         ikind2 dict_get gi__bustoken2kind, itoken, -1
         if ikind != ikind2 then
@@ -712,8 +715,9 @@ instr ${busassign}
 
 __exit:
     if isynctoken > 0 then
-        tabw_i ibus, isynctoken, gi__responses
-        outvalue "__sync__", isynctoken
+        sendsync(isynctoken, ibus)
+        ; tabw_i ibus, isynctoken, gi__responses
+        ; outvalue "__sync__", isynctoken
     endif
     turnoff
 endin
@@ -751,13 +755,13 @@ endin
 
 instr ${busrelease}  ; release audio bus
     itoken = p4
-    ikind dict_get gi__bustoken2kind, itoken, -1
     ibus dict_get gi__bustoken2num, itoken, -1
     if ibus < 0 then
-        initerror sprintf("itoken %d has no bus assigned to it", itoken)
+        initerror sprintf("Bus not found, token %d", itoken)
         goto __exit
     endif
 
+    ikind dict_get gi__bustoken2kind, itoken, -1
     if ikind < 0 then
         initerror sprintf("Invalid kind for bus token %d", itoken)
         goto __exit
@@ -899,32 +903,3 @@ def makeBusOrc(numAudioBuses: int, numControlBuses: int, startInstr: int, postIn
     subs.update(CONSTS)
     orc = template.substitute(numAudioBuses=numAudioBuses, numControlBuses=numControlBuses, **subs)
     return orc, instrs
-
-
-# def busSupportCode(numAudioBuses: int,
-#                    numControlBuses: int,
-#                    postInstrNum: int,
-#                    startInstr: int
-#                    ) -> tuple[str, dict[str, int]]:
-#     """
-#     Generates bus support code
-
-#     Args:
-#         numAudioBuses: the number of audio buses
-#         numControlBuses: the number of control buses
-#         postInstrNum: the starting instr number for *post* instrs. A post
-#             instr should be run at the end of the evaluation chain. Such
-#             instruments should have a _post in their name
-#         startInstr: start instrument number for non-post instruments
-#     """
-#     instrnums = internal.assignInstrNumbers(_busOrc,
-#                                             startInstr=startInstr,
-#                                             postInstrNum=postInstrNum)
-#     subs: dict[str, _t.Any] = {name: f"{num}  /* {name} */"
-#                             for name, num in instrnums.items()}
-#     subs['clearbuses'] = f'{postInstrNum} /* clearbuses */'
-#     orc = Template(_busOrc).substitute(numAudioBuses=numAudioBuses,
-#                                        numControlBuses=numControlBuses,
-#                                        BUSUNSET=CONSTS['BUSUNSET'],
-#                                        **subs)
-#     return orc, instrnums

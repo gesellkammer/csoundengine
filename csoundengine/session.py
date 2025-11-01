@@ -944,7 +944,7 @@ class Session(AbstractRenderer):
         rinstr, needssync = self.prepareInstr(instrname, priority)
         return rinstr.instrnum
 
-    def assignBus(self, kind='', value: float | None = None, persist=False
+    def assignBus(self, kind='', value: float | None = None, persist=True
                   ) -> busproxy.Bus:
         """
         Creates a bus in the engine
@@ -973,7 +973,8 @@ class Session(AbstractRenderer):
                 the bus. If a value is given the bus is created as a control
                 bus. For audio buses this should be left as None
             persist: if True, the bus is valid until manually released or until
-                the returned Bus object is freed.
+                the returned Bus object is freed. Otherwise it is valid until
+                an instr takes control of it and releases it.
 
         Returns:
             a Bus, representing the bus created. The returned object can be

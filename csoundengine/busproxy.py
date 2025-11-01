@@ -52,7 +52,7 @@ class Bus:
         return str(self.token)
 
     def __repr__(self) -> str:
-        return f"Bus('{self.kind}', token={self.token})"
+        return f"Bus('{self.kind}', token={self.token}, bound={self.bound})"
 
     def __int__(self):
         return self.token

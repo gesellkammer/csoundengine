@@ -112,6 +112,7 @@ import emlib.envir
 from .config import config, logger
 from .engine import Engine
 from .session import Session
+from .synth import SynthGroup
 
 
 __all__ = [
@@ -119,6 +120,7 @@ __all__ = [
     'logger',
     'Engine',
     'Session',
+    'SynthGroup',
     'dumpAudioInfo',
     'installDependencies',
 ]
