@@ -513,9 +513,6 @@ class Engine(_EngineBase):
         self.backend = resolvedBackend
         "Name of the backend used (jack, portaudio, etc)"
 
-        self.onecycle: float = ksmps / sr
-        "Duration of one performance cycle (ksmps/sr)"
-
         self.outdev = outdev
         "Output device used"
 
@@ -1309,7 +1306,7 @@ class Engine(_EngineBase):
         """
         assert self.started
         if delay == 0:
-            arr = self.getTableData(tabnum)
+            arr = self.tableData(tabnum)
             if arr is None:
                 raise ValueError(f"table {tabnum} not found")
             arr[idx] = value
@@ -1317,7 +1314,7 @@ class Engine(_EngineBase):
             pargs = [self._builtinInstrs['tabwrite'], delay, 0, tabnum, idx, value]
             self._perfThread.scoreEvent(False, "i", pargs)
 
-    def getTableData(self, idx: int, flat=False) -> np.ndarray:
+    def tableData(self, idx: int, flat=False) -> np.ndarray:
         """
         Returns a numpy array pointing to the data of the table.
 
@@ -2291,7 +2288,7 @@ class Engine(_EngineBase):
 
         """
         from . import plotting
-        data = self.getTableData(tabnum)
+        data = self.tableData(tabnum)
         if internal.arrayNumChannels(data) > 1:
             data = data[:, chan]
         tabinfo = self.tableInfo(tabnum)
@@ -2357,7 +2354,7 @@ class Engine(_EngineBase):
         """
         from csoundengine import plotting
         assert isinstance(tabnum, int) and tabnum > 0
-        data = self.getTableData(tabnum, flat=False)
+        data = self.tableData(tabnum, flat=False)
         tabinfo = self.tableInfo(tabnum)
         if not sr and tabinfo is not None and tabinfo.sr > 0:
             sr = tabinfo.sr
@@ -2777,7 +2774,7 @@ class Engine(_EngineBase):
         else:
             raise TypeError("Expected an initial value of type float or string")
 
-    def getControlChannel(self, channel: str) -> float:
+    def channelValue(self, channel: str) -> float:
         """
         Get the value of a channel
 
@@ -2804,7 +2801,7 @@ class Engine(_EngineBase):
         ... ''')
         >>> eventid = e.sched("pitchtrack")
         >>> while True:
-        ...     freq = e.getControlChannel("freq")
+        ...     freq = e.channelValue("freq")
         ...     print(f"freq: {freq:.1f}")
         ...     time.sleep(0.1)
         """
@@ -2853,7 +2850,7 @@ class Engine(_EngineBase):
         elif len(arr.shape) > 2:
             raise ValueError(f"data should be a 1D or 2D array, got shape {arr.shape}")
 
-        numpyptr = self.getTableData(tabnum)
+        numpyptr = self.tableData(tabnum)
         if numpyptr is None:
             raise IndexError(f"Table {tabnum} does not exist")
         size = len(numpyptr)
@@ -3139,9 +3136,11 @@ class Engine(_EngineBase):
         self._tableInfo[tabnum] = TableInfo(sr=0, size=0, nchnls=1, path=path)
         return tabnum
 
-    def getUniqueInstrInstance(self, instr: int | str) -> float:
+    def uniqueInstrInstance(self, instr: int | str) -> float:
         """
         Returns a unique instance number (a float p1) for `instr`
+
+        The instance itself is not created
 
         Args:
             instr (int|str): an already defined csound instrument
@@ -3697,11 +3696,6 @@ class Engine(_EngineBase):
         """
         Set the value of a control bus
 
-        Normally a control bus is set via another running instrument,
-        but it is possible to set it directly from python. The first
-        time a bus is set or queried there is short delay, all
-        subsequent operations on the bus are very fast.
-
         Args:
             bus: the bus token, as returned via :meth:`Engine.assignBus`
             value: the new value
@@ -3745,10 +3739,10 @@ class Engine(_EngineBase):
                 assert self._kbusTable is not None
                 self._kbusTable[busindex] = value
             else:
-                self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.onecycle*8, args=(int(bus), value))
+                self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.onecycle*2, args=(int(bus), value))
                 self._getBusIndex(bus, blocking=False)
         else:
-            self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.onecycle*8, args=(int(bus), value))
+            self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.onecycle*2, args=(int(bus), value))
 
     def readBus(self, bus: int, default: float | None = None) -> float | None:
         """
@@ -3909,7 +3903,7 @@ class Engine(_EngineBase):
         if self.started:
             self._compileCode(busorc, block=True)
             kbustable = int(self.evalCode("return gi__bustable"))
-            self._kbusTable = self.getTableData(kbustable)
+            self._kbusTable = self.tableData(kbustable)
             # self.sync()
             self._busGlobalInstrs()
             # Setup clearbuses

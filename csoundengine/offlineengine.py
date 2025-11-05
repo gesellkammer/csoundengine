@@ -321,7 +321,7 @@ class OfflineEngine(_EngineBase):
         self._busTokenCountPtr = chanptr
         self._compile(busorc)
         kbustable = int(self.csound.evalCode("return gi__bustable"))
-        self._kbusTable = self.getTableData(kbustable)
+        self._kbusTable = self.tableData(kbustable)
 
     def hasBusSupport(self) -> bool:
         """
@@ -948,7 +948,7 @@ class OfflineEngine(_EngineBase):
                        args=[tabnum, sr, numchannels])
         return tabnum
 
-    def getTableData(self, idx: int) -> np.ndarray:
+    def tableData(self, idx: int) -> np.ndarray:
         assert not self._stopped
         arr = self.csound.table(idx)
         if arr is None:
@@ -992,7 +992,7 @@ class OfflineEngine(_EngineBase):
         else:
             raise TypeError(f"Expected an initial value of type float or string, got {value}")
 
-    def getControlChannel(self, channel: str) -> float:
+    def channelValue(self, channel: str) -> float:
         assert not self._stopped
         value, err = self.csound.controlChannel(channel)
         if err != 0:
@@ -1033,7 +1033,7 @@ class OfflineEngine(_EngineBase):
             data: the data to put into the table
 
         """
-        tablearray = self.getTableData(tabnum)
+        tablearray = self.tableData(tabnum)
         maxidx = min(len(tablearray), len(data))
         tablearray[:maxidx] = data[:maxidx]
 
@@ -1243,7 +1243,7 @@ class OfflineEngine(_EngineBase):
             args = [p1, pidx, mode, int(overtake), len(pairs), p1IsString, *pairs]
             eventid = self.sched(self._builtinInstrs['automatePargViaPargs'],
                                  delay=delay,
-                                 dur=pairs[-2] + self.ksmps / self.sr,
+                                 dur=pairs[-2] + self.onecycle,
                                  args=args)
             assert isinstance(eventid, (int, float))
             return eventid
@@ -1416,7 +1416,7 @@ class OfflineEngine(_EngineBase):
     def assignBus(self,
                   kind='',
                   value: float | None = None,
-                  persist=False
+                  persist=True
                   ) -> int:
         """
         Assign one audio/control bus, returns the bus number.
@@ -1432,7 +1432,7 @@ class OfflineEngine(_EngineBase):
                 the bus. If a value is given the bus is created as a control
                 bus. For audio buses this should be left as None
             persist: if True the bus created is kept alive until the user
-                calls :meth:`~Engine.releaseBus`. Otherwise, the bus is
+                calls :meth:`~OfflineEngine.releaseBus`. Otherwise, the bus is
                 reference counted and is released after the last
                 user releases it.
 
@@ -1522,8 +1522,7 @@ class OfflineEngine(_EngineBase):
 
         if kind:
             if value is not None and kind == 'audio':
-                raise ValueError(f"You asked to assign an audio bus but gave an initial "
-                                 f"value ({value})")
+                raise ValueError("Audio buses cannot be given an initial value")
         else:
             kind = 'audio' if value is None else 'control'
 
@@ -1539,27 +1538,30 @@ class OfflineEngine(_EngineBase):
         self._usesBuses = True
         return bustoken
 
-    def releaseBus(self, bus: int, delay: float | None = None) -> None:
+    def releaseBus(self, bus: int, delay: float = 0.) -> None:
         """
         Release a persistent bus
 
         Args:
             bus: the bus to release, as returned by :meth:`OfflineEngine.assignBus`
-            delay: when to release the bus. None means now
-
+            delay: when to release the bus (realtive time).
         .. seealso:: :meth:`~OfflineEngine.assignBus`
         """
         # bus is the bustoken
         if not self.hasBusSupport():
             raise RuntimeError("This OfflineEngine was created without bus support")
-        now = self.elapsedTime()
-        if delay is None:
-            delay = now
-        elif delay < now:
-            raise ValueError(f"The delay given ({delay} lies in the past ({now=})")
         self.sched(self._builtinInstrs['busrelease'], delay, 0, int(bus))
 
     def writeBus(self, bus: int, value: float, delay=0.) -> None:
+        """
+        Set the value of a control bus
+
+        Args:
+            bus: the bus token, as returned by ``.assignBus``
+            value: the new value of the bus
+            delay: when to set the value, relative to the elapsed time. A value of
+                0 indicates direct writing to the bus, bypassing the scheduler.
+        """
         if not self.hasBusSupport():
             raise RuntimeError("This engine does not have bus support")
 
@@ -1569,11 +1571,11 @@ class OfflineEngine(_EngineBase):
             logger.warning(f"Bus token {bus} not known")
         elif kind != 'control':
             raise ValueError(f"Only control buses can be written to, got {kind}")
-        if delay == 0 and (busindex := self._getBusIndex(bus)) is not None:
+        if (delay == 0) and (busindex := self._getBusIndex(bus)) is not None:
             assert self._kbusTable is not None
             self._kbusTable[busindex] = value
         else:
-             self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.ksmps/self.sr*2, args=[bus, value])
+            self.sched(self._builtinInstrs['busoutk'], delay=delay, dur=self.onecycle*2, args=[bus, value])
 
     def openOutfile(self, app='') -> None:
         """

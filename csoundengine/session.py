@@ -306,7 +306,7 @@ class Session(AbstractRenderer):
         self._dynargsTabnum = _engine.makeEmptyTable(size=self.maxDynamicArgs * self._dynargsNumSlots, block=True)
         _engine.setChannel(".dynargsTabnum", self._dynargsTabnum)
         _engine.pingback()
-        self._dynargsArray = _engine.getTableData(self._dynargsTabnum)
+        self._dynargsArray = _engine.tableData(self._dynargsTabnum)
 
         # We don't use slice 0. We use a deque as pool instead of a list, this helps
         # debugging
@@ -1203,7 +1203,7 @@ class Session(AbstractRenderer):
 
         .. seealso:: :class:`~csoundengine.offline.OfflineSession`
         """
-        renderer = self.makeRenderer(sr=sr or self.engine.sr,
+        renderer = self.offlineSession(sr=sr or self.engine.sr,
                                      nchnls=nchnls or self.engine.nchnls,
                                      ksmps=ksmps)
         handler = _RenderingSessionHandler(renderer=renderer)
@@ -1787,7 +1787,7 @@ class Session(AbstractRenderer):
 
     def _getTableData(self, table: int | tableproxy.TableProxy) -> np.ndarray | None:
         tabnum = table if isinstance(table, int) else table.tabnum
-        return self.engine.getTableData(tabnum)
+        return self.engine.tableData(tabnum)
 
     def dumpInstrs(self, pattern='*', forcetext=False, excludehidden=True) -> None:
         instrs = self.instrs.values()
@@ -2145,9 +2145,9 @@ class Session(AbstractRenderer):
                                      whenfinished=whenfinished)
         return self.schedEvent(event=event)
 
-    def makeRenderer(self, sr=0, nchnls: int | None = None, ksmps=0,
-                     addTables=True, addIncludes=True
-                     ) -> offline.OfflineSession:
+    def offlineSession(self, sr=0, nchnls: int | None = None, ksmps=0,
+                       addTables=True, addIncludes=True
+                       ) -> offline.OfflineSession:
         """
         Create an :class:`~csoundengine.offline.OfflineSession` with
         the instruments defined in this Session

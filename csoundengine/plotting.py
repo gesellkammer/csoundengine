@@ -208,7 +208,7 @@ def numpyToB64(array: np.ndarray) -> str:
 def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window='',
                     overlap=4, axes: Axes | None = None, cmap: str = '', interpolation='bilinear',
                     minfreq=40, maxfreq=0,
-                    mindb=-90, show=False):
+                    mindb=-90, show=False) -> Axes:
     """
     Plot a spectrogram
 
@@ -232,6 +232,9 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window='
     Returns:
         the axes object
     """
+    if len(samples.shape) > 1:
+        samples = samples[:,0]
+
     if axes is None:
         figsize = _figsizeAsTuple(config['spectrogram_figsize'])
         f = plt.figure(figsize=figsize)

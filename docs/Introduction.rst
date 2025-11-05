@@ -230,7 +230,7 @@ can be used as a drop-in replacement.
     renderer.render("out.wav")
 
 A :class:`~csoundengine.offline.OfflineSession` can also be created from an existing :class:`~csoundengine.session.Session`, either via
-:meth:`~csoundengine.session.Session.makeRenderer` or via the context manager
+:meth:`~csoundengine.session.Session.offlineSession` or via the context manager
 :meth:`~csoundengine.session.Session.rendering`. In both cases an
 :class:`~csoundengine.offline.OfflineSession` is created in which all instruments and
 data defined in the Session are also available.

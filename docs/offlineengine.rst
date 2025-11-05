@@ -19,11 +19,10 @@ Example 1
 .. include:: offlineengine_example.inc
 
 
-
 Example 2: sound analysis
 -------------------------
 
-TODO
+.. include:: offlineengine_example2.inc
 
 ----------------------------
 
@@ -31,4 +30,3 @@ TODO
 .. autoclass:: csoundengine.offlineengine.OfflineEngine
     :members:
     :autosummary:
-

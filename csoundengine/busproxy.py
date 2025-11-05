@@ -11,19 +11,24 @@ class Bus:
     """
     A wrapper around a raw bus
 
+    Buses are reference counted, they stay valid as long as there is an instrument
+    using them. By creating a persistent bus (``session.assignBus(persist=True)``),
+    which is the default, the bus will stay active as long as the Bus object is alive.
+    A bus can be freed via its :meth:`Bus.release` method
+
     .. note::
 
-        A user **never** creates a Bus directly. A Bus is created by a
-        :class:`~csoundengine.session.Session` through the method
+        A user **never** creates a Bus directly, it is created by a
+        :class:`~csoundengine.session.Session` via
         :meth:`~csoundengine.session.Session.assignBus`.
 
     Args:
         kind: the bus kind, one of 'audio', 'control'
         token: the token as returned via :meth:`csoundengine.engine.Engine.assignBus`
         renderer: the renderer to which this Bus belongs
-        bound: if True, the Bus object uses itself a reference. This means that the
-            bus will stay alive at least as long as this object is kept alive. The
-            bus might still survive the object if it is still being used by any
+        bound: if True, the lifetime of the bus is bound to the Bus object itself,
+            meaning that the bus is valid as long as this object is kept alive. The
+            bus will still survive the object if it is still being used by any
             instrument
 
     """

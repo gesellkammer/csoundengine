@@ -47,7 +47,7 @@ Example (high-level API)
 
 
 It is possible to create an :class:`~csoundengine.offline.OfflineSession` out of an existing
-:class:`~csoundengine.session.Session`, by calling :meth:`session.makeRenderer <csoundengine.session.Session.makeRenderer>`.
+:class:`~csoundengine.session.Session`, by calling :meth:`session.offlineSession <csoundengine.session.Session.offlineSession>`.
 This creates an :class:`~csoundengine.offline.OfflineSession` with all :class:`~csoundengine.instr.Instr` and resources
 (tables, include files, global code, etc.) in the :class:`~csoundengine.session.Session` already defined.
 
@@ -61,7 +61,7 @@ This creates an :class:`~csoundengine.offline.OfflineSession` with all :class:`~
     session.playSample(table)
 
     # Render offline
-    renderer = session.makeRenderer()
+    renderer = session.offlineSession()
     renderer.sched('test', ...)
     renderer.playSample('path/to/soundfile')
     renderer.render('out.wav')
@@ -94,5 +94,3 @@ An alternative way to render offline given a live :class:`~csoundengine.session.
 
     renderjob
     schedevent
-
-

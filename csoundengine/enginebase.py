@@ -111,6 +111,9 @@ class _EngineBase(ABC):
         self.a4 = a4
         "Reference frequency for A4"
 
+        self.onecycle = ksmps / sr
+        "Duration of one cycle, in seconds"
+
         self._busTokenCountPtr: np.ndarray = np.empty((1,), dtype=float)
         self._busTokenToKind: dict[int, str] = {}
         self._kbusTable: np.ndarray | None = None
@@ -138,10 +141,10 @@ class _EngineBase(ABC):
     def makeEmptyTable(self, size: int, numchannels=1, sr=0, delay=0.) -> int: ...
 
     @abstractmethod
-    def getTableData(self, idx: int) -> np.ndarray: ...
+    def tableData(self, idx: int) -> np.ndarray: ...
 
     @abstractmethod
-    def getControlChannel(self, channel: str) -> float:
+    def channelValue(self, channel: str) -> float:
         """
         Get the value of a control channel
 

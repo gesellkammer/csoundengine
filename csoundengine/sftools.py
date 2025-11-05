@@ -254,7 +254,7 @@ def soundfontPeak(sfpath: str, preset: tuple[int, int],
     e.sched('sfpeak', 0, dur, (presetnum, pitches[0], pitches[1]))
     e.perform(extratime=0.1)
     assert e.csound is not None
-    value = e.getControlChannel("sfpeak")
+    value = e.channelValue("sfpeak")
     e.stop()
     return float(value)
 
