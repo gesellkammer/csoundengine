@@ -230,54 +230,45 @@ def _installPluginsViaRisset(majorversion: int | None = None) -> bool:
     return True
 
 
-def installPlugins(majorversion=6, risset=True) -> bool:
+def installPlugins() -> bool:
     """
     Install all needed plugins
-
-    Will raise RuntimeError if failed
-
-    Args:
-        majorversion: the csound version for which to install plugins. If None,
-            will detect the installed version and use that
-        risset: if True, install plugins via risset (default). Otherwise, uses
-            the bundled plugins
 
     Returns:
         True if installation succeeded. Any errors are logged
     """
-
-    if risset:
-        logger.info("Installing external plugins via risset")
-        try:
-            ok = _installPluginsViaRisset()
-            pluginsok = pluginsInstalled(cached=False)
-            if ok and pluginsok:
-                logger.info("Plugins installed successfully via risset")
-                return True
-            else:
-                logger.error("Could not install plugins via risset")
-                if not pluginsok:
-                    logger.error("Tried to load the plugins but the provided opcodes are not"
-                                 " listed by csound")
-                    from . import csoundlib
-                    opcodes = csoundlib.installedOpcodes(cached=False)
-                    opcodestr = ', '.join(opcodes)
-                    logger.error(f"List of opcodes loaded by csound: {opcodestr}")
-        except Exception as e:
-            logger.error(f"Exception {e} while trying to install plugins via risset")
-
-    logger.info("Installing plugins from distribution")
     try:
-        _installPluginsFromDist(apiversion=majorversion)
-        ok = pluginsInstalled(cached=False)
-        if ok:
-            logger.info("Plugins installed successfully from distribution")
+        ok = _installPluginsViaRisset()
+        pluginsok = pluginsInstalled(cached=False)
+        if ok and pluginsok:
+            logger.info("Plugins installed successfully via risset")
+            return True
         else:
-            logger.error("Plugins where installed but do not seem to be detected")
+            logger.error("Could not install plugins via risset")
+            if not pluginsok:
+                logger.error("Tried to load the plugins but the provided opcodes are not"
+                                " listed by csound")
+                from . import csoundlib
+                opcodes = csoundlib.installedOpcodes(cached=False)
+                opcodestr = ', '.join(opcodes)
+                logger.error(f"List of opcodes loaded by csound: {opcodestr}")
+            return False
     except Exception as e:
-        logger.error(f"Exception {e} while trying to install plugins from distribution")
+        logger.error(f"Exception {e} while trying to install plugins via risset")
         return False
-    return True
+
+    # logger.info("Installing plugins from distribution")
+    # try:
+    #     _installPluginsFromDist(apiversion=majorversion)
+    #     ok = pluginsInstalled(cached=False)
+    #     if ok:
+    #         logger.info("Plugins installed successfully from distribution")
+    #     else:
+    #         logger.error("Plugins where installed but do not seem to be detected")
+    # except Exception as e:
+    #     logger.error(f"Exception {e} while trying to install plugins from distribution")
+    #     return False
+    # return True
 
 
 def _checkDependencies(fix=False, quiet=False) -> str:
@@ -299,7 +290,7 @@ def _checkDependencies(fix=False, quiet=False) -> str:
         if fix:
             print("** csoundengine: Csound external plugins are not installed or are too old."
                   " I will try to install them now")
-            ok = installPlugins(version[0])
+            ok = installPlugins()
             if ok:
                 print("** csoundengine: csound external plugins installed ok")
             else:
