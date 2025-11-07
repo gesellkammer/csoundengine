@@ -9,18 +9,18 @@ import shutil as _shutil
 import tempfile as _tempfile
 import textwrap as _textwrap
 from pathlib import Path as _Path
-from typing import TYPE_CHECKING
 
-import emlib.mathlib
 import emlib.misc
-import emlib.textlib
 import numpy as np
 
 from csoundengine.config import config
 
-from . import csoundlib, csoundparse
+from . import csounddefs
+from . import csoundparse
+
 from .renderjob import RenderJob
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Sequence, Set
 
@@ -96,6 +96,7 @@ class _TableDataFile:
 
         base, ext = _os.path.splitext(outfile)
         if self.fmt == 'gen23':
+            from . import csoundlib
             if ext != '.gen23':
                 raise ValueError(f"Wrong extension: it should be .gen23, got {outfile}")
             csoundlib.saveAsGen23(self.data, outfile=outfile)
@@ -757,8 +758,7 @@ class Csd:
             bitrate: the bitrate in kB/s
             format: the format used (only 'ogg' at the moment)
         """
-        from . import csoundlib
-        self.setCompressionQuality(csoundlib.compressionBitrateToQuality(bitrate, format))
+        self.setCompressionQuality(csounddefs.compressionBitrateToQuality(bitrate, format))
 
     def _writeScore(self, stream, datadir='.', dataprefix='') -> None:
         """
@@ -958,9 +958,9 @@ class Csd:
             options.append(f"-j {self.numthreads}")
 
         if self._outfileFormat:
-            options.extend(csoundlib.csoundOptionsForOutputFormat(self._outfileFormat, self._outfileEncoding))
+            options.extend(csounddefs.csoundOptionsForOutputFormat(self._outfileFormat, self._outfileEncoding))
         elif self._outfileEncoding:
-            options.append(csoundlib.csoundOptionForSampleEncoding(self._outfileEncoding))
+            options.append(csounddefs.csoundOptionForSampleEncoding(self._outfileEncoding))
 
         for option in options:
             write(option)
@@ -1093,7 +1093,7 @@ class Csd:
             options.append('--nosound')
         elif not output.startswith('dac'):
             outfileFormat = self._outfileFormat or _os.path.splitext(output)[1][1:]
-            outfileEncoding = self._outfileEncoding or csoundlib.bestSampleEncodingForExtension(outfileFormat)
+            outfileEncoding = self._outfileEncoding or csounddefs.bestSampleEncodingForExtension(outfileFormat)
             if self._compressionQuality:
                 options.append(f'--vbr-quality={self._compressionQuality}')
         else:
@@ -1104,7 +1104,7 @@ class Csd:
             logger.debug(f"Runnings Csd from tempfile {csdfile}")
 
         if outfileFormat:
-            options.extend(csoundlib.csoundOptionsForOutputFormat(outfileFormat, outfileEncoding))
+            options.extend(csounddefs.csoundOptionsForOutputFormat(outfileFormat, outfileEncoding))
 
         if extraOptions:
             options.extend(extraOptions)
@@ -1112,6 +1112,7 @@ class Csd:
         options = emlib.misc.remove_duplicates(options)
 
         self.write(csdfile)
+        from . import csoundlib
         proc = csoundlib.runCsd(csdfile, outdev=output, indev=inputdev,
                                 backend=backend, nodisplay=suppressdisplay,
                                 nomessages=nomessages,
@@ -1161,6 +1162,8 @@ def _cropScore(events: list[ScoreLine], start=0., end=0.) -> list:
     Returns:
         the score events which are between start and end
     """
+    import emlib.mathlib
+
     scoreend = max(_ for ev in events
                    if (_ := ev.end) is not None)
     assert scoreend is not None and scoreend > 0, f"Invalid score duration ({scoreend}): {events}"

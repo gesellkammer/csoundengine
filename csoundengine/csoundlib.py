@@ -25,8 +25,8 @@ import tempfile as _tempfile
 import textwrap as _textwrap
 
 import cachetools as _cachetools
-import emlib.textlib
 import numpy as np
+from . import csounddefs
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -96,60 +96,6 @@ def midiDevices(backend='portmidi') -> tuple[list[MidiDevice], list[MidiDevice]]
                            name=f"{d.interfaceName}:{d.deviceName}")
                 for d in outputdevs]
     return midiins, midiouts
-
-
-def compressionBitrateToQuality(bitrate: int, fmt='ogg') -> float:
-    """
-    Convert a bitrate to a compression quality between 0-1, as passed to --vbr-quality
-
-    Args:
-        bitrate: the bitrate in kb/s, oneof 64, 80, 96, 128, 160, 192, 224, 256, 320, 500
-        fmt: the encoding format (ogg at the moment)
-    """
-    if fmt == 'ogg':
-        bitrates = [64, 80, 96, 128, 128, 160, 192, 224, 256, 320, 500]
-        import emlib.misc
-        idx = emlib.misc.nearest_index(bitrate, bitrates)
-        return idx / 10
-    else:
-        raise ValueError(f"Format {fmt} not supported")
-
-
-def compressionQualityToBitrate(quality: float, fmt='ogg') -> int:
-    """
-    Convert compression quality to bitrate
-
-    Args:
-        quality: the compression quality (0-1) as passed to --vbr-quality
-        fmt: the encoding format (ogg at the moment)
-
-    Returns:
-        the resulting bit rate
-
-
-    =======   =======
-    quality   bitrate
-    =======   =======
-    0.0       64
-    0.1       80
-    0.2       96
-    0.3       112
-    0.4       128
-    0.5       160
-    0.6       192
-    0.7       224
-    0.8       256
-    0.9       320
-    1.0       500
-    =======   =======
-    """
-    if fmt == 'ogg':
-        idx = int(quality * 10 + 0.5)
-        if idx > 10:
-            idx = 10
-        return (64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 500)[idx]
-    else:
-        raise ValueError(f"Format {fmt} not supported")
 
 
 @dataclasses.dataclass(unsafe_hash=True)
@@ -328,13 +274,13 @@ class _JackAudioBackend(AudioBackend):
         data = _jackdata()
         if data is None:
             raise RuntimeError("Jack is not available")
-        info, clients = data
+        _, clients = data
         indevs = [AudioDevice(id=f'adc:{c.regex}', name=c.name, backend=self.name, kind='input',
                               numChannels=len(c.ports), index=c.firstIndex, isPhysical=c.isPhysical)
                   for c in clients if c.kind == 'output']
         outdevs = [AudioDevice(id=f'dac:{c.regex}', name=c.name, backend=self.name, kind='output',
                                numChannels=len(c.ports), index=c.firstIndex, isPhysical=c.isPhysical)
-                   for i, c in enumerate(clients) if c.kind == 'input']
+                   for c in clients if c.kind == 'input']
         return indevs, outdevs
 
     def defaultAudioDevices(self) -> tuple[AudioDevice|None, AudioDevice|None]:
@@ -379,11 +325,10 @@ class _PortaudioBackend(AudioBackend):
         shortname = "pa_cb" if kind == 'callback' else 'pa_bl'
         longname = f"portaudio-{kind}"
         priority = 2 if kind == 'callback' else 0
+        hasSystemSr = False
         if sys.platform == 'linux':
             from . import linuxaudio
             hasSystemSr = linuxaudio.isPipewireRunning()
-        else:
-            hasSystemSr = False
         super().__init__(name=shortname,
                          alwaysAvailable=True,
                          longname=longname,
@@ -453,41 +398,37 @@ class _AlsaBackend(AudioBackend):
     def getSystemSr(self) -> int | None:
         if (jackdata := _jackdata()) is not None:
             return jackdata[0].samplerate
-        elif sys.platform == 'linux':
-            from . import linuxaudio
-            if linuxaudio.isPipewireRunning():
-                info = linuxaudio.pipewireInfo()
-                return info.sr if info else None
-            else:
-                return 44100
+        assert sys.platform == 'linux'
+        from . import linuxaudio
+        if linuxaudio.isPipewireRunning():
+            info = linuxaudio.pipewireInfo()
+            return info.sr if info else None
         else:
             return 44100
 
 
-_backendPortaudioBlocking = _PortaudioBackend('blocking')
-_backendPortaudioCallback = _PortaudioBackend('callback')
-
-
 @_functools.cache
 def _getAvailableAudioBackends() -> dict[str, AudioBackend]:
+    _backendPortaudioCallback = _PortaudioBackend('callback')
+
     backends: dict[str, AudioBackend] = {
         'portaudio': _backendPortaudioCallback,
         'pa_cb': _backendPortaudioCallback,
-        'pa_bl': _backendPortaudioBlocking,
+        'pa_bl': _PortaudioBackend('blocking'),
     }
 
     if _jackdata() is not None:
         backends['jack'] = _JackAudioBackend()
 
-
     if sys.platform == 'linux':
         backends['alsa'] = _AlsaBackend()
         backends['pulseaudio'] = _PulseAudioBackend()
     elif sys.platform == 'darwin':
-        backends['coreaudio'] = AudioBackend('auhal', alwaysAvailable=True, hasSystemSr=True,
-                                             needsRealtime=False, longname="coreaudio",
-                                             platforms=('darwin',))
-        backends['auhal'] = backends['coreaudio']
+        auhal = AudioBackend('auhal', alwaysAvailable=True, hasSystemSr=True,
+                             needsRealtime=False, longname="coreaudio",
+                             platforms=('darwin',))
+        backends['coreaudio'] = auhal
+        backends['auhal'] = auhal
     return backends
 
 
@@ -625,26 +566,26 @@ def getSystemSr(backend: str) -> float | None:
     return b.getSystemSr()
 
 
-def _getJackSrViaClient() -> float:
-    import jack
-    c = jack.Client("query")
-    sr = c.samplerate
-    c.close()
-    return sr
+# def _getJackSrViaClient() -> float:
+#     import jack
+#     c = jack.Client("query")
+#     sr = c.samplerate
+#     c.close()
+#     return sr
 
 
-def _getCsoundSystemSr(backend: str) -> float:
-    if backend not in {'jack', 'auhal'}:
-        raise ValueError(f"backend {backend} does not support system sr")
-    import libcsound
-    csound = libcsound.Csound()
-    csound.setOption(f"-+rtaudio={backend}")
-    csound.setOption("-odac")
-    csound.setOption("--use-system-sr")
-    csound.start()
-    sr = csound.sr()
-    csound.stop()
-    return sr
+# def _getCsoundSystemSr(backend: str) -> float:
+#     if backend not in {'jack', 'auhal'}:
+#         raise ValueError(f"backend {backend} does not support system sr")
+#     import libcsound
+#     csound = libcsound.Csound()
+#     csound.setOption(f"-+rtaudio={backend}")
+#     csound.setOption("-odac")
+#     csound.setOption("--use-system-sr")
+#     csound.start()
+#     sr = csound.sr()
+#     csound.stop()
+#     return sr
 
 
 def getDefaultBackend() -> AudioBackend:
@@ -668,62 +609,6 @@ def getDefaultBackend() -> AudioBackend:
     return max(backends, key=lambda b: b.priority)
 
 
-_pluginsFolders = {
-    '6.0': {
-        'linux': '$HOME/.local/lib/csound/6.0/plugins64',
-        'darwin': '$HOME/Library/csound/6.0/plugins64',
-        'win32': '%LOCALAPPDATA%/csound/6.0/plugins64'
-    },
-    '7.0': {
-        'linux': '$HOME/.local/lib/csound/7.0/plugins64',
-        'darwin': '$HOME/Library/csound/7.0/plugins64',
-        'win32': '%LOCALAPPDATA%/csound/7.0/plugins64'
-
-    },
-    'float32': {
-        'linux': '$HOME/.local/lib/csound/6.0/plugins',
-        'darwin': '$HOME/Library/csound/6.0/plugins',
-        'win32': '%LOCALAPPDATA%/csound/6.0/plugins'
-    }
-}
-
-
-def userPluginsFolder(float64=True, apiversion='6.0') -> str:
-    """
-    Returns the user plugins folder for this platform
-
-    This is the folder where csound will search for user-installed
-    plugins. The returned folder is always an absolute path. It is not
-    checked if the folder actually exists.
-
-    Args:
-        float64: if True, report the folder for 64-bit plugins
-        apiversion: 6.0 or 7.0
-
-    Returns:
-        the user plugins folder for this platform
-
-    **Folders for 64-bit plugins**:
-
-    ======== ===== =================================================
-     OS       api  Plugins folder
-    ======== ===== =================================================
-     Linux    6.0  ``~/.local/lib/csound/6.0/plugins64``
-              7.0  ``~/.local/lib/csound/7.0/plugins64``
-     macOS    6.0  ``~/Library/csound/6.0/plugins64``
-              7.0  ``~/Library/csound/7.0/plugins64``
-     windows  6.0  ``C:/Users/<User>/AppData/Local/csound/6.0/plugins64``
-              6.0  ``C:/Users/<User>/AppData/Local/csound/7.0/plugins64``
-    ======== ===== =================================================
-
-    For 32-bit plugins the folder is the same, without the '64' ending (``.../plugins``)
-    """
-    key = apiversion if float64 else 'float32'
-    folders = _pluginsFolders[key]
-    if sys.platform not in folders:
-        raise RuntimeError(f"Platform {sys.platform} not known")
-    folder = folders[sys.platform]
-    return _os.path.abspath(_os.path.expandvars(folder))
 
 
 def runCsd(csdfile: str,
@@ -943,21 +828,21 @@ def _csoundGetInfoViaAPI(opcodedir='') -> dict:
             'versionTriplet': versionTriplet}
 
 
-def _opcodesList(opcodedir='') -> list[str]:
-    options = ["-z"]
-    if opcodedir:
-        options.append(f'--opcode-dir={opcodedir}')
-    s = csoundSubproc(options)
-    assert s.stderr is not None
-    lines = s.stderr.readlines()
-    allopcodes = []
-    for line in lines:
-        if line.startswith(b"end of score"):
-            break
-        opcodes = line.decode('utf8').split()
-        if opcodes:
-            allopcodes.extend(opcodes)
-    return allopcodes
+# def _opcodesList(opcodedir='') -> list[str]:
+#     options = ["-z"]
+#     if opcodedir:
+#         options.append(f'--opcode-dir={opcodedir}')
+#     s = csoundSubproc(options)
+#     assert s.stderr is not None
+#     lines = s.stderr.readlines()
+#     allopcodes = []
+#     for line in lines:
+#         if line.startswith(b"end of score"):
+#             break
+#         opcodes = line.decode('utf8').split()
+#         if opcodes:
+#             allopcodes.extend(opcodes)
+#     return allopcodes
 
 
 def saveAsGen23(data: Sequence[float] | np.ndarray,
@@ -1290,12 +1175,6 @@ def getSamplerateForBackend(backend='') -> int | None:
     return backendDef.getSystemSr()
 
 
-def _csoundTestJackRunning():
-    proc = csoundSubproc(['-+rtaudio=jack', '-odac', '--get-system-sr'], wait=True, piped=True)
-    assert proc.stderr is not None
-    return b'could not connect to JACK server' not in proc.stderr.read()
-
-
 def audioBackends() -> list[AudioBackend]:
     """
     Return a list of available audio backends
@@ -1392,146 +1271,16 @@ def getAudioBackendNames() -> list[str]:
     return [b.name for b in audioBackends()]
 
 
-def _quoteIfNeeded(arg: float | int | str) -> float | int | str:
-    if isinstance(arg, str):
-        return emlib.textlib.quoteIfNeeded(arg)
-    else:
-        return arg
+# @_functools.cache
+# def _instrReplacer() -> Callable[[str], str]:
+#     return emlib.textlib.makeReplacer({".":"_", ":":"_", " ":"_"})
 
 
-_normalizer = emlib.textlib.makeReplacer({".":"_", ":":"_", " ":"_"})
-
-
-def normalizeInstrumentName(name: str) -> str:
-    """
-    Transform name so that it can be accepted as an instrument name
-    """
-    return _normalizer(name)
-
-
-_fmtoptions = {
-    'pcm16': '',
-    'pcm24': '--format=24bit',
-    'float32': '--format=float',  # also -f
-    'float64': '--format=double',
-    'vorbis': '--format=vorbis'
-}
-
-
-_optionForSampleFormat = {
-    'wav': '--format=wav',   # could also be --wave
-    'aif': '--format=aiff',
-    'aiff': '--format=aiff',
-    'flac': '--format=flac',
-    'ogg': '--format=ogg'
-}
-
-
-_csoundFormatOptions = {'-3', '-f', '--format=24bit', '--format=float',
-                        '--format=double', '--format=long', '--format=vorbis',
-                        '--format=short'}
-
-
-_defaultEncodingForFormat = {
-    'wav': 'float32',
-    'flac': 'pcm24',
-    'aif': 'float32',
-    'aiff': 'float32',
-    'ogg': 'vorbis'
-}
-
-
-def _normalizeArgs(args, quote=True) -> list[float | str]:
-    out = []
-    for arg in args:
-        if isinstance(arg, str):
-            if quote:
-                arg = emlib.textlib.quoteIfNeeded(arg)
-            out.append(arg)
-        elif isinstance(arg, (int, float)):
-            out.append(arg)
-        else:
-            try:
-                out.append(float(arg))
-            except ValueError as e:
-                raise ValueError(f"Could not interpret {arg} as float: {e}")
-    return out
-
-
-def csoundOptionsForOutputFormat(fmt='wav',
-                                 encoding=''
-                                 ) -> list[str]:
-    """
-    Returns the command-line options for the given format+encoding
-
-    Args:
-        fmt: the format of the output file ('wav', 'flac', 'aif', etc)
-        encoding: the encoding ('pcm16', 'pcm24', 'float32', etc). If not given,
-            the best encoding for the given format is chosen
-
-    Returns:
-        a tuple of two strings holding the command-line options for the given
-        sample format/encoding
-
-    Example
-    -------
-
-        >>> csoundOptionsForOutputFormat('flac')
-        ('--format=flac', '--format=24bit')
-        >>> csoundOptionsForOutputFormat('wav', 'float32')
-        ('--format=wav', '--format=float')
-        >>> csoundOptionsForOutputFormat('aif', 'pcm16')
-        ('--format=aiff', '--format=short')
-
-    .. seealso:: :func:`csoundOptionForSampleEncoding`
-    """
-    if fmt.startswith("."):
-        fmt = fmt[1:]
-    assert fmt in _defaultEncodingForFormat, f"Unknown format: {fmt}, possible formats are: " \
-                                             f"{_defaultEncodingForFormat.keys()}"
-    if not encoding:
-        encoding = _defaultEncodingForFormat.get(fmt)
-        if not encoding:
-            raise ValueError(f"Default encoding unknown for format {fmt}")
-    encodingOption = csoundOptionForSampleEncoding(encoding)
-    fmtOption = _optionForSampleFormat[fmt]
-    options = [fmtOption]
-    if encodingOption:
-        options.append(encodingOption)
-    return options
-
-
-def csoundOptionForSampleEncoding(encoding: str) -> str:
-    """
-    Returns the command-line option for the given sample encoding.
-
-    Given a sample encoding of the form pcmXX or floatXX, where
-    XX is the bit-rate, returns the corresponding command-line option
-    for csound
-
-    Args:
-        fmt (str): the desired sample format. Either pcmXX, floatXX, vorbis
-          where XX stands for the number of bits per sample (pcm24,
-          float32, etc)
-
-    Returns:
-        the csound command line option corresponding to the given format
-
-    Example
-    -------
-
-        >>> csoundOptionForSampleEncoding("pcm24")
-        --format=24bit
-        >>> csoundOptionForSampleEncoding("float64")
-        --format=double
-
-    .. seealso:: :func:`csoundOptionsForOutputFormat`
-
-    """
-    if encoding not in _fmtoptions:
-        raise ValueError(f'format {encoding} not known. Possible values: '
-                         f'{_fmtoptions.keys()}')
-    return _fmtoptions[encoding]
+# def normalizeInstrumentName(name: str) -> str:
+#     """
+#     Transform name so that it can be accepted as an instrument name
+#     """
+#     return _instrReplacer()(name)
 
 
 def mincer(sndfile: str,
@@ -1609,7 +1358,7 @@ def mincer(sndfile: str,
     np.savetxt(pitch_gen23, pitches, fmt=fmt, header=str(dt), comments='')
     ext = _os.path.splitext(outfile)[1][1:]
     extraoptions = []
-    extraoptions.extend(csoundOptionsForOutputFormat(fmt=ext))
+    extraoptions.extend(csounddefs.csoundOptionsForOutputFormat(fmt=ext))
     optionsstr = '\n'.join(extraoptions)
     csd = f"""
     <CsoundSynthesizer>
@@ -1834,7 +1583,7 @@ def getNchnls(backend='',
     else:
         outdev = backendDef.searchAudioDevice(outpattern, kind='output')
         if not outdev:
-            indevs, outdevs = backendDef.audioDevices()
+            _, outdevs = backendDef.audioDevices()
             outdevids = [d.id for d in outdevs]
             raise ValueError(f"Output device '{outpattern}' not found. Possible devices "
                              f"are: {outdevids}")
@@ -1942,107 +1691,30 @@ def dumpAudioDevices(backend=''):
         print("-- No output devices")
 
 
-def instrNames(instrdef: str) -> list[int | str]:
-    """
-    Returns the list of names/instrument numbers in the instrument definition.
-
-    Most of the time this list will have one single element, either an instrument
-    number or a name
-
-    Args:
-        instrdef: the code defining an instrument
-
-    Returns:
-        a list of names/instrument numbers. An empty list is returned if
-        this is not a valid instr definition
-
-    Example
-    -------
-
-        >>> instr = r'''
-        ... instr 10, foo
-        ...     outch 1, oscili:a(0.1, 440)
-        ... endin
-        ... '''
-        >>> instrNames(instr)
-        [10, "foo"]
-
-    """
-    lines = instrdef.splitlines()
-    matches = [line for line in lines if _re.match(r"^[\ \t]*\binstr\b", line)]
-    if len(matches) > 1:
-        raise ValueError(f"Expected only one instrument definition, got {matches}")
-    elif len(matches) == 0:
-        return []
-    line = matches[0].strip()
-    names = [name.strip() for name in line[6:].split(",")]
-    return [int(name) if name.isdigit() else name
-            for name in names]
+# def _hashdict(d: dict) -> int:
+#     return hash((frozenset(d.keys()), frozenset(d.values())))
 
 
-def _hashdict(d: dict) -> int:
-    return hash((frozenset(d.keys()), frozenset(d.values())))
+# def _parsePresetSflistprograms(line: str) -> tuple[str, int, int] | None:
+#     # 012345678
+#     # xxx:yyy zzzzzzzzzz
+#     bank = int(line[:3])
+#     num = int(line[4:7])
+#     name = line[8:].strip()
+#     return (name, bank, num)
 
 
-def bestSampleEncodingForExtension(ext: str) -> str:
-    """
-    Given an extension, return the best sample encoding.
-
-    .. note::
-
-        float64 is not considered necessary for holding sound information
-
-    Args:
-        ext (str): the extension of the file will determine the format
-
-    Returns:
-        a sample format of the form "pcmXX" or "floatXX", where XX determines
-        the bit rate ("pcm16", "float32", etc)
-
-    ========== ================
-    Extension  Sample Format
-    ========== ================
-    wav        float32
-    aif        float32
-    flac       pcm24
-    mp3        pcm16
-    ogg        vorbis
-    ========== ================
-
-    """
-    if ext[0] == ".":
-        ext = ext[1:]
-
-    if ext in {"wav", "aif", "aiff"}:
-        return "float32"
-    elif ext == "flac":
-        return "pcm24"
-    elif ext == 'ogg':
-        return 'vorbis'
-    else:
-        raise ValueError(f"Format {ext} not supported. Formats supported: wav, aiff, flac and ogg")
+# def _parsePreset(line: str) -> tuple[str, int, int] | None:
+#     match = _re.search(r">> Bank: (\d+)\s+Preset:\s+(\d+)\s+Name:\s*(.+)", line)
+#     if not match:
+#         return None
+#     name = match.group(3).strip()
+#     bank = int(match.group(1))
+#     presetnum = int(match.group(2))
+#     return (name, bank, presetnum)
 
 
-def _parsePresetSflistprograms(line: str) -> tuple[str, int, int] | None:
-    # 012345678
-    # xxx:yyy zzzzzzzzzz
-    bank = int(line[:3])
-    num = int(line[4:7])
-    name = line[8:].strip()
-    return (name, bank, num)
-
-
-def _parsePreset(line: str) -> tuple[str, int, int] | None:
-    match = _re.search(r">> Bank: (\d+)\s+Preset:\s+(\d+)\s+Name:\s*(.+)", line)
-    if not match:
-        return None
-    name = match.group(3).strip()
-    bank = int(match.group(1))
-    presetnum = int(match.group(2))
-    return (name, bank, presetnum)
-
-
-def channelTypeFromValue(value: int | float | str) -> str:
+def channelTypeFromValue(value: int | float | str | np.ndarray) -> str:
     """
     Channel type (k, S, a) from value
     """

@@ -754,3 +754,41 @@ def makeIncludeLine(include: str) -> str:
     import emlib.textlib
     s = emlib.textlib.quoteIfNeeded(include.strip())
     return f'#include {s}'
+
+
+def instrNames(instrdef: str) -> list[int | str]:
+    """
+    Returns the list of names/instrument numbers in the instrument definition.
+
+    Most of the time this list will have one single element, either an instrument
+    number or a name
+
+    Args:
+        instrdef: the code defining an instrument
+
+    Returns:
+        a list of names/instrument numbers. An empty list is returned if
+        this is not a valid instr definition
+
+    Example
+    -------
+
+        >>> instr = r'''
+        ... instr 10, foo
+        ...     outch 1, oscili:a(0.1, 440)
+        ... endin
+        ... '''
+        >>> instrNames(instr)
+        [10, "foo"]
+
+    """
+    lines = instrdef.splitlines()
+    matches = [line for line in lines if re.match(r"^[\ \t]*\binstr\b", line)]
+    if len(matches) > 1:
+        raise ValueError(f"Expected only one instrument definition, got {matches}")
+    elif len(matches) == 0:
+        return []
+    line = matches[0].strip()
+    names = [name.strip() for name in line[6:].split(",")]
+    return [int(name) if name.isdigit() else name
+            for name in names]
