@@ -550,7 +550,7 @@ def instrParseBody(body: str | list[str]) -> ParsedInstrBody:
                            lines=lines)
 
 
-def highlightCsoundOrc(code: str, theme='') -> str:
+def highlightCsoundOrc(code: str, theme='', format='') -> str:
     """
     Converts csound code to html with syntax highlighting
 
@@ -562,19 +562,45 @@ def highlightCsoundOrc(code: str, theme='') -> str:
     Returns:
         the corresponding html
     """
+    if not format:
+        from emlib.envir import inside_jupyter
+        if inside_jupyter():
+            format = 'html'
+        else:
+            format = 'ansi'
     if not theme:
         from .config import config
         theme = config['html_theme']
 
+    if format == 'html':
+        return _highlightOrcHtml(code=code, style=theme)
+    elif format == 'ansi':
+        return _highlightOrcAnsi(code=code, theme=theme)
+    else:
+        raise ValueError(f"Unsupported format '{format}', expected one of 'html' or 'ansi'")
+
+
+def _highlightOrcHtml(code: str, style='light') -> str:
     import pygments
     import pygments.formatters
-    if theme == 'light':
+    if style == 'light':
         htmlfmt = pygments.formatters.HtmlFormatter(noclasses=True, wrapcode=True)
     else:
         htmlfmt = pygments.formatters.HtmlFormatter(noclasses=True, style='fruity',
                                                     wrapcode=True)
     html = pygments.highlight(code, lexer=_pygmentsOrcLexer(), formatter=htmlfmt)
     return html
+
+
+def _highlightOrcAnsi(code: str, theme='light') -> str:
+    import pygments
+    import pygments.formatters
+    if theme == 'light':
+        style = 'gruvbox-light'
+    else:
+        style = 'fruity'
+    formatter = pygments.formatters.Terminal256Formatter(noclasses=True, wrapcode=True, style=style)
+    return pygments.highlight(code, lexer=_pygmentsOrcLexer(), formatter=formatter)
 
 
 @functools.cache

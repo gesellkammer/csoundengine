@@ -35,17 +35,6 @@ if TYPE_CHECKING:
     from . import jacktools
 
 
-# try:
-#     import libcsound
-# except Exception as e:
-#     if 'sphinx' in sys.modules:
-#         print("Called while building sphinx documentation?")
-#         from sphinx.ext.autodoc.mock import _MockObject
-#         libcsound = _MockObject()
-#     else:
-#         print("Error importing libcsound")
-#         raise e
-
 logger = _logging.getLogger("csoundengine")
 
 
@@ -609,8 +598,6 @@ def getDefaultBackend() -> AudioBackend:
     return max(backends, key=lambda b: b.priority)
 
 
-
-
 def runCsd(csdfile: str,
            outdev='',
            indev='',
@@ -637,7 +624,7 @@ def runCsd(csdfile: str,
         nomessages: if True, suppress debugging messages
         piped: if True, the output of the csound process is piped and can be accessed
             through the Popen object (.stdout, .stderr)
-        extra: a list of extraOptions arguments to be passed to csound
+        extra: a list of extra options arguments to be passed to csound
         comment: if given, will be added to the generated output
             as comment metadata (when running offline)
 
@@ -659,14 +646,13 @@ def runCsd(csdfile: str,
     if backend:
         args.append(f"-+rtaudio={backend}")
     if indev:
-        args.append(f"-i {indev}")
+        args.append(f"-i{indev}")
     if nodisplay:
         args.append('-d')
     if nomessages:
         args.append('-m16')
     if comment and offline:
-        args.append(f'-+id_comment="{comment}"'
-                    )
+        args.append(f'-+id_comment="{comment}"')
     if extra:
         args.extend(extra)
     args.append(csdfile)
@@ -728,7 +714,7 @@ class CsoundProc:
     csdstr: str = ""
 
 
-def testCsound(dur=8., nchnls=2, backend='', device="dac", sr=0,
+def testCsound(dur=8., nchnls=2, backend='', device="dac", sr=0, ksmps=64,
                verbose=True
                ) -> CsoundProc:
     """
@@ -752,7 +738,7 @@ def testCsound(dur=8., nchnls=2, backend='', device="dac", sr=0,
     printchan = "printk2 kchn" if verbose else ""
     orc = f"""
 sr = {sr}
-ksmps = 128
+ksmps = {ksmps}
 nchnls = {nchnls}
 
 instr 1
@@ -816,13 +802,7 @@ def _csoundGetInfoViaAPI(opcodedir='') -> dict:
     _cache['versionTriplet'] = versionTriplet
     _cache['opcodes'] = opcodenames
     _cache['opcodedefs'] = opcodes
-    # opcodes, n = cs.newOpcodeList()
-    # assert opcodes is not None
-    # opcodeNames = [opc.opname.decode('utf-8') for opc in opcodes]
-    # cs.disposeOpcodeList(opcodes)
-    # opcodes = list(set(opcodeNames))
-    # _cache['opcodes'] = opcodes
-    # cs.stop()
+    cs.stop()
     return {'opcodedefs': opcodes,
             'opcodes': opcodenames,
             'versionTriplet': versionTriplet}
