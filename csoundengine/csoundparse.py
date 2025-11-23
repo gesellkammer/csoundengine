@@ -592,13 +592,14 @@ def _highlightOrcHtml(code: str, style='light') -> str:
     return html
 
 
-def _highlightOrcAnsi(code: str, theme='light') -> str:
+def _highlightOrcAnsi(code: str, theme='light', style='') -> str:
     import pygments
     import pygments.formatters
-    if theme == 'light':
-        style = 'gruvbox-light'
-    else:
-        style = 'fruity'
+    if not style:
+        if theme == 'light':
+            style = 'gruvbox-light'
+        else:
+            style = 'fruity'
     formatter = pygments.formatters.Terminal256Formatter(noclasses=True, wrapcode=True, style=style)
     return pygments.highlight(code, lexer=_pygmentsOrcLexer(), formatter=formatter)
 
