@@ -14,7 +14,8 @@ from . import (
     csoundparse,
     engineorc,
     internal,
-    tools
+    tools,
+    csounddefs
     )
 from .config import config, logger
 from .enginebase import TableInfo, _EngineBase
@@ -199,7 +200,6 @@ class OfflineEngine(_EngineBase):
                          numAudioBuses=numAudioBuses if numAudioBuses is not None else config['num_audio_buses'],
                          numControlBuses=numControlBuses if numControlBuses is not None else config['num_control_buses'],
                          sampleAccurate=sampleAccurate)
-        from . import csoundlib
         if outfile:
             outfile = internal.normalizePath(outfile)
         self.outfile = outfile or tempfile.mktemp(prefix='csoundengine-', suffix='.wav') if not nosound else ''
@@ -207,7 +207,7 @@ class OfflineEngine(_EngineBase):
         self.numAudioBuses = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
         self.numControlBuses = numControlBuses if numControlBuses is not None else config['num_control_buses']
         self.includes = includes if includes is not None else []
-        self.encoding = encoding or csoundlib.bestSampleEncodingForExtension(os.path.splitext(self.outfile)[1][1:])
+        self.encoding = encoding or csounddefs.bestSampleEncodingForExtension(os.path.splitext(self.outfile)[1][1:])
         self.version = 0
 
         self._renderjob: RenderJob | None = None
