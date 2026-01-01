@@ -43,7 +43,7 @@ jobs:
 
           "C:/Program Files/csound-binaries/build/Release" | Out-File -FilePath $env:GITHUB_PATH -Append
           # [Environment]::SetEnvironmentVariable("PATH", $Env:PATH + ";C:/Program Files/csound-binaries/build/Release", [EnvironmentVariableTarget]::Machine)
-          $Env:Path = $Env:Path + ";C:/Program Files/csound/build/Release"
+          $Env:Path = $Env:Path + ";C:/Program Files/csound"
           echo "$PATH"
 
           # Write-Output $Env:PATH
@@ -125,12 +125,13 @@ jobs:
         run: |
           $winpkg = "csound-windows-x86-7.0.0-beta.10"
           curl -L -o csound-binaries.zip https://github.com/csound/csound/releases/download/7.0.0-beta.10/$winpkg.zip
-          Expand-Archive csound-binaries.zip -DestinationPath "C:/Program Files/csound/"
-          ls -r "C:/Program Files/csound/$winpkg"
+          Expand-Archive csound-binaries.zip
+          Move-Item -Path $winpkg\* -Destination "C:/Program Files/csound"
+          ls -r "C:/Program Files/csound"
 
-          "C:/Program Files/csound/$winpkg/build" | Out-File -FilePath $env:GITHUB_PATH -Append
-          # [Environment]::SetEnvisronmentVariable("PATH", $Env:PATH + ";C:/Program Files/csound/$winpkg/build", [EnvironmentVariableTarget]::Machine)
-          $Env:Path = $Env:Path + ";C:/Program Files/csound/$winpkg/build"
+          "C:/Program Files/csound" | Out-File -FilePath $env:GITHUB_PATH -Append
+          # [Environment]::SetEnvisronmentVariable("PATH", $Env:PATH + ";C:/Program Files/csound", [EnvironmentVariableTarget]::Machine)
+          $Env:Path = $Env:Path + ";C:/Program Files/csound"
           echo "$PATH"
 
           # Write-Output $Env:PATH
