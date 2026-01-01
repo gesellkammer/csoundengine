@@ -123,13 +123,14 @@ jobs:
       - name: windows install csound from release
         if: runner.os == 'windows'
         run: |
-          curl -L -o csound-binaries.zip https://github.com/csound/csound/releases/download/7.0.0-beta.10/csound-windows-x86-7.0.0-beta.10.zip
-          Expand-Archive csound-binaries.zip -DestinationPath "C:/Program Files/csound"
-          ls -r "C:/Program Files/csound"
+          $winpkg = "csound-windows-x86-7.0.0-beta.10"
+          curl -L -o csound-binaries.zip https://github.com/csound/csound/releases/download/7.0.0-beta.10/$winpkg.zip
+          Expand-Archive csound-binaries.zip -DestinationPath "C:/Program Files/csound/"
+          ls -r "C:/Program Files/csound/$winpkg"
 
-          "C:/Program Files/csound/build" | Out-File -FilePath $env:GITHUB_PATH -Append
-          # [Environment]::SetEnvisronmentVariable("PATH", $Env:PATH + ";C:/Program Files/csound7/build", [EnvironmentVariableTarget]::Machine)
-          $Env:Path = $Env:Path + ";C:/Program Files/csound/build"
+          "C:/Program Files/csound/$winpkg/build" | Out-File -FilePath $env:GITHUB_PATH -Append
+          # [Environment]::SetEnvisronmentVariable("PATH", $Env:PATH + ";C:/Program Files/csound/$winpkg/build", [EnvironmentVariableTarget]::Machine)
+          $Env:Path = $Env:Path + ";C:/Program Files/csound/$winpkg/build"
           echo "$PATH"
 
           # Write-Output $Env:PATH
