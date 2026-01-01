@@ -127,6 +127,8 @@ jobs:
           curl -L -o csound-binaries.zip https://github.com/csound/csound/releases/download/7.0.0-beta.10/$winpkg.zip
           Expand-Archive csound-binaries.zip
           ls -r
+          New-Item -ItemType Directory -Force -Path "C:\Program Files\csound"
+
           Move-Item -Path csound-binaries\$winpkg\build\* -Destination "C:/Program Files/csound"
           ls -r "C:/Program Files/csound"
 
