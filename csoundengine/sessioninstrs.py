@@ -124,8 +124,11 @@ def builtinInstrs() -> list[instr.Instr]:
                 outch ichan, aL, ichan+1, aR
             else
                 ; panning is disabled for soundfiles with more than 2 channels
-                ichans[] genarray ichan, ichan+inumouts-1
-                poly0 inumouts, "outch", ichans, aouts
+                ki = 0
+                while ki < inumouts do
+                    outch ichan + ki, aouts[ki]
+                    ki += 1
+                od
             endif
             know += ionecycle/kspeed
             if p3 < 0 && iloop == 0 && know > imaxtime then

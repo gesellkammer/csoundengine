@@ -12,6 +12,8 @@ from pathlib import Path
 
 from . import tools
 from .state import state
+from . import csounddefs
+
 
 logger = logging.getLogger("csoundengine.dependencies")
 
@@ -153,7 +155,7 @@ def pluginsInstalled(cached=True) -> bool:
         "dict_new", "dict_set", "dict_get",
         "pool_gen", "pool_pop", "pool_push", "pool_isfull",
         'interp1d', 'bisect', 'ftsetparams', 'zeroarray',
-        'panstereo', 'poly0'
+        'panstereo'
     }
     return neededOpcodes.issubset(installedOpcodes)
 
@@ -188,8 +190,7 @@ def _installPluginsFromDist(apiversion=6, codesign=True) -> None:
         logger.error(f"Plugins not found. Plugins folder: '{pluginspath}', "
                      f"glob patter: '{globpattern}'")
         raise RuntimeError("Plugins not found")
-    from . import csoundlib
-    pluginsDest = csoundlib.userPluginsFolder(apiversion=f'{apiversion}.0')
+    pluginsDest = csounddefs.userPluginsFolder(apiversion=f'{apiversion}.0')
     logger.info(f"Installing plugins in folder: '{pluginsDest}'")
     os.makedirs(pluginsDest, exist_ok=True)
     _copyFiles([plugin.as_posix() for plugin in plugins], pluginsDest, verbose=True)
@@ -215,7 +216,7 @@ def _installPluginsViaRisset(majorversion: int | None = None) -> bool:
     logger.info("Trying to install plugins via risset")
     import risset
     idx = risset.MainIndex(update=True, majorversion=majorversion)
-    for pluginname in ['else', 'beosc', 'klib', 'poly']:
+    for pluginname in ['else', 'beosc', 'klib']:
         p = idx.plugins.get(pluginname)
         if p is None:
             logger.error(f"Plugin '{pluginname}' not in risset's index")
