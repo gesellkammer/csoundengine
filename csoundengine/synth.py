@@ -827,6 +827,50 @@ class SynthGroup(BaseSchedEvent):
             allspecs.update(specs)
         return allspecs
 
+    def ui(self, **specs: tuple[float, float] | tuple[float, float, str]) -> None:
+        """
+        Modify dynamic (named) arguments through an interactive user-interface
+
+        If run inside a jupyter notebook, this method will create embedded widgets
+        to control the values of the dynamic pfields of an event. Dynamic pfields
+        are those assigned to a k-variable or declared as ``|karg|`` (see below)
+
+        Args:
+            specs: map named arg to a tuple (minvalue, maxvalue), the keyword
+                is the name of the parameter, the value is a tuple with the
+                range
+
+        Example
+        ~~~~~~~
+
+        .. code::
+
+            # Inside jupyter
+            from csoundengine import *
+            s = Engine().session()
+            s.defInstr('vco', r'''
+              |kmidinote, kampdb=-12, kcutoff=3000, kres=0.9|
+              kfreq = mtof:k(kmidinote)
+              asig = vco2:a(ampdb(kampdb), kfreq)
+              asig = moogladder2(asig, kcutoff, kres)
+              asig *= linsegr:a(0, 0.1, 1, 0.1, 0)
+              outs asig, asig
+            ''')
+            synth = s.sched('vco', kmidinote=67)
+            # Specify the ranges for some sliders. All named parameters
+            # are assigned a widget
+            synth.ui(kampdb=(-48, 0), kres=(0, 1))
+
+        .. figure:: assets/synthui.png
+
+        .. seealso::
+
+            - :meth:`Engine.eventui`
+        """
+        from . import interact
+        paramspecs = self._makeParamSpecs(specs)
+        return interact.interactSynth(self, paramspecs)
+
     # def ui(self, **specs: tuple[float, float]) -> None:
     #     """
     #     Modify dynamic (named) arguments through an interactive user-interface
@@ -927,9 +971,6 @@ class SynthGroup(BaseSchedEvent):
         Within a group the first synth which has the given parameter
         will be used to determine the parameter value
         """
-        if param not in self.paramNames():
-            raise KeyError(f"Parameter '{param}' not known. Possible parameters: "
-                           f"{self.paramNames()}")
         for synth in self:
             value = synth.paramValue(param)
             if value is not None:
@@ -938,8 +979,8 @@ class SynthGroup(BaseSchedEvent):
 
     def _setPfield(self, param: str, value: float, delay=0.) -> None:
         count = 0
-        for synth in self:
-            if param in synth.instr.pfieldNames(aliases=False):
+        for synth in self.synths:
+            if param in synth.instr.pfieldNames(aliases=False) and synth.playing():
                 synth._setPfield(param=param, value=value, delay=delay)
                 count += 1
         if count == 0:

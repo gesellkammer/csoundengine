@@ -299,7 +299,7 @@ class BaseSchedEvent(ABC):
         """
         raise NotImplementedError
 
-    def paramNames(self) -> frozenset[str]:
+    def paramNames(self, aliases=True, aliased=False) -> frozenset[str]:
         """
         Set of all named parameters
 
@@ -308,8 +308,8 @@ class BaseSchedEvent(ABC):
             :meth:`~BaseEvent.dynamicParams`, :meth:`~BaseEvent.set`,
             :meth:`~BaseEvent.automate`
         """
-        pargs = self.pfieldNames()
-        tableargs = self.controlNames()
+        pargs = self.pfieldNames(aliases=aliases, aliased=aliased)
+        tableargs = self.controlNames(aliases=aliases, aliased=aliased)
         if pargs and tableargs:
             return pargs | tableargs
         elif pargs:
