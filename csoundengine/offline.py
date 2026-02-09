@@ -321,6 +321,9 @@ class OfflineSession(AbstractRenderer):
             else:
                 self.compile(f'chnset {value}, "{channel}"')
 
+    def elapsedTime(self) -> float:
+        return 0.
+
     def commitInstrument(self, instrname: str, priority=1) -> int:
         """
         Create concrete instrument at the given priority.

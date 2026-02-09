@@ -2145,6 +2145,9 @@ class Session(AbstractRenderer):
                                      whenfinished=whenfinished)
         return self.schedEvent(event=event)
 
+    def elapsedTime(self) -> float:
+        return self.engine.elapsedTime()
+
     def offlineSession(self, sr=0, nchnls: int | None = None, ksmps=0,
                        addTables=True, addIncludes=True
                        ) -> offline.OfflineSession:

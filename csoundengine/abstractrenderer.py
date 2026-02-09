@@ -223,3 +223,7 @@ class AbstractRenderer(ABC):
     @abstractmethod
     def _registerTable(self, tabproxy: tableproxy.TableProxy):
         raise NotImplementedError
+
+    @abstractmethod
+    def elapsedTime(self) -> float:
+        raise NotImplementedError
