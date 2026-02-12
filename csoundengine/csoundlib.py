@@ -331,7 +331,6 @@ class _PortaudioBackend(AudioBackend):
             return info.sr if info is not None else 44100
         return super().getSystemSr()
 
-    @_functools.cache
     def defaultAudioDevices(self) -> tuple[AudioDevice | None, AudioDevice | None]:
         logger.debug("Querying default device via portaudio/sounddevice")
         try:
@@ -1251,18 +1250,6 @@ def getAudioBackendNames() -> list[str]:
     return [b.name for b in audioBackends()]
 
 
-# @_functools.cache
-# def _instrReplacer() -> Callable[[str], str]:
-#     return emlib.textlib.makeReplacer({".":"_", ":":"_", " ":"_"})
-
-
-# def normalizeInstrumentName(name: str) -> str:
-#     """
-#     Transform name so that it can be accepted as an instrument name
-#     """
-#     return _instrReplacer()(name)
-
-
 def mincer(sndfile: str,
            outfile: str,
            timecurve: float | Callable[[float], float] = 1.,
@@ -1669,29 +1656,6 @@ def dumpAudioDevices(backend=''):
         print_table(outputrows, headers=fields, showindex=False)
     else:
         print("-- No output devices")
-
-
-# def _hashdict(d: dict) -> int:
-#     return hash((frozenset(d.keys()), frozenset(d.values())))
-
-
-# def _parsePresetSflistprograms(line: str) -> tuple[str, int, int] | None:
-#     # 012345678
-#     # xxx:yyy zzzzzzzzzz
-#     bank = int(line[:3])
-#     num = int(line[4:7])
-#     name = line[8:].strip()
-#     return (name, bank, num)
-
-
-# def _parsePreset(line: str) -> tuple[str, int, int] | None:
-#     match = _re.search(r">> Bank: (\d+)\s+Preset:\s+(\d+)\s+Name:\s*(.+)", line)
-#     if not match:
-#         return None
-#     name = match.group(3).strip()
-#     bank = int(match.group(1))
-#     presetnum = int(match.group(2))
-#     return (name, bank, presetnum)
 
 
 def channelTypeFromValue(value: int | float | str | np.ndarray) -> str:

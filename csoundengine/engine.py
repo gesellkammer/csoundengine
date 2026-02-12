@@ -2053,6 +2053,7 @@ class Engine(_EngineBase):
                   callback=None,
                   ) -> int:
         """
+
         Create a new table and fill it with data.
 
         Args:

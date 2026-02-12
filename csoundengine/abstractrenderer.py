@@ -70,7 +70,7 @@ class AbstractRenderer(ABC):
                  includes: list[str] | None = None,
                  aliases: dict[str, str] | None = None,
                  useDynamicPfields: bool | None = None,
-                 initCallback: Callable[[AbstractRenderer], None] = None,
+                 initCallback: Callable[[AbstractRenderer], None] | None = None,
                  **kws) -> _instr.Instr:
         raise NotImplementedError
 
@@ -134,9 +134,9 @@ class AbstractRenderer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def getInstr(self, instrname: str) -> _instr.Instr | None:
+    def getInstr(self, name: str) -> _instr.Instr | None:
         """
-        Returns the Instr instance corresponding to instrname, or None if no such instr
+        Returns the Instr instance corresponding to name, or None if no such instr
         """
         raise NotImplementedError
 
@@ -221,7 +221,7 @@ class AbstractRenderer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _registerTable(self, tabproxy: tableproxy.TableProxy):
+    def _registerTable(self, tabproxy: tableproxy.TableProxy) -> None:
         raise NotImplementedError
 
     @abstractmethod

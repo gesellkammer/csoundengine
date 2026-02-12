@@ -346,7 +346,7 @@ class Csd:
 
         self._outfileFormat = ''
         self._outfileEncoding = ''
-        self._compressionQuality = ''
+        self._compressionQuality = 0.
 
         self._definedTables: Set[int] = set()
         self._minTableIndex = 1
@@ -568,8 +568,8 @@ class Csd:
         sizeThreshold = config['offline_score_table_size_limit']
 
         if isinstance(data, np.ndarray) and sr:
-            sndfile = _tempfile.mktemp(suffix=".wav")
             import sndfileio
+            sndfile = _tempfile.mktemp(suffix=".wav")
             sndfileio.sndwrite(sndfile, samples=data, sr=sr, encoding='float32')
             tabnum = self.addSndfile(sndfile, tabnum=tabnum, asProjectFile=True,
                                      start=start)

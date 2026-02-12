@@ -517,7 +517,7 @@ class OfflineSession(AbstractRenderer):
         """
         return self.instrs
 
-    def getInstr(self, name) -> Instr | None:
+    def getInstr(self, name: str) -> Instr | None:
         """
         Find a registered Instr, by name
 

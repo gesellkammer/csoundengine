@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     import numpy.typing as npt
     from matplotlib.figure import Figure
 
-    from csoundlib import AudioDevice, MidiDevice
+    from csoundengine.csoundlib import AudioDevice, MidiDevice
 
     from .instr import Instr
     T = TypeVar('T')
