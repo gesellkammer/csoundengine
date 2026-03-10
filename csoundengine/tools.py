@@ -115,3 +115,27 @@ def sdifToMatrix(path: str, maxpolyphony: int) -> np.ndarray:
         raise RuntimeError("loristrck is needed in order to read a .sdif file. "
                         "Install it via `pip install loristrck` (see https://loristrck.readthedocs.io "
                         "for more information)")
+
+
+def isFileBinary(filepath: str, chunksize: int = 8192, threshold=0.3) -> bool:
+    """True if the file appears to be binary, False if text.
+
+    Args:
+        filepath: the file to check
+        chunksize: how much to read
+        threshold: ratio nontext/total, where nontext is the sum of
+            characters which are outside the printable ASCII range
+    """
+    with open(filepath, 'rb') as f:
+        chunk = f.read(chunksize)
+
+    if b'\x00' in chunk:
+        return True
+
+    # Check what fraction of bytes are non-text
+    textchars = (
+        set(range(32, 127)) |  # printable ASCII
+        {9, 10, 13}            # tab, newline, carriage return
+    )
+    nontext = sum(b not in textchars for b in chunk)
+    return (nontext / len(chunk)) > threshold  # >30% non-text → binary

@@ -23,6 +23,7 @@ import shutil as _shutil
 import subprocess as _subprocess
 import tempfile as _tempfile
 import textwrap as _textwrap
+import struct
 
 import cachetools as _cachetools
 import numpy as np
@@ -1476,6 +1477,77 @@ def recInstr(body: str, events: list, init='', outfile='',
     return outfile, renderjob.process
 
 
+def _ftsaveReadBinary(path: str) -> list[tuple[dict, np.ndarray]]:
+    """
+    Header: sizeof(FUNC) - sizeof(MYFLT) - SSTRSIZ = 152
+
+    where:
+
+    sizeof(FUNC) = 1184
+    MYFLT = double (8 bytes)
+    SSTRSIZ = 1024
+    """
+    # Format string for the 152-byte cropped FUNC struct
+    # Assuming little-endian, 64-bit platform, MYFLT = double
+    FUNC_FORMAT = ('<'
+                   'I'     # flen       uint32_t  4
+                   'i'     # lenmask    int32     4
+                   'i'     # lobits     int32     4
+                   'i'     # lomask     int32     4
+                   'd'     # lodiv      MYFLT     8
+                   'd'     # cvtbas     MYFLT     8
+                   'd'     # cpscvt     MYFLT     8
+                   'hh'    # loopmode1, loopmode2  int16 x2  4
+                   'xxxx'  # padding               4
+                   'iiii'  # begin1, end1, begin2, end2  16
+                   'ii'    # soundend, flenfrms    8
+                   'ii'    # nchanls, fno         8
+                   'd'     # sr        MYFLT      8
+                   'Q'     # *args     pointer    8
+                   'i'     # argcnt    int32_t    4
+                   'xxxx') # padding               4
+
+    # Verify size
+    assert struct.calcsize(FUNC_FORMAT) == 152, \
+        f"Expected 152 bytes, got {struct.calcsize(FUNC_FORMAT)}"
+
+    """Read a cropped FUNC struct (152 bytes) from a binary file."""
+    with open(path, 'rb') as f:
+        header = f.read(152)
+
+        if len(header) < 152:
+            raise ValueError(f"File too short: expected 152 bytes, got {len(data)}")
+
+        fields = struct.unpack(FUNC_FORMAT, header)
+        tablelen = fields[0]
+        data = f.read((tablelen + 1) * 8)
+
+    tabinfo = {
+        'flen':       fields[0],
+        'lenmask':    fields[1],
+        'lobits':     fields[2],
+        'lomask':     fields[3],
+        'lodiv':      fields[4],
+        'cvtbas':     fields[5],
+        'cpscvt':     fields[6],
+        'loopmode1':  fields[7],
+        'loopmode2':  fields[8],
+        'begin1':     fields[9],
+        'end1':       fields[10],
+        'begin2':     fields[11],
+        'end2':       fields[12],
+        'soundend':   fields[13],
+        'flenfrms':   fields[14],
+        'nchanls':    fields[15],
+        'fno':        fields[16],
+        'sr':         fields[17],
+        'args':       fields[18],  # raw pointer value (not dereferenceable)
+        'argcnt':     fields[19],
+    }
+    arr = np.frombuffer(data, dtype=np.float64)
+    return [(tabinfo, arr)]
+
+
 def _ftsaveReadText(path: str) -> list[np.ndarray]:
     # a file can have multiple tables saved
     lines = iter(open(path))
@@ -1497,7 +1569,7 @@ def _ftsaveReadText(path: str) -> list[np.ndarray]:
                 break
         if tablength < 0:
             raise IOError("Could not read table length")
-        values = np.zeros((tablength+1,), dtype=float)
+        values  = np.zeros((tablength+1,), dtype=float)
         # Read data
         for i, line in enumerate(lines):
             if line.startswith("---"):
@@ -1507,12 +1579,28 @@ def _ftsaveReadText(path: str) -> list[np.ndarray]:
     return tables
 
 
-def ftsaveRead(path, mode="text") -> list[np.ndarray]:
+def ftsaveRead(path: str, mode="") -> list[tuple[dict, np.ndarray]]:
     """
     Read a file saved by ftsave, returns a list of tables
+
+    Args:
+        path: the path to the saved table/tables
+        mode: one of "text", "binary" or empty to auto-detect the format
+
+    Returns:
+        a list of (tableinfo: dict, tabledata: np.ndarray), where
+        tableinfo is a dict containing information about the table. This
+        dict is only populated if the table was saved in binary format,
+        for text tables this dict will be empty
     """
+    if not mode:
+        from . import tools
+        mode = "binary" if tools.isFileBinary(path) else "text"
     if mode == "text":
-        return _ftsaveReadText(path)
+        arrays = _ftsaveReadText(path)
+        return [({}, arr) for arr in arrays]
+    elif mode == "binary" or mode == "bin":
+        return _ftsaveReadBinary(path)
     else:
         raise ValueError(f"mode {mode} not supported")
 
