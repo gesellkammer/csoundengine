@@ -127,9 +127,9 @@ class BaseSchedEvent(ABC):
                     self._setTable(param=param, value=value, delay=delay)
                 else:
                     raise KeyError(f"Unknown parameter: '{param}'. "
-                                   f"Possible parameters for this event: {self.dynamicParamNames(aliased=True)}, "
-                                   f"aliases: {self.aliases()}, pfields: {self.pfieldNames(aliases=False)}, "
-                                   f"control names: {self.controlNames(aliases=False)}")
+                                   f"Possible parameters for this event: {self.dynamicParamNames()}, "
+                                   f"aliases: {self.aliases()}, pfields: {self.pfieldNames()}, "
+                                   f"control names: {self.controlNames()}")
 
     def _automatePfield(self,
                         param: int | str,
@@ -237,7 +237,7 @@ class BaseSchedEvent(ABC):
         else:
             raise KeyError(f"Unknown parameter '{param}', supported parameters: {self.dynamicParamNames()}")
 
-    def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
+    def dynamicParamNames(self, aliases=False) -> frozenset[str]:
         """
         The set of all dynamic parameters accepted by this event
 
@@ -248,8 +248,7 @@ class BaseSchedEvent(ABC):
         dynparams = set(p for p in params if p.startswith('k'))
         if aliases and (_aliases := self.aliases()):
             dynparams |= _aliases.keys()
-            if not aliased:
-                dynparams.difference_update(_aliases.values())
+            dynparams.difference_update(_aliases.values())
         return frozenset(dynparams)
 
     def aliases(self) -> dict[str, str]:
@@ -269,15 +268,13 @@ class BaseSchedEvent(ABC):
         orig = self.aliases().get(param)
         return orig if orig is not None else default
 
-    def pfieldNames(self, aliases=True, aliased=False) -> frozenset[str]:
+    def pfieldNames(self, aliases=False) -> frozenset[str]:
         """
         Returns a set of all named pfields
 
         Args:
-            aliases: if True, included aliases for pfields (if applicable)
-            aliased: if True, include the aliased names. Otherwise if aliases
-                are defined and included (aliases=True), the original names
-                will be excluded
+            aliases: if True, use aliases for pfields (if applicable). An
+                alias shadows the original param
 
         Returns:
             a set with the all pfield names.
@@ -285,13 +282,12 @@ class BaseSchedEvent(ABC):
         """
         raise NotImplementedError
 
-    def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
+    def controlNames(self, aliases=False) -> frozenset[str]:
         """
         The names of all controls
 
         Args:
             aliases: if True, included control names aliases (if applicable)
-            aliased: if True, include the aliased names
 
         Returns:
             the names of all controls. Returns an empty set if this event
@@ -299,7 +295,7 @@ class BaseSchedEvent(ABC):
         """
         raise NotImplementedError
 
-    def paramNames(self, aliases=True, aliased=False) -> frozenset[str]:
+    def paramNames(self, aliases=False) -> frozenset[str]:
         """
         Set of all named parameters
 
@@ -308,8 +304,8 @@ class BaseSchedEvent(ABC):
             :meth:`~BaseEvent.dynamicParams`, :meth:`~BaseEvent.set`,
             :meth:`~BaseEvent.automate`
         """
-        pargs = self.pfieldNames(aliases=aliases, aliased=aliased)
-        tableargs = self.controlNames(aliases=aliases, aliased=aliased)
+        pargs = self.pfieldNames(aliases=aliases)
+        tableargs = self.controlNames(aliases=aliases)
         if pargs and tableargs:
             return pargs | tableargs
         elif pargs:
@@ -355,7 +351,7 @@ class BaseSchedEvent(ABC):
         instrspecs = self.paramSpecs()
         if instrspecs:
             specdict.update(instrspecs)
-        dynparams = self.dynamicParamNames(aliases=False, aliased=True)
+        dynparams = self.dynamicParamNames(aliases=False)
         for param in dynparams:
             value = self.paramValue(param)
             if spec := specdict.get(param):

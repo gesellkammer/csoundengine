@@ -586,7 +586,7 @@ class Instr:
         return orig if orig is not None else default
 
     @cache
-    def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
+    def controlNames(self, aliases=False) -> frozenset[str]:
         """
         Set of names of the controls in this instr
 
@@ -599,12 +599,11 @@ class Instr:
             for name in self.controls.keys():
                 if alias := self._argToAlias.get(name):
                     names.add(alias)
-                    if not aliased:
-                        names.remove(name)
+                    names.remove(name)
         return frozenset(names)
 
     @cache
-    def dynamicParamNames(self, aliases=True, aliased=False
+    def dynamicParamNames(self, aliases=False
                           ) -> frozenset[str]:
         """
         Set of all dynamic parameters accepted by this Instr
@@ -616,11 +615,11 @@ class Instr:
         Returns:
             a set of the dynamic (modifiable) parameters accepted by this Instr
         """
-        dynparams = self.dynamicParams(aliases=aliases, aliased=aliased)
+        dynparams = self.dynamicParams(aliases=aliases)
         return frozenset(dynparams.keys())
 
     @cache
-    def dynamicPfields(self, aliases=True, aliased=False) -> dict[str, float]:
+    def dynamicPfields(self, aliases=False) -> dict[str, float]:
         """
         The dynamic pfields in this instr
 
@@ -644,8 +643,7 @@ class Instr:
             for alias, realname in self.aliases.items():
                 if realname in pfields:
                     pfields[alias] = pfields[realname]
-                    if not aliased:
-                        pfields.pop(realname, None)
+                    pfields.pop(realname, None)
 
         # We know that pfields cannot hold any string since we are selecting by 'k' prefix
         return pfields   # type: ignore
@@ -680,7 +678,7 @@ class Instr:
         return frozenset(pfields)
 
     @cache
-    def dynamicParams(self, aliases=True, aliased=False
+    def dynamicParams(self, aliases=False
                       ) -> dict[str, float]:
         """
         A dict with all dynamic parameters defined in this instr
@@ -708,20 +706,18 @@ class Instr:
             params = params.copy()
             for alias, realname in self.aliases.items():
                 params[alias] = params[realname]
-                if not aliased:
-                    del params[realname]
+                del params[realname]
         return params
 
-    def paramNames(self, aliases=True, aliased=False
+    def paramNames(self, aliases=False
                    ) -> frozenset[str]:
         """
         All parameter names
         """
-        pfields = self.pfieldNames(aliases=aliases, aliased=aliased)
+        pfields = self.pfieldNames(aliases=aliases)
         return frozenset(pfields | self.controlNames()) if self.controls else pfields
 
-    # @cache
-    def pfieldNames(self, aliases=True, aliased=False
+    def pfieldNames(self, aliases=False
                     ) -> frozenset[str]:
         """
         The set of named pfields declared in this instrument
@@ -740,8 +736,7 @@ class Instr:
             for alias, realname in self.aliases.items():
                 if realname in pfields:
                     pfields.add(alias)
-                    if not aliased:
-                        pfields.remove(realname)
+                    pfields.remove(realname)
         return frozenset(pfields)
 
     def paramValue(self, param: str) -> float | str | None:
@@ -753,7 +748,7 @@ class Instr:
         return defaults[param2]
 
     @cache
-    def paramDefaultValues(self, aliases=True, aliased=False) -> dict[str, float]:
+    def paramDefaultValues(self, aliases=False) -> dict[str, float]:
         """
         A dict mapping named parameters to their default values
 
@@ -793,8 +788,7 @@ class Instr:
         if self.aliases and aliases:
             for alias, realname in self.aliases.items():
                 params[alias] = params[realname]
-                if not aliased:
-                    del params[realname]
+                del params[realname]
 
         return params
 
@@ -811,8 +805,8 @@ class Instr:
             parameter to its given value
         """
         return instrtools.distributeParams(params=params,
-                                           pfieldNames=self.pfieldNames(aliases=True, aliased=True),
-                                           controlNames=self.controlNames(aliases=True, aliased=True))
+                                           pfieldNames=self.pfieldNames(),
+                                           controlNames=self.controlNames())
 
     def pfieldName(self, index: int, alias=True) -> str:
         """

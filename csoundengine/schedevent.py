@@ -224,24 +224,21 @@ class SchedEvent(BaseSchedEvent):
         self._instr = instr
         return instr
 
-    def paramNames(self, aliases=True, aliased=False) -> frozenset[str]:
-        return self.instr.paramNames(aliases=aliases, aliased=aliased)
+    def paramNames(self, aliases=False) -> frozenset[str]:
+        return self.instr.paramNames(aliases=aliases)
 
-    def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
+    def dynamicParamNames(self, aliases=False) -> frozenset[str]:
         """
         The set of all dynamic parameters accepted by this Synth
 
         Args:
             aliases: if True, include aliases
-            aliased: include the original names of parameters which have an alias. If both
-                aliases and aliased params are included, there are two names to access
-                the same parameter
 
         Returns:
             a set of the dynamic (modifiable) parameters accepted by this synth
         """
         instr = self.instr
-        return instr.dynamicParamNames(aliases=aliases, aliased=aliased) if instr else EMPTYSET
+        return instr.dynamicParamNames(aliases=aliases) if instr else EMPTYSET
 
     def automate(self,
                  param: str,
@@ -252,8 +249,8 @@ class SchedEvent(BaseSchedEvent):
                  ) -> float:
         param = self.unaliasParam(param, param)
         if self.parent is None:
-            if param not in (params := self.instr.dynamicParams(aliased=True)):
-                raise KeyError(f"Unknown parameter '{param}' for {self}. Possible parameters: {params}")
+            if param not in self.instr.aliases and param not in self.instr.paramNames():
+                raise KeyError(f"Unknown parameter '{param}' for {self}. Possible parameters: {self.instr.paramNames()}")
             if isinstance(pairs, tuple) and len(pairs) == 2 and isinstance(pairs[0], np.ndarray):
                 ts, values = pairs
                 assert isinstance(values, np.ndarray) and isinstance(ts, np.ndarray)
@@ -286,11 +283,15 @@ class SchedEvent(BaseSchedEvent):
         else:
             self.parent.unsched(self, delay=delay)
 
-    def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
-        return self.instr.controlNames(aliases=aliases, aliased=aliased)
+    def controlNames(self, aliases=False) -> frozenset[str]:
+        return self.instr.controlNames(aliases=aliases)
 
-    def pfieldNames(self, aliases=True, aliased=False) -> frozenset[str]:
-        return self.instr.pfieldNames(aliases=aliases, aliased=aliased)
+    def isPfield(self, param: str) -> bool:
+        pfields = self.instr.pfieldNames()
+        return param in pfields and (param2 := self.aliases().get(param)) is not None and param2 in pfiels
+
+    def pfieldNames(self, aliases=False) -> frozenset[str]:
+        return self.instr.pfieldNames(aliases=aliases)
 
     def paramValue(self, param: str) -> float | str | None:
         param = self.unaliasParam(param, param)
@@ -343,7 +344,7 @@ class SchedEventGroup(BaseSchedEvent):
     def _setPfield(self, param: str, value: float, delay=0.) -> None:
         count = 0
         for ev in self:
-            if param in ev.pfieldNames(aliased=True):
+            if param in ev.pfieldNames(aliases=True):
                 ev._setPfield(delay=delay, param=param, value=value)
                 count += 1
         if count == 0:
@@ -363,7 +364,7 @@ class SchedEventGroup(BaseSchedEvent):
     def paramNames(self, aliases=True, aliased=False) -> frozenset[str]:
         allparams = set()
         for ev in self:
-            allparams.update(ev.paramNames(aliases=aliases, aliased=aliased))
+            allparams.update(ev.paramNames(aliases=aliases))
         return frozenset(allparams)
 
     def paramValue(self, param: str) -> float | str | None:
@@ -383,10 +384,10 @@ class SchedEventGroup(BaseSchedEvent):
         return None
 
     @cache
-    def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
+    def dynamicParamNames(self, aliases=False) -> frozenset[str]:
         params = set()
         for ev in self:
-            params.update(ev.dynamicParamNames(aliases=aliases, aliased=aliased))
+            params.update(ev.dynamicParamNames(aliases=aliases))
         return frozenset(params)
 
     def __hash__(self):
@@ -413,7 +414,7 @@ class SchedEventGroup(BaseSchedEvent):
             count = 0
             allparams = set()
             for ev in self:
-                evparams = ev.dynamicParamNames(aliases=True, aliased=True)
+                evparams = ev.dynamicParamNames(aliases=True)
                 allparams.update(evparams)
                 if param in evparams:
                     count += 1
@@ -437,7 +438,7 @@ class SchedEventGroup(BaseSchedEvent):
                  ) -> float:
         count = 0
         for ev in self:
-            if param in ev.dynamicParamNames(aliases=True, aliased=True):
+            if param in ev.dynamicParamNames(aliases=True):
                 count += 1
                 ev.automate(param=param, pairs=pairs, mode=mode,
                             delay=delay, overtake=overtake)

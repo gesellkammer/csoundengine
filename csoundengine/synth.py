@@ -416,9 +416,6 @@ class Synth(SchedEvent, ISynth):
     def finished(self) -> bool:
         return self.playStatus() == 'stopped'
 
-    #def pfieldNames(self, aliases=True, aliased=False) -> frozenset[str]:
-    #    return self.instr.pfieldNames(aliases=aliases, aliased=aliased)
-
     def _sliceStart(self) -> int:
         return self.controlsSlot * self.session.maxDynamicArgs
 
@@ -712,10 +709,10 @@ class SynthGroup(BaseSchedEvent):
         return synthids
 
     @cache
-    def dynamicParamNames(self, aliases=True, aliased=False) -> set[str]:
+    def dynamicParamNames(self, aliases=False) -> set[str]:
         out: set[str] = set()
         for synth in self:
-            dynamicParams = synth.dynamicParamNames(aliases=aliases, aliased=aliased)
+            dynamicParams = synth.dynamicParamNames(aliases=aliases)
             out.update(dynamicParams)
         return out
 
@@ -728,10 +725,10 @@ class SynthGroup(BaseSchedEvent):
         return out
 
     @cache
-    def pfieldNames(self, aliases=True, aliased=False) -> frozenset[str]:
+    def pfieldNames(self, aliases=False) -> frozenset[str]:
         out: set[str] = set()
         for synth in self:
-            namedPargs = synth.pfieldNames(aliases=aliases, aliased=aliased)
+            namedPargs = synth.pfieldNames(aliases=aliases)
             if namedPargs:
                 out.update(namedPargs)
         return frozenset(out)
@@ -781,7 +778,7 @@ class SynthGroup(BaseSchedEvent):
             synthids.append(synthid)
         if all(synthid == 0 for synthid in synthids):
             raise KeyError(f"Parameter '{param}' not known. Possible parameters: "
-                           f"{self.dynamicParamNames(aliases=True, aliased=True)}")
+                           f"{self.paramNames()}")
         return synthids
 
     def _automatePfield(self,
@@ -954,7 +951,7 @@ class SynthGroup(BaseSchedEvent):
     def _setTable(self, param: str, value: float, delay=0) -> None:
         count = 0
         for synth in self:
-            if param in synth.dynamicParamNames(aliases=True, aliased=True):
+            if param in synth.aliases() or param in synth.dynamicParamNames(aliases=True):
                 synth._setTable(param=param, value=value, delay=delay)
                 count += 1
         if count == 0:
@@ -980,20 +977,20 @@ class SynthGroup(BaseSchedEvent):
     def _setPfield(self, param: str, value: float, delay=0.) -> None:
         count = 0
         for synth in self.synths:
-            if param in synth.instr.pfieldNames(aliases=False) and synth.playing():
+            if synth.instr.pfieldIndex(param) is not None and synth.playing():
                 synth._setPfield(param=param, value=value, delay=delay)
                 count += 1
         if count == 0:
             raise KeyError(f"Parameter {param} unknown. "
-                           f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
+                           f"Possible parameters: {self.dynamicParamNames()}")
 
-    def controlNames(self, aliases=True, aliased=False) -> set[str]:
+    def controlNames(self, aliases=False) -> set[str]:
         """
         Returns a set of available table named parameters for this group
         """
         allparams = set()
         for synth in self:
-            params = synth.controlNames(aliases=aliases, aliased=aliased)
+            params = synth.controlNames(aliases=aliases)
             if params:
                 allparams.update(params)
         return allparams
