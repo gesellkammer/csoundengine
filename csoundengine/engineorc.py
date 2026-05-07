@@ -18,7 +18,7 @@ gi__responses       ftgen  ${responses}, 0, ${numTokens}, -2, 0
 gi__tokenToInstrnum ftgen ${tokenToInstrnum}, 0, ${maxNumInstrs}, -2, 0
 gi__soundfontIndexes dict_new "str:float"
 gi__soundfontIndexCounter init 1000
-gi__builtinInstrs dict_new "str:float", "notifyDealloc", ${notifyDealloc}
+gi__builtinInstrs dict_new "str:float", "notifyDealloc", ${notifyDealloc}, "notifyDeallocOSC", ${notifyDeallocOSC}
 
 chn_k "_soundfontPresetCount", 3
 
@@ -87,11 +87,12 @@ opcode sendsync, 0, ii
 endop
 
 instr ${notifyDealloc}
+    iunused = p5
     outvalue "__dealloc__", p4
     turnoff
 endin
 
-instr ${notifyDeallocOsc}
+instr ${notifyDeallocOSC}
     ; p4=p1, p5=port
     OSCsend 1, "127.0.0.1", p5, "/dealloc", "d", p4
     turnoff

@@ -1237,29 +1237,56 @@ class Session(AbstractRenderer):
 
     @staticmethod
     @cache
-    def defaultInstrBody(instr: Instr) -> str:
-        body = instr._preprocessedBody
-        parts = []
-        docstring, body = csoundparse.splitDocstring(body)
-        if docstring:
-            parts.append(docstring)
+    def defaultInstrBody(instr: Instr,
+                         notificationPort: int = 0,
+                         deallocInstr: int = 0
+                         ) -> str:
+        """
+        Generate the body for a given instrument
+
+        Args:
+            instr: the instrument itself
+            notificationPort: if given, an OSC port to use when notifying the
+                end of the synth for this instr
+            deallocInstr: if given, the instr to schedule when a synth from
+                this instr is finished
+
+        Returns:
+            the full body of the instrument as str
+        """
+        parts: list[str] = []
+        lines = instr.parsedCode.lines
+        bodystart = csoundparse.firstLineWithoutComments(lines)
+
+        if bodystart is None:
+            raise ValueError(f"Invalid instrument {instr.name}:\n{instr._preprocessedBody}")
+
+        if bodystart > 0:
+            parts.extend(lines[0:bodystart])
 
         if instr.controls:
             code = _namedControlsGenerateCode(instr.controls)
             parts.append(code)
 
         if instr.pfieldIndexToName:
-            pfieldstext = instrtools.pfieldsGenerateCode(instr.pfieldIndexToName)
+            pfieldstext, body, docstring = instrtools.generatePfieldsCode(instr.parsedCode, instr.pfieldIndexToName)
             if pfieldstext:
                 parts.append(pfieldstext)
+
+        body = "\n".join(lines[bodystart:])
         parts.append(body)
-        parts.append('atstop dict_get:i(gi__builtinInstrs, "notifyDealloc"), 0, 0, p1')
+        if not deallocInstr:
+            _, instrmap = engineorc.makeOrc()
+            # We could also use dict_get, like atstop dict_get:i(gi__builtinInstrs, "notifyDealloc"), ...
+            deallocInstr = instrmap['notifyDeallocOSC' if notificationPort else 'notifyDealloc']
+
+        parts.append(f'atstop {deallocInstr}, 0.01, 0.01, p1, {notificationPort}')
+
         if instr.controls:
             parts.append('__exit:')
-        out = _textlib.joinPreservingIndentation(parts)
-        return textwrap.dedent(out)
+        out = textwrap.dedent(_textlib.joinPreservingIndentation(parts))
+        return out
 
-    @cache
     def generateInstrBody(self, instr: Instr) -> str:
         """
         Generate the actual body for a given instr
@@ -1275,39 +1302,15 @@ class Session(AbstractRenderer):
             the generated body. This is the text which must be
             wrapped between instr/endin
         """
-        parts: list[str] = []
-        # csoundparse.firstLineWithoutComments()
-        lines = instr.parsedCode.lines
-        bodystart = csoundparse.firstLineWithoutComments(lines)
-        if bodystart is None:
-            raise ValueError(f"Invalid instrument {instr.name}:\n{instr._preprocessedBody}")
-        if bodystart > 0:
-            parts.extend(lines[0:bodystart])
-
-        if instr.controls:
-            code = _namedControlsGenerateCode(instr.controls)
-            parts.append(code)
-
-        if instr.pfieldIndexToName:
-            pfieldstext, body, docstring = instrtools.generatePfieldsCode(instr.parsedCode, instr.pfieldIndexToName)
-            if pfieldstext:
-                parts.append(pfieldstext)
-        body = "\n".join(lines[bodystart:])
-        parts.append(body)
-        if not self._notificationUseOsc:
-            # Use outvalue for deallocation
-            deallocInstr = self.engine._builtinInstrs['notifyDealloc']
-            parts.append(f'atstop {deallocInstr}, 0.01, 0.01, p1')
+        if self._notificationUseOsc:
+            port = self._notificationOscPort
+            deallocInstrnum = self.engine._builtinInstrs['notifyDeallocOSC']
         else:
-            # Use osc
-            assert self._notificationOscPort > 0
-            deallocInstr = self.engine._builtinInstrs['notifyDeallocOsc']
-            parts.append(f'atstop {deallocInstr}, 0.01, 0, p1, {self._notificationOscPort}')
-
-        if instr.controls:
-            parts.append('__exit:')
-        out = textwrap.dedent(_textlib.joinPreservingIndentation(parts))
-        return out
+            port = 0
+            deallocInstrnum = self.engine._builtinInstrs['notifyDealloc']
+        return self.defaultInstrBody(instr=instr,
+                                     notificationPort=port,
+                                     deallocInstr=deallocInstrnum)
 
     def sched(self,
               instrname: str,
@@ -1508,7 +1511,7 @@ class Session(AbstractRenderer):
         else:
             self._dynargsArray[idx] = value
 
-    def activeSynths(self, sortby="start") -> list[Synth]:
+    def activeSynths(self, sort=True) -> list[Synth]:
         """
         Returns a list of playing synths
 
@@ -1519,7 +1522,7 @@ class Session(AbstractRenderer):
             a list of active :class:`Synths<csoundengine.synth.Synth>`
         """
         synths = [synth for synth in self._synths.values() if synth.playStatus() != 'stopped']
-        if sortby == "start":
+        if sort:
             synths.sort(key=lambda synth: synth.start)
         return synths
 
@@ -1536,8 +1539,8 @@ class Session(AbstractRenderer):
         This will stop an already playing synth or a synth
         which has been scheduled in the future
 
-        Normally the user should not call :meth:`.unsched`. This method
-        is called by a :class:`~csoundengine.synth.Synth` when
+        Normally the user does not need to call this method: it is
+        called by a :class:`~csoundengine.synth.Synth` when
         :meth:`~csoundengine.synth.Synth.stop` is called.
 
         Args:
