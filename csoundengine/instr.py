@@ -371,7 +371,7 @@ class Instr:
         self.pfieldIndexToValue: Mapping[int, float | str] = pargsIndexToValue
         "Dict mapping pfield index to its default value"
 
-        self.aliases = aliases if aliases is not None else EMPTYDICT
+        self.aliases: dict[str, str] = aliases if aliases is not None else EMPTYDICT
         """Maps alias argument names to their real argument names
 
         Aliased parameters can be pfields or named controls"""
@@ -610,7 +610,6 @@ class Instr:
 
         Args:
             aliases: include aliases
-            aliased: include parameters which have an alias (implies aliases)
 
         Returns:
             a set of the dynamic (modifiable) parameters accepted by this Instr
@@ -628,7 +627,6 @@ class Instr:
 
         Args:
             aliases: include aliases
-            aliased: include parameters which have an alias (implies aliases)
 
         Returns:
             a dict mapping pfield name to default value.
@@ -724,7 +722,7 @@ class Instr:
 
         Args:
             aliases: include aliases
-            aliased: include parameters which have an alias (implies aliases)
+
         Returns:
              a set with the named pfields defined in this instr
         """
@@ -741,7 +739,7 @@ class Instr:
 
     def paramValue(self, param: str) -> float | str | None:
         param2 = self.unaliasParam(param, param)
-        defaults = self.paramDefaultValues(aliased=True)
+        defaults = self.paramDefaultValues()
         if param2 not in defaults:
             raise KeyError(f"Unknown parameter '{param}'. "
                            f"Possible parameters: {defaults.keys()}")
@@ -758,7 +756,6 @@ class Instr:
 
         Args:
             aliases: included aliases
-            aliased: include parameters which have an alias
 
         Returns:
             a dict of named dynamic parameters to this instr and their associated

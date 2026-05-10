@@ -975,12 +975,13 @@ class SynthGroup(BaseSchedEvent):
         return None
 
     def _setPfield(self, param: str, value: float, delay=0.) -> None:
-        count = 0
+        found = False
         for synth in self.synths:
-            if synth.instr.pfieldIndex(param) is not None and synth.playing():
-                synth._setPfield(param=param, value=value, delay=delay)
-                count += 1
-        if count == 0:
+            if synth.instr.pfieldIndex(param) is not None:
+                if synth.playStatus() != 'stopped':
+                    synth._setPfield(param=param, value=value, delay=delay)
+                found = True
+        if not found:
             raise KeyError(f"Parameter {param} unknown. "
                            f"Possible parameters: {self.dynamicParamNames()}")
 

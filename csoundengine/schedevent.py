@@ -353,15 +353,16 @@ class SchedEventGroup(BaseSchedEvent):
     def _setTable(self, param: str, value: float, delay=0.) -> None:
         count = 0
         for ev in self:
-            if param in ev.controlNames(aliases=True, aliased=True):
+            if param in ev.controlNames(aliases=True):
                 ev._setTable(param=param, value=value, delay=delay)
                 count += 1
         if count == 0:
             raise KeyError(f"Parameter '{param}' unknown. "
-                           f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
+                           f"Possible parameters: {self.dynamicParamNames()}, "
+                           f"aliases: {self.aliases()}")
 
     @cache
-    def paramNames(self, aliases=True, aliased=False) -> frozenset[str]:
+    def paramNames(self, aliases=True) -> frozenset[str]:
         allparams = set()
         for ev in self:
             allparams.update(ev.paramNames(aliases=aliases))
@@ -394,13 +395,13 @@ class SchedEventGroup(BaseSchedEvent):
         return hash(tuple(hash(ev) for ev in self))
 
     @cache
-    def controlNames(self, aliases=True, aliased=False) -> frozenset[str]:
+    def controlNames(self, aliases=True) -> frozenset[str]:
         """
         Returns a set of available table named parameters for this group
         """
         allparams = set()
         for event in self:
-            params = event.controlNames(aliases=aliases, aliased=aliased)
+            params = event.controlNames(aliases=aliases)
             if params:
                 allparams.update(params)
         return frozenset(allparams)
@@ -444,5 +445,5 @@ class SchedEventGroup(BaseSchedEvent):
                             delay=delay, overtake=overtake)
         if count == 0:
             raise KeyError(f"Param '{param}' not known by any events in this group. "
-                           f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
+                           f"Possible parameters: {self.dynamicParamNames()}, aliases: {self.aliases()}")
         return 0.
