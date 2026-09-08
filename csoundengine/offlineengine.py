@@ -176,6 +176,15 @@ class OfflineEngine(_EngineBase):
             If no encoding is given a suitable default for the sample format is chosen.
 
 
+    .. note::
+
+        These env variables can customize the engine:
+
+        * LIBCSOUNDPATH: points to a valid libcsound dll. This can only be called once
+          within a session
+        * CSOUND7DIR64 / CSOUND6DIR64: path to the folder containing built-in plugins
+        * CS_USER_PLUGINDIR: path to the folder where user (external) plugins are placed
+
     """
     def __init__(self,
                  sr=44100,
@@ -192,7 +201,8 @@ class OfflineEngine(_EngineBase):
                  sampleAccurate=False,
                  encoding='',
                  nosound=False,
-                 commandlineOptions: list[str] | None = None):
+                 commandlineOptions: list[str] | None = None,
+                 opcodeDir=''):
         super().__init__(sr=sr,
                          ksmps=ksmps,
                          a4=a4 or config['A4'],
@@ -250,6 +260,8 @@ class OfflineEngine(_EngineBase):
         if commandlineOptions:
             self.options.extend(commandlineOptions)
 
+        self._opcodeDir = opcodeDir
+
         self.csound: libcsound.Csound
 
         self._start()
@@ -277,7 +289,7 @@ class OfflineEngine(_EngineBase):
     def _start(self) -> None:
         import libcsound
         self.version = libcsound.VERSION
-        self.csound = csound = libcsound.Csound()
+        self.csound = csound = libcsound.Csound(opcodeDir=self._opcodeDir)
         for option in self.options:
             csound.setOption(option)
         if not self.nosound:

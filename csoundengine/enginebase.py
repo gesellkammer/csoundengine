@@ -62,13 +62,12 @@ class TableInfo:
 
 
 def _channelMode(kind: str) -> int:
-    import libcsound
     if kind == 'r':
-        return libcsound.CSOUND_INPUT_CHANNEL
+        return 16
     elif kind == 'w':
-        return libcsound.CSOUND_INPUT_CHANNEL
+        return 32
     elif kind == 'rw':
-        return libcsound.CSOUND_INPUT_CHANNEL | libcsound.CSOUND_OUTPUT_CHANNEL
+        return 16 | 32
     else:
         raise ValueError(f"Expected r, w or rw, got {kind}")
 

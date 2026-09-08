@@ -48,7 +48,9 @@ _cache: dict[str, Any] = {
 _audioDeviceRegex = r"(\d+):\s((?:adc|dac)\d+)\s*\((.*)\)(?:\s+\[ch:(\d+)\])?"
 
 
-def midiDevices(backend='portmidi') -> tuple[list[MidiDevice], list[MidiDevice]]:
+def midiDevices(backend='portmidi',
+                opcodedir=''
+                ) -> tuple[list[MidiDevice], list[MidiDevice]]:
     """
     Returns input and output midi devices for the given backend
 
@@ -71,7 +73,7 @@ def midiDevices(backend='portmidi') -> tuple[list[MidiDevice], list[MidiDevice]]
     ========   ===========================
     """
     import libcsound
-    csound = libcsound.Csound()
+    csound = libcsound.Csound(opcodeDir=opcodedir)
     csound.setOption(f"-+rtmidi={backend}")
     csound.setOption("-odac")
     csound.start()
@@ -146,7 +148,7 @@ class AudioBackend:
         indevices, outdevices = getAudioDevices(backend=self.name)
         return bool(indevices or outdevices)
 
-    def getSystemSr(self) -> int | None:
+    def getSystemSr(self, opcodedir='') -> int | None:
         """
         Get the system samplerate for this backend, if available
 
@@ -156,7 +158,7 @@ class AudioBackend:
             logger.debug(f"Backend {self.name} does not have a system sr, returning default")
             return 44100
         import libcsound
-        cs = libcsound.Csound()
+        cs = libcsound.Csound(opcodeDir=opcodedir)
         cs.setOption("-odac")
         cs.setOption(f"-+rtaudio={self.name}")
         ok = cs.start()
@@ -176,7 +178,8 @@ class AudioBackend:
     def audioDevices(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
         return self.audioDevicesViaAPI()
 
-    def audioDevicesViaAPI(self) -> tuple[list[AudioDevice], list[AudioDevice]]:
+    def audioDevicesViaAPI(self, opcodedir=''
+                           ) -> tuple[list[AudioDevice], list[AudioDevice]]:
         """
         Query csound for audio devices for this backend
 
@@ -185,7 +188,7 @@ class AudioBackend:
         """
         logger.info(f"Querying csound's audio devices for backend {self.name}")
         import libcsound
-        cs = libcsound.Csound()
+        cs = libcsound.Csound(opcodeDir=opcodedir)
         cs.createMessageBuffer()
         for opt in ['-+rtaudio='+self.name, "-m16", "-odac", "--use-system-sr"]:
             cs.setOption(opt)
@@ -785,12 +788,10 @@ def installedOpcodes(cached=True, opcodedir: str = '') -> set[str]:
 def _csoundGetInfoViaAPI(opcodedir='') -> dict:
     global _cache
     import libcsound
-    cs = libcsound.Csound()
+    cs = libcsound.Csound(opcodeDir=opcodedir)
     cs.setOption("-d")
     cs.setOption("--nosound")
     cs.createMessageBuffer(echo=False)
-    if opcodedir:
-        cs.setOption(f'--opcode-dir={opcodedir}')
     version = cs.version()
     vs = str(version)
     patch = int(vs[-1])
@@ -806,23 +807,6 @@ def _csoundGetInfoViaAPI(opcodedir='') -> dict:
     return {'opcodedefs': opcodes,
             'opcodes': opcodenames,
             'versionTriplet': versionTriplet}
-
-
-# def _opcodesList(opcodedir='') -> list[str]:
-#     options = ["-z"]
-#     if opcodedir:
-#         options.append(f'--opcode-dir={opcodedir}')
-#     s = csoundSubproc(options)
-#     assert s.stderr is not None
-#     lines = s.stderr.readlines()
-#     allopcodes = []
-#     for line in lines:
-#         if line.startswith(b"end of score"):
-#             break
-#         opcodes = line.decode('utf8').split()
-#         if opcodes:
-#             allopcodes.extend(opcodes)
-#     return allopcodes
 
 
 def saveAsGen23(data: Sequence[float] | np.ndarray,

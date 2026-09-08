@@ -246,6 +246,16 @@ class Engine(_EngineBase):
         config. Default values can be configured via `config.edit()`, see
         `Configuration <https://csoundengine.readthedocs.io/en/latest/config.html>`_
 
+    .. note::
+
+        These env variables can customize the engine:
+
+        * LIBCSOUNDPATH: points to a valid libcsound dll. This can only be called once
+          within a session
+        * CSOUND7DIR64 / CSOUND6DIR64: path to the folder containing built-in plugins
+        * CS_USER_PLUGINDIR: path to the folder where user (external) plugins are placed
+
+
     Example
     -------
 
@@ -315,7 +325,8 @@ class Engine(_EngineBase):
                  busSupport=False,
                  nosound=False,
                  useProcessQueue=False,
-                 suppressVersion=True
+                 suppressVersion=True,
+                 opcodeDir=''
     ):
         import libcsound as lcs
         from . import csoundlib
@@ -549,7 +560,7 @@ class Engine(_EngineBase):
         self.udpPort = 0
         "UDP port used (0 if no udp port is active)"
 
-        self.csound: lcs.Csound = lcs.Csound()
+        self.csound: lcs.Csound = lcs.Csound(opcodeDir=opcodeDir)
         "The csound object"
 
         self.autosync: bool = autosync

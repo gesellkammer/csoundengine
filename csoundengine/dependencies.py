@@ -258,26 +258,11 @@ def installPlugins() -> bool:
         logger.error(f"Exception {e} while trying to install plugins via risset")
         return False
 
-    # logger.info("Installing plugins from distribution")
-    # try:
-    #     _installPluginsFromDist(apiversion=majorversion)
-    #     ok = pluginsInstalled(cached=False)
-    #     if ok:
-    #         logger.info("Plugins installed successfully from distribution")
-    #     else:
-    #         logger.error("Plugins where installed but do not seem to be detected")
-    # except Exception as e:
-    #     logger.error(f"Exception {e} while trying to install plugins from distribution")
-    #     return False
-    # return True
-
 
 def _checkDependencies(fix=False, quiet=False) -> str:
     """
     Returns an error message on failure, or an empty string on success
     """
-    if not csoundBinaryInPath():
-        logger.error("csound not found in the path. See https://csound.com/download.html. Some functionality might not be available")
     from . import csoundlib
     version = csoundlib.getVersion(useApi=True)
 
