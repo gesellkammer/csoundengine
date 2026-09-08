@@ -401,6 +401,8 @@ class _AlsaBackend(AudioBackend):
 
 @_functools.cache
 def _getAvailableAudioBackends() -> dict[str, AudioBackend]:
+    # This is not correct, we should actually check which plugins
+    # are available
     _backendPortaudioCallback = _PortaudioBackend('callback')
 
     backends: dict[str, AudioBackend] = {
@@ -414,7 +416,6 @@ def _getAvailableAudioBackends() -> dict[str, AudioBackend]:
 
     if sys.platform == 'linux':
         backends['alsa'] = _AlsaBackend()
-        backends['pulseaudio'] = _PulseAudioBackend()
     elif sys.platform == 'darwin':
         auhal = AudioBackend('auhal', alwaysAvailable=True, hasSystemSr=True,
                              needsRealtime=False, longname="coreaudio",
@@ -439,17 +440,7 @@ def findCsound() -> str | None:
     return csound
 
 
-def _getVersionViaApi() -> tuple[int, int, int]:
-    """
-    Returns the csound version as tuple (major, minor, patch)
-    """
-    if (version := _cache.get('versionTriplet')) is not None:
-        return version
-    return _csoundGetInfoViaAPI()['versionTriplet']
-
-
-@_functools.cache
-def getVersion(useApi=True) -> tuple[int, int, int | str]:
+def getVersion(opcodedir='') -> tuple[int, int, int | str]:
     """
     Returns the csound version as tuple (major, minor, patch)
 
@@ -464,34 +455,7 @@ def getVersion(useApi=True) -> tuple[int, int, int | str]:
     Raises RuntimeError if csound is not present or its version
     can't be parsed
     """
-    if useApi:
-        return _getVersionViaApi()
-
-    csound = findCsound()
-    if not csound:
-        raise IOError("Csound not found")
-    cmd = '{csound} --version'.format(csound=csound).split()
-    proc = _subprocess.Popen(cmd, stderr=_subprocess.PIPE)
-    proc.wait()
-    if proc.stderr is None:
-        return (0, 0, 0)
-    outputbytes = proc.stderr.read()
-    if not outputbytes:
-        raise RuntimeError("Could not read csounds output")
-    output = outputbytes.decode('utf8')
-    lines = output.splitlines()
-    for line in lines:
-        if match := _re.search(r"Csound\s+version\s+(\d+)\.(\d+)(\.\w+)?", line):
-            major = int(match.group(1))
-            minor = int(match.group(2))
-            patch = match.group(3)
-            if patch is None:
-                patch = 0
-            elif patch.isdigit():
-                patch = int(patch)
-            return (major, minor, patch)
-    else:
-        raise RuntimeError(f"Did not find a csound version, csound output: '{output}'")
+    return _csoundGetInfoViaAPI(opcodedir=opcodedir)['versionTriplet']
 
 
 def csoundSubproc(args: list[str], piped=True, wait=False) -> _subprocess.Popen:
@@ -556,28 +520,6 @@ def getSystemSr(backend: str) -> float | None:
     if not b:
         raise ValueError(f"backend {backend} not known")
     return b.getSystemSr()
-
-
-# def _getJackSrViaClient() -> float:
-#     import jack
-#     c = jack.Client("query")
-#     sr = c.samplerate
-#     c.close()
-#     return sr
-
-
-# def _getCsoundSystemSr(backend: str) -> float:
-#     if backend not in {'jack', 'auhal'}:
-#         raise ValueError(f"backend {backend} does not support system sr")
-#     import libcsound
-#     csound = libcsound.Csound()
-#     csound.setOption(f"-+rtaudio={backend}")
-#     csound.setOption("-odac")
-#     csound.setOption("--use-system-sr")
-#     csound.start()
-#     sr = csound.sr()
-#     csound.stop()
-#     return sr
 
 
 def getDefaultBackend() -> AudioBackend:
@@ -743,6 +685,7 @@ def testCsound(dur=8., nchnls=2, backend='', device="dac", sr=0, ksmps=64,
 sr = {sr}
 ksmps = {ksmps}
 nchnls = {nchnls}
+0dbfs = 1
 
 instr 1
     iperiod = 1
@@ -785,8 +728,8 @@ def installedOpcodes(cached=True, opcodedir: str = '') -> set[str]:
     return _csoundGetInfoViaAPI(opcodedir=opcodedir)['opcodes']
 
 
+@_functools.cache
 def _csoundGetInfoViaAPI(opcodedir='') -> dict:
-    global _cache
     import libcsound
     cs = libcsound.Csound(opcodeDir=opcodedir)
     cs.setOption("-d")
@@ -800,10 +743,8 @@ def _csoundGetInfoViaAPI(opcodedir='') -> dict:
     versionTriplet = (major, minor, patch)
     opcodes = cs.getOpcodes()
     opcodenames = set(opc.name for opc in opcodes)
-    _cache['versionTriplet'] = versionTriplet
-    _cache['opcodes'] = opcodenames
-    _cache['opcodedefs'] = opcodes
     cs.stop()
+    cs.destroy()
     return {'opcodedefs': opcodes,
             'opcodes': opcodenames,
             'versionTriplet': versionTriplet}

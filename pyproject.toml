@@ -48,8 +48,8 @@ dependencies = [
 packages = ["csoundengine"]
 
 
-[tool.setuptools.package-data]
-csoundengine = ['csoundengine/data']
+# [tool.setuptools.package-data]
+# csoundengine = ['csoundengine/data']
 
 
 [project.urls]

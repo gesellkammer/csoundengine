@@ -10,9 +10,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from . import tools
 from .state import state
-from . import csounddefs
 
 
 logger = logging.getLogger("csoundengine.dependencies")
@@ -169,44 +167,6 @@ def _getDownloadsFolder() -> Path:
     return tempdir
 
 
-def _installPluginsFromDist(apiversion=6, codesign=True) -> None:
-    platformid = tools.platformId()
-    rootfolder = Path(os.path.split(__file__)[0])
-    assert rootfolder.exists()
-    globpattern = {
-        'macos': '*.dylib',
-        'windows': '*.dll',
-        'linux': '*.so'
-    }.get(platformid.osname, None)
-    if globpattern is None:
-        raise RuntimeError(f"Platform {platformid} not supported")
-
-    subfolder = str(platformid)
-    pluginspath = rootfolder/f'data/plugins{apiversion}'/subfolder
-    if not pluginspath.exists():
-        raise RuntimeError(f"Could not find own csound plugins. Folder: {pluginspath}")
-    plugins = list(pluginspath.glob(globpattern))
-    if not plugins:
-        logger.error(f"Plugins not found. Plugins folder: '{pluginspath}', "
-                     f"glob patter: '{globpattern}'")
-        raise RuntimeError("Plugins not found")
-    pluginsDest = csounddefs.userPluginsFolder(apiversion=f'{apiversion}.0')
-    logger.info(f"Installing plugins in folder: '{pluginsDest}'")
-    os.makedirs(pluginsDest, exist_ok=True)
-    _copyFiles([plugin.as_posix() for plugin in plugins], pluginsDest, verbose=True)
-    if platformid.osname == 'macos' and codesign:
-        installedBinaries = [os.path.join(pluginsDest, plugin.name)
-                             for plugin in plugins]
-        assert all(os.path.exists(binary) for binary in installedBinaries)
-        try:
-            _codesignBinaries(installedBinaries)
-        except RuntimeError as e:
-            logger.error(f"Could not code-sign the binaries, error: {e}")
-            if platformid.arch == 'arm64':
-                logger.error(f"... The needed plugins will probably not work as is. You can still "
-                             f"manually authorize them via right-click. The paths are: {installedBinaries}")
-
-
 def _installPluginsViaRisset(majorversion: int | None = None) -> bool:
     """
     Tries to install plugins via risset
@@ -259,18 +219,18 @@ def installPlugins() -> bool:
         return False
 
 
-def _checkDependencies(fix=False, quiet=False) -> str:
+def _checkDependencies(fix=False) -> str:
     """
     Returns an error message on failure, or an empty string on success
     """
     from . import csoundlib
-    version = csoundlib.getVersion(useApi=True)
+    version = csoundlib.getVersion()
 
     if version < (6, 16, 0):
         return f"Csound version ({version}) is too old, should be >= 6.16"
 
-    if version[0] >= 7:
-        logger.debug("Csound 7 support is experimental")
+    elif version < (7, 0, 0):
+        logger.info("Support for csound 6 has been deprecated, use at your own risk")
 
     if not pluginsInstalled():
         if fix:
@@ -337,14 +297,3 @@ def checkDependencies(force=True, fix=False) -> bool:
         if not fix:
             logger.error("Missing dependencies might be installed by calling installDependencies()")
     return not errormsg
-
-
-def _codesignBinaries(binaries: list[str]) -> None:
-    """
-    Calls codesign to sign the binaries with adhoc signature
-
-    Raises RuntimeError on fail
-    """
-    import risset
-    logger.warning(f"Codesigning macos binaries: {binaries}")
-    risset.macos_codesign(binaries, signature='-')
