@@ -14,7 +14,8 @@ Interaction with *csound* is through its API using
 `libcsound <https://github.com/csound-plugins/libcsound>`_.
 See the `Csound FLOSS manual <https://flossmanual.csound.com/introduction/preface>`_
 to learn more about csound and its syntax and run examples online. **csoundengine**
-is compatible with any recent version of csound6 (>= 6.16) and csound7
+is compatible with any recent version of csound7 (csound 6 is supported but
+it has been declared EOL)
 
 The source code of this package is hosted at https://github.com/gesellkammer/csoundengine
 

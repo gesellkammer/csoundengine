@@ -297,8 +297,9 @@ Features
   parameters and default values. This makes it very easy to create instruments with
   many parameters. When an instance of such an instrument is scheduled **csoundengine**
   fills the values of any parameter which is not explicitely given with the default
-  value. Any parg can also be modulated in real-time. See :meth:`Engine.setp() <csoundengine.engine.Engine.setp>`
-  and :meth:`Engine.getp() <csoundengine.engine.Engine.getp>`
+  value. Any parg can also be modulated in real-time.
+  See :meth:`Engine.setp() <csoundengine.engine.Engine.setp>`
+
 * **Event ids / Modulation** - in *csoundengine* every event can have a unique id assigned,
   allowing the user to control it during performance, from python or from csound directly.
 * **Informed use of the Csound API** - *csoundengine* uses the most convenient part of the

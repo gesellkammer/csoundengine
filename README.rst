@@ -179,8 +179,13 @@ https://csoundengine.readthedocs.io/en/latest/Installation.html
 Dependencies
 ~~~~~~~~~~~~
 
-* python >= 3.9
-* csound 6 >= 6.17 (https://github.com/csound/csound/releases). Csound 7 is supported and recommended
+* python >= 3.12
+* csound 7 >= 7.0 (csound 6 is supported but it is declared EOL)
+
+.. note::
+    csound only needs to be installed previously on windows at the moment, for
+    the other platforms it is installed automatically if not present
+
 
 .. code-block:: bash
 

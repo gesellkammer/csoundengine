@@ -169,3 +169,41 @@ jobs:
         with:
           name: artifact-csound7-${{ matrix.os }}-${{ matrix.python-version }}-${{ strategy.job-index }}
           path: test/*.wav
+
+  testdeps:
+    name: Check that all dependencies are installed without a system csound
+    # csound is not preinstalled on these runners. Importing libcsound (which
+    # happens when importing csoundengine) is expected to install csound and
+    # its plugins on demand.
+    # ubuntu-latest -> linux x86_64, macos-latest -> macos arm64
+    # (intentionally not linux-arm64 nor windows, where this is not supported)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: ["ubuntu-latest", "macos-latest"]
+        python-version: ["3.12", "3.13"]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: check that csound is not preinstalled
+        run: |
+          if command -v csound; then
+            echo "ERROR: this test expects csound to not be installed beforehand"
+            exit 1
+          fi
+          echo "csound is not preinstalled, good"
+
+      - name: install csoundengine (csound is not installed on purpose)
+        run: |
+          pip install .
+
+      - name: check that all dependencies (csound, plugins) get installed
+        run: |
+          cd test
+          python testdeps.py

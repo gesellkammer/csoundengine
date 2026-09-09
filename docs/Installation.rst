@@ -1,8 +1,7 @@
 Installation
 ============
 
-`csoundengine` needs a python version >= 3.8. For all platforms, the installation is 
-the same::
+For all platforms, the installation is the same::
 
     pip install csoundengine
 
@@ -10,10 +9,7 @@ the same::
 Dependencies
 ------------
 
-**csoundengine** depends on **csound** itself being installed. At the moment the minimal
-version of csound supported is **6.16**. **csound 7**, even if not officially released
-yet, is supported and tested regularly.
-
-For **macos** and **windows**, **csound** can be installed by the provided installers
-(`<https://github.com/csound/csound/releases>`_). For linux, the installation via
-the distribution's package manager is the recommended way.
+on windows, **csoundengine** depends on **csound** being installed. For the other platforms
+it will be installed if it is not present. If you already have csound installed, the
+version detected will be used, but bear in mind that if using csound 7, a recent version
+is needed since the plugins used are compiled against the last development version
