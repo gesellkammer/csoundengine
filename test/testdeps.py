@@ -15,7 +15,7 @@ import shutil
 import platform
 import logging
 
-logging.basicConfig(level=logging.INFO,
+logging.basicConfig(level=logging.DEBUG,
                     format="%(levelname)s %(name)s: %(message)s")
 
 print("python  :", sys.version)

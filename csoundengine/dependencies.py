@@ -175,7 +175,7 @@ def _installPluginsViaRisset(majorversion: int | None = None) -> bool:
     """
     logger.info("Trying to install plugins via risset")
     import risset
-    idx = risset.MainIndex(update=True, majorversion=majorversion)
+    idx = risset.MainIndex(update=True, major_version=majorversion)
     for pluginname in ['else', 'beosc', 'klib']:
         p = idx.plugins.get(pluginname)
         if p is None:
