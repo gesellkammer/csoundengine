@@ -35,12 +35,12 @@ dependencies = [
     "docstring_parser",
     "typing_extensions",
 
-    "libcsound>=0.16.1",
+    "libcsound>=0.17.0",
     "sndfileio>=2.1.1",
     "emlib>=1.20",
     "configdict>=2.10.0",
     "pitchtools>=1.14.0",
-    "risset>=3.5.0",
+    "risset>=3.5.4",
     "sounddevice",
 ]
 

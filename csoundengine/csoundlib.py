@@ -39,12 +39,6 @@ if TYPE_CHECKING:
 logger = _logging.getLogger("csoundengine")
 
 
-_cache: dict[str, Any] = {
-    'opcodes': None,
-    'versionTriplet': None
-}
-
-
 _audioDeviceRegex = r"(\d+):\s((?:adc|dac)\d+)\s*\((.*)\)(?:\s+\[ch:(\d+)\])?"
 
 
@@ -455,7 +449,7 @@ def getVersion(opcodedir='') -> tuple[int, int, int | str]:
     Raises RuntimeError if csound is not present or its version
     can't be parsed
     """
-    return _csoundGetInfoViaAPI(opcodedir=opcodedir)['versionTriplet']
+    return csoundGetInfo(opcodedir=opcodedir)['versionTriplet']
 
 
 def csoundSubproc(args: list[str], piped=True, wait=False) -> _subprocess.Popen:
@@ -721,15 +715,17 @@ def installedOpcodes(cached=True, opcodedir: str = '') -> set[str]:
     Returns:
         a list of all available opcodes
     """
-    if opcodedir:
-        cached = False
-    if cached and _cache.get('opcodes') is not None:
-        return _cache['opcodes']
-    return _csoundGetInfoViaAPI(opcodedir=opcodedir)['opcodes']
+    #if not cached:
+    #    csoundGetInfo.cache_clear()
+    return csoundGetInfo(opcodedir=opcodedir)['opcodes']
 
 
-@_functools.cache
-def _csoundGetInfoViaAPI(opcodedir='') -> dict:
+# @_functools.cache
+def csoundGetInfo(opcodedir='') -> dict:
+    """
+    Returns a dict of {'opcodedefs': list[OpcodeDef], 'opcodes': set[str], 'versionTriplet': (major, minor, patch)}
+
+    """
     import libcsound
     cs = libcsound.Csound(opcodeDir=opcodedir)
     cs.setOption("-d")
@@ -742,9 +738,9 @@ def _csoundGetInfoViaAPI(opcodedir='') -> dict:
     major = int(vs[:-3])
     versionTriplet = (major, minor, patch)
     opcodes = cs.getOpcodes()
-    opcodenames = set(opc.name for opc in opcodes)
     cs.stop()
     cs.destroy()
+    opcodenames = {opc.name.split(".")[0] for opc in opcodes}
     return {'opcodedefs': opcodes,
             'opcodes': opcodenames,
             'versionTriplet': versionTriplet}

@@ -149,13 +149,17 @@ def pluginsInstalled(cached=True) -> bool:
     from . import csoundlib
     installedOpcodes = csoundlib.installedOpcodes(cached=cached)
     neededOpcodes = {
-        "atstop", "pwrite", "pread", "initerror",
-        "dict_new", "dict_set", "dict_get",
-        "pool_gen", "pool_pop", "pool_push", "pool_isfull",
+        "atstop", "pwrite",
+        "dict_new", "pool_gen", "pool_pop", "pool_push",
         'interp1d', 'bisect', 'ftsetparams', 'zeroarray',
         'panstereo'
     }
-    return neededOpcodes.issubset(installedOpcodes)
+    ok = neededOpcodes.issubset(installedOpcodes)
+    if not ok:
+        notfound = neededOpcodes - installedOpcodes
+        logger.debug("Opcodes not found: %s", notfound)
+        logger.debug("Opcodes found: %s...", sorted(installedOpcodes)[:20])
+    return ok
 
 
 def _getDownloadsFolder() -> Path:
@@ -175,7 +179,7 @@ def _installPluginsViaRisset(majorversion: int | None = None) -> bool:
     """
     logger.info("Trying to install plugins via risset")
     import risset
-    idx = risset.MainIndex(update=True, major_version=majorversion)
+    idx = risset.MainIndex(update=True, major_version=majorversion or 7)
     for pluginname in ['else', 'beosc', 'klib']:
         p = idx.plugins.get(pluginname)
         if p is None:
@@ -184,10 +188,12 @@ def _installPluginsViaRisset(majorversion: int | None = None) -> bool:
         elif idx.is_plugin_installed(p):
             logger.debug(f"Plugin '{pluginname}' already installed, skipping")
         else:
+            logger.debug(f"Installing plugin {pluginname}")
             errmsg = idx.install_plugin(p)
             if errmsg:
                 logger.error(f"Error while installing plugin {pluginname}: {errmsg}")
                 return False
+    logger.debug("---- Installed all plugins")
     return True
 
 
@@ -211,8 +217,7 @@ def installPlugins() -> bool:
                                 " listed by csound")
                 from . import csoundlib
                 opcodes = csoundlib.installedOpcodes(cached=False)
-                opcodestr = ', '.join(opcodes)
-                logger.error(f"List of opcodes loaded by csound: {opcodestr}")
+                logger.error("List of opcodes loaded by csound: %s", ', '.join(sorted(opcodes)))
             return False
     except Exception as e:
         logger.error(f"Exception {e} while trying to install plugins via risset")
@@ -224,7 +229,8 @@ def _checkDependencies(fix=False) -> str:
     Returns an error message on failure, or an empty string on success
     """
     from . import csoundlib
-    version = csoundlib.getVersion()
+    info = csoundlib.csoundGetInfo()
+    version = info['versionTriplet']
 
     if version < (6, 16, 0):
         return f"Csound version ({version}) is too old, should be >= 6.16"
@@ -234,7 +240,7 @@ def _checkDependencies(fix=False) -> str:
 
     if not pluginsInstalled():
         if fix:
-            print("** csoundengine: Csound external plugins are not installed or are too old."
+            print("** csoundengine: Csound external plugins are not installed"
                   " I will try to install them now")
             ok = installPlugins()
             if ok:
