@@ -217,7 +217,12 @@ class OfflineEngine(_EngineBase):
         self.numAudioBuses = numAudioBuses if numAudioBuses is not None else config['num_audio_buses']
         self.numControlBuses = numControlBuses if numControlBuses is not None else config['num_control_buses']
         self.includes = includes if includes is not None else []
-        self.encoding = encoding or csounddefs.bestSampleEncodingForExtension(os.path.splitext(self.outfile)[1][1:])
+        if encoding:
+            self.encoding = encoding
+        elif self.outfile:
+            self.encoding = csounddefs.bestSampleEncodingForExtension(os.path.splitext(self.outfile)[1][1:])
+        else:
+            self.encoding = 'float32'
         self.version = 0
 
         self._renderjob: RenderJob | None = None
