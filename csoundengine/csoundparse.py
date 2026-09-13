@@ -129,12 +129,13 @@ def parseOrc(code: str | list[str], keepComments=True) -> list[ParsedBlock]:
         strippedline = line.strip()
         if not strippedline:
             continue
-        if match := re.search(r"\binstr\s+(\d+|[a-zA-Z_]\w+)", line):
+        codeline = strippedline.split(';', 1)[0].strip()
+        if match := re.search(r"\binstr\s+(\d+|[a-zA-Z_]\w*)", codeline):
             context.append('instr')
             block = _OrcBlock(name=match.group(1),
                               startLine=i,
                               lines=[line])
-        elif strippedline == "endin":
+        elif codeline == "endin":
             assert context[-1] == "instr"
             context.pop()
             assert block.name
@@ -145,7 +146,7 @@ def parseOrc(code: str | list[str], keepComments=True) -> list[ParsedBlock]:
                                       startLine=block.startLine,
                                       endLine=block.endLine,
                                       name=block.name))
-        elif strippedline == 'endop':
+        elif codeline == 'endop':
             assert context[-1] == "opcode"
             context.pop()
             block.endLine = i
