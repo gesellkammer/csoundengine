@@ -437,8 +437,8 @@ class Engine(_EngineBase):
             else:
                 selected = next((d for d in indevs if _fnmatch.fnmatch(d.name, indev)), None)
                 if not selected:
-                    raise ValueError(f"Output device {outdev} not known. Possible devices: "
-                                     f"{outdevs}")
+                    raise ValueError(f"Input device {indev} not known. Possible devices: "
+                                     f"{indevs}")
                 indev, indevName = selected.id, selected.name
 
         if midibackend == 'default':
