@@ -349,8 +349,9 @@ def selectMidiDevice(devices: list[MidiDevice], title='Select MIDI device'
     if not selected:
         return None
     else:
-        name, devid = selected[:-1].split("[")
-        return next(d for d in devices if d.deviceid == devid)
+        name, devid = selected.rsplit("[", 1)
+        devid = devid.rstrip("]")
+        return next(d for d in devices if str(d.deviceid) == devid)
 
 
 def selectItem(items: list[str], title="Select") -> str | None:
