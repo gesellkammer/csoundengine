@@ -351,7 +351,7 @@ class OfflineSession(AbstractRenderer):
         self._initInstr(instrdef)
         priority0 = priority - 1
         count = self._bucketCounters[priority0]
-        if count > self._bucketSizes[priority0]:
+        if count >= self._bucketSizes[priority0]:
             raise ValueError(
                 f"Too many instruments ({count}) defined, max. is {self._bucketSizes[priority0]}")
 
