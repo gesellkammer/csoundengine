@@ -430,7 +430,7 @@ class Engine(_EngineBase):
                         ". Use a regex to select a specific client or None to connect"
                         "to the default client")
             if isinstance(indev, int):
-                indev = f"adc{outdev}"
+                indev = f"adc{indev}"
         else:
             if resolvedBackend == 'jack':
                 indevName = indev
