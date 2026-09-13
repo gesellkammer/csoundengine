@@ -322,8 +322,8 @@ class OfflineEngine(_EngineBase):
         startInstr = max(instrnum for instrnum in self._builtinInstrs.values() if instrnum < engineorc.CONSTS['postProcInstrnum']) + 1
         postInstrnum = 1 + max(max(self._builtinInstrs.values()), engineorc.CONSTS['postProcInstrnum'])
 
-        busorc, businstrs = engineorc.makeBusOrc(numAudioBuses=self.numAudioBuses,
-                                                 numControlBuses=self.numControlBuses,
+        busorc, businstrs = engineorc.makeBusOrc(numAudioBuses=numAudioBuses,
+                                                 numControlBuses=numControlBuses,
                                                  startInstr=startInstr,
                                                  postInstr=postInstrnum)
         self._builtinInstrs.update(businstrs)
