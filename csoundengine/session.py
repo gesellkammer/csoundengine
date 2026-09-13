@@ -1811,7 +1811,7 @@ class Session(AbstractRenderer):
             display(HTML("\n".join(htmlparts)))
         else:
             for instr in instrs:
-                instr.dump()
+                print(instr.dump())
 
     def freeTable(self,
                   table: int | tableproxy.TableProxy,
