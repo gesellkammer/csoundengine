@@ -2389,7 +2389,7 @@ class Engine(_EngineBase):
                   delay: float = 0,
                   dur: float = -1,
                   args: np.ndarray | Sequence[float | str] | None = None,
-                  timeout=-1
+                  timeout: float | None = None
                   ) -> tuple[float, float | None]:
         """
         Schedule an instr, wait for a sync message
@@ -2411,8 +2411,9 @@ class Engine(_EngineBase):
                 (as a list of floats/strings, or as a numpy float array). Any
                 string arguments will be converted to a string index via strSet. These
                 can be retrieved via strget in the csound instrument
-            timeout: if a non-negative number is given, this function will block
-                at most this time and then raise a TimeoutError
+            timeout: time to wait for the response. If None, the value in
+                ``config['timeout']`` is used. A TimeoutError is raised if no
+                response arrives in time
 
         Returns:
             the fractional p1 of the scheduled note, the sync return value (see example) or
@@ -2439,6 +2440,8 @@ class Engine(_EngineBase):
         assert self.started
         instrfrac = instr if isinstance(instr, float) else self._assignEventId(instr)
         token = self._getSyncToken()
+        if timeout is None:
+            timeout = config['timeout']
         q = self._registerSync(token)
         if not args:
             pargs = [instrfrac, delay, dur, token]
