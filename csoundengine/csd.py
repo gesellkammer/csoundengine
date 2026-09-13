@@ -1018,9 +1018,8 @@ class Csd:
                 instrline += "\n"
             write(instrline)
             if instrdef.postComment:
-                if instrdef.preComment:
-                    for line in instrdef.preComment.splitlines():
-                        write(f"{tab};;  {line}\n")
+                for line in instrdef.postComment.splitlines():
+                    write(f"{tab};;  {line}\n")
             body = _textwrap.dedent(instrdef.body)
             body = _textwrap.indent(body, tab)
             write(body)
