@@ -2061,7 +2061,9 @@ class Session(AbstractRenderer):
                                   iloop=int(loop),
                                   kspeed=speed,
                                   kpan=pan,
-                                  ichan=chan))
+                                  ichan=chan,
+                                  kgain=gain,
+                                  istart=skip))
         elif isinstance(source, int):
             tabnum = source
             dur = -1
