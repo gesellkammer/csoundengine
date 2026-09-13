@@ -1358,8 +1358,8 @@ def recInstr(body: str, events: list, init='', outfile='',
 
     csd.addInstr(instrnum, body)
     for event in events:
-        start, dur = event[0], event[1]
-        csd.addEvent(instrnum, start, dur, event[2:])
+        start, eventdur = event[0], event[1]
+        csd.addEvent(instrnum, start, eventdur, event[2:])
 
     if dur is not None:
         csd.setEndMarker(dur)
