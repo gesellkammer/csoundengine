@@ -405,7 +405,7 @@ instr ${pwrite}
     elseif inumpairs == 4 then
         pwrite ip1, p7, p8, p9, p10, p11, p12, p13, p14
     elseif inumpairs == 5 then
-        pwrite ip1, p7, p8, p9, p10, p11, p12, p13, p14, 15, p16
+        pwrite ip1, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16
     else
         initerror sprintf("Max. pairs is 5, got %d", inumpairs)
     endif
