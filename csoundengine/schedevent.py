@@ -288,7 +288,7 @@ class SchedEvent(BaseSchedEvent):
 
     def isPfield(self, param: str) -> bool:
         pfields = self.instr.pfieldNames()
-        return param in pfields and (param2 := self.aliases().get(param)) is not None and param2 in pfiels
+        return param in pfields and (param2 := self.aliases().get(param)) is not None and param2 in pfields
 
     def pfieldNames(self, aliases=False) -> frozenset[str]:
         return self.instr.pfieldNames(aliases=aliases)
