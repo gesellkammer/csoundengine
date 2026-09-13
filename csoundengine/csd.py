@@ -618,6 +618,7 @@ class Csd:
             The index of the created table
         """
         if sr == 0:
+            tabnum = self._assignTableIndex(tabnum)
             pargs = (tabnum, 0, -size, -2, 0)
             return self._addTable(pargs)
         else:
