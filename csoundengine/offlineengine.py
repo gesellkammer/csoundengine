@@ -940,7 +940,7 @@ class OfflineEngine(_EngineBase):
         assert not self._stopped
         sr = self.csound.evalCode(f'return ftsr({tabnum})')
         numchannels = self.csound.evalCode(f'return ftchnls({tabnum})')
-        tablen = self.csound.evalCode(f'return ftlen({tabnum}')
+        tablen = self.csound.evalCode(f'return ftlen({tabnum})')
         return TableInfo(sr=int(sr), size=int(tablen), nchnls=int(numchannels))
 
     def makeEmptyTable(self, size: int, numchannels=1, sr=0, delay=0.) -> int:
