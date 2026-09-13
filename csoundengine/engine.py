@@ -3648,7 +3648,7 @@ class Engine(_EngineBase):
             :meth:`~Engine.udpSetChannel`
 
         """
-        if self.udpPort is None:
+        if not self.udpPort:
             raise RuntimeError("This engine has no udp port assigned")
         assert self._sendAddr is not None
         msg = code.encode("ascii")
