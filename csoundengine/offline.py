@@ -1004,10 +1004,10 @@ class OfflineSession(AbstractRenderer):
                                     f"be generated does not exist "
                                     f"(outfile: '{outfile}')")
         scorestart, scoreend = self.scoreTimeRange(finite=True, marker=True)
-        if endtime == 0:
-            renderend = scoreend + tail
+        if endtime:
+            renderend = endtime + tail
         else:
-            renderend = max(endtime, scoreend) + tail
+            renderend = scoreend + tail
         if renderend == float('inf'):
             raise RenderError("Cannot render an infinite score. Set an endtime when calling "
                               ".render(...)")
@@ -1031,8 +1031,8 @@ class OfflineSession(AbstractRenderer):
 
         # if scoreend < renderend:
         #    csd.setEndMarker(renderend)
-        if scoreend > renderend:
-            csd.cropScore(end=renderend)
+        if starttime or renderend < scoreend:
+            csd.cropScore(start=starttime, end=renderend)
 
         csd.setEndMarker(renderend)
 
@@ -1068,7 +1068,7 @@ class OfflineSession(AbstractRenderer):
                       suppressdisplay=runSuppressdisplay,
                       nomessages=runSuppressdisplay,
                       piped=runPiped)
-        job.endtime, job.starttime = endtime, starttime
+        job.endtime, job.starttime = renderend, starttime
 
         if openWhenDone:
             job.wait()
