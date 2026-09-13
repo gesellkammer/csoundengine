@@ -1694,7 +1694,7 @@ class Engine(_EngineBase):
                     self._perfThread.inputMessage(msg)
                     return 0
                 instrfrac = instrnum
-            if "." in instr:
+            elif "." in instr:
                 name, fractionstr = instr.split(".")
                 instrnum = self._instrNumCache.get(name)
                 if instrnum:
