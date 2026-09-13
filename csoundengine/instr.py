@@ -1204,7 +1204,7 @@ def _checkInstr(instr: str) -> str:
     if not lines:
         return ''
 
-    if re.search(r'$\s*\binstr\b', lines[0]) or re.search(r'$\s*\bendin\b', lines[-1]):
+    if re.search(r'^\s*\binstr\b', lines[0]) or re.search(r'^\s*\bendin\b', lines[-1]):
         return ("instr should be the body of the instrument,"
                 " without 'instr' and 'endin")
 
