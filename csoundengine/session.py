@@ -573,6 +573,7 @@ class Session(AbstractRenderer):
             return
 
         if synth.controlsSlot:
+            # TODO: p4 compares to p5?? (important)!
             assert synth.args and synth.controlsSlot * self.maxDynamicArgs == synth.args[0]
             self._dynargsReleaseSlot(int(synth.controlsSlot))
 
