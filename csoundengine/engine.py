@@ -2929,6 +2929,8 @@ class Engine(_EngineBase):
         self._responseCallbacks[toks[0]] = callback
         self._perfThread.scoreEvent(False, "i", pargs)
         vals = q.get(block=True)
+        # Note: toks[0] is already released by _syncCallback (see _setupCallbacks),
+        # so it is released twice here. Kept as is for now.
         for tok in toks:
             self._releaseToken(tok)
         sr = vals[0]
