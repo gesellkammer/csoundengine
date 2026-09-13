@@ -2778,7 +2778,7 @@ class Engine(_EngineBase):
             self.setChannel(channel, value, method="score")
         elif kind == 'a':
             self.compile(f'chn_a "{channel}", {modei}', block=True)
-            if value:
+            if value is not None and len(value) > 0:
                 self.setChannel(channel, value)
         elif kind == 'S':
             self.compile(f'chn_S "{channel}", {modei}\n', block=True)
