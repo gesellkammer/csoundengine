@@ -244,7 +244,7 @@ _builtinInstrs = {
       else
           ip1 = p5
       endif
-      pwrite ip1, p7, p8
+      pwrite ip1, p6, p7
     '''
 }
 
