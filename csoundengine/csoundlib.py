@@ -933,7 +933,7 @@ class MidiDevice:
         name: the name of the device
         kind: the kind of the device ('input', 'output')
     """
-    deviceid: str
+    deviceid: int | str
     name: str
     kind: str = 'input'
 
