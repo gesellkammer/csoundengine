@@ -653,9 +653,9 @@ class CsoundProc:
     csdstr: str = ""
 
 
-def testCsound(dur=8., nchnls=2, backend='', device="dac", sr=0, ksmps=64,
-               verbose=True
-               ) -> CsoundProc:
+def testCsound(dur=8., nchnls=2, backend='', device="", sr=0, ksmps=64,
+               opcodeDir='', verbose=True, options: list[str] | None = None
+               ) -> None:
     """
     Test the current csound installation for realtime output
 
@@ -668,38 +668,14 @@ def testCsound(dur=8., nchnls=2, backend='', device="dac", sr=0, ksmps=64,
             or a default sample rate otherwise
         verbose: if True, make csound display debugging and status information
 
-    Returns:
-        a :class:`CsoundProc`
     """
     backend = backend or getDefaultBackend().name
     if not sr:
         sr = getSamplerateForBackend(backend) or 44100
-    printchan = "printk2 kchn" if verbose else ""
-    orc = f"""
-sr = {sr}
-ksmps = {ksmps}
-nchnls = {nchnls}
-0dbfs = 1
-
-instr 1
-    iperiod = 1
-    kchn init -1
-    ktrig metro 1/iperiod
-    kchn = (kchn + ktrig) % nchnls
-    anoise pinker
-    outch kchn+1, anoise
-    {printchan}
-endin
-    """
-    sco = f"i1 0 {dur}"
-    orc = _textwrap.dedent(orc)
-    logger.debug(orc)
-    csd = joinCsd(orc, sco=sco)
-    tmp = _tempfile.mktemp(suffix=".csd")
-    open(tmp, "w").write(csd)
-    proc = runCsd(tmp, outdev=device, backend=backend)
-    return CsoundProc(proc=proc, backend=backend, outdev=device, sr=sr,
-                      nchnls=nchnls, csdstr=csd)
+    import libcsound._util
+    libcsound._util.testCsound(module=backend, sr=sr, outdev=device, ksmps=ksmps,
+                               nchnls=nchnls, dur=dur, opcodeDir=opcodeDir,
+                               options=options)
 
 
 def installedOpcodes(cached=True, opcodedir: str = '') -> set[str]:
@@ -715,12 +691,12 @@ def installedOpcodes(cached=True, opcodedir: str = '') -> set[str]:
     Returns:
         a list of all available opcodes
     """
-    #if not cached:
-    #    csoundGetInfo.cache_clear()
+    if not cached:
+        csoundGetInfo.cache_clear()
     return csoundGetInfo(opcodedir=opcodedir)['opcodes']
 
 
-# @_functools.cache
+@_functools.cache
 def csoundGetInfo(opcodedir='') -> dict:
     """
     Returns a dict of {'opcodedefs': list[OpcodeDef], 'opcodes': set[str], 'versionTriplet': (major, minor, patch)}

@@ -240,13 +240,12 @@ def _checkDependencies(fix=False) -> str:
 
     if not pluginsInstalled():
         if fix:
-            print("** csoundengine: Csound external plugins are not installed"
-                  " I will try to install them now")
+            print("** csoundengine: Csound external plugins not found, installing...")
             ok = installPlugins()
             if ok:
-                print("** csoundengine: csound external plugins installed ok")
+                print("** csoundengine: ... plugins installed ok")
             else:
-                print("** csoundengine: csound external plugins could not be installed")
+                print("** csoundengine: plugins could not be installed")
                 return "csound external plugins could not be installed"
         else:
             return ("Some plugins are not installed. They can be installed via "
@@ -275,13 +274,15 @@ def installDependencies() -> bool:
     return not err
 
 
-def checkDependencies(force=True, fix=False) -> bool:
+def checkDependencies(force=True, fix=False, timeoutDays=30) -> bool:
     """
     Check that all external dependencies are fullfilled.
 
     Args:
         force: if True, do not use cached results
         fix: if True, try to fix missing dependencies if needed
+        timeoutDays: if the last check was done less than this
+            number of days ago, skip the check
 
     Returns:
         True if all dependencies are fullfilled
@@ -294,7 +295,7 @@ def checkDependencies(force=True, fix=False) -> bool:
 
     now = datetime.now()
     timeSinceLastCheck = now - datetime.fromisoformat(state['last_check'])
-    if not force and timeSinceLastCheck.days < 30:
+    if not force and timeoutDays > 0 and timeSinceLastCheck.days < timeoutDays:
         return True
     logger.info("Checking dependencies")
     errormsg = _checkDependencies(fix=fix)
