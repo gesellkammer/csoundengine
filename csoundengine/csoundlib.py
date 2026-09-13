@@ -1413,7 +1413,7 @@ def _ftsaveReadBinary(path: str) -> list[tuple[dict, np.ndarray]]:
         header = f.read(152)
 
         if len(header) < 152:
-            raise ValueError(f"File too short: expected 152 bytes, got {len(data)}")
+            raise ValueError(f"File too short: expected 152 bytes, got {len(header)}")
 
         fields = struct.unpack(FUNC_FORMAT, header)
         tablelen = fields[0]
