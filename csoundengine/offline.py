@@ -1011,7 +1011,8 @@ class OfflineSession(AbstractRenderer):
         if renderend == float('inf'):
             raise RenderError("Cannot render an infinite score. Set an endtime when calling "
                               ".render(...)")
-        if renderend <= scorestart:
+        # TODO: check this logic in detail (starttime/endtime interaction)
+        if renderend <= max(scorestart, starttime):
             logger.error("Invalid render time, scorestart=%f, renderend=%f", scorestart, renderend)
             logger.error("... Score:")
             events = sorted(self.scheduledEvents.values(), key=lambda event: event.start)
