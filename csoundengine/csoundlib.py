@@ -1202,7 +1202,7 @@ def mincer(sndfile: str,
     if isinstance(timecurve, (int, float)):
         t1 = info.duration / timecurve
         ts = np.arange(0, t1 + dt, dt)
-        times = ts * (1./timecurve)
+        times = ts * timecurve
     elif callable(timecurve):
         t1 = info.duration
         ts = np.arange(0, t1 + dt, dt)
