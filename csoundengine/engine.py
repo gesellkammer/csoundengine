@@ -2115,6 +2115,7 @@ class Engine(_EngineBase):
             else:
                 # block
                 q = _queue.SimpleQueue()
+                # TODO: check that the lambda follows the callback convention
                 self._makeTableNotify(data=data, sr=sr, tabnum=tabnum, callback=lambda q=q: q.put(True))
                 _ = q.get()
         else:
