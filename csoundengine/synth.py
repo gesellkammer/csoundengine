@@ -458,7 +458,8 @@ class Synth(SchedEvent, ISynth):
         if self.playStatus() == 'stopped':
             logger.error("Synth %s has already stopped, cannot "
                          "set param '%s'", self, param)
-        return self.session._setPfield(event=self, delay=delay, param=param, value=value)
+        else:
+            self.session._setPfield(event=self, delay=delay, param=param, value=value)
 
     def _setTable(self, param: str, value: float, delay=0.) -> None:
         if self.playStatus() == 'stopped':
