@@ -760,7 +760,7 @@ def splitInclude(line: str) -> str:
 
     NB: the quotation marks are not included
     """
-    match = re.search(r'#include\s+"(.+)""', line)
+    match = re.search(r'#include\s+"([^"]+)"', line)
     if not match:
         raise ValueError("Could not parse include")
     return match.group(1)
