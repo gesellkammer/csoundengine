@@ -1000,6 +1000,7 @@ class Engine(_EngineBase):
         pt.play()
         self._perfThread = pt
         self.started = True
+        self._exited = False
         self._setupCallbacks()
         self._setupGlobalInstrs()
         self.activeEngines[self.name] = self
