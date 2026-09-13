@@ -38,7 +38,7 @@ dependencies = [
     "libcsound>=0.17.1",
     "sndfileio>=2.1.1",
     "emlib>=1.20",
-    "configdict>=2.10.0",
+    "configdict>=3.0.0",
     "pitchtools>=1.14.0",
     "risset>=3.5.7",
     "sounddevice",
