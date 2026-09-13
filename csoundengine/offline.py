@@ -280,7 +280,7 @@ class OfflineSession(AbstractRenderer):
         if mode not in ('r', 'w', 'rw'):
             raise ValueError(f"Invalid mode '{mode}', it should be one of 'r', 'w', 'rw'")
 
-        if not value and not kind:
+        if value is None and not kind:
             raise ValueError("Either a value or a kind must be given")
 
         if value is not None:
