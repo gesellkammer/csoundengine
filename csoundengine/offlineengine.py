@@ -592,7 +592,7 @@ class OfflineEngine(_EngineBase):
         .. seealso:: :meth:`~Engine.unschedAll`
 
         """
-        if (isinstance(p1, int) and int(p1) != p1) or (isinstance(p1, str) and "." in p1):
+        if (isinstance(p1, float) and int(p1) != p1) or (isinstance(p1, str) and "." in p1):
             mode = 4
         else:
             mode = 0
