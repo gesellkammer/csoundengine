@@ -1129,10 +1129,11 @@ class Session(AbstractRenderer):
 
     def __enter__(self):
         if self.engine.isClockLocked():
-            logger.warning("This session is already locked")
-        else:
-            latency = self._lockedLatency if self._lockedLatency is not None else min(0.2, self.engine.extraLatency*2)
-            self.engine.pushLock(latency)
+            logger.debug("This session is already locked, pushing an additional lock")
+        # Always push a lock so that __enter__ / __exit__ are symmetric: even if the
+        # engine clock was already locked, __exit__ pops exactly the lock pushed here
+        latency = self._lockedLatency if self._lockedLatency is not None else min(0.2, self.engine.extraLatency*2)
+        self.engine.pushLock(latency)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
