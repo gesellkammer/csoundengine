@@ -258,6 +258,8 @@ class Instr:
                  useDynamicPfields: bool | None = None,
                  minPriority=1,
                  initCallback: Callable[[AbstractRenderer], None] | None = None,
+                 # TODO: mutable default argument, all instances without explicit
+                 # properties share this dict
                  properties: dict[str, Any] = {},
                  specs: Sequence[_interact.ParamSpec] | None = None,
                  setCallback: Callable[[Synth, str, float, float], bool] | None = None,
