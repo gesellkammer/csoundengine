@@ -478,7 +478,7 @@ class Synth(SchedEvent, ISynth):
             the value, or None if the parameter has no value
         """
         if isinstance(param, int):
-            paramidx = param - 4
+            paramidx = param - 5
             return self.args[paramidx] if self.args and 0 <= paramidx < len(self.args) else None
         elif isinstance(param, str):
             param = self.unaliasParam(param, param)
