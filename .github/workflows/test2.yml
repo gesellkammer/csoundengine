@@ -6,7 +6,7 @@ jobs:
     strategy:
       matrix:
         os: ["windows-latest", "ubuntu-latest", "macos-latest"]
-        python-version: ["3.10", "3.13"]
+        python-version: ["3.12", "3.14"]
         install-method: ["git"]
       fail-fast: false
 
@@ -83,7 +83,7 @@ jobs:
     strategy:
       matrix:
         os: ["windows-latest", "ubuntu-latest", "macos-latest"]
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.12", "3.14"]
       fail-fast: false
 
     steps:
@@ -181,7 +181,7 @@ jobs:
     strategy:
       matrix:
         os: ["ubuntu-latest", "macos-latest"]
-        python-version: ["3.12", "3.13"]
+        python-version: ["3.12", "3.14"]
       fail-fast: false
 
     steps:
