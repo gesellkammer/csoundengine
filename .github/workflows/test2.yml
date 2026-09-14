@@ -204,6 +204,8 @@ jobs:
           pip install .
 
       - name: check that all dependencies (csound, plugins) get installed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd test
           python testdeps.py
