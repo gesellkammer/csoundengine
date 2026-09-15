@@ -1041,7 +1041,7 @@ class Engine(_EngineBase):
             token = int(token)
             callback = self._responseCallbacks.get(token)
             if callback:
-                callback(token)
+                callback(float(self._responsesTable[token]))
                 self._releaseToken(token)
                 del self._responseCallbacks[token]
 
@@ -1126,11 +1126,7 @@ class Engine(_EngineBase):
         if not force and not self.needsSync(threshold=threshold):
             return False
 
-        if self.version >= 7000:
-            self._perfThread.flushMessageQueue()
-        elif self._perfThread._processQueue:
-            self._perfThread.flushProcessQueue()
-        else:
+        if not self._flush():
             self.pingback(timeout=timeout)
         self._lastModification = 0
         return True
@@ -1145,23 +1141,11 @@ class Engine(_EngineBase):
             self._modified()
             return
 
-        if self.version >= 7000:
-            self._perfThread.compileOrc(code)
-            if block:
-                self._perfThread.flushMessageQueue()
-        elif self._perfThread._processQueue is None:
-            self.csound.compileOrc(code, block=block)
-        else:
-            if not block:
-                self._perfThread.processQueueTask(lambda cs: cs.compileOrc(code))
-            else:
-                q = _queue.SimpleQueue()
-                self._perfThread.processQueueTask(lambda cs, q=q: q.put(cs.compileOrc(code)))
-                err = q.get()
-                if err:
-                    logger.error("compileOrc error: ")
-                    logger.error(internal.addLineNumbers(code))
-                    raise CsoundError("Could not compile code")
+        err = self._compileOrc(code, block=block)
+        if block and err:
+            logger.error("compileOrc error: ")
+            logger.error(internal.addLineNumbers(code))
+            raise CsoundError(f"Could not compile code: {err}")
         self._modified()
 
     def _modified(self, status=True) -> None:
@@ -1179,6 +1163,83 @@ class Engine(_EngineBase):
             self._lastModification = 0
             return False
         return True
+
+    # --- csound thread dispatch -------------------------------------------
+    #
+    # csound 6 and 7 expose different mechanisms to run code on csound's own
+    # thread (performance callbacks vs a process queue vs direct calls). The
+    # methods below centralize those differences so the rest of the class can
+    # avoid branching on the csound version.
+
+    def _submit(self, func: Callable, block=True):
+        """
+        Run ``func(csound)`` on csound's own thread
+
+        Args:
+            func: a callable of the form ``func(csound) -> result``
+            block: if True wait for the result and return it; otherwise the
+                call is asynchronous and None is returned
+
+        Returns:
+            the result of ``func`` when blocking, None otherwise
+        """
+        if self.version >= 7000:
+            if not block:
+                self._perfThread.requestCallback(func)
+                return None
+            q: _queue.SimpleQueue = _queue.SimpleQueue()
+            self._perfThread.requestCallback(lambda cs, q=q: q.put(func(cs)))
+            return q.get()
+        if self._hasProcessQueue:
+            if not block:
+                self._perfThread.processQueueTask(func)
+                return None
+            q = _queue.SimpleQueue()
+            self._perfThread.processQueueTask(lambda cs, q=q: q.put(func(cs)))
+            return q.get()
+        return func(self.csound)
+
+    def _compileOrc(self, code: str, block=False):
+        """
+        Compile orchestra code, returning the reported error (or None)
+
+        This is a low-level primitive; see :meth:`_compileCode`
+        """
+        if self.version >= 7000:
+            self._perfThread.compileOrc(code)
+            if block:
+                self._perfThread.flushMessageQueue()
+            return None
+        if self._hasProcessQueue:
+            return self._submit(lambda cs: cs.compileOrc(code), block=block)
+        return self.csound.compileOrc(code, block=block)
+
+    def _evalCode(self, code: str) -> float:
+        """Evaluate a csound expression, returning its value"""
+        if self.version >= 7000:
+            return self._perfThread.evalCode(code)
+        return self._submit(lambda cs: cs.evalCode(code))
+
+    def _tablePtr(self, idx: int) -> np.ndarray | None:
+        """Return a numpy array pointing to the data of the given table"""
+        if self.version >= 7000 or not self._hasProcessQueue:
+            return self.csound.table(idx)
+        return self._submit(lambda cs: cs.table(idx))
+
+    def _flush(self) -> bool:
+        """Flush pending messages to csound. Returns True if there was anything to flush"""
+        if self.version >= 7000:
+            self._perfThread.flushMessageQueue()
+            return True
+        if self._hasProcessQueue:
+            self._perfThread.flushProcessQueue()
+            return True
+        return False
+
+    @property
+    def _hasProcessQueue(self) -> bool:
+        """True if this engine uses csound's process queue (csound 6 only)"""
+        return self._perfThread._processQueue is not None
 
     def _compileInstr(self, instrname: str|int, code: str, block=False) -> None:
         self._instrRegistry[instrname] = code
@@ -1288,14 +1349,7 @@ class Engine(_EngineBase):
 
         """
         assert self.started and self.csound is not None
-        if self.version >= 7000:
-            out = self._perfThread.evalCode(code)
-        elif self._useProcessQueue:
-            q = _queue.SimpleQueue()
-            self._perfThread.processQueueTask(lambda cs, q=q: q.put(cs.evalCode(code)))
-            out = q.get()
-        else:
-            out = self.csound.evalCode(code)
+        out = self._evalCode(code)
         self._modified(False)
         return out
 
@@ -1350,18 +1404,7 @@ class Engine(_EngineBase):
         if arr is not None:
             return arr
 
-        if self.version >= 7000:
-            # Accessing the table directly is faster than using requestCallback :-)
-            arr = self.csound.table(idx)
-            # q = _queue.SimpleQueue()
-            # self._perfThread.requestCallback(lambda cs, q=q, idx=idx: q.put(cs.table(idx)))
-            # arr = q.get()
-        elif self._perfThread._processQueue is None:
-            arr = self.csound.table(idx)
-        else:
-            q = _queue.SimpleQueue()
-            self._perfThread.processQueueTask(lambda cs, q=q, idx=idx: q.put(cs.table(idx)))
-            arr = q.get()
+        arr = self._tablePtr(idx)
         if arr is None:
             raise ValueError(f"Table {idx} does not exist")
 
@@ -1764,15 +1807,10 @@ class Engine(_EngineBase):
                     self._queryNamedInstrAsync(name, delay=delay, callback=mycallback)
         else:
             # blocking
-            q = _queue.SimpleQueue()
-            def _func(csound, names=names, q=q):
-                nums = []
-                for name in names:
-                    num = csound.evalCode(f'return nametoinstrnum "{name}"')
-                    nums.append(num)
-                q.put(nums)
-            self._perfThread.requestCallback(_func)
-            nums = q.get()
+            def _func(csound, names=names):
+                return [csound.evalCode(f'return nametoinstrnum "{name}"')
+                        for name in names]
+            nums = self._submit(_func)
             for num, name in zip(nums, names):
                 if num > 0:
                     self._instrNumCache[name] = int(num)
@@ -1792,12 +1830,12 @@ class Engine(_EngineBase):
                 self._instrNumCache[name] = num
                 if f:
                     f(name, num)
-            self._perfThread.requestCallback(func7)
+            self._submit(func7, block=False)
         else:
             synctoken = self._getSyncToken()
             msg = f'i {self._builtinInstrs["nstrnum"]} {delay} 0 {synctoken} "{name}"'
-            def _callback(synctoken, instrname=name, func=callback):
-                instrnum = int(self._responsesTable[synctoken])
+            def _callback(instrnum, instrname=name, func=callback):
+                instrnum = int(instrnum)
                 self._instrNumCache[instrname] = instrnum
                 if (body := self._instrRegistry.get(instrname)):
                     self._instrRegistry[instrnum] = body
@@ -1830,8 +1868,8 @@ class Engine(_EngineBase):
             self._queryNamedInstrAsync(instrname, delay=0, callback=callback)
             return 0
         # Block!
-        if self.version >= 7000 or self._perfThread._processQueue is not None:
-            instrnum = int(self._perfThread.evalCode(f'return nametoinstrnum:i("{instrname}")'))
+        if self.version >= 7000 or self._hasProcessQueue:
+            instrnum = int(self._evalCode(f'return nametoinstrnum:i("{instrname}")'))
         else:
             token = self._getSyncToken()
             msg = f'i {self._builtinInstrs["nstrnum"]} 0 0 {token} "{instrname}"'
@@ -2107,7 +2145,7 @@ class Engine(_EngineBase):
             return tabnum
 
         self._tableCache.pop(int(tabnum), None)
-        if self.version < 7000 and not self._perfThread._processQueue:
+        if self.version < 7000 and not self._hasProcessQueue:
             if callback:
                 self._makeTableNotify(data=data, sr=sr, tabnum=tabnum, callback=callback)
             elif not block:
@@ -2136,10 +2174,7 @@ class Engine(_EngineBase):
                     func(tabnum)
                 elif ev:
                     ev.set()
-            if lcs.VERSION >= 7000:
-                self._perfThread.requestCallback(task)
-            else:
-                self._perfThread.processQueueTask(task)
+            self._submit(task, block=False)
             if ev:
                 ev.wait()
         self._tableInfo[tabnum] = TableInfo(sr=sr, size=numitems, nchnls=nchnls)
@@ -2217,7 +2252,7 @@ class Engine(_EngineBase):
             will be the returned value
         """
         q: _queue.SimpleQueue[float] = _queue.SimpleQueue()
-        self._responseCallbacks[token] = lambda token, q=q, table=self._responsesTable: q.put(float(table[token]))
+        self._responseCallbacks[token] = lambda value, q=q: q.put(value)
         return q
 
     def callLater(self, delay: float, callback: Callable) -> None:
@@ -2248,20 +2283,34 @@ class Engine(_EngineBase):
             pargs = [self._builtinInstrs['pingback'], delay, 0.01, token]
             self._eventWithCallback(token, pargs, lambda token: callback())
 
-    def _eventWait(self, token: int, pargs: Sequence[float], timeout: float = 0.
-                   ) -> float | None:
+    def _sendAndWait(self, token: int, send: Callable, timeout: float | None = None
+                     ) -> float | None:
+        """
+        Send a message/event and wait for its ``__sync__`` notification
+
+        Args:
+            token: the sync token referenced by the message
+            send: a callable performing the actual send
+            timeout: max. time to wait. None or 0 uses the configured timeout
+
+        Returns:
+            the value returned by the instrument, or None if none was set
+        """
         if not timeout:
             timeout = config['timeout']
-        else:
-            assert timeout > 0
         q = self._registerSync(token)
-        self._perfThread.scoreEvent(False, "i", pargs)
+        send()
         try:
             outvalue = q.get(block=True, timeout=timeout)
-            self._modified(False)
-            return outvalue if outvalue != _UNSET else None
         except _queue.Empty:
-            raise TimeoutError(f"{token=}, {pargs=}")
+            raise TimeoutError(f"Timeout waiting for sync token {token}")
+        self._modified(False)
+        return outvalue if outvalue != _UNSET else None
+
+    def _eventWait(self, token: int, pargs: Sequence[float], timeout: float = 0.
+                   ) -> float | None:
+        send = lambda: self._perfThread.scoreEvent(False, "i", pargs)
+        return self._sendAndWait(token, send=send, timeout=timeout)
 
     def plotTableSpectrogram(self,
                              tabnum: int,
@@ -2490,7 +2539,7 @@ class Engine(_EngineBase):
                 outvalues a "__sync__" message.
         """
         assert token == pargs[3] and isinstance(token, int)
-        self._responseCallbacks[token] = lambda tok, t=self._responsesTable, c=callback: c(t[tok])
+        self._responseCallbacks[token] = callback
         self._perfThread.scoreEvent(False, "i", pargs)
         return None
 
@@ -2523,16 +2572,8 @@ class Engine(_EngineBase):
         Return:
             a float response, or None if the instrument did not set a response value
         """
-        if timeout is None:
-            timeout = config['timeout']
-        q = self._registerSync(token)
-        self._perfThread.inputMessage(inputMessage)
-        try:
-            value = q.get(block=True, timeout=timeout)
-            self._modified(False)
-            return value if value != _UNSET else None
-        except _queue.Empty:
-            raise TimeoutError(f"{token=}, {inputMessage=}")
+        send = lambda: self._perfThread.inputMessage(inputMessage)
+        return self._sendAndWait(token, send=send, timeout=timeout)
 
     def _inputMessageWithCallback(self, token:int, inputMessage:str, callback) -> None:
         """
@@ -2545,7 +2586,7 @@ class Engine(_EngineBase):
             inputMessage: the input message passed to csound
             callback: if given, this function will be called when the instrument
                 notifies us via `outvalue "__sync__", token`. The callback should
-                be of kind `(token:int) -> None`
+                be of kind `(value: float) -> None`
         """
         self._responseCallbacks[token] = callback
         self._perfThread.inputMessage(inputMessage)
@@ -3019,8 +3060,8 @@ class Engine(_EngineBase):
             p1 = self._builtinInstrs['readSndfile']
             msg = f'i {p1} 0 0.01 {token} "{path}" {tabnum} {chan} {skiptime}'
             if callback:
-                def _onRead(token, self=self, path=path, callback=callback):
-                    tabnum = int(self._responsesTable[token])
+                def _onRead(tabnum, self=self, path=path, callback=callback):
+                    tabnum = int(tabnum)
                     self._tableInfo[tabnum] = TableInfo(sr=0, size=0, nchnls=1, path=path)
                     callback(tabnum)
                 self._inputMessageWithCallback(token, msg, _onRead)
@@ -3347,7 +3388,7 @@ class Engine(_EngineBase):
             :meth:`~Engine.setp`
         """
         if self.version >= 7000:
-            value = self.csound.evalCode(f'return pread({eventid}, {idx})')
+            value = self._evalCode(f'return pread({eventid}, {idx})')
         else:
             token = self._getSyncToken()
             notify = 1
@@ -3500,14 +3541,7 @@ class Engine(_EngineBase):
         self._strToIndex[s] = stridx
         self._indexToStr[stridx] = s
         cmd = f'strset {stridx}, "{s}"'
-        if self.version >= 7000:
-            self._perfThread.compileOrc(cmd)
-        elif self._useProcessQueue:
-            def task(cs):
-                cs.compileOrc(cmd)
-            self._perfThread.processQueueTask(task)
-        else:
-            self.csound.compileOrc(cmd)
+        self._compileOrc(cmd)
         self._modified()
         return stridx
 
