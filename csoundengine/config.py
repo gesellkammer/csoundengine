@@ -91,113 +91,100 @@ _validator = {
 
 _docs = {
     'sr':
-        'samplerate - 0=default sr for the backend',
+        'Samplerate. 0=system sr',
     'rec_sr':
-        'default samplerate when rendering',
+        'Default samplerate for rendering',
     'nchnls':
-        'Number of output channels. 0=default for used device',
+        'Number of output channels. 0=device default',
     'nchnls_i':
-        'Number of input channels to use. 0 = default for used device',
+        'Number of input channels. 0=device default',
     'ksmps':
-        "corresponds to csound's ksmps",
+        "Samples per cycle",
     'rec_ksmps':
-        "samples per cycle when rendering",
+        "Samples per cycle for rendering",
     'rec_sample_format':
         "Sample format used when rendering",
     'rec_suppress_output':
-        'Supress debugging output when rendering offline',
+        'Suppress debug output when rendering offline',
     'buffersize':
-        "-b value. 0=determine buffersize depending on ksmps & backend",
+        "-b value. 0=derive from ksmps & backend",
     'numbuffers':
-        "determines the -B value as a multiple of the buffersize. 0=auto",
+        "-B as a multiple of the buffersize. 0=auto",
     'A4':
         "Frequency for A4",
     'numthreads':
-        "Number of threads to use for realtime performance. This is an experimental feature "
-        "and might not necessarily result in better performance",
+        "Threads for realtime performance. Experimental, may not help",
     'rec_numthreads':
-       'Number of threads to use when rendering online. If not given, the value set '
-       'in `numthreads` is used',
+        'Number of threads to use when rendering offline. Defaults to `numthreads`',
     'dynamic_pfields':
-        'If True, use pfields for dynamic parameters (named args starting with k). '
-        'Otherwise, dynamic controls are implemented via a global table',
+        'If True, use pfields for dynamic params (named args starting with k). '
+        'Otherwise, use a global table',
     'set_sigint_handler':
-        'Set a sigint handler to prevent csound crash with CTRL-C',
+        'Install a SIGINT handler to avoid CTRL-C crashes',
     'disable_signals':
-        'Disable atexit and sigint signal handler',
+        'Disable atexit and SIGINT signal handler',
     'unknown_parameter_fail_silently':
-        'Do not raise if a synth tries to set an unknown parameter',
+        'Don`t raise if a synth tries to set an unknown param',
     'define_builtin_instrs':
-        'If True, a Session with have all builtin instruments defined',
+        'If True, a Session has all builtin instruments defined',
     'sample_fade_time':
-        'Fade time (in seconds) when playing samples via a Session',
+        'Fade time (secs) when playing samples via a Session',
     'prefer_udp':
-        'If true and a udp server was defined,  prefer UDP over the API for communication',
+        'Prefer UDP over the API if a UDP server is defined',
     'num_audio_buses':
         'Num. of audio buses in an Engine/Session',
     'num_control_buses':
-        'Num. of control buses in an Engine/Session. This sets the upper limit to the '
-        'number of simultaneous control buses in use',
+        'Num. of control buses in an Engine/Session',
     'html_theme':
-        'Style to use when displaying syntax highlighting in jupyter',
+        'Syntax highlighting style in Jupyter',
     'html_args_fontsize':
-        'Font size used for args when outputing html (in jupyter)',
+        'HTMLs font size for args in Jupyter',
     'synth_repr_max_args':
-        "Max. number of pfields shown when in a synth's repr",
+        "Max. number of pfields shown in a synth's repr",
     'synth_repr_show_pfield_index':
-        'Show the pfield index for named pfields in a Synths repr',
+        'Show the pfield index in a Synths repr',
     'synthgroup_repr_max_rows':
         'Max. number of rows for a SynthGroup repr. Use 0 to disable',
     'synthgroup_html_table_style':
-        'Inline css style applied to the table displayed as html for synthgroups',
+        'Inline CSS style applied to the HTMLs tables for synthgroups',
     'jupyter_synth_repr_stopbutton':
-        'When running inside a jupyter notebook, display a stop button'
-        'for Synths and SynthGroups',
+        'Display a stop button for synths/groups inside Jupyter',
     'jupyter_synth_repr_interact':
-        'When inside jupyter, add interactive widgets if a synth has'
-        'named parameters',
+        'Add interactive widgets for named parameters inside Jupyter',
     'jupyter_instr_repr_show_code':
-        'Show code when displaying an Instr inside jupyter',
+        'Show code when displaying an Instr inside Jupyter',
     'ipython_load_magics_at_startup':
-        'Load csoundengine.magic at startup when inside ipython. If False, magics can '
-        'still be loaded via `%load_ext csoundengine.magic`',
+        'Load csoundengine.magic at ipython/Jupyter startup (also via `%load_ext csoundengine.magic`)',
     'magics_print_info':
-        'Print some informative information when the csoundengine.magic extension is loaded',
+        'Print info when csoundengine.magic is loaded',
     'jupyter_slider_width':
-        'CSS Width used by an interactive slider in jupyter',
+        'CSS Width for interactive sliders in Jupyter',
     'timeout':
         'Timeout for any action waiting a response from csound',
     'sched_latency':
-        'Time delay added to any event scheduled to ensure that simultameous events are'
-        'not offset by scheduling overhead',
+        'Delay added to events to absorb scheduling overhead',
     'datafile_format':
-        'Format used when saving a table as a datafile',
+        'Format for saving a table as a datafile',
     'max_dynamic_args_per_instr':
-        'Max. number of dynamic parameters per instr. This applies only if dynamic args '
-        'are implemented via a global table',
+        'Max. number of dynamic parameters per instr when using a global table',
     'session_priorities':
         'Number of priorities within a session',
     'dynamic_args_num_slots':
-        'Number of slots for dynamic parameters. args slices. Dynamic args are implemented as a big '
-        'array divided in slices. This parameter sets the max. number of '
-        'such slices, and thus the max number of simultaneous events with named '
-        'args which can coexist. The size of the allocated table will be '
-        'size = num_dynamic_args_slices * max_instr_dynamic_args. For 10000 slots, the'
-        'amount of memory is ~0.8Mb',
+        'Slices for dynamic params (max coexisting named-arg events). Table size = slots * max_dynamic_args_per_instr',
     'instr_repr_show_pfield_pnumber':
         'Add pfield number when printing pfields in instruments',
     'spectrogram_colormap':
         'Colormap used for spectrograms',
     'samplesplot_figsize':
-        'Figure size of the plot in the form "<width>:<height>"',
+        'Figure size of the plot as "<width>:<height>"',
     'spectrogram_figsize':
-        'Figure size of the plot in the form "<width>:<height>"',
+        'Figure size of the plot as "<width>:<height>"',
     'spectrogram_maxfreq':
         'Highest freq. in a spectrogram',
     'spectrogram_window':
         'Window function used for spectrograms',
     'offline_score_table_size_limit':
-        'Max. size of a table to be embedded within the score. Larger tables are saved as data files along the .csd'
+        'Max. table size embedded as an f statement; larger tables are saved next to the .csd'
 }
 
 

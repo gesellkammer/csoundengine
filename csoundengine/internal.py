@@ -904,6 +904,9 @@ def splitBytes(s: bytes, maxlen: int) -> list[bytes]:
     """
     Split `s` into strings of max. size `maxlen`
 
+    The split never happens within a UTF-8 multibyte sequence, so text
+    encoded as UTF-8 can be safely reassembled.
+
     Args:
         s: the str/bytes to split
         maxlen: the max. length of each substring
@@ -916,10 +919,15 @@ def splitBytes(s: bytes, maxlen: int) -> list[bytes]:
     idx = 0
     L = len(s)
     while idx < L:
-        n = min(L-idx, maxlen)
-        subs = s[idx:idx+n]
-        out.append(subs)
-        idx += n
+        end = min(idx + maxlen, L)
+        # Move the boundary left so we don't split inside a UTF-8 sequence
+        while end < L and (s[end] & 0b11000000) == 0b10000000:
+            end -= 1
+        if end <= idx:
+            # A single sequence is longer than maxlen: split anyway
+            end = min(idx + maxlen, L)
+        out.append(s[idx:end])
+        idx = end
     return out
 
 

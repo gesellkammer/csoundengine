@@ -699,7 +699,7 @@ class Engine(_EngineBase):
         self._minCyclesForAbsoluteMode = 4
         self._fltptr = _ctypes.POINTER(lcs.MYFLT)
         self.version = lcs.VERSION
-        """Csound version as integer (6.18 = 6180)"""
+        """Csound version as integer (6.18 = 6180, 7.0=7000)"""
 
         self.start()
 
@@ -1098,7 +1098,7 @@ class Engine(_EngineBase):
         """
         return self.ksmps/self.sr * 2
 
-    def sync(self, timeout=0., force=False, threshold=2.) -> bool:
+    def sync(self, timeout=0., force=False, threshold=1.) -> bool:
         """
         Block until csound has processed its immediate events
 
@@ -1123,7 +1123,7 @@ class Engine(_EngineBase):
             >>> e.sync()
             >>> # do something with the tables
         """
-        if not force and not self.needsSync():
+        if not force and not self.needsSync(threshold=threshold):
             return False
 
         if self.version >= 7000:
@@ -1141,7 +1141,6 @@ class Engine(_EngineBase):
 
     def _compileCode(self, code: str, block=False) -> None:
         if not block and self.udpPort and config['prefer_udp']:
-            logger.debug("Sengind code via udp: \n{code}")
             self._udpSend(code)
             self._modified()
             return
@@ -1689,7 +1688,7 @@ class Engine(_EngineBase):
             if not unique and "." not in instr:
                 instrnum = self._instrNumCache.get(instr)
                 if not instrnum:
-                    msg = f'i {instr} {delay} {dur}'
+                    msg = f'i "{instr}" {delay} {dur} '
                     if args:
                         msg += ' '.join(map(str, args))
                     self._perfThread.inputMessage(msg)
@@ -1701,7 +1700,7 @@ class Engine(_EngineBase):
                 if instrnum:
                     instrfrac = instrnum+float("."+fractionstr)
                 else:
-                    msg = f'i {instr} {delay} {dur}'
+                    msg = f'i "{instr}" {delay} {dur} '
                     if args:
                         msg += ' '.join(map(str, args))
                     self._perfThread.inputMessage(msg)
@@ -2072,7 +2071,7 @@ class Engine(_EngineBase):
             data: the data used to fill the table
             tabnum: the table number. If -1, a number is assigned by the engine.
             block: wait until the table is actually created
-            callback: call this function when ready - f(token, tablenumber) -> None
+            callback: called with the table number when ready, f(tablenumber) -> None
             sr: only needed if filling sample data. If given, it is used to fill the
                 table metadata in csound, as if this table had been read via gen01
 
@@ -2103,7 +2102,7 @@ class Engine(_EngineBase):
             tabnum = self._assignTableNumber()
         elif tabnum == 0:
             tabnum = self._makeTableNotify(data=data, tabnum=0, sr=sr, numchannels=nchnls)
-            self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(data), nchnls=nchnls)
+            self._tableInfo[tabnum] = TableInfo(sr=sr, size=numitems, nchnls=nchnls)
             self._modified()
             return tabnum
 
@@ -2117,7 +2116,8 @@ class Engine(_EngineBase):
                 # block
                 q = _queue.SimpleQueue()
                 # TODO: check that the lambda follows the callback convention
-                self._makeTableNotify(data=data, sr=sr, tabnum=tabnum, callback=lambda q=q: q.put(True))
+                self._makeTableNotify(data=data, sr=sr, tabnum=tabnum,
+                                      callback=lambda t, q=q: q.put(True))
                 _ = q.get()
         else:
             ev = _threading.Event() if block else None
@@ -2142,7 +2142,7 @@ class Engine(_EngineBase):
                 self._perfThread.processQueueTask(task)
             if ev:
                 ev.wait()
-        self._tableInfo[tabnum] = TableInfo(sr=sr, size=len(data), nchnls=nchnls)
+        self._tableInfo[tabnum] = TableInfo(sr=sr, size=numitems, nchnls=nchnls)
         self._modified()
         assert tabnum > 0
         return tabnum
@@ -2581,12 +2581,10 @@ class Engine(_EngineBase):
         token = self._getSyncToken()
         maketableInstrnum = self._builtinInstrs['maketable']
         delay = 0
-        assert tabnum >= 0
         if data is None:
             assert size > 1
             # create an empty table of the given size
-            empty = 1
-            sr = 0
+            empty, sr = 1, 0
             pargs = [maketableInstrnum, delay, 0, token, tabnum, size, empty,
                      sr, numchannels]
         else:
@@ -2595,20 +2593,11 @@ class Engine(_EngineBase):
                 data = np.asarray(data)
             numchannels = internal.arrayNumChannels(data)
             numitems = len(data) * numchannels
+            size = numitems
             if numchannels > 1:
                 data = data.flatten()
-                # data = data.ravel()
-            if numitems < 1900:
-                # create a table with the given data
-                # if the table is small we can create it and fill it in one go
-                empty = 0
-                numchannels = internal.arrayNumChannels(data)
-                if numchannels > 1:
-                    data = data.flatten()
-                pargs = [maketableInstrnum, delay, 0., token, tabnum, numitems, empty,
-                         sr, numchannels]
-                pargs.extend(data)
-            else:
+            # The 1900 limitations is only for csound 6
+            if self.version < 7000 and numitems >= 1900:
                 # create an empty table (blocking), fill it via a pointer
                 empty = 1
                 pargs = [maketableInstrnum, delay, 0., token, tabnum, numitems, empty,
@@ -2625,9 +2614,15 @@ class Engine(_EngineBase):
                 else:
                     def callback2(tabnum, self=self, data=data, callback=callback):
                         self.fillTable(tabnum, data=data)
-                        callback()
+                        callback(tabnum)
                     self._eventWithCallback(token, pargs, callback2)
                 return tabnum
+
+            empty = 0
+            pargs = [maketableInstrnum, delay, 0., token, tabnum, numitems, empty,
+                     sr, numchannels]
+            pargs.extend(data)
+
         if callback:
             self._eventWithCallback(token, pargs, callback)
         else:
@@ -2668,14 +2663,20 @@ class Engine(_EngineBase):
         """
         Set the value of a software channel (threadsafe)
 
+        For repeated use of a control channel the most convenient way is to
+        get the channel pointer and set the array directly
+        (``ptr = self.channelPointer(channel); ptr[0] = value``)
+
         Args:
             channel: the name of the channel
             value: the new value, should match the type of the channel (a float for
                 a control channel, a string for a string channel or a numpy array
                 for an audio channel)
-            method: one of ``'api'``, ``'score'``, ``'udp'``. An empty str will choose the most appropriate
-                method for the current engine/args
+            method: one of ``'api'``, ``'score'`` or ``'pointer'``. An empty
+                str will choose the most appropriate method for the current engine/args
             delay: a delay to set the channel
+
+        .. seealso:: :meth:`Engine.channelPointer`
 
         Example
         ~~~~~~~
@@ -2695,6 +2696,8 @@ class Engine(_EngineBase):
         """
         isaudio = isinstance(value, np.ndarray)
         if delay > 0:
+            if not isinstance(value, (int, float, str)):
+                raise ValueError("Only a scalar or string channel can be set with delay")
             method = "score"
         elif isaudio or not method:
             method = "api"
@@ -2720,14 +2723,14 @@ class Engine(_EngineBase):
             if isinstance(value, str):
                 raise ValueError("Method 'pointer' not available for string channels")
             ptr = self.channelPointer(channel)
-            if isinstance(value, float):
+            if isinstance(value, (int, float)):
                 ptr[0] = value
             elif isinstance(value, np.ndarray):
                 assert len(value) == self.ksmps
                 ptr[:] = value
         else:
             raise ValueError(f"method {method} not supported "
-                             f"(choices: 'api', 'score', 'udp')")
+                             f"(choices: 'api', 'score', 'pointer')")
 
     def initChannel(self,
                     channel: str,
@@ -2766,11 +2769,14 @@ class Engine(_EngineBase):
         >>> eventid = e.sched(100)
         >>> e.setChannel("mastergain", 0.5)
         """
-        modei = {
-            "r": 1,
-            "w": 2,
-            "rw": 3
-        }[mode]
+        if mode == 'r':
+            modei = 1
+        elif mode == 'w':
+            modei = 2
+        elif mode == 'rw':
+            modei = 3
+        else:
+            raise ValueError(f"mode must be one of 'r', 'w', 'rw', got {mode!r}")
         if not kind:
             if isinstance(value, (int, float)):
                 kind = 'k'
@@ -2871,7 +2877,7 @@ class Engine(_EngineBase):
         if numpyptr is None:
             raise IndexError(f"Table {tabnum} does not exist")
         size = len(numpyptr)
-        numpyptr[:] = data if size < len(data) else data[:size]
+        numpyptr[:] = data[:size]
 
     def tableInfo(self, tabnum: int, cache=True) -> TableInfo | None:
         """
@@ -2932,7 +2938,7 @@ class Engine(_EngineBase):
         vals = q.get(block=True)
         # Note: toks[0] is already released by _syncCallback (see _setupCallbacks),
         # so it is released twice here. Kept as is for now.
-        for tok in toks:
+        for tok in toks[1:]:
             self._releaseToken(tok)
         sr = vals[0]
         if sr <= 0:
@@ -2964,12 +2970,13 @@ class Engine(_EngineBase):
 
         Args:
             path: the path to the output -- **"?" to open file interactively**
-            tabnum: if given, a table index. If None, an index is
-                autoassigned
+            tabnum: if given, a table index. If None, csoundengine assigns
+                an index. If 0, csound assigns the table number, which is
+                returned (block=True) or passed to the callback
             chan: the channel to read. 0=read all channels
             block: if True, wait until output is read, then return
-            callback: if given, this function () -> None, will be called when
-                output has been read.
+            callback: if given, called with the table number once the
+                soundfile has been read: f(tabnum) -> None
             skiptime: time to skip at the beginning of the soundfile.
 
         Returns:
@@ -2995,32 +3002,34 @@ class Engine(_EngineBase):
         if path == "?":
             path = _state.openSoundfile(ensureSelection=True)
 
-        if not block and not callback:
+        if not block and not callback and tabnum != 0:
             return self._readSoundfileAsync(path=path, tabnum=tabnum, chan=chan)
 
         if tabnum is None:
             tabnum = self._assignTableNumber()
-        elif tabnum == 0 and not callback and not block:
-            logger.debug("readSoundfile: tabnum==0 indicates that csound must assign"
-                        "a table number. This operation will block until the soundfile"
-                        "is read. To avoid this, set tabnum to None; in this case"
-                        "csoundengine will assign a table number itself and the"
-                        "operation can be non-blocking")
-            block = True
 
         if block and tabnum:
             self._compileCode(f'i__tab__ ftgen {tabnum},0,0,-1, "{path}", {skiptime}, 0, {chan}', block=True)
+            self._tableInfo[tabnum] = TableInfo(sr=0, size=0, nchnls=1, path=path)
         else:
-            token = self._getSyncToken() if (block or callback) else 0
+            # tabnum == 0 lets csound assign the table number. The assigned
+            # number is only known after the roundtrip (see the readSndfile
+            # instr, which calls sendsync with the table number)
+            token = self._getSyncToken()
             p1 = self._builtinInstrs['readSndfile']
             msg = f'i {p1} 0 0.01 {token} "{path}" {tabnum} {chan} {skiptime}'
             if callback:
-                self._inputMessageWithCallback(token, msg, lambda *args: callback())
-            elif block:
-                self._inputMessageWait(token, msg)
+                def _onRead(token, self=self, path=path, callback=callback):
+                    tabnum = int(self._responsesTable[token])
+                    self._tableInfo[tabnum] = TableInfo(sr=0, size=0, nchnls=1, path=path)
+                    callback(tabnum)
+                self._inputMessageWithCallback(token, msg, _onRead)
             else:
-                self._perfThread.inputMessage(msg)
-        self._tableInfo[tabnum] = TableInfo(sr=0, size=0, nchnls=1, path=path)
+                response = self._inputMessageWait(token, msg)
+                if response is None:
+                    raise RuntimeError(f"Could not read soundfile '{path}'")
+                tabnum = int(response)
+                self._tableInfo[tabnum] = TableInfo(sr=0, size=0, nchnls=1, path=path)
         return tabnum
 
     def soundfontPlay(self, index: int, pitch: float, amp=0.7, delay=0.,
@@ -3638,7 +3647,7 @@ class Engine(_EngineBase):
             logger.warning("This csound instance was started without udp")
             return
         assert self._sendAddr is not None
-        msg = code.encode("ascii")
+        msg = code.encode("utf-8")
         logger.debug(f"_udpSend: {code}")
         self._udpSocket.sendto(msg, self._sendAddr)
 
@@ -3658,7 +3667,7 @@ class Engine(_EngineBase):
         if not self.udpPort:
             raise RuntimeError("This engine has no udp port assigned")
         assert self._sendAddr is not None
-        msg = code.encode("ascii")
+        msg = code.encode("utf-8")
         if len(msg) < 60000:
             self._udpSocket.sendto(msg, self._sendAddr)
             return
@@ -4077,6 +4086,9 @@ class Engine(_EngineBase):
         """
         if not self.hasBusSupport():
             raise RuntimeError("This Engine has no bus support")
+
+        if self.version < 7000:
+            raise RuntimeError("Not supported in csound 6")
 
         controlBusesFree = int(self.evalCode('return pool_size:i(gi__buspoolk)'))
         audioBusesFree = int(self.evalCode('return pool_size:i(gi__buspool)'))

@@ -334,8 +334,6 @@ instr ${readSndfile}
     ; OSCsend 1, "127.0.0.1", 9990, "/sync", "f", itime0
     if itoken > 0 then
         sendsync(itoken, itab2)
-        ; tabw_i itab2, itoken, gi__responses
-        ; outvalue "__sync__", itoken
     endif
     turnoff
 endin
