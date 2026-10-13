@@ -713,6 +713,7 @@ def csoundGetInfo(opcodedir='') -> dict:
     minor = int(vs[-3:-1])
     major = int(vs[:-3])
     versionTriplet = (major, minor, patch)
+    cs.start()
     opcodes = cs.getOpcodes()
     cs.stop()
     cs.destroy()
