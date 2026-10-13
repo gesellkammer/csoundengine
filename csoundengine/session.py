@@ -743,7 +743,7 @@ class Session(AbstractRenderer):
             ... endin
             ... ''')
             >>> bus = session.engine.assignBus()
-            >>> session.sched('synth'), dur=1, kpitch=67)
+            >>> session.sched('synth', dur=1, kpitch=67)
 
         This will call the instr "printstop" when the synth is stopped.
 
@@ -1996,7 +1996,8 @@ class Session(AbstractRenderer):
                         speed=1.,
                         loop=False,
                         pan=0.5,
-                        skip=0.,
+                        start=0.,
+                        end=0.,
                         fade: float | tuple[float, float] | None = None,
                         crossfade=0.02,
                         blockread=True,
@@ -2026,7 +2027,7 @@ class Session(AbstractRenderer):
             loop: True/False or -1 to loop as defined in the file itself (not all
                 file formats define loop points)
             delay: time to wait before playback starts
-            skip: the starting playback time (0=play from beginning)
+            start: the starting playback time (0=play from beginning)
             fade: fade in/out in secods. None=default. Either a fade value or a tuple
                 (fadein, fadeout)
             crossfade: if looping, this indicates the length of the crossfade
@@ -2065,7 +2066,7 @@ class Session(AbstractRenderer):
                                   kpan=pan,
                                   ichan=chan,
                                   kgain=gain,
-                                  istart=skip))
+                                  istart=start))
         elif isinstance(source, int):
             tabnum = source
             dur = -1
@@ -2088,7 +2089,7 @@ class Session(AbstractRenderer):
             crossfade = -1
         return Event(instrname='.playSample', delay=delay, dur=dur, whenfinished=whenfinished,
                      kws=dict(isndtab=tabnum,
-                              istart=skip,
+                              istart=start,
                               ifadein=fadein,
                               ifadeout=fadeout,
                               kchan=chan,
@@ -2106,10 +2107,10 @@ class Session(AbstractRenderer):
                    speed=1.,
                    loop=False,
                    pan=0.5,
-                   skip=0.,
+                   start=0.,
+                   end=0.,
                    fade: float | tuple[float, float] | None = None,
-                   crossfade=0.02,
-                   blockread=True,
+                   crossfade=0.01,
                    whenfinished: Callable | None = None
                    ) -> Synth:
 
@@ -2125,7 +2126,7 @@ class Session(AbstractRenderer):
             source: table number, a path to a sample or a TableProxy, or a tuple
                 (numpy array, samplerate).
             dur: the duration of playback (-1 to play until the end of the sample
-                or indefinitely if loop==True).
+                or indefinitely if loop==True)
             chan: the channel to play the sample to. In the case of multichannel
                   samples, this is the first channel
             pan: a value between 0-1. -1 means default, which is 0 for mono,
@@ -2136,11 +2137,10 @@ class Session(AbstractRenderer):
             loop: True/False or -1 to loop as defined in the file itself (not all
                 file formats define loop points)
             delay: time to wait before playback starts
-            skip: the starting playback time (0=play from beginning)
+            start: the starting playback time (0=play from beginning)
             fade: fade in/out in secods. None=default. Either a fade value or a tuple
                 (fadein, fadeout)
             crossfade: if looping, this indicates the length of the crossfade
-            blockread: block while reading the source (if needed) before playback is scheduled
             whenfinished: a function to call when playback is finished
 
         Returns:
@@ -2148,7 +2148,8 @@ class Session(AbstractRenderer):
 
         """
         event = self.makeSampleEvent(source=source, delay=delay, dur=dur, chan=chan, gain=gain, speed=speed,
-                                     loop=loop, pan=pan, skip=skip, fade=fade, crossfade=crossfade, blockread=blockread,
+                                     loop=loop, pan=pan, start=start, fade=fade, crossfade=crossfade,
+                                     end=end,
                                      whenfinished=whenfinished)
         return self.schedEvent(event=event)
 

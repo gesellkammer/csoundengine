@@ -103,7 +103,7 @@ def builtinInstrs() -> list[instr.Instr]:
             endif
         """, aliases={'speed': 'kspeed', 'gain': 'kgain', 'pan': 'kpan'}),
         Instr('.diskin', body=r'''
-            |Spath, ichan=1, kgain=1, kspeed=1, kpan=-1, ifadein=0, ifadeout=0, iloop=0, istart=0, iwsize=4|
+            |Spath, ichan=1, kgain=1, kspeed=1, kpan=-1, ifadein=0, ifadeout=0, iloop=0, istart=0, iend=0, iwsize=4|
             iformat = 0
             know init 0
             ionecycle = ksmps/sr

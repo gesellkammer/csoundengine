@@ -3227,8 +3227,17 @@ class Engine(_EngineBase):
         else:
             raise NotImplementedError("str instrs not implemented yet")
 
-    def playSample(self, tabnum: int, delay=0., chan=1, speed=1., gain=1., fade=0.,
-                   starttime=0., lagtime=0.01, dur=-1.
+    def playSample(self,
+                   tabnum: int,
+                   delay=0.,
+                   dur=-1.,
+                   chan=1,
+                   gain=1.,
+                   speed=1.,
+                   loop=False,
+                   fade=0.,
+                   start=0.,
+                   end=0.,
                    ) -> float:
         """
         Play a sample already loaded into a table.
@@ -3239,13 +3248,13 @@ class Engine(_EngineBase):
             tabnum: the table where the sample data was loaded
             delay: when to start playback
             chan: the first channel to send output to (channels start with 1)
-            speed: the playback speed
-            gain: a gain applied to this sample
+            speed: playback speed
+            gain: gain applied to this sample
             fade: fadein/fadeout time in seconds
-            starttime: playback can be started from anywhere within the table
-            lagtime: a lag value for dynamic pfields (see below)
-            dur: the duration of playback. Use -1 to play until the end
-
+            start: selection start time (secs), defaults to start of the sample
+            end: selection end time (secs), defaults to end of the sample
+            dur: the duration of playback. Use -1 to play until the end (when not looping)
+                or indefinitely (when looping)
         Returns:
             the instance number of the playing instrument.
 
@@ -3280,7 +3289,8 @@ class Engine(_EngineBase):
         """
         if not isinstance(tabnum, int):
             raise TypeError(f"Expected a table number as integer, got {tabnum}")
-        args = [gain, speed, tabnum, chan, fade, starttime, lagtime]
+        args = [gain, speed, tabnum, chan, fade, start, end, int(loop)]
+        # args = [gain, speed, tabnum, chan, fade, selstart, lag, selend]
         return self.sched(self._builtinInstrs['playgen1'], delay=delay, dur=dur,
                           args=args)
 

@@ -339,45 +339,76 @@ instr ${readSndfile}
 endin
 
 instr ${playgen1}
-    ;             4     5      6       7     8     9          11
-    ;             gain, speed, source, chan, fade, starttime, lagtime
-    pset 0, 0, 0, 1,    1,     1,      1,    0.05, 0,         0.01
-    kgain = p4
+    kgain  = p4
     kspeed = p5
-    itabnum, ichan, ifade, ioffset, igaingroup, ilagtime passign 6
-    ifade = max(ifade, ksmps/sr*2)
-    inumsamples = nsamp(itabnum)
-    itabsr = ftsr(itabnum)
-    if itabsr <= 0 then
-        prints "Could not determine sr for table %d, ftsr returned: %f, using sr: %d", itabnum, itabsr, sr
-        itabsr = sr
-    endif
-    istartframe = ioffset * itabsr
-    idur = inumsamples / itabsr
-    kplayhead init ioffset
-    iperiod = ksmps/sr
-    kperiod = iperiod * kspeed
-    kplayhead += kperiod
+    isource   = p6
+    ichan     = p7
+    ifade     = p8
+    iselstart = p9                            ; seconds
+    iselend   = p10                           ; seconds, -1 or 0 means "end of sample"
+    iloop     = p11 
+    ilagtime = 0.01
 
-    if (release() == 0) && (kplayhead >= (idur-ifade-kperiod)) then
+    iChnls    ftchnls isource
+    iLenFrames nsamp isource
+    iLenSec   = iLenFrames / sr
+
+    ; Default iselend to the end of the sample (in seconds)
+    if (iselend <= 0 || iselend > iLenSec) then
+        iselend = iLenSec
+    endif
+
+    ; --- Convert selection bounds from seconds to frames ---
+    iselstartF = iselstart * sr
+    iselendF   = iselend   * sr
+    
+    ; Clamp to the sample length
+    if (iselendF <= iselstartF) then
+        ; Empty selection — nothing to play
         turnoff
     endif
 
-    ; ar[] loscilx xamp, kcps, ifn, iwsize, ibas, istrt
-    aouts[] loscilx 1, kspeed, itabnum, 4, 1, istartframe
-    inumouts = lenarray(aouts)
-    aenv = linsegr:a(0, ifade, 1, ifade, 0)
+    ; --- Track the playhead position in FRAMES ---
+    ; Starts at iselstartF and integrates kspeed * ksmps per k-cycle.
+    kPlayhead init iselstartF
+
+    ; --- Envelope ---
+    aenv      linsegr 0, ifade, 1, ifade, 0
+
+    ; --- loscilx call (all position args in frames) ---
+    imod = iloop
+    ibeg = iselstartF * iloop
+    iend = iselendF * iloop
+    isellen = iselendF - iselstartF
+    
+    aout[] init iChnls
+    aout loscilx 1, kspeed, isource, 4, 1, iselstartF, imod, ibeg, iend
+    
     again = lag:a(a(kgain), ilagtime)
     aenv *= again
-    aouts = aouts * aenv
+    aout = aout * aenv
+ 
+    ; --- Advance the playhead according to current speed ---
+    kPlayhead += kspeed * ksmps
+    
+    ; --- Non-looping: stop when playhead reaches iselendF ---
+    if(iloop == 0) then
+      if(kPlayhead >= iselendF && (release() == 0 || ifade == 0)) then
+        turnoff
+      endif
+    else
+      if (kPlayhead >= iselendF) then
+        kPlayhead = iselstartF + ((kPlayhead - iselendF) % isellen)
+      endif
+    endif
 
-    kchan = 0
-    while kchan < inumouts do
-        outch kchan+ichan, aouts[kchan]
-        kchan += 1
+    kndx = 0
+    while (kndx < iChnls) do
+        outch ichan + kndx, aout[kndx]
+        kndx += 1
     od
-
 endin
+
 
 instr ${ftsetparams}
     itabnum, isr, inumchannels passign 4
@@ -825,7 +856,7 @@ ftset gi__bustable, $$_BUSUNSET
 CONSTS = {
     'numTokens': 2000,  # Number of tokens to be allocated for responses
     'postProcInstrnum': 10000,   # Post processing instrument number
-    'reservedTablesStart': 300,  # Tables managed by csoundengine start here. ftgen tables start at 100
+    'reservedTablesStart': 200,  # Tables managed by csoundengine start here. ftgen tables start at 100
     'reservedInstrsStart': 1,
     'userInstrsStart': 100,
     'sessionInstrsStart': 400,

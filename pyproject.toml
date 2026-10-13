@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "csoundengine"
-version = "2.26.0"
+dynamic = ["version"]
 license = { file = "LICENSE.txt" }
 description = "An audio synthesis framework using csound"
 authors = [
@@ -35,21 +35,20 @@ dependencies = [
     "docstring_parser",
     "typing_extensions",
 
-    "libcsound>=0.17.5",
+    "libcsound>=0.18.5",
     "sndfileio>=2.1.1",
     "emlib>=1.20",
     "configdict>=3.0.0",
     "pitchtools>=1.14.0",
-    "risset>=3.6.1",
+    "risset>=3.6.7",
     "sounddevice",
 ]
 
 [tool.setuptools]
 packages = ["csoundengine"]
 
-
-# [tool.setuptools.package-data]
-# csoundengine = ['csoundengine/data']
+[tool.setuptools_scm]
+fallback_version = "0.0.0"
 
 
 [project.urls]
